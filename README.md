@@ -134,7 +134,7 @@ examples from the sample report.
 
 ```sql
 sqlplus / as sysdba           -- install where DBA_HIST_* is visible: CDB$ROOT
-SQL> DEFINE seam_mode = 'local'   -- local | warehouse | fixture
+SQL> DEFINE deploy_mode = 'local'   -- local | warehouse | fixture
 SQL> @install.sql
 ```
 
@@ -145,7 +145,7 @@ idempotent.
 
 Modes:
 
-| seam_mode | source | notes |
+| deploy_mode | source | notes |
 |-----------|--------|-------|
 | `local` (default) | `DBA_HIST_*` | needs Diagnostics Pack + **direct** SELECT grants on the DBA_HIST views (not via a role). Install in `CDB$ROOT`. |
 | `warehouse` | `awrv_*` seam views | the [awr-fleet-warehouse](../awr-fleet-warehouse) collector gathers tablespace/OSSTAT/time-model history from the fleet; install this suite as the warehouse owner (or a schema with SELECT on the `AWRV_*` views). Presents every collected database keyed on `(dbid, con_dbid)`. The warehouse has no resource-limit, parameter, ASM or segment facts yet, so `CAPV_RESOURCE_LIMIT`, `CAPV_PARAMETER`, `CAPV_ASM_DISKGROUP` and `CAPV_SEG_STAT` are zero-row stubs there (the `PROCESSES` / `SESSIONS` / `ASM_DG` series are simply empty), and its time model is the CDB-wide one. |
@@ -561,11 +561,11 @@ view the local seam reads and the target schema's direct grants on them, the
 create privileges, AWR retention, snapshot interval and newest snapshot age
 per dbid, and a readiness table (days of history each feature needs vs days
 available). If the suite is installed it adds invalid `CAP*` objects, the
-seam mode, `suite_version`, the fit-quality mix, `CAP_CFG_CHECK`, the results
+deploy mode, `suite_version`, the fit-quality mix, `CAP_CFG_CHECK`, the results
 layer (last run, failed or running runs, the refresh job, open vs acked
 states, retired dbids) and the live seam-contract check over
 `CAPV_CONTRACT`. It creates nothing and every probe is exception-wrapped.
-Doctor takes the seam mode from the install, assumes local before one, or
+Doctor takes the deploy mode from the install, assumes local before one, or
 reads `DEFINE cap_doctor_mode = local | warehouse | fixture`; it leaves the
 count of FAIL lines in `cap_doctor_fail`, which `quickstart.sql` uses to stop
 before installing.
@@ -607,7 +607,7 @@ Deterministic fixture harness — no randomness, all closed-form:
 ```sql
 -- in a throwaway schema with CREATE TABLE/VIEW/TYPE/PROCEDURE (+ CREATE MINING MODEL for ML):
 @test/fixture_install.sql
-DEFINE seam_mode = 'fixture'
+DEFINE deploy_mode = 'fixture'
 @install.sql
 @test/run_test.sql        -- prints PASS/FAIL per check and a closing total; exits non-zero on any failure
 EXEC cap_forecast_ml.train_all
@@ -700,6 +700,15 @@ suite depends on it.
 
 - **Diagnostics Pack** is required for `DBA_HIST_*` (local mode). The installer
   runs where you point it; check `CONTROL_MANAGEMENT_PACK_ACCESS`.
+- **PGA: about 1.5 GB per suite session.** `cap_results.refresh` and each
+  report driver peak at 1.1-1.3 GB of PGA in one session on real AWR (35
+  days, 15-minute snapshots), and `test/run_test.sql` at 1.8 GB. Install
+  itself needs under 200 MB. Almost none of it is sort/hash work area, so
+  `pga_aggregate_target` does not cap it: size `pga_aggregate_limit` >=
+  background PGA + 1.5 GB per concurrent suite session, or sessions stall on
+  "acknowledge over PGA limit" and then fail with ORA-04036. Measured figures
+  per step: docs Reference -> Memory (PGA). `@test/pga_probe.sql` measures a
+  session.
 - **AWR retention bounds training.** Default retention is only **8 days**, far
   below the 90-day training window, so forecasts degrade to
   `INSUFFICIENT_HISTORY` (`TRAIN_N` < `min_train_days`) and say so loudly. For

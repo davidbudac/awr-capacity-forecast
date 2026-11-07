@@ -39,6 +39,37 @@ EXCEPTION
 END;
 /
 
+PROMPT -- dropping the DB links cap_repo.add_target created (repository mode) ...
+-- A private link can be dropped only by its owner, not by SYS under
+-- CURRENT_SCHEMA, so a throwaway definer's-rights procedure in this schema
+-- drops them. It reads CAP_TARGET directly: cap_repo may be gone or INVALID
+-- (a local re-install drops it).
+DECLARE
+    v_n NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_n FROM all_tables
+    WHERE  owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND table_name = 'CAP_TARGET';
+    IF v_n = 0 THEN
+        DBMS_OUTPUT.PUT_LINE('  (no CAP_TARGET)');
+        RETURN;
+    END IF;
+    EXECUTE IMMEDIATE q'~CREATE OR REPLACE PROCEDURE cap_uninstall_links AUTHID DEFINER AS
+    BEGIN
+        FOR l IN (SELECT db_link FROM cap_target WHERE link_owned = 'Y') LOOP
+            BEGIN
+                EXECUTE IMMEDIATE 'DROP DATABASE LINK ' || l.db_link;
+                DBMS_OUTPUT.PUT_LINE('  DROP DATABASE LINK ' || l.db_link);
+            EXCEPTION
+                WHEN OTHERS THEN
+                    DBMS_OUTPUT.PUT_LINE('  ERROR dropping link ' || l.db_link || ': ' || SQLERRM);
+            END;
+        END LOOP;
+    END;~';
+    EXECUTE IMMEDIATE 'BEGIN cap_uninstall_links; END;';
+    EXECUTE IMMEDIATE 'DROP PROCEDURE cap_uninstall_links';
+END;
+/
+
 PROMPT -- dropping suite objects (ddl/00_drop.sql) ...
 @@ddl/00_drop.sql
 SET DEFINE OFF
@@ -72,6 +103,15 @@ BEGIN
     drop_it('DROP TYPE cap_esm_tab',               -4043);
     drop_it('DROP TYPE cap_esm_row',               -4043);
     drop_it('DROP PACKAGE cap_forecast_ml',        -4043);
+    drop_it('DROP TABLE cap_collect_log PURGE',    -942);
+    drop_it('DROP TABLE cap_target_dbid PURGE',    -942);
+    drop_it('DROP TABLE cap_target PURGE',         -942);
+    FOR t IN (SELECT table_name FROM all_tables
+              WHERE  owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+                AND  table_name LIKE 'CAP\_H\_%' ESCAPE '\'
+              ORDER BY table_name) LOOP
+        drop_it('DROP TABLE ' || t.table_name || ' PURGE', -942);
+    END LOOP;
 END;
 /
 

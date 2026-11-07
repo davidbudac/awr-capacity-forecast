@@ -100,7 +100,7 @@
 --   FIX_UNDO     : UNDO, 4 GiB allocated, autoextend to 10 GiB, peak 3 GiB at
 --                  18:00 every day: UNDO_PEAK 3 of 10 GiB, FLAT.
 --
--- Run this BEFORE @install.sql with seam_mode=fixture (the seam views need the
+-- Run this BEFORE @install.sql with deploy_mode=fixture (the seam views need the
 -- tables to exist), then run test/run_test.sql.
 --
 SET DEFINE OFF
@@ -1698,4 +1698,4 @@ FROM   cap_fixture_meta WHERE mkey = 'DROPPED_CUR';
 
 COMMIT;
 
-PROMPT Fixtures installed.  Next: @install.sql (seam_mode=fixture), then test/run_test.sql
+PROMPT Fixtures installed.  Next: @install.sql (deploy_mode=fixture), then test/run_test.sql

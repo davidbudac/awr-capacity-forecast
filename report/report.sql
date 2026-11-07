@@ -28,7 +28,7 @@
 --                      The other sections stay live.
 --   DEFINE timing = Y  before the run: wall time per section in the spool.
 --
--- Requires the suite installed (any seam mode). Tier 2 rows appear only if
+-- Requires the suite installed (any deploy mode). Tier 2 rows appear only if
 -- cap_forecast_ml.train_all has been run.
 --
 SET DEFINE '&'

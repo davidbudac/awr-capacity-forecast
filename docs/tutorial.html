@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Tutorial — AWR Capacity Forecast</title>
-<meta name="description" content="A fifteen-minute walkthrough: install the suite, read the first report, run it day to day, and understand forecasts, bands, days-to-full, quality grades, anomalies, CPU level shifts, freshness and severity, with worked examples from the sample report.">
+<meta name="description" content="Install the suite, read the first report, run it daily; forecasts, bands, days-to-full, quality grades, anomalies, CPU level shifts, freshness and severity, with worked examples from the sample report.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23b06a0d'/><path d='M16 8L24 23L8 23Z' fill='%23fff'/></svg>">
 <link rel="stylesheet" href="assets/style.css">
 <script>
@@ -23,15 +23,12 @@
     box-shadow:0 4px 14px rgb(0 0 0 / .08)}
   .tut-chip b{color:var(--text);font-weight:600}
   @media (max-width:620px){.tut-chip{right:10px;bottom:10px;font-size:11.5px;padding:4px 10px;opacity:.92}}
-  .mins{display:inline-block;margin-left:8px;font-family:var(--mono);font-size:11px;font-weight:600;
-    color:var(--muted);background:var(--surface-2);border-radius:999px;padding:1px 8px;vertical-align:1px}
 
   .route{list-style:none;margin:22px 0 8px;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
   .route a{display:flex;gap:10px;align-items:baseline;border:1px solid var(--border);border-radius:var(--r);
     padding:9px 12px;color:var(--text);font-size:13.5px;font-weight:500;height:100%}
   .route a:hover{border-color:var(--accent);text-decoration:none}
   .route .n{font-family:var(--mono);font-size:11px;color:var(--faint)}
-  .route .m{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap}
   .route a.done{border-color:var(--accent);background:var(--accent-soft)}
 
   .anim{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 14px 12px;margin:22px 0}
@@ -156,20 +153,20 @@
       <!-- ===================== HERO ===================== -->
       <section class="hero" id="tutorial" data-min="0">
         <span class="eyebrow">Tutorial</span>
-        <h1>From zero to reading the report, in fifteen minutes</h1>
-        <p class="lead">Install the suite, read your first report, run it every day, and learn what
-          each number means. Every example on this page is real output from the
-          <a href="demo/cap_report_demo.txt" target="_blank" rel="noopener">sample report</a>, and
-          every command is one the repository ships.</p>
+        <h1>Install and read the report</h1>
+        <p class="lead">Install, first report, daily operation, and what each number means. Examples
+          are output from the
+          <a href="demo/cap_report_demo.txt" target="_blank" rel="noopener">sample report</a>;
+          commands are scripts in the repository.</p>
         <ol class="route" id="route">
-          <li><a href="#picture"><span class="n">1</span> The big picture<span class="m">1 min</span></a></li>
-          <li><a href="#install"><span class="n">2</span> Install<span class="m">2 min</span></a></li>
-          <li><a href="#first-report"><span class="n">3</span> First report<span class="m">2 min</span></a></li>
-          <li><a href="#daily"><span class="n">4</span> Day to day<span class="m">3 min</span></a></li>
-          <li><a href="#forecast"><span class="n">5</span> Forecasts<span class="m">3 min</span></a></li>
-          <li><a href="#anomalies"><span class="n">6</span> Anomalies<span class="m">2 min</span></a></li>
-          <li><a href="#shift"><span class="n">7</span> CPU level shifts<span class="m">1 min</span></a></li>
-          <li><a href="#severity"><span class="n">8</span> Freshness, severity<span class="m">1 min</span></a></li>
+          <li><a href="#picture"><span class="n">1</span> The big picture</a></li>
+          <li><a href="#install"><span class="n">2</span> Install</a></li>
+          <li><a href="#first-report"><span class="n">3</span> First report</a></li>
+          <li><a href="#daily"><span class="n">4</span> Day to day</a></li>
+          <li><a href="#forecast"><span class="n">5</span> Forecasts</a></li>
+          <li><a href="#anomalies"><span class="n">6</span> Anomalies</a></li>
+          <li><a href="#shift"><span class="n">7</span> CPU level shifts</a></li>
+          <li><a href="#severity"><span class="n">8</span> Freshness, severity</a></li>
         </ol>
       </section>
 
@@ -177,21 +174,19 @@
         <span class="ico">i</span>
         <p><strong>The example database.</strong> The sample report comes from ECOMPRD, a fictional
         e-commerce CDB with one application PDB, SHOP_PDB, and 150 days of designed hourly AWR
-        history. Its last day is 2026-10-17. The charts below replot the same daily values the report
-        was computed from.</p>
+        history, last day 2026-10-17. The charts replot the daily values the report was computed from.</p>
       </div>
 
       <!-- ===================== 1. PICTURE ===================== -->
       <div class="section-head" id="picture" data-min="1">
-        <span class="eyebrow">Step 1 <span class="mins">~1 min</span></span>
+        <span class="eyebrow">Step 1</span>
         <h2>The big picture</h2>
-        <p>Five layers of views, stacked on AWR, inside the database.</p>
       </div>
 
-      <p>AWR already writes a snapshot of every database every hour by default. The suite reads those
-        rows and never writes to them. It stacks views on top: one layer cleans the snapshots into a
-        daily series, the next fits a forecast and scores anomalies, and the last turns both into
-        alerts. Click a stage, or let it run, to follow the tablespace AUDIT_TRAIL through it.</p>
+      <p>AWR writes a snapshot every hour by default. The suite reads those rows and never writes to
+        them. Layers of views clean the snapshots into a daily series, fit a forecast, score
+        anomalies, and turn both into alerts. Click a stage to follow tablespace AUDIT_TRAIL through
+        it.</p>
 
       <figure class="anim" id="pipe" aria-label="Pipeline from AWR snapshots to alerts">
         <div class="anim__head">
@@ -212,20 +207,19 @@
         </div>
       </figure>
 
-      <p>The prefix of a view name tells you its layer. Only the <span class="inline">CAPV_</span>
-        views read <span class="inline">DBA_HIST_*</span>, so the same layers run unchanged on a local
-        AWR, on a central warehouse, or on the test fixture.</p>
+      <p>A view's prefix names its layer. Only <span class="inline">CAPV_</span> views read
+        <span class="inline">DBA_HIST_*</span>, so the layers above run unchanged on local AWR, a
+        central warehouse or the test fixture.</p>
 
       <!-- ===================== 2. INSTALL ===================== -->
       <div class="section-head" id="install" data-min="2">
-        <span class="eyebrow">Step 2 <span class="mins">~2 min</span></span>
+        <span class="eyebrow">Step 2</span>
         <h2>Install</h2>
-        <p>One script does the preflight, the install and the first report.</p>
       </div>
 
       <p>You need Oracle Database 19c or newer with the Diagnostics Pack (AWR is part of it),
         <span class="inline">sqlplus</span>, and a <span class="inline">sysdba</span> connection to
-        <span class="inline">CDB$ROOT</span>, where the AWR history lives. On the database host:</p>
+        <span class="inline">CDB$ROOT</span>, where AWR history lives. On the database host:</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">DB host · bash</span><span class="term__tag in">you run</span></div>
@@ -234,18 +228,17 @@ cd awr-capacity-forecast
 ./quickstart.sh                      <span class="c-cmt"># sqlplus / as sysdba, CDB$ROOT</span></pre>
       </div>
 
-      <p><span class="inline">quickstart.sh</span> runs three scripts in a row.
-        <span class="inline">doctor.sql</span> is a read-only preflight that checks grants, retention
-        and how much history each source has. If it reports a FAIL line, the quickstart stops before
-        installing and tells you why. <span class="inline">install.sql</span> creates the views and
-        packages in the current schema. <span class="inline">report/report.sql</span> spools the first
-        report. The end of the output looks like this:</p>
+      <p><span class="inline">quickstart.sh</span> runs three scripts.
+        <span class="inline">doctor.sql</span>: read-only preflight of grants, retention and history
+        per source; a FAIL line stops the quickstart before install.
+        <span class="inline">install.sql</span>: creates the views and packages in the current schema.
+        <span class="inline">report/report.sql</span>: spools the first report. End of output:</p>
 
       <div class="term">
         <div class="term__bar"><span class="term__title">output</span><span class="term__tag">expect</span></div>
 <pre>  <span class="c-pass">All CAP* objects valid in schema SYS.</span>
 ============================================================
- Install complete (seam_mode = local, schema = SYS).
+ Install complete (deploy_mode = local, schema = SYS).
 ============================================================
 ...
 Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
@@ -253,10 +246,9 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
 
       <div class="callout warn">
         <span class="ico">!</span>
-        <p><strong>A fresh database says INSUFFICIENT_HISTORY.</strong> Stock AWR keeps 8 days and a
-        forecast needs <span class="inline">min_train_days</span> (14) daily points. Raise the
-        retention once; the forecasts fill in over the next weeks. This is optional and it is the only
-        change the suite asks of Oracle.</p>
+        <p><strong>A fresh database reports INSUFFICIENT_HISTORY.</strong> Stock AWR keeps 8 days; a
+        forecast needs <span class="inline">min_train_days</span> (14) daily points. Raising retention
+        is optional and is the only change the suite asks of Oracle.</p>
       </div>
 
       <div class="term in">
@@ -265,34 +257,33 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
       </div>
 
       <p>As <span class="inline">/ as sysdba</span>, the quickstart installs into SYS and
-        <span class="inline">install.sql</span> warns you about it. That is fine for a first look. For
-        a lasting install, create a dedicated owner once and install into it. Always start SQL*Plus
-        in the repository root, because the <span class="inline">@@</span> includes resolve from
-        there.</p>
+        <span class="inline">install.sql</span> warns about it. For a lasting install, create a
+        dedicated owner and install into it. Start SQL*Plus in the repository root;
+        <span class="inline">@@</span> includes resolve from there.</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">SQL*Plus · CDB$ROOT</span><span class="term__tag in">production path</span></div>
 <pre>sqlplus / as sysdba
 <span class="c-prompt">SQL&gt;</span> @create_owner.sql                           <span class="c-cmt">-- C##AWRCAP, direct DBA_HIST_* grants</span>
 <span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CURRENT_SCHEMA = C##AWRCAP;
-<span class="c-prompt">SQL&gt;</span> DEFINE seam_mode = 'local'
+<span class="c-prompt">SQL&gt;</span> DEFINE deploy_mode = 'local'
 <span class="c-prompt">SQL&gt;</span> @install.sql                                <span class="c-cmt">-- idempotent; keeps knobs you changed</span>
 <span class="c-prompt">SQL&gt;</span> @report/report.sql</pre>
       </div>
 
-      <p>The suite writes only to its own <span class="inline">CAP_*</span> tables. To remove
-        everything, run <span class="inline">@uninstall.sql</span>.</p>
+      <p>The suite writes only to its own <span class="inline">CAP_*</span> tables.
+        <span class="inline">@uninstall.sql</span> removes everything.</p>
 
       <!-- ===================== 3. FIRST REPORT ===================== -->
       <div class="section-head" id="first-report" data-min="2">
-        <span class="eyebrow">Step 3 <span class="mins">~2 min</span></span>
+        <span class="eyebrow">Step 3</span>
         <h2>Read the first report</h2>
-        <p>Start at the top. Section 0 is the to-do list; the rest is the evidence.</p>
       </div>
 
-      <p>The report is plain text in <span class="inline">reports/</span>. Its header says which
-        database it covers, which thresholds were in force and whether the alert list was evaluated
-        live. The coverage line says how much history there is and how the series were graded.</p>
+      <p>The report is plain text in <span class="inline">reports/</span>. The header gives the
+        database, the thresholds in force and whether the alert list was evaluated live. The coverage
+        line gives days of history and the grade mix. Section 0 is the alert list; the other sections
+        are the evidence.</p>
 
       <div class="term">
         <div class="term__bar"><span class="term__title">reports/cap_report_ECOMPRD_….txt</span><span class="term__tag">sample, excerpt</span></div>
@@ -318,7 +309,7 @@ SEV  KIND             DB/PDB               MESSAGE
 <span class="c-dim">... 5 more WARN rows</span></pre>
       </div>
 
-      <p>Read each alert row left to right:</p>
+      <p>Alert row columns:</p>
       <dl class="read">
         <dt>SEV</dt><dd>CRIT, WARN or INFO. The list is sorted by it.</dd>
         <dt>KIND</dt><dd>What kind of problem. <span class="inline">TBSPC_FULL</span> is a forecast
@@ -328,7 +319,7 @@ SEV  KIND             DB/PDB               MESSAGE
         <dt>MESSAGE</dt><dd>The number that tripped the alert and the number it was compared with.</dd>
       </dl>
 
-      <p>Below section 0, every section holds the evidence for one family of alerts:</p>
+      <p>Sections after 0, one per alert family:</p>
 
       <div class="tablewrap">
         <table>
@@ -346,20 +337,17 @@ SEV  KIND             DB/PDB               MESSAGE
         </table>
       </div>
 
-      <p>The report is read-only. It only runs SELECT statements, so you can run it as often as you
-        like.</p>
+      <p>The report runs only SELECT statements.</p>
 
       <!-- ===================== 4. DAY TO DAY ===================== -->
       <div class="section-head" id="daily" data-min="3">
-        <span class="eyebrow">Step 4 <span class="mins">~3 min</span></span>
+        <span class="eyebrow">Step 4</span>
         <h2>Day to day</h2>
-        <p>A daily report, an alert feed with memory, and a drill-down when a number looks wrong.</p>
       </div>
 
       <h3>Run the report on a schedule</h3>
       <p><span class="inline">report/run_report.sh</span> is the cron wrapper. It runs the drivers from
-        the repository root and exits non-zero when sqlplus fails or any ORA- or SP2- line appears, so
-        cron mail tells you when a run broke.</p>
+        the repository root and exits non-zero when sqlplus fails or any ORA- or SP2- line appears.</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">crontab · oracle</span><span class="term__tag in">example</span></div>
@@ -369,13 +357,12 @@ SEV  KIND             DB/PDB               MESSAGE
       <p>Add <span class="inline">--schema C##AWRCAP</span> when the suite lives in a dedicated owner,
         <span class="inline">--csv</span> for one CSV per section view, and
         <span class="inline">--scope 3141592653:3141592654</span> to report on one container only.
-        By hand, the same drivers are <span class="inline">@report/report.sql</span>,
+        The drivers by hand: <span class="inline">@report/report.sql</span>,
         <span class="inline">@report/report_html.sql</span> and
         <span class="inline">@report/report_csv.sql</span>.</p>
 
       <h3>Poll the alerts</h3>
-      <p><span class="inline">CAPR_ALERTS</span> is section 0 as a view: one row per current issue.
-        A monitoring tool can read it directly.</p>
+      <p><span class="inline">CAPR_ALERTS</span> is section 0 as a view: one row per current issue.</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">SQL*Plus</span><span class="term__tag in">example</span></div>
@@ -388,10 +375,10 @@ SEV  KIND             DB/PDB               MESSAGE
       </div>
 
       <h3>Give the alerts a memory</h3>
-      <p><span class="inline">CAPR_ALERTS</span> is evaluated every time you query it and remembers
-        nothing. <span class="inline">cap_results.refresh</span> stores each run and keeps one state
-        per alert, keyed by a <span class="inline">state_key</span> that stays the same from day to
-        day. Each run compares what it sees with the stored states and records an event.</p>
+      <p><span class="inline">CAPR_ALERTS</span> is evaluated on each query and keeps no history.
+        <span class="inline">cap_results.refresh</span> stores each run and one state per alert, keyed
+        by <span class="inline">state_key</span>, which is stable across days. Each run compares the
+        current alerts with the stored states and records events.</p>
 
       <figure class="anim" id="life" aria-label="Alert state lifecycle across refresh runs">
         <div class="anim__head">
@@ -442,11 +429,11 @@ SEV  KIND             DB/PDB               MESSAGE
 <span class="c-prompt">SQL&gt;</span> SELECT * FROM capr_alert_events WHERE run_id &gt; :last_run_id;   <span class="c-cmt">-- poll the changes</span></pre>
       </div>
 
-      <p>An escalation or a reopen clears the ack, so a hidden alert comes back when it gets worse.</p>
+      <p>An escalation or a reopen clears the ack.</p>
 
       <h3>Let the scheduler do it</h3>
       <p><span class="inline">install_jobs.sql</span> creates three DBMS_SCHEDULER jobs in the suite's
-        schema, all disabled. Enable the ones you want:</p>
+        schema, all disabled:</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">SQL*Plus · suite owner</span><span class="term__tag in">optional</span></div>
@@ -456,14 +443,13 @@ SEV  KIND             DB/PDB               MESSAGE
 <span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_REPORT_SPOOL_JOB')  <span class="c-cmt">-- daily 03:00, alert snapshot file</span></pre>
       </div>
 
-      <p><span class="inline">CAP_ML_RETRAIN</span> only matters if you use Tier 2. Train it once by hand
-        with <span class="inline">EXEC cap_forecast_ml.train_all</span> (it needs
-        <span class="inline">CREATE MINING MODEL</span>), and section 6 of the report fills in.</p>
+      <p><span class="inline">CAP_ML_RETRAIN</span> is for Tier 2 only. Train once by hand with
+        <span class="inline">EXEC cap_forecast_ml.train_all</span> (needs
+        <span class="inline">CREATE MINING MODEL</span>); section 6 of the report then fills in.</p>
 
       <h3>Drill into one series</h3>
-      <p>When a row looks wrong, the drill-down prints everything behind it: the fit, every daily
-        value with its fitted value and residual, the anomaly arithmetic, and the segments that grew
-        the most.</p>
+      <p>Prints the fit, every daily value with its fitted value and residual, the anomaly
+        arithmetic, and the segments that grew the most.</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">SQL*Plus · repo root</span><span class="term__tag in">you run</span></div>
@@ -471,21 +457,19 @@ SEV  KIND             DB/PDB               MESSAGE
 <span class="c-prompt">SQL&gt;</span> @report/drill_cpu.sql DB_CPU_PCT 3141592654</pre>
       </div>
 
-      <p>The same views also feed three optional dashboards:
+      <p>The same views feed three optional dashboards:
         <a href="usage.html#kibana">Kibana</a>, <a href="usage.html#grafana">Grafana over ORDS</a> and
-        an <a href="usage.html#apex">Oracle APEX app</a>. They read the numbers this tutorial
-        explains, so nothing below changes when you switch to one.</p>
+        an <a href="usage.html#apex">Oracle APEX app</a>.</p>
 
       <!-- ===================== 5. FORECAST ===================== -->
       <div class="section-head" id="forecast" data-min="3">
-        <span class="eyebrow">Step 5 <span class="mins">~3 min</span></span>
+        <span class="eyebrow">Step 5</span>
         <h2>Forecasts, bands and days-to-full</h2>
-        <p>A straight line through 90 days, a band around it, and the day it meets the ceiling.</p>
       </div>
 
-      <p>Take the CRIT row: AUDIT_TRAIL in SHOP_PDB. The daily series is the tablespace's used space
-        at each day's last snapshot. Press replay to watch the 90 training days arrive, the line get
-        fitted, and the projection run into the 130 GiB maxsize.</p>
+      <p>The CRIT row: AUDIT_TRAIL in SHOP_PDB. The daily series is used space at each day's last
+        snapshot. The chart shows the 90 training days, the fitted line, and the projection to the
+        130 GiB maxsize.</p>
 
       <figure class="anim" id="fc" aria-label="AUDIT_TRAIL forecast animation">
         <div class="anim__head">
@@ -499,62 +483,58 @@ SEV  KIND             DB/PDB               MESSAGE
       </figure>
 
       <p>The fit is ordinary least squares over the last <span class="inline">train_days</span> (90)
-        days. The projection starts at today's value, not at the end of the fitted line, so you can
-        check every number with a calculator:</p>
+        days. The projection starts at today's value, not at the end of the fitted line:</p>
 
       <div class="calc">slope       613.664 MiB/day = 0.5993 GiB/day
 +30 days    119.60 + 30 × 0.5993 = 137.58 GiB        (section 2: +30_GIB 137.58)
 days_full   (130.00 − 119.60) / 0.5993 = 17.4 → 17   (section 1a: DAYS_FULL 17)</div>
 
-      <p>The shaded band is the 95% prediction band. It widens with distance, because the slope is
-        uncertain and every day adds noise; at +180 days it is 214.58 to 240.35 GiB. WORST and BEST
-        (16 and 18 days) come from the 95% confidence interval on the slope. A blank BEST means the
-        interval includes zero growth, so the tablespace might never fill.</p>
+      <p>The shaded band is the 95% prediction band. It widens with distance (slope uncertainty plus
+        daily noise); at +180 days it is 214.58 to 240.35 GiB. WORST and BEST (16 and 18 days) come
+        from the 95% confidence interval on the slope. A blank BEST means the interval includes zero
+        growth.</p>
 
-      <p>Now look at ACCEL 1.92 in section 1a. It is the slope of the last
-        <span class="inline">recent_days</span> (28) divided by the 90-day slope. Above 1.5 means
-        growth is speeding up. AUDIT_TRAIL tripled its daily growth in mid-September, which you can
-        see as the bend in the chart. At the recent rate, 1.92 × 613.664 ≈ 1,178 MiB/day, the last
-        10.40 GiB lasts about 9 days, not 17. The Tier 2 value in section 6 agrees: its +30 estimate
-        is 155.35 GiB, past the ceiling. Treat 17 days as the optimistic end. The report also prints
-        what to do: NEED_90_GIB 54.40 (space to add so the upper band stays under the limit for 90
-        days) and ADD_BY 2026-11-02 (the worst-case fill date).</p>
+      <p>ACCEL 1.92 in section 1a is the slope of the last <span class="inline">recent_days</span>
+        (28) divided by the 90-day slope; above 1.5 means growth is accelerating. AUDIT_TRAIL tripled
+        its daily growth in mid-September (the bend in the chart). At the recent rate, 1.92 × 613.664
+        ≈ 1,178 MiB/day, the remaining 10.40 GiB lasts about 9 days, not 17. Tier 2's +30 estimate in
+        section 6 is 155.35 GiB, past the ceiling. Section 1a also prints NEED_90_GIB 54.40 (space to
+        add so the upper band stays under the limit for 90 days) and ADD_BY 2026-11-02 (the
+        worst-case fill date).</p>
 
       <h3>Quality grades</h3>
-      <p>Not every line deserves trust. Each fit gets one grade, and only OK forecasts page.</p>
+      <p>Each fit gets one grade; only OK forecasts page.</p>
 
       <div class="tablewrap">
         <table>
           <caption>Quality grades, with an example from the sample</caption>
           <thead><tr><th scope="col">Grade</th><th scope="col">Means</th><th scope="col">Sample</th></tr></thead>
           <tbody>
-            <tr><td><span class="pill ok">OK</span></td><td class="def">Enough history and a fit good enough to act on. Tablespaces need R² ≥ <span class="inline">r2_gate</span> (0.60); CPU needs a slope outside its own 95% interval.</td><td class="def">AUDIT_TRAIL, R² 0.916</td></tr>
-            <tr><td><span class="pill warn">LOW_CONFIDENCE</span></td><td class="def">The line explains too little of the movement. Shown, never paged.</td><td class="def">none in the sample</td></tr>
+            <tr><td><span class="pill ok">OK</span></td><td class="def">Enough history and a usable fit. Tablespaces need R² ≥ <span class="inline">r2_gate</span> (0.60); CPU needs a slope outside its own 95% interval.</td><td class="def">AUDIT_TRAIL, R² 0.916</td></tr>
+            <tr><td><span class="pill warn">LOW_CONFIDENCE</span></td><td class="def">The fit explains too little of the variation. Shown, never paged.</td><td class="def">none in the sample</td></tr>
             <tr><td><span class="pill warn">FLAT</span></td><td class="def">No growth at all, so no fill date.</td><td class="def">PRODUCT_CATALOG, 12.00 GiB every day</td></tr>
             <tr><td><span class="pill warn">CYCLIC</span></td><td class="def">At least <span class="inline">cyclic_min_cliffs</span> (2) purges in the window. Judged on its peaks, not the sawtooth.</td><td class="def">SESSION_STORE, purged every 30 days, peaks at 30.8%</td></tr>
-            <tr><td><span class="pill crit">INSUFFICIENT_HISTORY</span></td><td class="def">Fewer than <span class="inline">min_train_days</span> (14) days. A fresh install.</td><td class="def">none in the sample</td></tr>
+            <tr><td><span class="pill crit">INSUFFICIENT_HISTORY</span></td><td class="def">Fewer than <span class="inline">min_train_days</span> (14) days, as on a fresh install.</td><td class="def">none in the sample</td></tr>
           </tbody>
         </table>
       </div>
 
-      <p>CPU works the same way, with one difference: the projection starts at ANCHOR, the median of
-        the last <span class="inline">shift_days</span> (7) complete days, because a single day of CPU
-        is noisy. Host BUSY_P95 (the busy hour) has ANCHOR 69.62 and slope 0.2018 points per day, so
-        (80 − 69.62) / 0.2018 = 51 days to the <span class="inline">cpu_sat_pct</span> (80) line. That is
-        the CPU_SAT row in section 0.</p>
+      <p>CPU differs in one way: the projection starts at ANCHOR, the median of the last
+        <span class="inline">shift_days</span> (7) complete days, because single CPU days are noisy.
+        Host BUSY_P95 (the busy hour): ANCHOR 69.62, slope 0.2018 points per day,
+        (80 − 69.62) / 0.2018 = 51 days to <span class="inline">cpu_sat_pct</span> (80). That is the
+        CPU_SAT row in section 0.</p>
 
       <!-- ===================== 6. ANOMALIES ===================== -->
       <div class="section-head" id="anomalies" data-min="2">
-        <span class="eyebrow">Step 6 <span class="mins">~2 min</span></span>
+        <span class="eyebrow">Step 6</span>
         <h2>Anomalies and baseline modes</h2>
-        <p>Is today unusual compared with days that should look like it?</p>
       </div>
 
-      <p>An anomaly is a day (or, for CPU, an hour) that sits too far from a baseline. The baseline is
-        a median of comparable past points, and "too far" is measured with the MAD (median absolute
-        deviation), so one bad day in the history cannot drag the baseline with it. Here is the
-        CPU_ANOM row from section 0: host CPU on Friday 2026-10-09, compared with the 8 Fridays
-        before it.</p>
+      <p>An anomaly is a day (for CPU, also an hour) too far from a baseline. The baseline is the
+        median of comparable past points; distance is scaled by the MAD (median absolute deviation),
+        so one bad day in the history does not move the baseline. Example: the CPU_ANOM row, host CPU
+        on Friday 2026-10-09 against the 8 Fridays before it.</p>
 
       <figure class="anim" id="an" aria-label="Anomaly animation, host CPU on 2026-10-09">
         <div class="anim__head">
@@ -571,20 +551,17 @@ days_full   (130.00 − 119.60) / 0.5993 = 17.4 → 17   (section 1a: DAYS_FULL 
 threshold   mad_k × σ = 3 × 3.00 = 9.00 points
 robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
 
-      <p>The floor matters. A very steady baseline has a tiny MAD, and without a floor every small
-        wobble would flag. For tablespaces the floor is <span class="inline">abs_floor_bytes</span>
-        (100 MiB per day).</p>
-
-      <p>Every point is scored against more than one baseline:</p>
+      <p>Without the floor, a very steady baseline has a tiny MAD and every small wobble flags. The
+        tablespace floor is <span class="inline">abs_floor_bytes</span> (100 MiB per day).</p>
 
       <div class="tablewrap">
         <table>
           <caption>Baseline modes (report column MODE)</caption>
           <thead><tr><th scope="col">Mode</th><th scope="col">Compares with</th><th scope="col">Raises alerts by default</th></tr></thead>
           <tbody>
-            <tr><td class="kt">TRAILING · TRL</td><td class="def">The last <span class="inline">mad_window_days</span> (28) days. "Unusual lately?"</td><td class="def">tablespaces, fixed-ceiling series</td></tr>
-            <tr><td class="kt">SAME_DOW · DOW</td><td class="def">The same weekday over the last <span class="inline">dow_weeks</span> (8) weeks. "Unusual for a Friday?"</td><td class="def">CPU</td></tr>
-            <tr><td class="kt">HOUR_OF_WEEK · HOW</td><td class="def">The same weekday and hour over those weeks, CPU only. "Unusual for Friday 10:00?"</td><td class="def">none (shown in section 5)</td></tr>
+            <tr><td class="kt">TRAILING · TRL</td><td class="def">The last <span class="inline">mad_window_days</span> (28) days.</td><td class="def">tablespaces, fixed-ceiling series</td></tr>
+            <tr><td class="kt">SAME_DOW · DOW</td><td class="def">The same weekday over the last <span class="inline">dow_weeks</span> (8) weeks.</td><td class="def">CPU</td></tr>
+            <tr><td class="kt">HOUR_OF_WEEK · HOW</td><td class="def">The same weekday and hour over those weeks, CPU only.</td><td class="def">none (shown in section 5)</td></tr>
           </tbody>
         </table>
       </div>
@@ -592,29 +569,28 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
       <p>Which modes alert is set per family by the bitmask knobs
         <span class="inline">alert_modes_tbspc</span>, <span class="inline">alert_modes_cpu</span> and
         <span class="inline">alert_modes_series</span> (1 = TRAILING, 2 = SAME_DOW, 4 = HOUR_OF_WEEK).
-        The report shows every mode; only the alerting ones reach section 0.</p>
+        The report shows every mode; only alerting modes reach section 0.</p>
 
-      <p>Two things in the sample show how the modes behave. First, a trailing baseline adapts.
-        AUDIT_TRAIL's growth tripled on 2026-09-15; section 3 flags it under TRL until 2026-09-28,
-        then stops, because by then the new rate fills half the 28-day window and has become the
-        median. The lasting change is now the forecast's job (ACCEL 1.92). Second, consecutive
-        flagged days collapse into one alert row: SHOP_PDB's DB CPU flagged on 13 days in a row and
-        section 0 shows a single DBCPU_ANOM row, "13 consecutive days, latest 2026-10-17". Section 0
+      <p>A trailing baseline adapts: AUDIT_TRAIL's growth tripled on 2026-09-15; section 3 flags it
+        under TRL until 2026-09-28, then stops, because the new rate fills half the 28-day window and
+        has become the median. The lasting change shows in the forecast (ACCEL 1.92).</p>
+
+      <p>Consecutive flagged days collapse into one alert row: SHOP_PDB's DB CPU flagged 13 days in a
+        row and section 0 shows one DBCPU_ANOM row, "13 consecutive days, latest 2026-10-17". Section 0
         looks back <span class="inline">anomaly_report_days</span> (14) days; the report sections
         print the last 30.</p>
 
       <!-- ===================== 7. CPU SHIFT ===================== -->
       <div class="section-head" id="shift" data-min="1">
-        <span class="eyebrow">Step 7 <span class="mins">~1 min</span></span>
+        <span class="eyebrow">Step 7</span>
         <h2>CPU level shifts</h2>
-        <p>A step that stays, as opposed to a day that sticks out.</p>
       </div>
 
-      <p>A release can raise CPU for good. A per-day anomaly would flag it every day until the
-        baseline catches up. <span class="inline">CAPA_CPU_SHIFT</span> asks a different question: is
-        the median of the last <span class="inline">shift_days</span> (7) days far from the median of
-        the <span class="inline">shift_baseline_days</span> (28) before it? SHOP_PDB's DB CPU is the
-        test case, and section 5b of the sample is empty. The chart shows why.</p>
+      <p>A per-day anomaly flags a lasting step (for example after a release) every day until the
+        baseline catches up. <span class="inline">CAPA_CPU_SHIFT</span> instead compares the median of
+        the last <span class="inline">shift_days</span> (7) days with the median of the
+        <span class="inline">shift_baseline_days</span> (28) before it. Example: SHOP_PDB's DB CPU;
+        section 5b of the sample is empty.</p>
 
       <figure class="anim" id="sh" aria-label="CPU level shift animation, SHOP_PDB DB CPU">
         <div class="anim__head">
@@ -627,12 +603,11 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
         <p class="anim__src">Values: the sample's daily SHOP_PDB DB_CPU_PCT, 2026-09-13 to 2026-10-17. The 2026-10-05 to 2026-10-17 values appear in report section 5.</p>
       </figure>
 
-      <p>A shift is flagged UP or DOWN only when both conditions hold: the gap between the medians is
-        more than <span class="inline">shift_min_pct</span> (15) percentage points, and every day of
-        the recent window sits outside the baseline median ± its MAD σ. Here the second condition holds
-        (all 7 days are above 14.98), but the gap is 22.96 − 11.98 = 10.98 points. So no CPU_SHIFT,
-        and the step reaches you as the DBCPU_ANOM episode instead. If a 10-point step matters on your
-        system, lower the knob:</p>
+      <p>A shift is flagged UP or DOWN only when both hold: the gap between the medians exceeds
+        <span class="inline">shift_min_pct</span> (15) percentage points, and every day of the recent
+        window is outside the baseline median ± its MAD σ. Here the second holds (all 7 days above
+        14.98) but the gap is 22.96 − 11.98 = 10.98 points, so no CPU_SHIFT; the step appears as the
+        DBCPU_ANOM episode. To flag a 10-point step, lower the knob:</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">SQL*Plus · suite owner</span><span class="term__tag in">tuning</span></div>
@@ -641,23 +616,21 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
 <span class="c-prompt">SQL&gt;</span> SELECT * FROM cap_cfg_check WHERE status &lt;&gt; 'OK';   <span class="c-cmt">-- any knob MISSING or BAD?</span></pre>
       </div>
 
-      <p>When a shift is active, the per-day CPU anomalies inside it drop to INFO, so the shift row
-        carries the news once. An UP shift is WARN; a DOWN shift is INFO.</p>
+      <p>While a shift is active, per-day CPU anomalies inside it drop to INFO. An UP shift is WARN;
+        a DOWN shift is INFO.</p>
 
       <!-- ===================== 8. FRESHNESS / SEVERITY ===================== -->
       <div class="section-head" id="severity" data-min="1">
-        <span class="eyebrow">Step 8 <span class="mins">~1 min</span></span>
+        <span class="eyebrow">Step 8</span>
         <h2>Freshness and severity</h2>
-        <p>Is the data still arriving, and how loud should each finding be?</p>
       </div>
 
-      <p>Two checks keep old data from looking current. Each forecast row carries
-        <span class="inline">is_current</span>: N when its last day is more than
-        <span class="inline">stale_days</span> (3) days behind the newest day of its database, as with a
-        dropped tablespace. A stale row is shown but never pages; the report marks it GATE
-        <span class="inline">stale</span>. That test compares the data with itself, so it cannot notice
-        when AWR stops altogether. <span class="inline">CAPR_FRESHNESS</span> compares the newest
-        snapshot with the clock instead, and <span class="inline">DATA_STALE</span> is listed first in
+      <p>Each forecast row carries <span class="inline">is_current</span>: N when its last day is more
+        than <span class="inline">stale_days</span> (3) days behind the newest day of its database (for
+        example a dropped tablespace). A stale row is shown, never pages, and has GATE
+        <span class="inline">stale</span>. That test compares the data with itself and cannot detect
+        AWR stopping altogether. <span class="inline">CAPR_FRESHNESS</span> compares the newest
+        snapshot with the clock, and <span class="inline">DATA_STALE</span> is listed first in
         section 0 when it is <span class="inline">stale_hours</span> (36) old. A database silent for
         <span class="inline">data_stale_max_days</span> (14) days is treated as retired and stops
         alerting.</p>
@@ -670,53 +643,51 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
             <tr><td class="kt">TBSPC_FULL</td><td class="def">days_to_full ≤ dtf_warn (90)</td><td class="def">≤ dtf_crit (30)</td><td class="def">AUDIT_TRAIL, 17 days: CRIT</td></tr>
             <tr><td class="kt">TBSPC_NEARFULL</td><td class="def">used ≥ nearfull_warn_pct (90%)</td><td class="def">≥ nearfull_crit_pct (97%)</td><td class="def">CUSTOMER_DATA, 95.0%: WARN</td></tr>
             <tr><td class="kt">CPU_SAT · DBCPU_SAT</td><td class="def">days to 80% ≤ 90</td><td class="def">≤ 30</td><td class="def">host BUSY_P95, 51 days: WARN</td></tr>
-            <tr><td class="kt">CPU_HOT · DBCPU_HOT</td><td class="def">busy-hour p95 at or above 80% now</td><td class="def">no CRIT level</td><td class="def">HOT N everywhere</td></tr>
+            <tr><td class="kt">CPU_HOT · DBCPU_HOT</td><td class="def">median of the recent daily p95 (<span class="inline">recent_p95_med</span>) at or above <span class="inline">cpu_sat_pct</span> (80%)</td><td class="def">no CRIT level</td><td class="def">HOT N everywhere</td></tr>
             <tr><td class="kt">SERIES_LIMIT</td><td class="def">days to 90% of the limit ≤ 90</td><td class="def">≤ 30</td><td class="def">SESSIONS, 36 days: WARN</td></tr>
             <tr><td class="kt">*_ANOM</td><td class="def">a HIGH day or episode</td><td class="def">no CRIT level</td><td class="def">CPU_ANOM, robust z +7.7: WARN</td></tr>
           </tbody>
         </table>
       </div>
 
-      <p>The countdown kinds page only on an OK fit and a current series. The level kinds
-        (NEARFULL, HOT) page at any quality, because full now is full whatever the trend says. That is
-        why CUSTOMER_DATA warns at 95.0% although it grows 20 MiB a day and its fill date is 399 days
-        out. When a row in the warning window does not page, section 1a says why in its GATE column:
+      <p>Countdown kinds page only on an OK fit and a current series. Level kinds (NEARFULL, HOT)
+        page at any quality, so CUSTOMER_DATA warns at 95.0% although it grows 20 MiB a day and its
+        fill date is 399 days out. When a row in the warning window does not page, section 1a's GATE
+        column gives the reason:
         <span class="inline">low-q</span>, <span class="inline">short</span>,
         <span class="inline">cyclic</span>, <span class="inline">stale</span> or
         <span class="inline">lim&lt;used</span>. LOW and shrink-side anomalies are INFO.</p>
 
       <div class="callout tip">
         <span class="ico">▸</span>
-        <p><strong>You can now read the whole report.</strong> Thresholds are knobs in
-        <span class="inline">CAP_CONFIG</span>, and per-tablespace ceilings and thresholds go in
-        <span class="inline">CAP_TBSPC_OVERRIDE</span>; both survive a re-install. Every knob is listed
-        in the <a href="reference.html#config">Reference</a>.</p>
+        <p><strong>Tuning.</strong> Thresholds are knobs in <span class="inline">CAP_CONFIG</span>;
+        per-tablespace ceilings and thresholds go in <span class="inline">CAP_TBSPC_OVERRIDE</span>.
+        Both survive a re-install. Knob list: <a href="reference.html#config">Reference</a>.</p>
       </div>
 
       <!-- ===================== NEXT ===================== -->
       <div class="section-head" id="next" data-min="0">
         <span class="eyebrow">Read next</span>
-        <h2>Where to go from here</h2>
-        <p>Each page goes deeper into one part of this walkthrough.</p>
+        <h2>Next</h2>
       </div>
       <div class="cardgrid">
         <a class="card" href="usage.html">
           <div class="k">05 · Guide</div>
           <h3>Usage</h3>
           <p>Every report section column by column, overrides, Tier 2, the dashboards.</p>
-          <div class="go">Run it your way →</div>
+          <div class="go">Usage →</div>
         </a>
         <a class="card" href="concepts.html">
           <div class="k">04 · Guide</div>
           <h3>How it works</h3>
           <p>The seam, the layers, and why each statistical choice was made.</p>
-          <div class="go">See the architecture →</div>
+          <div class="go">How it works →</div>
         </a>
         <a class="card" href="reference.html">
           <div class="k">07 · Reference</div>
           <h3>Reference</h3>
           <p>Every knob, every object, the advanced install and the caveats.</p>
-          <div class="go">Look it up →</div>
+          <div class="go">Reference →</div>
         </a>
       </div>
 
@@ -803,17 +774,17 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
     if (!fig) return;
     var STAGES = [
       ["DBA_HIST_TBSPC_SPACE_USAGE",
-       "AWR keeps one row per tablespace per snapshot, here one an hour. The suite only reads it. On 2026-10-17 the last snapshot of the day has AUDIT_TRAIL at 119.60 GiB used, maxsize 130.00 GiB."],
+       "One row per tablespace per snapshot, here hourly. Read only. On 2026-10-17 the last snapshot of the day has AUDIT_TRAIL at 119.60 GiB used, maxsize 130.00 GiB."],
       ["CAPV_TBSPC_USAGE",
-       "The seam: the only layer that knows where the rows come from. Local AWR, a central warehouse and the test fixture all present these same columns."],
+       "The seam: the only layer that knows the row source. Local AWR, a central warehouse and the test fixture present the same columns."],
       ["CAPD_TBSPC_DAILY",
-       "One row per tablespace per day, from the day's last snapshot: 2026-10-17, 119.60 GiB used, 1.21 GiB more than the day before. CPU gets the same treatment in CAPD_CPU_DAILY."],
+       "One row per tablespace per day, from the day's last snapshot: 2026-10-17, 119.60 GiB used, 1.21 GiB more than the day before. CPU: CAPD_CPU_DAILY."],
       ["CAPF_TBSPC_FORECAST · CAPA_ANOM",
        "CAPF fits the last 90 days: 613.664 MiB/day, R² 0.916, quality OK, days_to_full 17. CAPA scores each day's growth against its baselines to find unusual days."],
       ["CAPR_ALERTS",
-       "Thresholds turn numbers into findings: days_to_full 17 is at or below dtf_crit 30, so CRIT TBSPC_FULL, “Tablespace AUDIT_TRAIL forecast full in 17 days (92.0% used, 613.7 MiB/day)”."],
+       "days_to_full 17 is at or below dtf_crit 30, so CRIT TBSPC_FULL, “Tablespace AUDIT_TRAIL forecast full in 17 days (92.0% used, 613.7 MiB/day)”."],
       ["report · cap_results · dashboards",
-       "report/report.sql prints it in section 0, cap_results.refresh records it as a NEW event, and Kibana, Grafana or APEX plot it. All of them read the same CAPR views."]
+       "report/report.sql prints it in section 0, cap_results.refresh records it as a NEW event, and Kibana, Grafana or APEX plot it, all from the same CAPR views."]
     ];
     var btns = [].slice.call(fig.querySelectorAll(".flow button"));
     var h = fig.querySelector('[data-role="h"]'), p = fig.querySelector('[data-role="p"]');
@@ -998,7 +969,7 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
     var dotL = txt(svg, x(8), y(TODAY) - 13, "69.80% HIGH", "g-crit", "middle");
     var CAPS = [
       "The baseline: host busy% on each of the 8 previous Fridays, between 43.83% and 49.65%.",
-      "Their <b>median is 46.82%</b>. One odd Friday in the history would barely move it.",
+      "Their <b>median is 46.82%</b>.",
       "The MAD σ is 2.07, below the floor <b>cpu_min_mad_pct</b> 3.00, so σ = 3.00 and the band is ± 3 × 3.00 = 9.00 points.",
       "<b>2026-10-09: 69.80%</b>, 22.98 points above the median. z = 22.98 / 3.00 = +7.7, past mad_k 3, so HIGH: the CPU_ANOM row."
     ];
@@ -1085,7 +1056,6 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
     var bar = document.getElementById("tutBar"), chip = document.getElementById("tutChip");
     var secs = [].slice.call(document.querySelectorAll("[data-min]"));
     var steps = secs.filter(function (s) { return +s.getAttribute("data-min") > 0; });
-    var total = steps.reduce(function (n, s) { return n + +s.getAttribute("data-min"); }, 0);
     var route = [].slice.call(document.querySelectorAll("#route a"));
     var ticking = false;
     function update() {
@@ -1098,11 +1068,9 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
       var next = document.getElementById("next");
       var finished = next && next.getBoundingClientRect().top < innerHeight * 0.6;
       route.forEach(function (a, i) { a.classList.toggle("done", i < k || (finished && i <= k)); });
-      if (finished) { chip.innerHTML = "<b>Done</b> · all 8 steps"; return; }
-      if (k < 0) { chip.innerHTML = "<b>8 steps</b> · ~" + total + " min"; return; }
-      var left = 0;
-      for (var i = k; i < steps.length; i++) left += +steps[i].getAttribute("data-min");
-      chip.innerHTML = "<b>Step " + (k + 1) + " of " + steps.length + "</b> · ~" + left + " min left";
+      if (finished) { chip.innerHTML = "<b>Done</b>"; return; }
+      if (k < 0) { chip.innerHTML = "<b>" + steps.length + " steps</b>"; return; }
+      chip.innerHTML = "<b>Step " + (k + 1) + " of " + steps.length + "</b>";
     }
     addEventListener("scroll", function () { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
     addEventListener("resize", update);

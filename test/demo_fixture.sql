@@ -42,9 +42,9 @@
 --                    the 90% line (~40 days), processes flat.
 --   redo             ~45 GiB/day weekdays, less at weekends.
 --
--- Run BEFORE @install.sql with seam_mode=fixture (the seam views need the
+-- Run BEFORE @install.sql with deploy_mode=fixture (the seam views need the
 -- tables), in a throwaway schema. Then:
---   SQL> DEFINE seam_mode = 'fixture'
+--   SQL> DEFINE deploy_mode = 'fixture'
 --   SQL> @install.sql
 --   SQL> EXEC cap_forecast_ml.train_all
 --   SQL> @report/report.sql

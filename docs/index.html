@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Introduction — AWR Capacity Forecast</title>
-<meta name="description" content="In-database capacity forecasting, alerting and deterministic anomaly detection for Oracle 19c, driven entirely by AWR history — no external ML stack, no agent.">
+<meta name="description" content="Capacity forecasting and anomaly detection for Oracle 19c, computed inside the database from AWR history with SQL and Oracle Machine Learning.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23b06a0d'/><path d='M16 8L24 23L8 23Z' fill='%23fff'/></svg>">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
@@ -51,18 +51,18 @@
 
       <!-- ===================== HERO ===================== -->
       <section class="hero" id="overview">
-        <span class="eyebrow">In-database · Oracle 19c floor · read-only</span>
-        <h1>Capacity forecasting that lives inside the database.</h1>
-        <p class="lead">SQL-level growth forecasting, pollable alerts and deterministic anomaly
-          detection driven entirely by AWR history, with <strong>no external ML stack and no
-          agent</strong>. Just views, a few small tables of its own, two PL/SQL packages, and read-only
-          SQL*Plus reports in text, HTML and CSV. Optional Kibana, Grafana and APEX paths read the
-          same views.</p>
+        <span class="eyebrow">Oracle 19c and later</span>
+        <h1>AWR Capacity Forecast</h1>
+        <p class="lead">Forecasts database capacity and flags anomalies from the AWR history Oracle
+          already keeps. Forecasts use SQL regression and the exponential smoothing models of
+          Oracle Machine Learning (<code>DBMS_DATA_MINING</code>), which ship with the database.
+          Anomalies are days or hours that stand out from a median baseline. It all runs as views
+          and PL/SQL inside the database, with no agent or external ML service.</p>
         <p class="cta">
           <a class="btn" href="demo/cap_report_demo.html" target="_blank" rel="noopener">See a sample report ↗</a>
           <a class="btn btn--ghost" href="start.html">Get started →</a>
-          <span class="cta__note">The sample is the real HTML report, generated from a fictional
-            e-commerce database with 150 days of designed AWR history.</span>
+          <span class="cta__note">Sample: the HTML report run on a fictional database with 150 days
+            of test AWR history.</span>
         </p>
         <div class="herochart-scroll">
         <svg class="herochart" viewBox="0 0 860 252" role="img"
@@ -111,18 +111,13 @@
         </div>
       </section>
 
-      <p>This suite turns the history Oracle already collects (AWR) into forward-looking capacity
-        answers without moving a row out of the database. Five view layers:
-        <span class="inline">CAPV_</span> (seam) → <span class="inline">CAPD_</span> (daily) →
-        <span class="inline">CAPF_</span> (forecast) → <span class="inline">CAPA_</span> (anomaly) →
-        <span class="inline">CAPR_</span> (integration). The top layer is what the reports and any
-        monitoring system read.</p>
+      <p>Output is a set of <span class="inline">CAPR_</span> views, read by SQL*Plus reports (text,
+        HTML, CSV) and, optionally, Kibana, Grafana or an APEX app.</p>
 
       <!-- ===================== WHAT IT ANSWERS ===================== -->
       <div class="section-head" id="what">
-        <span class="eyebrow">The point</span>
-        <h2>Five questions it answers</h2>
-        <p>Per series, per tablespace and per container.</p>
+        <h2>What it computes</h2>
+        <p>Per tablespace, per container and per series.</p>
       </div>
       <div class="tablewrap">
         <table>
@@ -132,23 +127,22 @@
             <tr><td><b>Tablespace growth</b></td><td>Projected size at +30 / +90 / +180 / +365 days with 95% prediction bands, and <code>days_to_full</code> with a worst/best-case range</td><td class="def">DBA_HIST_TBSPC_SPACE_USAGE</td></tr>
             <tr><td><b>CPU headroom</b></td><td>Host busy% (daily average, p95 "busy hour" and peak-window) plus DB CPU per container as a percent of the host's logical CPUs, days-to-saturation, level shifts, and a host already at the saturation line</td><td class="def">DBA_HIST_OSSTAT · CON_SYS_TIME_MODEL</td></tr>
             <tr><td><b>Fixed-ceiling series</b></td><td>Peak <code>processes</code> / <code>sessions</code> against the init parameters, redo GiB/day with days of FRA, total DB size against the summed tablespace ceilings, ASM diskgroups and TEMP / UNDO peaks, each with days-to-limit</td><td class="def">DBA_HIST_RESOURCE_LIMIT · CON_SYSSTAT · PARAMETER · ASM_DISKGROUP_STAT · tablespace usage</td></tr>
-            <tr><td><b>Anomalies</b></td><td>Median + MAD flags against three baselines side by side (the last 28 days, the same weekday, and for CPU the same weekday and hour), each reproducible by hand (value, median, k·σ, robust z)</td><td class="def">daily values · hourly CPU</td></tr>
-            <tr><td><b>Which engine to trust</b></td><td>A holdout backtest that replays the recent past and scores each engine's MAPE and bias against what actually happened</td><td class="def">CAPF_BACKTEST</td></tr>
+            <tr><td><b>Anomalies</b></td><td>Median + MAD flags against three baselines (the last 28 days, the same weekday, and for CPU the same weekday and hour), each shown with value, median, k·σ and robust z</td><td class="def">daily values · hourly CPU</td></tr>
+            <tr><td><b>Forecast accuracy</b></td><td>A holdout backtest scoring each engine's MAPE and bias on the recent past</td><td class="def">CAPF_BACKTEST</td></tr>
           </tbody>
         </table>
       </div>
 
       <!-- ===================== THE BIG IDEA ===================== -->
       <div class="section-head" id="idea">
-        <span class="eyebrow">How it works, in one idea</span>
-        <h2>Write the analytics once, swap the data source underneath</h2>
-        <p>The whole design hangs on a single trick called the <em>seam</em>.</p>
+        <h2>Data flow</h2>
       </div>
-      <p>Every calculation reads a thin layer of nine <span class="inline">CAPV_</span> views shaped
-        like Oracle's AWR dictionary; nothing above them touches
-        <span class="inline">DBA_HIST_*</span> directly. Swap that one install file and the identical
-        SQL runs against live AWR, a fleet warehouse, or test fixtures whose answers are worked out in
-        advance. <a href="concepts.html">How it works</a> walks the full pipeline.</p>
+      <p>All analytics read <span class="inline">CAPV_</span> views shaped like the AWR dictionary;
+        only that layer touches <span class="inline">DBA_HIST_*</span>. One install file maps it to
+        local AWR, a fleet warehouse or test fixtures. Layers:
+        <span class="inline">CAPV_</span> (source) → <span class="inline">CAPD_</span> (daily) →
+        <span class="inline">CAPF_</span> (forecast) / <span class="inline">CAPA_</span> (anomaly) →
+        <span class="inline">CAPR_</span> (report). See <a href="concepts.html">How it works</a>.</p>
       <svg class="archflow" viewBox="0 0 860 240" role="img"
            aria-label="Architecture: local AWR, the fleet warehouse or test fixtures feed the CAPV seam, then CAPD daily rollups split into CAPF forecasts and CAPA anomalies, which merge into the CAPR report views.">
         <defs>
@@ -192,146 +186,144 @@
 
       <!-- ===================== TWO ENGINES ===================== -->
       <div class="section-head" id="engines">
-        <span class="eyebrow">Forecasting</span>
-        <h2>Two engines, side by side</h2>
-        <p>An auditable baseline, and an optional seasonality-aware second opinion.</p>
+        <h2>Forecast engines</h2>
       </div>
       <div class="split" style="gap:16px">
         <div class="track-card a" style="border-top-color:var(--accent)">
           <div class="tk">Tier 1 · always on</div>
-          <h4>Pure SQL, a straight trend line</h4>
-          <p>Linear regression (<code>REGR_*</code>), or Theil–Sen for robustness. Every forecast is
-            slope × days plus a starting point, every anomaly is explained by its median and MAD, so
-            you can check any number by hand. Nothing to train.</p>
+          <h4>SQL trend line</h4>
+          <p>Linear regression (<code>REGR_*</code>), Theil–Sen or median drift. A forecast is slope ×
+            days from today's value; anomalies come with their median and MAD. No training.</p>
           <div class="meta"><span><b>Reaches:</b> +30 / +90 / +180 / +365 days, with bands</span>
             <span><b>Needs:</b> nothing beyond the views</span></div>
         </div>
         <div class="track-card b">
           <div class="tk">Tier 2 · optional</div>
-          <h4>OML ESM, exponential smoothing</h4>
-          <p>One Oracle Machine Learning model per series via <code>DBMS_DATA_MINING</code>. CPU uses
-            additive Winters; tablespaces default to AUTO, which picks Holt or additive Winters by
-            holdout accuracy. Shown against Tier 1 in the report.</p>
-          <div class="meta"><span><b>Reaches:</b> its furthest step, at most +30; 19c hard-caps the horizon at 30 steps</span>
+          <h4>OML exponential smoothing</h4>
+          <p>One Oracle Machine Learning ESM model per series, via <code>DBMS_DATA_MINING</code>. CPU
+            uses additive Winters; tablespaces default to AUTO (Holt or additive Winters, chosen by
+            holdout accuracy). The report shows it next to Tier 1.</p>
+          <div class="meta"><span><b>Reaches:</b> at most +30 days (19c caps ESM at 30 steps)</span>
             <span><b>Needs:</b> <span class="inline">CREATE MINING MODEL</span></span></div>
         </div>
       </div>
 
-      <!-- ===================== NOTHING EXTRA TO RUN ===================== -->
-      <div class="section-head" id="why">
-        <span class="eyebrow">Why in-database</span>
-        <h2>Nothing extra to run</h2>
-        <p>The usual capacity stack, and what this suite replaces it with.</p>
-      </div>
-      <div class="compare">
-        <div class="col no">
-          <h3>Typical capacity stack</h3>
-          <div class="pic">
-            <svg viewBox="0 0 220 70" width="200" role="img" aria-label="Database, agent, time-series database and dashboards as separate connected boxes.">
-              <rect class="cp-box" x="5" y="45" width="50" height="20" rx="4"/><text class="cp-lbl" x="30" y="59" text-anchor="middle">DB</text>
-              <rect class="cp-box" x="85" y="45" width="50" height="20" rx="4"/><text class="cp-lbl" x="110" y="59" text-anchor="middle">agent</text>
-              <rect class="cp-box" x="165" y="45" width="50" height="20" rx="4"/><text class="cp-lbl" x="190" y="59" text-anchor="middle">TSDB</text>
-              <rect class="cp-box" x="85" y="5" width="50" height="20" rx="4"/><text class="cp-lbl" x="110" y="19" text-anchor="middle">dashboards</text>
-              <path class="cp-edge" d="M55 55 h28 M135 55 h28 M110 45 v-18"/>
-            </svg>
-          </div>
-          <ul>
-            <li>agents installed on every host</li>
-            <li>metrics exported off the database</li>
-            <li>a separate metrics store and dashboard stack to run</li>
-            <li>another tool to patch, secure and license</li>
-          </ul>
-        </div>
-        <div class="col yes">
-          <h3>This suite</h3>
-          <div class="pic">
-            <svg viewBox="0 0 220 70" width="200" role="img" aria-label="A single Oracle 19c box: AWR flows into views, nothing leaves the database.">
-              <rect class="cp-box" x="60" y="12" width="100" height="46" rx="6"/>
-              <text class="cp-lbl" x="110" y="30" text-anchor="middle" font-size="9.5">Oracle 19c</text>
-              <text class="cp-lbl cp-mono" x="110" y="44" text-anchor="middle">AWR &#8594; views</text>
-            </svg>
-          </div>
-          <ul>
-            <li>runs inside the database, plain SQL*Plus</li>
-            <li>reads the AWR you already collect</li>
-            <li>read-only: writes only its own <code>CAP_*</code> tables, zero DML on your data</li>
-            <li>one script to install, one report to run</li>
-          </ul>
-        </div>
+      <!-- ===================== IMPACT ===================== -->
+      <div class="section-head" id="impact">
+        <h2>Impact on the target database</h2>
+        <p>Everything is created in one schema. Nothing is added to SYS, AWR or your application schemas.</p>
       </div>
 
-      <!-- ===================== SAFE BY DESIGN ===================== -->
-      <div class="section-head" id="safe">
-        <span class="eyebrow">Trust</span>
-        <h2>Safe by design</h2>
-        <p>Two properties, so it is comfortable to install on a database you care about.</p>
+      <h3>What is added</h3>
+      <div class="tablewrap">
+        <table>
+          <caption>Objects install.sql creates in the target schema</caption>
+          <thead><tr><th scope="col">Object</th><th scope="col">Count</th><th scope="col">Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Views (<code>CAPV_ CAPD_ CAPF_ CAPA_ CAPR_</code>, <code>CAP_CFG</code>)</td><td>about 60</td><td>No storage. They compute when queried.</td></tr>
+            <tr><td>Tables</td><td>7</td><td><span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span>, <span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>, <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span></td></tr>
+            <tr><td>PL/SQL packages</td><td>2</td><td><span class="inline">CAP_FORECAST_ML</span> (Tier 2 training), <span class="inline">CAP_RESULTS</span> (results layer). Definer's rights.</td></tr>
+            <tr><td>Object types</td><td>2</td><td><span class="inline">CAP_ESM_ROW</span>, <span class="inline">CAP_ESM_TAB</span></td></tr>
+            <tr><td>OML models (Tier 2, optional)</td><td>one per series: top 20 tablespaces by default, CPU series, backtest twins (27 in the demo)</td><td>Created only by <code>cap_forecast_ml.train_*</code>. Oracle adds 2 <code>DM$</code> tables and 4 <code>DM$</code> views per model.</td></tr>
+            <tr><td>Scheduler jobs (optional)</td><td>3</td><td><span class="inline">install_jobs.sql</span> only, created disabled: <span class="inline">CAP_REFRESH_JOB</span> 01:30, <span class="inline">CAP_ML_RETRAIN</span> 02:00, <span class="inline">CAP_REPORT_SPOOL_JOB</span> 03:00, plus procedure <span class="inline">CAP_REPORT_SPOOL</span>.</td></tr>
+          </tbody>
+        </table>
       </div>
-      <div class="callout">
-        <span class="ico">i</span>
-        <p><strong>Read-only against your data.</strong> The reports and all
-        <span class="inline">CAPV / CAPD / CAPF / CAPA / CAPR</span> views only ever <code>SELECT</code>.
-        The suite writes only to <code>CAP_*</code> tables it owns, and nothing
-        else: <span class="inline">CAP_CONFIG</span> (tuning knobs),
-        <span class="inline">CAP_TBSPC_OVERRIDE</span> (operator-set ceilings, exclusions and
-        thresholds), <span class="inline">CAP_ML_MODEL</span> (the Tier 2 registry) and the optional
-        results layer (<span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>,
-        <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span>),
-        written only by <span class="inline">cap_results.refresh</span> and the ack calls.</p>
+
+      <h3>Space</h3>
+      <p>Measured on the demo schema (150 days of history, 27 trained models, one refresh run):
+        4.4 MB in total, of which 3.4 MB is the OML models (about 0.13 MB each) and under 1 MB
+        is the suite's own tables and indexes.</p>
+      <ul>
+        <li><span class="inline">CAP_FIT_HIST</span> gains one row (about 200 bytes) per series per
+          refresh run; <span class="inline">CAP_RUN</span> one row per run;
+          <span class="inline">CAP_ALERT_EVENT</span> one row per alert state change. A daily
+          refresh on 25 series adds roughly 2 MB per year.</li>
+        <li>Nothing is purged automatically. <code>cap_results.purge(p_keep_days =&gt; 400)</code>
+          deletes older results.</li>
+        <li><span class="inline">create_owner.sql</span> sets a 1 GB quota by default
+          (<code>owner_quota</code>).</li>
+      </ul>
+
+      <h3>Privileges</h3>
+      <p><span class="inline">create_owner.sql</span> (run once as SYSDBA) creates a dedicated owner,
+        <span class="inline">C##AWRCAP</span> in CDB$ROOT or <span class="inline">AWRCAP</span> in a
+        PDB, and grants only the following. Grants are direct because views and definer's-rights
+        packages ignore roles.</p>
+      <div class="tablewrap">
+        <table>
+          <caption>Grants to the owner</caption>
+          <thead><tr><th scope="col">Grant</th><th scope="col">Used for</th></tr></thead>
+          <tbody>
+            <tr><td><code>CREATE SESSION, CREATE TABLE, CREATE VIEW, CREATE TYPE, CREATE PROCEDURE</code></td><td>install</td></tr>
+            <tr><td><code>CREATE MINING MODEL</code></td><td>Tier 2 only</td></tr>
+            <tr><td><code>CREATE JOB</code></td><td>the optional scheduler jobs</td></tr>
+            <tr><td><code>SELECT</code> on <code>DBA_HIST_SNAPSHOT, _TBSPC_SPACE_USAGE, _TABLESPACE, _DATAFILE, _OSSTAT, _SYS_TIME_MODEL, _CON_SYS_TIME_MODEL, _SYSSTAT, _CON_SYSSTAT, _PDB_INSTANCE, _DATABASE_INSTANCE, _RESOURCE_LIMIT, _PARAMETER, _ASM_DISKGROUP, _ASM_DISKGROUP_STAT, _SEG_STAT, _SEG_STAT_OBJ, _WR_CONTROL</code></td><td>reading AWR</td></tr>
+            <tr><td><code>SELECT</code> on <code>V_$PARAMETER</code></td><td><span class="inline">doctor.sql</span> preflight</td></tr>
+            <tr><td><code>QUOTA 1G</code> on the default permanent tablespace</td><td>the tables and models</td></tr>
+          </tbody>
+        </table>
       </div>
-      <div class="callout tip">
-        <span class="ico">▸</span>
-        <p><strong>Safe to re-run.</strong> Re-running the installer is idempotent and non-destructive.
-        Your config knobs, limit overrides and trained models all survive
-        <span class="inline">@install.sql</span>. A full teardown is a single
-        <span class="inline">@uninstall.sql</span>.</p>
-      </div>
+      <p>In CDB$ROOT the grants are <code>CONTAINER=ALL</code>. No <code>ANY</code> privileges, no
+        DBA role, no <code>ALTER SYSTEM</code>. <span class="inline">CAP_REPORT_SPOOL_JOB</span>
+        needs a directory object, which a DBA creates separately.</p>
+
+      <h3>Reads, writes and load</h3>
+      <ul>
+        <li>Reads only the <code>DBA_HIST_*</code> views above. It does not change AWR settings,
+          snapshot interval or retention.</li>
+        <li>Writes only its own seven tables (and OML model tables). No DML or DDL on any other schema.</li>
+        <li>Load happens only when a report, <code>cap_results.refresh</code> or a training call runs:
+          queries over AWR history, and for Tier 2 one ESM build per series. Nothing runs in the
+          background unless you enable the jobs.</li>
+        <li>Licensing: <code>DBA_HIST_*</code> requires the Diagnostics Pack
+          (<span class="inline">doctor.sql</span> checks <code>CONTROL_MANAGEMENT_PACK_ACCESS</code>).
+          Oracle Machine Learning has been included with the database license since December 2019.</li>
+      </ul>
+      <p>Re-running <span class="inline">@install.sql</span> keeps the seven tables and the models.
+        <span class="inline">@uninstall.sql</span> drops every object, the models and the jobs.</p>
 
       <!-- ===================== NEXT ===================== -->
       <div class="section-head" id="next">
-        <span class="eyebrow">Read next</span>
-        <h2>Where to go from here</h2>
-        <p>Forecast quality, alerts, tuning knobs and scope are covered on the pages below.</p>
+        <h2>Pages</h2>
       </div>
       <div class="cardgrid">
         <a class="card" href="start.html">
           <div class="k">02 · Start</div>
           <h3>Getting started</h3>
-          <p>Clone it, run one command, read your first report. Five minutes, nothing written to AWR.</p>
-          <div class="go">Get started →</div>
+          <p>Install with one command and run the first report.</p>
+          <div class="go">Getting started →</div>
         </a>
         <a class="card" href="tutorial.html">
           <div class="k">03 · Start</div>
           <h3>Tutorial</h3>
-          <p>A fifteen-minute walkthrough: install, first report, daily use, and what every number
-            means, with worked examples from the sample report.</p>
-          <div class="go">Walk through it →</div>
+          <p>Install, first report, daily use and what each number means, using the sample report.</p>
+          <div class="go">Tutorial →</div>
         </a>
         <a class="card" href="concepts.html">
           <div class="k">04 · Guide</div>
           <h3>How it works</h3>
-          <p>The seam, the five-layer pipeline, the forecast-quality machinery, and the two engines
-            in depth.</p>
-          <div class="go">Read the architecture →</div>
+          <p>The view layers, forecast quality grading and both engines.</p>
+          <div class="go">How it works →</div>
         </a>
         <a class="card" href="usage.html">
           <div class="k">05 · Guide</div>
           <h3>Usage</h3>
-          <p>Run the report, read its sections, tune the knobs, add Tier 2, or put the numbers on
-            Kibana, Grafana or an Oracle APEX app.</p>
-          <div class="go">Run the report →</div>
+          <p>Reports, knobs, Tier 2, and the Kibana, Grafana and APEX paths.</p>
+          <div class="go">Usage →</div>
         </a>
         <a class="card" href="testing.html">
           <div class="k">06 · Guide</div>
           <h3>Testing</h3>
-          <p>Prove every part against known answers with the fixture self-check.</p>
-          <div class="go">Try it yourself →</div>
+          <p>The fixture self-check against known answers.</p>
+          <div class="go">Testing →</div>
         </a>
       </div>
 
       <nav class="pager" id="pager" aria-label="Previous and next page"></nav>
 
       <footer class="foot">
-        AWR Capacity Forecast · in-database capacity forecasting · Oracle 19c floor<br>
+        AWR Capacity Forecast · Oracle 19c and later<br>
         Hand-maintained documentation. Design rationale lives in
         <span class="inline">docs/design.md</span>.
       </footer>

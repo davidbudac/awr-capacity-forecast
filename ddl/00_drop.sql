@@ -88,6 +88,7 @@ DECLARE
         'CAPV_ASM_DISKGROUP',
         'CAPV_SEG_STAT',
         'CAPV_SNAPSHOT',
+        'CAP_REPO_SOURCE',
         'CAP_CFG_CHECK',
         'CAP_CFG'
     );
@@ -118,6 +119,16 @@ BEGIN
     -- and is not dropped here -- it is reloaded by ddl/50_ml right after, which
     -- revalidates it. Collection type (cap_esm_tab) first, then its element
     -- (cap_esm_row). ORA-04043 = "does not exist" is expected on a fresh install.
+    -- The repository collector (repository/cap_repo.sql) reads CAP_REPO_SOURCE,
+    -- dropped above. ddl/13 reloads it in repository mode; in any other mode it
+    -- would only be left INVALID. Its tables (CAP_TARGET, CAP_TARGET_DBID,
+    -- CAP_COLLECT_LOG, CAP_H_*) are persisted like the ones above.
+    BEGIN
+        EXECUTE IMMEDIATE 'DROP PACKAGE cap_repo';
+    EXCEPTION
+        WHEN OTHERS THEN
+            IF SQLCODE != -4043 THEN RAISE; END IF;
+    END;
     FOR y IN (SELECT 'CAP_ESM_TAB' AS n FROM dual
               UNION ALL SELECT 'CAP_ESM_ROW' FROM dual) LOOP
         BEGIN

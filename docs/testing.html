@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Testing — AWR Capacity Forecast</title>
-<meta name="description" content="Prove every part of the suite against known answers with the deterministic fixture self-check, then run a local smoke test against live AWR.">
+<meta name="description" content="Fixture self-check against closed-form answers, local smoke test against live AWR, optional swingbench workload.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23b06a0d'/><path d='M16 8L24 23L8 23Z' fill='%23fff'/></svg>">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
@@ -51,49 +51,36 @@
 
       <!-- ===================== HERO ===================== -->
       <section class="hero" id="testing">
-        <span class="eyebrow">Walkthrough</span>
         <h1>Testing</h1>
-        <p class="lead">Two ways to try it. <strong>Track A</strong> proves every part of the suite
-          against known answers with deterministic fixtures; <strong>Track B</strong> runs the exact
-          same code against real AWR.</p>
+        <p class="lead"><strong>Track A</strong>: fixture data with closed-form answers.
+          <strong>Track B</strong>: the same code against live AWR.
+          <a href="#bench">Track C</a> (optional): a swingbench workload that generates AWR history.</p>
       </section>
-
-      <p>Run Track A first — it installs synthetic data whose exact answers are worked out in advance
-        and confirms the tool reproduces them, failing loudly if any number is off. Then Track B points
-        the identical code at your live AWR to confirm it installs and reports end-to-end on a real 19c
-        CDB. Both tracks run on your own 19c test box. A third, optional track —
-        <a href="#bench">a real swingbench workload</a> — is for when you want the toolkit to read
-        genuine AWR history rather than fixtures.</p>
 
       <!-- ===================== BEFORE YOU START ===================== -->
       <div class="section-head" id="before">
-        <span class="eyebrow">Walkthrough · test box</span>
         <h2>Before you start</h2>
-        <p>What each track needs on the box: a connection, a schema, and the privileges below.</p>
       </div>
 
       <div class="track-pick">
         <div class="track-card a">
-          <div class="tk">Track A — recommended first</div>
+          <div class="tk">Track A</div>
           <h4>Fixture self-check</h4>
-          <p>Install <span class="inline">fixture</span> mode (fake data) as <b>CAPTEST</b> in
-            <b>PDB1</b>, then run the self-check scripts. This is how you "test everything yourself":
-            a Tier 1 script and a Tier 2 (ESM) script, each assertion compared against a closed-form
-            answer, <b>failing loudly</b> if any is off. Each script prints its own count in its
-            summary line. No AWR history required.</p>
+          <p>Install <span class="inline">fixture</span> mode as <b>CAPTEST</b> in <b>PDB1</b>, then
+            run the Tier 1 and Tier 2 (ESM) self-check scripts. Each assertion is compared against a
+            closed-form answer; each script prints its own count. No AWR history needed.</p>
           <div class="meta">
             <span><b>Where:</b> PDB1 · captest/&lt;password&gt;</span>
             <span><b>Proves:</b> forecasts, intervals, robust slope, resets, overrides, CPU peaks/gaps/shifts, fixed-ceiling series, alerts, ESM</span>
-            <span><b>Time:</b> ~2 minutes</span>
+            <span><b>Time:</b> ~20 minutes</span>
           </div>
         </div>
         <div class="track-card b">
-          <div class="tk">Track B — the real thing</div>
+          <div class="tk">Track B</div>
           <h4>Local smoke on cdb1</h4>
           <p>Run <span class="inline">doctor.sql</span>, install <span class="inline">local</span> mode
-            as <b>sysdba</b> in <b>CDB$ROOT</b> and generate the report against live AWR. On a stock box
-            expect <span class="pill crit">INSUFFICIENT_HISTORY</span> until you raise retention — which
-            is itself the point: the report degrades loudly.</p>
+            as <b>sysdba</b> in <b>CDB$ROOT</b>, run the report. On a stock box expect
+            <span class="pill crit">INSUFFICIENT_HISTORY</span> until retention is raised.</p>
           <div class="meta">
             <span><b>Where:</b> cdb1 · / as sysdba · CDB$ROOT</span>
             <span><b>Proves:</b> it runs end-to-end on your AWR</span>
@@ -102,69 +89,65 @@
         </div>
       </div>
 
-      <h3>Connection facts you'll reuse</h3>
+      <h3>Connections</h3>
       <div class="tablewrap">
         <table>
           <tbody>
             <tr><td class="def">SSH to the host</td><td><code>ssh -p &lt;port&gt; oracle@&lt;host&gt;</code></td></tr>
             <tr><td class="def">Env preamble (every sqlplus)</td><td><code>export ORACLE_SID=cdb1; export ORAENV_ASK=NO; . oraenv &gt;/dev/null 2&gt;&amp;1</code></td></tr>
-            <tr><td class="def">Local mode connect</td><td><code>sqlplus / as sysdba</code>&nbsp; (lands in CDB$ROOT — AWR is here)</td></tr>
+            <tr><td class="def">Local mode connect</td><td><code>sqlplus / as sysdba</code>&nbsp; (lands in CDB$ROOT, where AWR is)</td></tr>
             <tr><td class="def">Fixture mode connect</td><td><code>sqlplus captest/&lt;password&gt;@localhost:1521/pdb1.world</code></td></tr>
           </tbody>
         </table>
       </div>
 
-      <h3>Privileges the fixture schema needs</h3>
+      <h3>Fixture schema privileges</h3>
       <div class="tablewrap">
         <table>
           <thead>
             <tr><th>Privilege</th><th>Needed for</th></tr>
           </thead>
           <tbody>
-            <tr><td class="def"><code>CREATE SESSION</code></td><td>obviously</td></tr>
+            <tr><td class="def"><code>CREATE SESSION</code></td><td>connecting</td></tr>
             <tr><td class="def"><code>CREATE TABLE</code></td><td>the thirteen <span class="inline">CAP_FIXTURE_*</span> tables, plus the seven persisted tables (<span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span> / <span class="inline">CAP_FIT_HIST</span> / <span class="inline">CAP_ALERT_STATE</span> / <span class="inline">CAP_ALERT_EVENT</span>)</td></tr>
             <tr><td class="def"><code>CREATE VIEW</code></td><td>every <span class="inline">CAPV_/CAPD_/CAPF_/CAPA_/CAPR_</span> view</td></tr>
             <tr><td class="def"><code>CREATE PROCEDURE</code></td><td>the <span class="inline">cap_forecast_ml</span> and <span class="inline">cap_results</span> packages</td></tr>
             <tr><td class="def"><code>CREATE TYPE</code></td><td>the pipelined forecast row type used by <span class="inline">get_forecast</span></td></tr>
-            <tr><td class="def"><code>CREATE MINING MODEL</code></td><td>Tier 2 only — <span class="inline">test/run_test_ml.sql</span>. Free in all editions since Dec 2019.</td></tr>
+            <tr><td class="def"><code>CREATE MINING MODEL</code></td><td>Tier 2 only (<span class="inline">test/run_test_ml.sql</span>). Free in all editions since Dec 2019.</td></tr>
           </tbody>
         </table>
       </div>
 
       <div class="callout">
         <span class="ico">i</span>
-        <p><strong>No <span class="inline">V$</span> access is required.</strong> The report takes its
-        identity from <span class="inline">SYS_CONTEXT</span>, not from
-        <span class="inline">V$DATABASE</span>/<span class="inline">V$INSTANCE</span>, so a plain
-        monitoring schema can run the whole harness. Fixture mode never touches
-        <span class="inline">DBA_HIST_*</span> either — that is the whole point of the seam.</p>
+        <p><strong>No <span class="inline">V$</span> access needed.</strong> The report takes its
+        identity from <span class="inline">SYS_CONTEXT</span>, not
+        <span class="inline">V$DATABASE</span>/<span class="inline">V$INSTANCE</span>. Fixture mode
+        does not read <span class="inline">DBA_HIST_*</span>.</p>
       </div>
 
       <div class="callout">
         <span class="ico">@@</span>
-        <p><strong>Always run from the repo root on the host.</strong> SQL*Plus resolves
-        <span class="inline">@@</span> includes relative to the <em>outermost</em> caller on 19c, so
+        <p><strong>Run from the repo root on the host.</strong> On 19c SQL*Plus resolves
+        <span class="inline">@@</span> includes relative to the outermost caller, so launch
         <span class="inline">install.sql</span> and <span class="inline">report/report.sql</span>
-        must be launched from <span class="inline">~/awr-capacity-forecast/</span>. That's why
-        step&nbsp;1 syncs the whole tree up first.</p>
+        from <span class="inline">~/awr-capacity-forecast/</span>. Step&nbsp;1 syncs the tree there.</p>
       </div>
 
       <!-- ===================== WHAT THE FIXTURE CONTAINS ===================== -->
       <div class="section-head" id="fixture">
-        <span class="eyebrow">Walkthrough · fixture data</span>
         <h2>What the fixture contains</h2>
-        <p>Nothing in <span class="inline">test/fixture_install.sql</span> is random. Every series is a
-          closed form, anchored to <span class="inline">TRUNC(SYSDATE)</span> so the training windows
-          (which use <span class="inline">SYSDATE</span>) line up, and every expected answer is stored
-          in <span class="inline">CAP_FIXTURE_META</span> so the self-check reads it rather than
-          re-deriving it.</p>
+        <p><span class="inline">test/fixture_install.sql</span> has no randomness. Every series is a
+          closed form anchored to <span class="inline">TRUNC(SYSDATE)</span> (the training windows use
+          <span class="inline">SYSDATE</span>); expected answers are stored in
+          <span class="inline">CAP_FIXTURE_META</span>.</p>
       </div>
 
       <h3>The snapshot spine</h3>
       <p>121 day indices <span class="inline">i = 0..120</span>, based at
         <span class="inline">TRUNC(SYSDATE) − 120</span>, with <b>two snapshots a day</b> under the fake
         <span class="inline">dbid</span>/<span class="inline">con_dbid</span>
-        <span class="inline">42424242</span> (chosen so it can never collide with real AWR):</p>
+        <span class="inline">42424242</span> (cannot collide with real AWR):</p>
 
       <div class="tablewrap">
         <table>
@@ -172,38 +155,34 @@
             <tr><th>snap_id</th><th>Interval</th><th>Carries</th></tr>
           </thead>
           <tbody>
-            <tr><td class="def"><code>2000 + 2i</code></td><td>18:00 (prev day) → <b>06:00</b> — the overnight interval</td><td>OSSTAT + time model + resource limits + <code>redo size</code></td></tr>
-            <tr><td class="def"><code>2001 + 2i</code></td><td>06:00 → <b>18:00</b> — the daytime / <em>peak-window</em> interval</td><td>the same, <b>plus</b> every tablespace usage row (last-of-day)</td></tr>
+            <tr><td class="def"><code>2000 + 2i</code></td><td>18:00 (prev day) → <b>06:00</b>, overnight</td><td>OSSTAT + time model + resource limits + <code>redo size</code></td></tr>
+            <tr><td class="def"><code>2001 + 2i</code></td><td>06:00 → <b>18:00</b>, daytime / peak window</td><td>the same, plus every tablespace usage row (last-of-day)</td></tr>
           </tbody>
         </table>
       </div>
 
-      <p>Two holes are deliberate, and they fail in <em>different</em> ways:</p>
+      <p>Two deliberate holes:</p>
       <ul>
-        <li><b>The restart day (<span class="inline">i = 60</span>)</b> has <em>no</em> 06:00 snapshot.
-          Its single 18:00 snapshot carries a new <span class="inline">startup_time</span> and reset
-          counters, so the one interval that day spans the restart and is thrown away by the
-          startup-time guard — the whole day drops out of the CPU series (and out of
-          <span class="inline">REDO_GB_DAY</span>).</li>
-        <li><b>The CPU gap day</b> — the latest <b>Sunday</b> in <span class="inline">i = 70..80</span>
-          — keeps <em>both</em> of its snapshots but carries <b>no</b> OSSTAT / time-model rows at all.
-          That is a pure AWR gap: the next 06:00 interval differences against 18:00 of the day
-          <em>before</em> and spans <b>36&nbsp;h</b>. See the CPU section below.</li>
+        <li><b>Restart day (<span class="inline">i = 60</span>)</b>: no 06:00 snapshot. The 18:00
+          snapshot has a new <span class="inline">startup_time</span> and reset counters, so its
+          interval spans the restart and the startup-time guard drops it. The day is absent from the
+          CPU series and <span class="inline">REDO_GB_DAY</span>.</li>
+        <li><b>CPU gap day</b> (latest <b>Sunday</b> in <span class="inline">i = 70..80</span>): both
+          snapshots exist but carry no OSSTAT / time-model rows. The next 06:00 interval differences
+          against 18:00 of the day before and spans <b>36&nbsp;h</b>.</li>
       </ul>
 
       <div class="callout">
         <span class="ico">i</span>
-        <p><strong>Peak-window membership is by the interval's <em>end</em> hour</strong>, in
-        <span class="inline">(peak_hour_from, peak_hour_to]</span> — the shipped
-        <span class="inline">(8, 18]</span>. With this two-snapshot spine that means exactly the 18:00
-        snapshot is "peak" and the 06:00 one is not, which is what makes every
-        <span class="inline">busy_peak_pct</span> / <span class="inline">db_cpu_peak_pct</span>
-        expectation a closed form.</p>
+        <p><strong>Peak-window membership is by the interval's end hour</strong>, in
+        <span class="inline">(peak_hour_from, peak_hour_to]</span>, shipped as
+        <span class="inline">(8, 18]</span>. Here only the interval ending 18:00 is peak, so
+        <span class="inline">busy_peak_pct</span> / <span class="inline">db_cpu_peak_pct</span> are
+        closed forms.</p>
       </div>
 
       <h3>Tablespace series (sixteen of them)</h3>
-      <p>All in the root container, 8&nbsp;KiB blocks, one usage row per day off the 18:00 snapshot.
-        Each one exists to pin down exactly one behaviour:</p>
+      <p>Root container, 8&nbsp;KiB blocks, one usage row per day off the 18:00 snapshot.</p>
 
       <div class="tablewrap">
         <table>
@@ -216,46 +195,46 @@
                 <td>slope = 10,485,760&nbsp;B/day, R²&nbsp;≈&nbsp;1, <code>days_to_full = 4990</code>, quality OK; zero residuals ⇒ the M9.1 bands <b>collapse</b> onto the point projection</td></tr>
             <tr><td class="def">11</td><td><code>FIX_SPIKE</code></td>
                 <td>5&nbsp;MiB/day + a one-time <b>+2&nbsp;GiB</b> step at day&nbsp;110</td>
-                <td>exactly one <span class="pill crit">HIGH</span> anomaly, on the spike day only; and M9.2 — Theil–Sen lands within 1% of the true 5&nbsp;MiB/day while OLS is 3.9× off</td></tr>
+                <td>exactly one <span class="pill crit">HIGH</span> anomaly, on the spike day; M9.2 Theil–Sen within 1% of the true 5&nbsp;MiB/day, OLS 3.9× off</td></tr>
             <tr><td class="def">12</td><td><code>FIX_FLAT</code></td>
                 <td>constant 400&nbsp;MiB of a 600&nbsp;MiB allocation (no autoextend), 66.7%</td>
                 <td>quality <code>FLAT</code> (detected by <code>slope = 0</code>, not a NULL R²), no anomaly, and the one series M7.4 marks <code>is_reportable = 'N'</code></td></tr>
             <tr><td class="def">13</td><td><code>FIX_GAP</code></td>
                 <td>60&nbsp;MiB/day with days 100–102 missing entirely</td>
-                <td><code>day_gap = 4</code> on the post-gap day and the 240&nbsp;MiB jump normalised to a 60&nbsp;MiB/day <em>rate</em> — so no phantom spike</td></tr>
+                <td><code>day_gap = 4</code> on the post-gap day; the 240&nbsp;MiB jump normalised to a 60&nbsp;MiB/day rate, no anomaly</td></tr>
             <tr><td class="def">14</td><td><code>FIX_NEARFULL</code></td>
                 <td>constant 124,160 of 128,000 blocks = exactly <b>97.0%</b></td>
-                <td>M7.1 — an unfittable (<code>FLAT</code>) series that is near-full <em>now</em> must still rank and still raise a <code>TBSPC_NEARFULL</code> CRIT</td></tr>
+                <td>M7.1: a <code>FLAT</code> series near-full now still ranks and raises <code>TBSPC_NEARFULL</code> CRIT</td></tr>
             <tr><td class="def">15</td><td><code>FIX_FILLING</code></td>
                 <td>10&nbsp;MiB/day against a 1500&nbsp;MiB maxsize</td>
-                <td><code>days_to_full = 20</code> ⇒ <code>TBSPC_FULL</code> CRIT, while <code>pct_used = 86.7%</code> stays <em>below</em> the near-full floor (the two alert branches are independent)</td></tr>
+                <td><code>days_to_full = 20</code> ⇒ <code>TBSPC_FULL</code> CRIT; <code>pct_used = 86.7%</code> is below the near-full floor (independent alert branches)</td></tr>
             <tr><td class="def">16</td><td><code>FIX_ZIGZAG</code></td>
                 <td>10&nbsp;MiB/day trend ± 20&nbsp;MiB alternating</td>
-                <td>non-degenerate residuals: the M9.1 interval arithmetic and the M9.4 backtest MAPE/bias are asserted against first-principles closed forms, and Theil–Sen against the enumerated median of all <b>4005</b> pairwise slopes</td></tr>
+                <td>non-zero residuals: M9.1 intervals and M9.4 backtest MAPE/bias against closed forms; Theil–Sen against the median of all <b>4005</b> pairwise slopes</td></tr>
             <tr><td class="def">17</td><td><code>FIX_OVERRIDE</code></td>
                 <td>byte-for-byte <code>FIX_LINEAR</code>, but capped at 2&nbsp;GiB by <code>CAP_TBSPC_OVERRIDE</code></td>
-                <td>M9.5 — a controlled experiment: identical data, different ceiling. <code>days_to_full</code> collapses 4990&nbsp;→&nbsp;<b>74</b> and <code>limit_source</code> reads <code>OVERRIDE</code></td></tr>
+                <td>M9.5: same data, different ceiling. <code>days_to_full</code> 4990&nbsp;→&nbsp;<b>74</b>, <code>limit_source = OVERRIDE</code></td></tr>
             <tr><td class="def">18</td><td><code>FIX_EXCLUDED</code></td>
-                <td>constant <b>99.0%</b> full — the loudest possible series</td>
-                <td>M9.5 — an <code>exclude_flag = 'Y'</code> row matched through the <code>dbid=0/con_dbid=0</code> <b>wildcard</b> removes it at <code>CAPD_TBSPC_DAILY</code>, so it must appear <em>nowhere</em> downstream</td></tr>
+                <td>constant <b>99.0%</b> full</td>
+                <td>M9.5: an <code>exclude_flag = 'Y'</code> row via the <code>dbid=0/con_dbid=0</code> wildcard removes it at <code>CAPD_TBSPC_DAILY</code>; absent downstream</td></tr>
             <tr><td class="def">19</td><td><code>FIX_PURGE</code></td>
                 <td>10&nbsp;MiB/day, a <b>−600&nbsp;MiB</b> purge at day&nbsp;90, then 10&nbsp;MiB/day again</td>
-                <td>M9.3 — <code>reset_day</code> = the cliff, <code>train_n = 31</code> (the reset day is day&nbsp;1 of the new window), slope exactly 10&nbsp;MiB/day, and <code>days_to_full = 5050</code> off the post-purge line rather than the ~5&nbsp;MiB/day fiction fitted across it</td></tr>
+                <td>M9.3: <code>reset_day</code> = the cliff, <code>train_n = 31</code> (reset day is day&nbsp;1 of the new window), slope exactly 10&nbsp;MiB/day, <code>days_to_full = 5050</code> off the post-purge line (a fit across the cliff gives ~5&nbsp;MiB/day)</td></tr>
             <tr><td class="def">20</td><td><code>FIX_OVERFULL</code></td>
                 <td>flat 1.5&nbsp;GiB used, with a <code>CAP_TBSPC_OVERRIDE</code> ceiling of 1&nbsp;GiB</td>
-                <td>the ceiling sits under the usage: <code>limit_below_used = 'Y'</code>, <code>pct_used = 150</code>, FLAT so no <code>days_to_full</code>, and a <code>TBSPC_NEARFULL</code> CRIT</td></tr>
+                <td><code>limit_below_used = 'Y'</code>, <code>pct_used = 150</code>, FLAT (no <code>days_to_full</code>), <code>TBSPC_NEARFULL</code> CRIT</td></tr>
             <tr><td class="def">21</td><td><code>FIX_DROPPED</code></td>
                 <td><code>FIX_LINEAR</code>'s 10&nbsp;MiB/day, but its rows stop 30 days before the spine ends</td>
-                <td>a dropped tablespace: it still fits (OK) but reads <code>is_current = 'N'</code> (<code>stale_days</code>) and raises no forecast alert; its exit is a <code>DB_SIZE_GB</code> gap day</td></tr>
+                <td>dropped tablespace: fits OK, <code>is_current = 'N'</code> (<code>stale_days</code>), no forecast alert; its exit is a <code>DB_SIZE_GB</code> gap day</td></tr>
             <tr><td class="def">22</td><td><code>FIX_CYCLIC</code></td>
                 <td>a 30-day sawtooth: 20&nbsp;GiB after each purge, +2.5&nbsp;GiB/day to a 92.5&nbsp;GiB peak, of 300&nbsp;GiB</td>
-                <td>three cliffs in the window grade it <code>CYCLIC</code> (<code>cyclic_min_cliffs</code>): no reset, <code>cycle_days = 30</code>, judged on its flat peaks, so no <code>days_to_full</code>; each cliff is a LOW anomaly under both day modes</td></tr>
+                <td>three cliffs grade it <code>CYCLIC</code> (<code>cyclic_min_cliffs</code>): no reset, <code>cycle_days = 30</code>, flat peaks so no <code>days_to_full</code>; each cliff is a LOW anomaly under both day modes</td></tr>
             <tr><td class="def">23</td><td><code>FIX_CYCLIC_UP</code></td>
                 <td>the same sawtooth with floor and peak +1&nbsp;GiB per cycle</td>
                 <td><code>peak_slope_bpd</code> = 1&nbsp;GiB / 30 days and <code>days_to_full</code> off the peak line</td></tr>
             <tr><td class="def">24</td><td><code>FIX_TEMP</code></td>
-                <td>TEMPORARY, 20&nbsp;GiB, no autoextend; the day's peak is the 06:00 sample, 19.5&nbsp;GiB on the last day</td>
-                <td>excluded from <code>CAPD_TBSPC_DAILY</code>, read by the <code>TEMP_PEAK:FIX_TEMP</code> series: 97.5% of its limit, the one <code>SERIES_NEARLIMIT</code></td></tr>
+                <td>TEMPORARY, 20&nbsp;GiB, no autoextend; daily peak is the 06:00 sample, 19.5&nbsp;GiB on the last day</td>
+                <td>excluded from <code>CAPD_TBSPC_DAILY</code>; <code>TEMP_PEAK:FIX_TEMP</code> at 97.5% of limit, the one <code>SERIES_NEARLIMIT</code></td></tr>
             <tr><td class="def">25</td><td><code>FIX_UNDO</code></td>
                 <td>UNDO, 4&nbsp;GiB autoextending to 10&nbsp;GiB, peak 3&nbsp;GiB every day</td>
                 <td><code>UNDO_PEAK:FIX_UNDO</code> reads 3 of 10&nbsp;GiB, FLAT, silent</td></tr>
@@ -265,24 +244,22 @@
 
       <div class="callout tip">
         <span class="ico">▸</span>
-        <p><strong>Three <span class="inline">CAP_TBSPC_OVERRIDE</span> rows ship with the fixture.</strong>
-        An exact-key row (2&nbsp;GiB on <code>FIX_OVERRIDE</code>), a <em>less specific</em>
-        <code>(0,0)</code> 1&nbsp;GiB <b>decoy</b> for the same tablespace that must lose the
-        specificity ranking, and a pure <code>(0,0)</code> wildcard exclusion for
-        <code>FIX_EXCLUDED</code>. Two more rows came later: the 1&nbsp;GiB ceiling of
-        <code>FIX_OVERFULL</code>, and a row with no ceiling that gives <code>FIX_FILLING</code> its own
-        <code>dtf_crit</code> 25 / <code>dtf_warn</code> 60 (per-tablespace thresholds). <code>FIX_FILLING</code>
-        also carries three segments (70 / 20 / 10&nbsp;% of its growth) for "who is filling it", and
-        <code>FIX_GAP</code> a 3-day +256&nbsp;MiB burst, one anomaly episode. The fixture creates the table itself — a chicken-and-egg, since
-        <span class="inline">ddl/05_config.sql</span> runs <em>after</em> the fixture install and
-        <span class="inline">ddl/00_drop.sql</span> deliberately never drops it.</p>
+        <p><strong>Fixture <span class="inline">CAP_TBSPC_OVERRIDE</span> rows:</strong>
+        an exact-key 2&nbsp;GiB ceiling on <code>FIX_OVERRIDE</code>; a less specific
+        <code>(0,0)</code> 1&nbsp;GiB decoy for the same tablespace that must lose the specificity
+        ranking; a <code>(0,0)</code> wildcard exclusion for <code>FIX_EXCLUDED</code>; the 1&nbsp;GiB
+        ceiling of <code>FIX_OVERFULL</code>; a row with no ceiling giving <code>FIX_FILLING</code>
+        <code>dtf_crit</code> 25 / <code>dtf_warn</code> 60. The fixture creates the table itself, because
+        <span class="inline">ddl/05_config.sql</span> runs after the fixture install and
+        <span class="inline">ddl/00_drop.sql</span> never drops it. <code>FIX_FILLING</code> also has
+        three segments (70 / 20 / 10&nbsp;% of its growth) for "who is filling it";
+        <code>FIX_GAP</code> has a 3-day +256&nbsp;MiB burst (one anomaly episode).</p>
       </div>
 
       <h3>CPU — three containers</h3>
-      <p>The CPU fixture has <b>three</b> containers, and the split is not cosmetic: host OSSTAT records
-        under the CDB's <span class="inline">con_dbid</span> in real AWR, so giving a PDB its own
-        OSSTAT rows would double <span class="inline">host_busy_sec</span> and break
-        <span class="inline">host_share_pct</span>.</p>
+      <p>Host OSSTAT records under the CDB's <span class="inline">con_dbid</span> in real AWR;
+        PDB OSSTAT rows would double <span class="inline">host_busy_sec</span> and break
+        <span class="inline">host_share_pct</span>, so the PDBs have time model only.</p>
 
       <div class="tablewrap">
         <table>
@@ -293,20 +270,20 @@
             <tr><td class="def">root — <code>FIXCDB</code> / <code>CDB$ROOT</code></td>
                 <td><code>42424242</code></td>
                 <td><b>OSSTAT + time model</b> (8 CPUs / 4 cores)</td>
-                <td>weekday 20% night / 60% day (daily average <b>40%</b>), weekend 10% / 30% (avg 20%), one injected Tuesday at 70% / 70%, one inverted Wednesday at 40% / 40%, the restart at day 60, a partial day (a weekday 14 to 20 days back restarts at noon and keeps only its 06:00 interval: <code>covered_sec = 43200</code>, <code>is_complete = 'N'</code>) and the Sunday AWR gap</td></tr>
+                <td>weekday 20% night / 60% day (daily average <b>40%</b>), weekend 10% / 30% (avg 20%), one injected Tuesday at 70% / 70%, one inverted Wednesday at 40% / 40%, the restart at day 60, a partial day (a weekday about 100 days back (fixture index 14..20) restarts at noon and keeps only its 06:00 interval: <code>covered_sec = 43200</code>, <code>is_complete = 'N'</code>) and the Sunday AWR gap</td></tr>
             <tr><td class="def">PDB — <code>FIXCDB</code> / <code>FIXPDB1</code></td>
                 <td><code>42424243</code></td>
-                <td><b>time model only</b> — no OSSTAT</td>
+                <td><b>time model only</b></td>
                 <td>a 7-day <code>DB_CPU_PCT</code> sawtooth 34,36,…,46 that steps <b>+18 points</b> for the last 7 days</td></tr>
             <tr><td class="def">PDB — <code>FIXCDB</code> / <code>FIXPDB2</code></td>
                 <td><code>42424244</code></td>
                 <td><b>time model only</b></td>
-                <td><code>DB_CPU_PCT</code> at 60% on weekdays and 20% at weekends, plus a ramp of 1/12 point a day: the CPU deseasoning and slope-significance container</td></tr>
+                <td><code>DB_CPU_PCT</code> at 60% on weekdays and 20% at weekends, plus a ramp of 1/12 point a day (deseasoning and slope significance)</td></tr>
           </tbody>
         </table>
       </div>
 
-      <p>Closed forms on a plain probe weekday in the root container:
+      <p>Probe weekday, root container:
         <span class="inline">busy_pct = 40</span>, <span class="inline">busy_p95 = 58</span>
         (<span class="inline">PERCENTILE_CONT(0.95)</span> of {20, 60}),
         <span class="inline">busy_max = 60</span>,
@@ -317,56 +294,49 @@
 
       <div class="callout tip">
         <span class="ico">▸</span>
-        <p><strong>The gap day is a guard test, not a detection test.</strong> The day after the Sunday
-        gap carries one 36&nbsp;h interval plus the normal 12&nbsp;h daytime one, so it reads
-        <b>30% busy</b> against a <b>40%</b> Monday baseline — 10 points off, past the 9-point
-        threshold. It <em>would</em> flag. It must not, purely because
-        <span class="inline">gap_flag = 'Y'</span> suppresses scoring. Meanwhile
-        <span class="inline">busy_p95</span> still reads <b>60</b>, from the 12&nbsp;h interval
-        <em>alone</em>: the 36&nbsp;h interval averages 20% and is excluded from
-        p95/max as too long to be a "peak hour". (An unfiltered p95 of {20, 60} would be 58 — that
-        difference is the assertion.)</p>
+        <p><strong>Gap day: guard test.</strong> The day after the Sunday gap has one 36&nbsp;h
+        interval plus the normal 12&nbsp;h daytime one: <b>30% busy</b> against a <b>40%</b> Monday
+        baseline, past the 9-point threshold. It is not flagged because
+        <span class="inline">gap_flag = 'Y'</span> suppresses scoring.
+        <span class="inline">busy_p95</span> reads <b>60</b>, from the 12&nbsp;h interval alone: the
+        36&nbsp;h interval (20%) is excluded from p95/max as too long. Unfiltered p95 of {20, 60}
+        would be 58.</p>
       </div>
 
       <div class="callout tip">
         <span class="ico">▸</span>
-        <p><strong>Why the level shift rides on <span class="inline">DB_CPU_PCT</span>.</strong> The
-        sawtooth means <em>any</em> 7 consecutive days contain each offset exactly once, so both
-        medians are exact: <span class="inline">base_med = 40</span> over the 28-day baseline,
-        <span class="inline">recent_med = 58</span> over the shifted last 7 —
-        <span class="inline">shift_pct = 18</span>, with a real
-        <span class="inline">base_mad_sigma = 4 × 1.4826 = 5.93</span> for the N-of-M confirmation to
-        clear. The per-point anomaly modes see only the start of the step: each step day is 18 points
-        over its same-weekday priors, so SAME_DOW flags all 7 (a floored sigma, threshold 9, z 6) and
-        <code>DBCPU_ANOM</code> raises 7 WARNs, while TRAILING, whose window mixes in the sawtooth,
-        flags 3 of them. Once the step fills the baselines those flags stop, and the trend fit reads
-        the step as noise. <span class="inline">CAPA_CPU_SHIFT</span> is the only thing that keeps
-        saying the container now runs 18 points hotter than it did a month ago.</p>
+        <p><strong>FIXPDB1 level shift (<span class="inline">DB_CPU_PCT</span>).</strong> Any 7
+        consecutive sawtooth days contain each offset once, so both medians are exact:
+        <span class="inline">base_med = 40</span> over the 28-day baseline,
+        <span class="inline">recent_med = 58</span> over the last 7,
+        <span class="inline">shift_pct = 18</span>,
+        <span class="inline">base_mad_sigma = 4 × 1.4826 = 5.93</span> for the N-of-M confirmation.
+        Each step day is 18 points over its same-weekday priors: SAME_DOW flags all 7 (floored sigma,
+        threshold 9, z 6) and <code>DBCPU_ANOM</code> raises 7 WARNs; TRAILING, whose window mixes in
+        the sawtooth, flags 3. Once the step fills the baselines the flags stop and the trend fit reads
+        it as noise; <span class="inline">CAPA_CPU_SHIFT</span> still reports it.</p>
       </div>
 
       <div class="callout tip">
         <span class="ico">▸</span>
-        <p><strong>The inverted Wednesday exists for one mode.</strong> Both of its intervals read
-        40%, so its daily average is a normal weekday's 40%: TRAILING and SAME_DOW must not flag it.
-        Hour by hour it is upside down. HOUR_OF_WEEK flags 06:00 <code>HIGH</code> (40 against the
-        usual 20, z = 20 / 5 = 4) and 18:00 <code>LOW</code> (40 against 60). The injected Tuesday shows
-        the hour threshold at work: 06:00 reads 70 against 20 (z 10) and flags, while 18:00 reads 70
-        against 60, a 10-point move under the 15-point hour threshold, and must not.</p>
+        <p><strong>Inverted Wednesday.</strong> Both intervals read 40%, a normal weekday average, so
+        TRAILING and SAME_DOW do not flag it. HOUR_OF_WEEK flags 06:00 <code>HIGH</code> (40 vs 20,
+        z = 20 / 5 = 4) and 18:00 <code>LOW</code> (40 vs 60). Injected Tuesday: 06:00 reads 70 vs 20
+        (z 10) and flags; 18:00 reads 70 vs 60, under the 15-point hour threshold, and does not.</p>
       </div>
 
       <div class="callout warn">
         <span class="ico">!</span>
         <p><strong>The injected Tuesday is also a FIXPDB1 step day.</strong> It is the latest Tuesday
-        in the spine, so it always falls inside the last 7 days, and FIXPDB1's
-        <code>DB_CPU_PCT</code> is scored too. A CPU anomaly lookup by day alone returns several rows.
-        Every lookup in <span class="inline">run_test.sql</span> names series, baseline mode and
-        <code>con_dbid</code> (the <code>anom_flag</code> and <code>anom_n</code> helpers).</p>
+        in the spine, so inside the last 7 days, where FIXPDB1's <code>DB_CPU_PCT</code> is also
+        scored. A CPU anomaly lookup by day alone returns several rows; every lookup in
+        <span class="inline">run_test.sql</span> names series, baseline mode and
+        <code>con_dbid</code> (helpers <code>anom_flag</code>, <code>anom_n</code>).</p>
       </div>
 
       <h3>Fixed-ceiling series (M11)</h3>
-      <p>Loaded by a second, deliberately independent PL/SQL block that reuses the same snapshot spine
-        — including the restart hole, so the redo counter meets exactly the same restart guard the CPU
-        counters do:</p>
+      <p>Loaded by a separate PL/SQL block on the same snapshot spine, including the restart hole,
+        so the redo counter meets the same restart guard as the CPU counters.</p>
 
       <div class="tablewrap">
         <table>
@@ -376,16 +346,16 @@
           <tbody>
             <tr><td class="def"><code>SESSIONS</code></td>
                 <td><code>max_utilization = 200 + 2i</code> against a limit of 500</td>
-                <td>slope exactly 2/day, R² = 1, <code>cur = 440</code> (88% of limit — deliberately just <em>under</em> <code>nearfull_warn_pct</code>, so only the days-to-limit branch fires), <code>days_to_limit = FLOOR((500·0.90 − 440)/2) = 5</code> ⇒ <code>SERIES_LIMIT</code> CRIT</td></tr>
+                <td>slope exactly 2/day, R² = 1, <code>cur = 440</code> (88% of limit, under <code>nearfull_warn_pct</code>, so only the days-to-limit branch fires), <code>days_to_limit = FLOOR((500·0.90 − 440)/2) = 5</code> ⇒ <code>SERIES_LIMIT</code> CRIT</td></tr>
             <tr><td class="def"><code>PROCESSES</code></td>
                 <td>constant 150 of 300</td>
-                <td><code>FLAT</code>, 50% of limit, no <code>days_to_limit</code>, <b>no alert of either kind</b></td></tr>
+                <td><code>FLAT</code>, 50% of limit, no <code>days_to_limit</code>, no alert</td></tr>
             <tr><td class="def"><code>REDO_GB_DAY</code></td>
                 <td><code>redo size</code> cumulative counter, +1&nbsp;GiB per 12&nbsp;h interval, reset at the restart</td>
-                <td>exactly <b>2.0 GiB/day</b>, no ceiling ⇒ <code>days_to_limit</code> NULL and it can never alert; the restart day produces no row. A second stat name (<code>user commits</code>, at an absurd value) is present purely so a missing <code>redo size</code> filter would be loud</td></tr>
+                <td>exactly <b>2.0 GiB/day</b>, no ceiling ⇒ <code>days_to_limit</code> NULL, never alerts; no row on the restart day. A decoy stat (<code>user commits</code>, absurd value) catches a missing <code>redo size</code> filter</td></tr>
             <tr><td class="def"><code>DB_SIZE_GB</code></td>
-                <td>no fixture table — derived from <code>CAPD_TBSPC_DAILY</code></td>
-                <td>asserted against a re-derived <code>SUM(used_bytes)</code>, plus a positive, fittable slope. Inherits that view's rules: UNDO/TEMPORARY excluded, M9.5 overrides and exclusions applied</td></tr>
+                <td>no fixture table; derived from <code>CAPD_TBSPC_DAILY</code></td>
+                <td>re-derived <code>SUM(used_bytes)</code>, positive fittable slope. UNDO/TEMPORARY excluded, M9.5 overrides and exclusions applied</td></tr>
             <tr><td class="def"><code>ASM_DG:+DATA</code></td>
                 <td><code>CAP_FIXTURE_ASM_DISKGROUP</code>: 1000&nbsp;GiB, used 200 + 5i&nbsp;GiB at 18:00</td>
                 <td><code>cur = 800</code>, <code>days_to_limit</code> (90% of 1000) = 20 ⇒ a second <code>SERIES_LIMIT</code> CRIT. Diskgroup FRA sits flat at 50 of 200&nbsp;GiB</td></tr>
@@ -394,7 +364,7 @@
                 <td>the day's highest sample against maxsize, else size; <code>TEMP_PEAK:FIX_TEMP</code> is the one <code>SERIES_NEARLIMIT</code></td></tr>
             <tr><td class="def">FRA days</td>
                 <td><code>CAP_FIXTURE_PARAMETER</code>: <code>db_recovery_file_dest_size</code> 100&nbsp;GiB, <code>cpu_count</code> 8</td>
-                <td>the <code>REDO_GB_DAY</code> row carries <code>fra_size_gb = 100</code> and <code>fra_days_at_cur = 50</code>; <code>cpu_count = NUM_CPUS</code>, so no CPU number moves (a caged knob flip asserts the <code>LEAST(num_cpus, cpu_count)</code> ceiling)</td></tr>
+                <td>the <code>REDO_GB_DAY</code> row carries <code>fra_size_gb = 100</code> and <code>fra_days_at_cur = 50</code>; <code>cpu_count = NUM_CPUS</code>, so no CPU number moves; a caged knob flip asserts the <code>LEAST(num_cpus, cpu_count)</code> ceiling</td></tr>
           </tbody>
         </table>
       </div>
@@ -406,27 +376,27 @@
             <tr><th>Table</th><th>Stands in for</th></tr>
           </thead>
           <tbody>
-            <tr><td class="def"><code>CAP_FIXTURE_SNAPSHOT</code></td><td><code>DBA_HIST_SNAPSHOT</code> — the two-a-day spine, incl. <code>startup_time</code></td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SNAPSHOT</code></td><td><code>DBA_HIST_SNAPSHOT</code>: the two-a-day spine, incl. <code>startup_time</code></td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_TBSPC_USAGE</code></td><td><code>DBA_HIST_TBSPC_SPACE_USAGE</code> (blocks, not bytes)</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_TABLESPACE</code></td><td><code>DBA_HIST_TABLESPACE</code> — names, contents, <code>block_size</code></td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_DATAFILE</code></td><td><code>DBA_HIST_DATAFILE</code> — the block-size <em>fallback</em> only</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_OSSTAT</code></td><td><code>DBA_HIST_OSSTAT</code> — cumulative centiseconds, root container only</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_TIME_MODEL</code></td><td><code>DBA_HIST_CON_SYS_TIME_MODEL</code> — cumulative microseconds, <b>all three</b> containers</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_RESOURCE_LIMIT</code></td><td><code>DBA_HIST_RESOURCE_LIMIT</code> (M11) — <code>processes</code> / <code>sessions</code></td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_SYSSTAT</code></td><td><code>DBA_HIST_CON_SYSSTAT</code> (M11) — <code>redo size</code> + one decoy stat</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_PARAMETER</code></td><td><code>DBA_HIST_PARAMETER</code> — the nine numeric init parameters, already as numbers</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_ASM_DISKGROUP</code></td><td><code>DBA_HIST_ASM_DISKGROUP_STAT</code> + <code>DBA_HIST_ASM_DISKGROUP</code> — diskgroups DATA and FRA</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_SEG_STAT</code></td><td><code>DBA_HIST_SEG_STAT</code> + <code>DBA_HIST_SEG_STAT_OBJ</code>, already joined to the names — three segments in <code>FIX_FILLING</code></td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_CONTAINER</code></td><td><code>DBA_HIST_PDB_INSTANCE</code> (M7.2) — <code>FIXCDB</code>/<code>CDB$ROOT</code>, <code>FIXCDB</code>/<code>FIXPDB1</code> and <code>FIXCDB</code>/<code>FIXPDB2</code>, so both <code>db_pdb</code> label branches are asserted</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_META</code></td><td>nothing in AWR — the <b>expectations</b>, see below</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_TABLESPACE</code></td><td><code>DBA_HIST_TABLESPACE</code>: names, contents, <code>block_size</code></td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_DATAFILE</code></td><td><code>DBA_HIST_DATAFILE</code>: block-size fallback only</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_OSSTAT</code></td><td><code>DBA_HIST_OSSTAT</code>: cumulative centiseconds, root only</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_TIME_MODEL</code></td><td><code>DBA_HIST_CON_SYS_TIME_MODEL</code>: cumulative microseconds, all three containers</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_RESOURCE_LIMIT</code></td><td><code>DBA_HIST_RESOURCE_LIMIT</code> (M11): <code>processes</code> / <code>sessions</code></td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SYSSTAT</code></td><td><code>DBA_HIST_CON_SYSSTAT</code> (M11): <code>redo size</code> + one decoy stat</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_PARAMETER</code></td><td><code>DBA_HIST_PARAMETER</code>: nine numeric init parameters, as numbers</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_ASM_DISKGROUP</code></td><td><code>DBA_HIST_ASM_DISKGROUP_STAT</code> + <code>DBA_HIST_ASM_DISKGROUP</code>: diskgroups DATA and FRA</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SEG_STAT</code></td><td><code>DBA_HIST_SEG_STAT</code> + <code>DBA_HIST_SEG_STAT_OBJ</code>, pre-joined: three segments in <code>FIX_FILLING</code></td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_CONTAINER</code></td><td><code>DBA_HIST_PDB_INSTANCE</code> (M7.2): <code>FIXCDB</code>/<code>CDB$ROOT</code>, <code>FIXCDB</code>/<code>FIXPDB1</code>, <code>FIXCDB</code>/<code>FIXPDB2</code>; covers both <code>db_pdb</code> label branches</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_META</code></td><td>nothing in AWR; the expectations (below)</td></tr>
           </tbody>
         </table>
       </div>
 
-      <h3><span class="inline">CAP_FIXTURE_META</span> — the expectations, computed once</h3>
-      <p>The installer works out every asserted number in exact NUMBER arithmetic <em>while it builds
-        the data</em> and stores it as <span class="inline">(mkey, nval, dval)</span>. The self-check
-        reads them back, so a date-anchored expectation can never drift from the data it describes:</p>
+      <h3><span class="inline">CAP_FIXTURE_META</span></h3>
+      <p>The installer computes every asserted number in exact NUMBER arithmetic while building the
+        data and stores it as <span class="inline">(mkey, nval, dval)</span>; the self-check reads it
+        back.</p>
 
       <div class="tablewrap">
         <table>
@@ -450,25 +420,18 @@
 
       <div class="callout warn">
         <span class="ico">!</span>
-        <p><strong>The <span class="inline">t ≈ 1.96 + 2.4/df</span> approximation is part of the
-        contract.</strong> There is no t-distribution in SQL, so
-        <span class="inline">ddl/30_forecast_views.sql</span> approximates the 95% multiplier that way
-        (good to ~1% for <span class="inline">df ≥ 10</span>, and
-        <span class="inline">min_train_days</span> guarantees <span class="inline">df ≥ 12</span>).
-        <b>The fixture installer computes its expected bands with the same formula</b> — that is
-        deliberate, and it means the two are a matched pair: change the view's multiplier without
-        changing the installer's and the <code>FIX_ZIGZAG</code> interval assertions break. Change
-        both together, on purpose.</p>
+        <p><strong><span class="inline">t ≈ 1.96 + 2.4/df</span> is part of the contract.</strong>
+        SQL has no t-distribution, so <span class="inline">ddl/30_forecast_views.sql</span>
+        approximates the 95% multiplier this way (~1% for <span class="inline">df ≥ 10</span>;
+        <span class="inline">min_train_days</span> guarantees <span class="inline">df ≥ 12</span>). The
+        fixture installer computes expected bands with the same formula. Change both together or the
+        <code>FIX_ZIGZAG</code> interval assertions break.</p>
       </div>
 
       <!-- ===================== TRACK A ===================== -->
       <div class="section-head" id="track-a">
-        <span class="eyebrow">Walkthrough · Track A</span>
+        <span class="eyebrow">Track A</span>
         <h2>Fixture self-check</h2>
-        <p>Run the tool against fake data with known answers and confirm the forecasts, prediction
-          intervals, robust slopes, change-point resets, limit overrides, anomaly detection, the CPU
-          restart/gap/shift guards, the fixed-ceiling series, the alert surface and the optional
-          Tier&nbsp;2 model all produce the right numbers.</p>
       </div>
 
       <div class="steps">
@@ -478,9 +441,8 @@
           <div class="step__rail"><div class="step__n">1</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Sync the repo to the host</h4>
-            <p>From the repo root on your workstation. The relative <span class="inline">@@</span>
-              includes need the tree present on the host; excluding <span class="inline">reports/</span>
-              avoids shipping old spools.</p>
+            <p>From the repo root on the workstation. <span class="inline">reports/</span> is
+              excluded (old spools).</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">workstation · bash</span><span class="term__tag in">you run</span></div>
@@ -497,9 +459,8 @@ rsync -az --delete --exclude='.git/' --exclude='reports/' \
           <div class="step__body">
             <h4>Connect as CAPTEST in PDB1, from the repo root</h4>
             <p>CAPTEST has <span class="inline">CREATE TABLE/VIEW/TYPE/PROCEDURE</span> and
-              <span class="inline">CREATE MINING MODEL</span> — everything the fixtures, the install,
-              and Tier 2 need. No <span class="inline">V$</span> or
-              <span class="inline">DBA_HIST_*</span> grants are involved.</p>
+              <span class="inline">CREATE MINING MODEL</span>. No <span class="inline">V$</span> or
+              <span class="inline">DBA_HIST_*</span> grants.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">test box · bash</span><span class="term__tag in">you run</span></div>
@@ -516,12 +477,10 @@ sqlplus captest/&lt;password&gt;@localhost:1521/pdb1.world</pre>
           <div class="step__rail"><div class="step__n">3</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Load the fixtures</h4>
-            <p>Creates and fills the thirteen <span class="inline">CAP_FIXTURE_*</span> tables described
-              <a href="#fixture">above</a> — ten tablespace series, a three-container CPU series and the
-              three fixed-ceiling series — and seeds the three
-              <span class="inline">CAP_TBSPC_OVERRIDE</span> rows. Every value is hand-calculated and
-              dated relative to today; the known-correct answers land in
-              <span class="inline">CAP_FIXTURE_META</span> alongside.</p>
+            <p>Creates and fills the thirteen <span class="inline">CAP_FIXTURE_*</span> tables
+              (<a href="#fixture">above</a>) and seeds the <span class="inline">CAP_TBSPC_OVERRIDE</span>
+              rows. Values are dated relative to today; expected answers go to
+              <span class="inline">CAP_FIXTURE_META</span>.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · captest@pdb1</span><span class="term__tag in">you run</span></div>
@@ -535,15 +494,14 @@ inj_tue=2026-10-13 Tue probe=2026-10-16 Fri cpu_gap=2026-09-06 Sun
 partial=2026-07-09 Thu inverted_wed=2026-10-14 Wed
 M11 fixtures loaded: sessions 200..440 of 500, processes 150 of 300,
   redo 2 GiB/day, probe day index 119
-<span class="c-dim">Fixtures installed.  Next: @install.sql (seam_mode=fixture), then test/run_test.sql</span></pre>
+<span class="c-dim">Fixtures installed.  Next: @install.sql (deploy_mode=fixture), then test/run_test.sql</span></pre>
             </div>
             <div class="callout">
               <span class="ico">i</span>
-              <p><strong>Your dates will differ</strong> — everything is anchored to
-              <span class="inline">TRUNC(SYSDATE)</span>. The <em>relative</em> positions never move:
-              the restart is always day 60, the spike day 110, the purge day 90, the injected Tuesday
-              is the latest Tuesday in the last 30 days, the inverted Wednesday is the latest Wednesday in
-              the same range, and the CPU gap is the latest Sunday in days 70–80. Re-running the script rebuilds everything from scratch.</p>
+              <p><strong>Dates are anchored to <span class="inline">TRUNC(SYSDATE)</span>.</strong>
+              Fixed positions: restart day 60, purge day 90, spike day 110; injected Tuesday = latest
+              Tuesday in the last 30 days; inverted Wednesday = latest Wednesday in the same range; CPU
+              gap = latest Sunday in days 70–80. Re-running the script rebuilds everything.</p>
             </div>
           </div>
         </div>
@@ -553,12 +511,12 @@ M11 fixtures loaded: sessions 200..440 of 500, processes 150 of 300,
           <div class="step__rail"><div class="step__n">4</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Install the suite in fixture mode</h4>
-            <p>Point the seam at the fixture tables, then run the layered DDL. The install ends with a
-              validity check that fails loudly if any <span class="inline">CAP*</span> object is invalid.</p>
+            <p>The install ends with a validity check that fails if any
+              <span class="inline">CAP*</span> object is invalid.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · captest@pdb1</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-prompt">SQL&gt;</span> DEFINE seam_mode = 'fixture'
+<pre><span class="c-prompt">SQL&gt;</span> DEFINE deploy_mode = 'fixture'
 <span class="c-prompt">SQL&gt;</span> @install.sql</pre>
             </div>
             <div class="term">
@@ -567,7 +525,7 @@ M11 fixtures loaded: sessions 200..440 of 500, processes 150 of 300,
 <pre>============================================================
  AWR Capacity Forecast -- install
 ============================================================
- seam_mode  = fixture
+ deploy_mode= fixture
  seam_script= ddl/12_seam_fixture.sql
  schema     = CAPTEST
 
@@ -579,21 +537,21 @@ M11 fixtures loaded: sessions 200..440 of 500, processes 150 of 300,
  -- [30] Tier 1 forecasts (CAPF_*) ...
  -- [35] fixed-ceiling series forecast (CAPF_SERIES_FORECAST) ...
  -- [40] anomalies (CAPA_*) ...
- -- [45] integration/report layer (CAPR_CONTAINER + CAPR_ALERTS + sections) ...
+ -- [45] integration/report layer (CAPR_CONTAINER, CAPR_ANOMALIES, CAPR_SEVERITY, CAPR_FIT, sections) ...
  -- [50] Tier 2 OML ESM (CAP_ML_MODEL + package + CAPF_ESM/COMPARE) ...
- -- [55] report views that need Tier 2 (CAPR_TBSPC_FORECAST/ESM_COMPARE/BACKTEST) ...
+ -- [55] report views that need Tier 2 (CAPR_TBSPC_FORECAST/ESM_COMPARE/BACKTEST/FORECAST_POINTS + CAPR_ALERTS) ...
+ -- [60] results layer (CAP_RUN/FIT_HIST/ALERT_STATE/ALERT_EVENT + CAP_RESULTS + CAPR_ALERTS_LATEST etc) ...
   <span class="c-pass">All CAP* objects valid in schema CAPTEST.</span>
 ============================================================
- Install complete (seam_mode = fixture, schema = CAPTEST).
+ Install complete (deploy_mode = fixture, schema = CAPTEST).
 ============================================================</pre>
             </div>
             <div class="callout">
               <span class="ico">i</span>
-              <p><strong>Fixtures first, install second.</strong> The fixture seam views
+              <p><strong>Fixtures before install.</strong> The fixture seam views
               (<span class="inline">ddl/12_seam_fixture.sql</span>) select from the
-              <span class="inline">CAP_FIXTURE_*</span> tables, so those must exist before
-              <span class="inline">install.sql</span> compiles them — otherwise the closing validity
-              check is exactly what tells you so.</p>
+              <span class="inline">CAP_FIXTURE_*</span> tables; without them the closing validity check
+              fails.</p>
             </div>
           </div>
         </div>
@@ -603,13 +561,11 @@ M11 fixtures loaded: sessions 200..440 of 500, processes 150 of 300,
           <div class="step__rail"><div class="step__n">5</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Run the Tier 1 self-check</h4>
-            <p>Every assertion over the fake data compares a result to its closed-form answer. The
-              number of assertions grows with each milestone, so these pages never quote it: check the
-              closing <span class="inline">RESULT: N passed, M failed</span> line for M = 0 rather than for a
-              particular N. It prints PASS/FAIL per check and <b>exits with an error code on any failure</b>
+            <p>Prints PASS/FAIL per check and a closing
+              <span class="inline">RESULT: N passed, M failed</span> line; check M = 0 (N changes between
+              milestones). Exits non-zero on any failure
               (<span class="inline">WHENEVER SQLERROR EXIT FAILURE</span> plus a final
-              <span class="inline">RAISE_APPLICATION_ERROR</span>), so you can wire it straight into CI
-              or a monitoring job.</p>
+              <span class="inline">RAISE_APPLICATION_ERROR</span>).</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · captest@pdb1</span><span class="term__tag in">you run</span></div>
@@ -677,33 +633,32 @@ All fixture assertions passed.</pre>
             </div>
             <div class="callout tip">
               <span class="ico">▸</span>
-              <p><strong>What the blocks prove.</strong> The assertions are grouped by the
-              behaviour they pin down: the four original series (LINEAR / SPIKE / FLAT / GAP), the
-              M7.1 near-full pair, the M7.2 container labels, the M7.4 report bound and M7.7
-              acceleration floor, the M8.1 alert kinds and M8.2 <span class="inline">CAPR_*</span>
-              section views, the M9.1 intervals, M9.2 Theil–Sen (including a knob flip to THEILSEN
-              mid-run and back), M9.3 reset, M9.4 backtest and M9.5 overrides, the M10.1/M10.2 CPU
-              peak and DB-CPU-percent closed forms, the M10.3 level shift, the M10.5 gap guard,
-              the M11 fixed-ceiling series with their alerts, and the M15 anomaly modes: the hourly
-              buckets, the closed forms of every mode on every CPU container, tablespaces and M11
-              series under SAME_DOW, key uniqueness on <span class="inline">CAPA_ANOM</span> and the
-              feeds, the alerts under the shipped bitmasks, and knob flips that each assert and
-              restore.</p>
+              <p><strong>Assertion blocks:</strong> LINEAR / SPIKE / FLAT / GAP; M7.1 near-full;
+              M7.2 container labels; M7.4 report bound; M7.7 acceleration floor; M8.1 alert kinds;
+              M8.2 <span class="inline">CAPR_*</span> section views; M9.1 intervals; M9.2 Theil–Sen
+              (knob flip to THEILSEN and back); M9.3 reset; M9.4 backtest; M9.5 overrides; M10.1/M10.2
+              CPU peak and DB-CPU-percent; M10.3 level shift; M10.5 gap guard; M11 fixed-ceiling series
+              and alerts; M15 anomaly modes (hourly buckets, every mode on every CPU container,
+              tablespaces and M11 series under SAME_DOW, key uniqueness on
+              <span class="inline">CAPA_ANOM</span> and the feeds, alerts under the shipped bitmasks,
+              knob flips that assert and restore).</p>
             </div>
             <div class="callout">
               <span class="ico">i</span>
-              <p><strong>One script for steps 1 to 6 on dbmint.</strong>
-              <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--sql FILE]</span>
+              <p><strong>Steps 1 to 6 on dbmint in one script.</strong>
+              <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--sql FILE]</span>
               runs <span class="inline">test/lint_anom_joins.sh</span> first and stops on a violation (exit 4),
               rsyncs the checkout to <span class="inline">~/awr_cap_&lt;schema&gt;/</span>, runs the fixture
               install, the install, <span class="inline">run_test.sql</span> and, with
               <span class="inline">--ml</span>, the Tier&nbsp;2 steps as SYSDBA with
               <span class="inline">CURRENT_SCHEMA</span> set in PDB1, and echoes the RESULT, FAIL and ORA- lines.
-              The full log is <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>. Give each
-              concurrent run its own schema: two runs reinstalling one schema fail each other with
-              ORA-04063 or ORA-00942.</p>
-              <p><strong>Running in a throwaway schema by hand.</strong> Create a user with the privileges
-              above (no password needed if only a SYSDBA uses it), then in one SQL*Plus session as SYSDBA:
+              Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>. One schema per
+              concurrent run: two runs reinstalling one schema fail with ORA-04063 or ORA-00942.
+              <span class="inline">--pga</span> ends every step with <span class="inline">test/pga_probe.sql</span>,
+              which logs that session's peak PGA and largest work areas (see
+              <a href="reference.html#memory">Memory (PGA)</a>).</p>
+              <p><strong>Throwaway schema by hand.</strong> Create a user with the privileges above (no
+              password needed if only SYSDBA uses it), then in one SQL*Plus session as SYSDBA:
               <span class="inline">ALTER SESSION SET CONTAINER = PDB1;</span>
               <span class="inline">ALTER SESSION SET CURRENT_SCHEMA = CAPX1;</span>, then steps 3 to 6 as written.
               Every object, job and OML model lands in that schema. <span class="inline">USER_OBJECTS</span>
@@ -713,15 +668,15 @@ All fixture assertions passed.</pre>
             </div>
             <div class="callout tip">
               <span class="ico">▸</span>
-              <p><strong>The lint guards the anomaly key.</strong>
-              <span class="inline">CAPA_ANOM</span> has one row per point <em>and</em> baseline mode, so a
-              join on the point alone doubles every row. <span class="inline">test/lint_anom_joins.sh</span>
+              <p><strong>Anomaly-key lint.</strong>
+              <span class="inline">CAPA_ANOM</span> has one row per point and baseline mode; a join on the
+              point alone doubles rows. <span class="inline">test/lint_anom_joins.sh</span>
               fails when a SQL or Python file outside <span class="inline">ddl/40</span>,
               <span class="inline">ddl/45</span>, <span class="inline">test/</span>,
               <span class="inline">bench/</span> and the drill scripts names <code>capa_anom</code>, and when a
               drill script reads it without a <code>baseline_mode =</code> predicate within the next 8 lines.
-              Join <span class="inline">CAPA_ANOM_DAY</span> instead; it has one row per point. Run it on its
-              own from the repo root: <span class="inline">test/lint_anom_joins.sh</span>.</p>
+              Join <span class="inline">CAPA_ANOM_DAY</span> (one row per point) instead. Standalone:
+              <span class="inline">test/lint_anom_joins.sh</span> from the repo root.</p>
             </div>
           </div>
         </div>
@@ -730,15 +685,13 @@ All fixture assertions passed.</pre>
         <div class="step">
           <div class="step__rail"><div class="step__n">6</div><div class="step__line"></div></div>
           <div class="step__body">
-            <h4>Run the Tier 2 (optional ML) self-check</h4>
-            <p>A separate script, because Oracle's built-in ML needs the
-              <span class="inline">CREATE MINING MODEL</span> privilege. It
-              trains the smoothing models, checks the <code>FIX_LINEAR</code> +30-day forecast lands
-              within 5% of the closed form, then checks the M10.4 contract — the quality gate (no
-              model for <code>FIX_FLAT</code> / <code>FIX_NEARFULL</code>), both candidate twins
-              scored, the recorded pick matching the recorded evidence, and no backtest twin leaking
-              into the forecast surface. Success ends with
-              <span class="inline">All ML assertions passed.</span>; a failure exits non-zero.</p>
+            <h4>Run the Tier 2 (ML) self-check</h4>
+            <p>Needs <span class="inline">CREATE MINING MODEL</span>. Trains the ESM models, checks the
+              <code>FIX_LINEAR</code> +30-day forecast within 5% of the closed form, then the M10.4
+              contract: quality gate (no model for <code>FIX_FLAT</code> / <code>FIX_NEARFULL</code>),
+              both candidate twins scored, recorded pick matches recorded evidence, no backtest twin in
+              the forecast surface. Ends with <span class="inline">All ML assertions passed.</span>;
+              exits non-zero on failure.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · captest@pdb1</span><span class="term__tag in">you run</span></div>
@@ -773,12 +726,11 @@ All ML assertions passed.</pre>
             </div>
             <div class="callout">
               <span class="ico">i</span>
-              <p><strong>ESM covers fewer than 28 held-out days, on purpose.</strong> The backtest
-              twins share the 19c hard cap of <b>30</b> prediction steps <em>and</em> the
-              <span class="inline">FLOOR(rows/4)</span> floor, so on the fixture's 93 training rows a
-              twin reaches 23 of the 28 holdout days.
-              <span class="inline">CAPF_BACKTEST.n_days</span> reports the actual coverage — don't
-              assert a full holdout for ESM.</p>
+              <p><strong>ESM covers fewer than 28 held-out days.</strong> Backtest twins share the 19c
+              cap of <b>30</b> prediction steps and the <span class="inline">FLOOR(rows/4)</span> floor:
+              93 training rows give 23 of 28 holdout days.
+              <span class="inline">CAPF_BACKTEST.n_days</span> reports actual coverage; do not assert a
+              full holdout for ESM.</p>
             </div>
           </div>
         </div>
@@ -788,9 +740,8 @@ All ML assertions passed.</pre>
           <div class="step__rail"><div class="step__n">7</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Generate a report against the fixtures</h4>
-            <p>Optional. It renders the real report over known numbers. Both drivers
-              auto-load <span class="inline">report/defaults.sql</span>, so a bare run never prompts;
-              the optional positional arguments are
+            <p>Optional. Both drivers auto-load <span class="inline">report/defaults.sql</span>, so a
+              bare run never prompts. Positional arguments:
               <span class="inline">[top_n] [anomaly_days] [show_esm]</span>.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
@@ -819,10 +770,9 @@ All ML assertions passed.</pre>
 <span class="c-dim">… section 6c: which engine was right over the 28-day holdout</span>
 <span class="c-dim">… section 7: SESSIONS 440/500, 5 days to limit</span></pre>
             </div>
-            <p>Verify against the known answers: <code>FIX_LINEAR</code> grows 10&nbsp;MiB/day, so the
-              +30-day projection is <b>1,677,721,600 bytes ≈ 1.56&nbsp;GiB</b> and
-              <span class="inline">days_to_full = 4990</span>; its twin <code>FIX_OVERRIDE</code> shows
-              <b>74</b> from identical data; <code>FIX_EXCLUDED</code> appears nowhere at all.</p>
+            <p>Known answers: <code>FIX_LINEAR</code> +30-day projection
+              <b>1,677,721,600 bytes ≈ 1.56&nbsp;GiB</b>, <span class="inline">days_to_full = 4990</span>;
+              <code>FIX_OVERRIDE</code> <b>74</b>; <code>FIX_EXCLUDED</code> absent.</p>
           </div>
         </div>
 
@@ -831,13 +781,11 @@ All ML assertions passed.</pre>
           <div class="step__rail"><div class="step__n">8</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Tear the fixtures down</h4>
-            <p>Leaves your schema clean. Use <span class="inline">@uninstall.sql</span> too if you want
-              the <span class="inline">CAP_*</span> objects gone as well — that is also the only thing
-              that drops the persisted <span class="inline">CAP_CONFIG</span>,
-              <span class="inline">CAP_TBSPC_OVERRIDE</span> and
-              <span class="inline">CAP_ML_MODEL</span> tables. It removes the opt-in scheduler jobs
-              first and ends with the number of <span class="inline">CAP%</span> objects left
-              (0 expected).</p>
+            <p><span class="inline">@uninstall.sql</span> also removes the <span class="inline">CAP_*</span>
+              objects; it is the only script that drops the persisted
+              <span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span> and
+              <span class="inline">CAP_ML_MODEL</span> tables. It removes the scheduler jobs first and
+              prints the count of <span class="inline">CAP%</span> objects left (0 expected).</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · captest@pdb1</span><span class="term__tag in">you run</span></div>
@@ -851,24 +799,19 @@ All ML assertions passed.</pre>
 
       <div class="callout tip">
         <span class="ico">▸</span>
-        <p><strong>One-shot version.</strong> To run the whole self-check non-interactively over SSH,
-        feed the same sequence to a heredoc: <span class="inline">sqlplus -S -L
+        <p><strong>Non-interactive.</strong> Feed the sequence to a heredoc: <span class="inline">sqlplus -S -L
         captest/&lt;password&gt;@localhost:1521/pdb1.world &lt;&lt;'SQL'</span> containing
-        <span class="inline">@test/fixture_install.sql</span> · <span class="inline">DEFINE seam_mode=fixture</span> ·
+        <span class="inline">@test/fixture_install.sql</span> · <span class="inline">DEFINE deploy_mode=fixture</span> ·
         <span class="inline">@install.sql</span> · <span class="inline">@test/run_test.sql</span> ·
-        <span class="inline">@test/run_test_ml.sql</span>. Both test scripts exit non-zero on failure,
-        so the SSH command's exit status is your pass/fail signal. <b>Define
-        <span class="inline">seam_mode</span> up front</b> — an undefined
-        <span class="inline">&amp;&amp;seam_mode</span> prompts, and the prompt would swallow the next
-        heredoc line.</p>
+        <span class="inline">@test/run_test_ml.sql</span>. Both test scripts exit non-zero on failure.
+        Define <span class="inline">deploy_mode</span> up front: an undefined
+        <span class="inline">&amp;&amp;deploy_mode</span> prompts and swallows the next heredoc line.</p>
       </div>
 
       <!-- ===================== TRACK B ===================== -->
       <div class="section-head" id="track-b">
-        <span class="eyebrow">Walkthrough · Track B</span>
+        <span class="eyebrow">Track B</span>
         <h2>Local smoke on cdb1</h2>
-        <p>The same analytics, now against your live AWR. This confirms the suite installs and reports
-          end-to-end on a real 19c CDB.</p>
       </div>
 
       <div class="steps">
@@ -876,8 +819,8 @@ All ML assertions passed.</pre>
           <div class="step__rail"><div class="step__n">1</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Connect as sysdba in CDB$ROOT</h4>
-            <p>AWR lives at the root container, so local mode installs there. (Repo already synced from
-              Track A step 1 — re-sync if you've edited since.)</p>
+            <p>AWR lives in the root, so local mode installs there. Sync the repo first (Track A
+              step 1).</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">test box · bash</span><span class="term__tag in">you run</span></div>
@@ -893,20 +836,19 @@ sqlplus / as sysdba</pre>
           <div class="step__rail"><div class="step__n">2</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Run the preflight</h4>
-            <p><span class="inline">doctor.sql</span> is a read-only PASS/WARN/FAIL checklist and the
-              fastest way to find out whether local mode <em>can</em> work here — before you install
-              anything. It checks the target schema (WARN on SYS), Diagnostics Pack access and
+            <p><span class="inline">doctor.sql</span> is a read-only PASS/WARN/FAIL checklist. It
+              checks the target schema (WARN on SYS), Diagnostics Pack access and
               <span class="inline">STATISTICS_LEVEL</span>, SELECT on each of the ten
               <span class="inline">DBA_HIST_*</span> views the local seam reads plus the target
               schema's <b>direct</b> grants on them, the
               <span class="inline">CREATE TABLE/VIEW/PROCEDURE/TYPE/MINING MODEL/JOB</span>
               privileges, AWR retention and snapshot interval per dbid, how many distinct days each
               source holds and how old the newest snapshot is, and a readiness table of days needed
-              versus days available per feature. If the suite is already installed it adds the
+              versus days available per feature. If installed it adds
               <span class="inline">suite_version</span>, invalid <span class="inline">CAP*</span>
-              objects, the seam mode in use, the fit-quality mix and a config sanity block. It closes with a plain-English reason why forecasts would come back
-              <span class="pill crit">INSUFFICIENT_HISTORY</span>. Every probe is exception-wrapped,
-              so a missing privilege prints one WARN line instead of aborting.</p>
+              objects, the deploy mode, the fit-quality mix and a config check. It closes with the reason
+              forecasts would come back <span class="pill crit">INSUFFICIENT_HISTORY</span>. Every probe is
+              exception-wrapped: a missing privilege prints one WARN line instead of aborting.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
@@ -914,11 +856,10 @@ sqlplus / as sysdba</pre>
             </div>
             <div class="callout">
               <span class="ico">i</span>
-              <p>Testing as SYSDBA with <span class="inline">ALTER SESSION SET CURRENT_SCHEMA</span>?
-              <span class="inline">USER_OBJECTS</span> follows the <em>session</em> user, not
-              <span class="inline">CURRENT_SCHEMA</span> — which is why
+              <p>Under SYSDBA + <span class="inline">ALTER SESSION SET CURRENT_SCHEMA</span>,
+              <span class="inline">USER_OBJECTS</span> follows the session user, so
               <span class="inline">doctor.sql</span> queries <span class="inline">ALL_*</span> filtered
-              on <span class="inline">SYS_CONTEXT('USERENV','CURRENT_SCHEMA')</span> instead.</p>
+              on <span class="inline">SYS_CONTEXT('USERENV','CURRENT_SCHEMA')</span>.</p>
             </div>
           </div>
         </div>
@@ -926,10 +867,9 @@ sqlplus / as sysdba</pre>
         <div class="step">
           <div class="step__rail"><div class="step__n">3</div><div class="step__line"></div></div>
           <div class="step__body">
-            <h4>Check you have Diagnostics Pack</h4>
+            <h4>Check Diagnostics Pack</h4>
             <p>Local mode reads <span class="inline">DBA_HIST_*</span>, which requires the pack. A
-              monitoring schema (not sysdba) would also need <em>direct</em> SELECT grants on those
-              views — not via a role — for the views to compile.</p>
+              non-sysdba schema also needs direct (not role) SELECT grants on those views.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
@@ -952,14 +892,13 @@ control_management_pack_access     string   <span class="c-key">DIAGNOSTIC+TUNIN
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-prompt">SQL&gt;</span> DEFINE seam_mode = 'local'
+<pre><span class="c-prompt">SQL&gt;</span> DEFINE deploy_mode = 'local'
 <span class="c-prompt">SQL&gt;</span> @install.sql</pre>
             </div>
-            <p>Same layered output as Track A, with a warning block because the target schema is
-              SYS, ending in
+            <p>Same output as Track A plus a SYS-target warning, ending in
               <span class="c-pass" style="font-family:var(--mono);font-size:13px">All CAP* objects valid in schema SYS.</span>
-              If any view is invalid, the closing check aborts with the exact grant/pack hint. To keep
-              the suite out of SYS, run <span class="inline">@create_owner.sql</span> first and
+              An invalid view aborts the closing check with a grant/pack hint. To keep the suite out of
+              SYS, run <span class="inline">@create_owner.sql</span> first and
               install with <span class="inline">ALTER SESSION SET CURRENT_SCHEMA = C##AWRCAP</span>
               (see <a href="reference.html#owner">Reference</a>).</p>
           </div>
@@ -976,16 +915,13 @@ control_management_pack_access     string   <span class="c-key">DIAGNOSTIC+TUNIN
 <span class="c-prompt">SQL&gt;</span> @report/report.sql 25 60 AUTO   <span class="c-cmt">-- top_n / anomaly_days / show_esm</span>
 <span class="c-prompt">SQL&gt;</span> @report/report_html.sql         <span class="c-cmt">-- same three arguments</span></pre>
             </div>
-            <p>All three arguments are optional and positional; anything you leave off falls back to
-              <span class="inline">report/defaults.sql</span>, which both drivers auto-load. Unset
-              arguments cannot prompt (the zero-row
-              <span class="inline">COLUMN 1 NEW_VALUE 1</span> trick defines them as empty), so a
-              non-interactive run is safe.</p>
+            <p>Omitted arguments fall back to <span class="inline">report/defaults.sql</span>. Unset
+              arguments do not prompt (a zero-row <span class="inline">COLUMN 1 NEW_VALUE 1</span>
+              defines them as empty).</p>
             <div class="callout warn">
               <span class="ico">!</span>
               <p><strong>Expect INSUFFICIENT_HISTORY on a stock box.</strong> Default AWR retention is
-              only <b>8 days</b> — far below the 90-day training window — so forecasts degrade loudly
-              and say so. That's correct behavior, not a bug. Watch the
+              <b>8 days</b>, below the 90-day training window. See the
               <span class="inline">TRAIN_N</span> and <span class="inline">QUALITY</span> columns.</p>
             </div>
           </div>
@@ -994,9 +930,8 @@ control_management_pack_access     string   <span class="c-key">DIAGNOSTIC+TUNIN
         <div class="step">
           <div class="step__rail"><div class="step__n">6</div><div class="step__line"></div></div>
           <div class="step__body">
-            <h4>For real trends, raise retention — then wait</h4>
-            <p>This only helps <em>future</em> snapshots; history isn't backfilled, so you'll see real
-              forecasts only after enough days accumulate.</p>
+            <h4>Raise retention</h4>
+            <p>Affects future snapshots only; history is not backfilled.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
@@ -1004,8 +939,7 @@ control_management_pack_access     string   <span class="c-key">DIAGNOSTIC+TUNIN
             </div>
             <div class="callout">
               <span class="ico">i</span>
-              <p><strong>This changes a database setting.</strong> It's a persistent AWR configuration
-              change on the CDB (harmless on a test box, but not read-only). Run it deliberately.</p>
+              <p><strong>Persistent AWR setting change on the CDB</strong> (not read-only).</p>
             </div>
           </div>
         </div>
@@ -1013,9 +947,8 @@ control_management_pack_access     string   <span class="c-key">DIAGNOSTIC+TUNIN
         <div class="step">
           <div class="step__rail"><div class="step__n">7</div><div class="step__line"></div></div>
           <div class="step__body">
-            <h4>Optionally train Tier 2, then pull the report home</h4>
-            <p>Once you have history, add the ESM second opinion and re-run the report to populate
-              section 6. Then copy the spooled file back to read it.</p>
+            <h4>Optional: train Tier 2, copy the report back</h4>
+            <p>With history in place, training ESM populates report section 6.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
@@ -1035,45 +968,39 @@ control_management_pack_access     string   <span class="c-key">DIAGNOSTIC+TUNIN
 
       <!-- ===================== BENCH ===================== -->
       <div class="section-head" id="bench">
-        <span class="eyebrow">Walkthrough · optional</span>
-        <h2>Track C — a real workload (<span class="inline">bench/</span>)</h2>
-        <p>The fixtures prove the arithmetic. They cannot prove the toolkit reads a <em>live</em>
-          database sensibly — an idle test instance produces
-          <span class="pill crit">INSUFFICIENT_HISTORY</span> everywhere and nothing to detect.
-          <span class="inline">bench/</span> is a swingbench harness that generates shaped daily load
-          so the forecast and anomaly views have genuine AWR history to work on.</p>
+        <span class="eyebrow">Track C, optional</span>
+        <h2>Workload (<span class="inline">bench/</span>)</h2>
+        <p><span class="inline">bench/</span> is a swingbench harness that generates shaped daily load,
+          so an idle test instance gets AWR history. The suite does not depend on it;
+          <span class="inline">install.sql</span> installs nothing from it.</p>
       </div>
-
-      <p>Everything in <span class="inline">bench/</span> is <b>optional</b>: the suite never depends on
-        it, and <span class="inline">install.sql</span> installs nothing from it into the database.</p>
 
       <div class="tablewrap">
         <table>
           <thead>
-            <tr><th>What it drives</th><th>Why the forecaster needs it</th></tr>
+            <tr><th>Load</th><th>Purpose</th></tr>
           </thead>
           <tbody>
-            <tr><td class="def"><b>SOE</b> (Order Entry) OLTP inserts</td><td>grow <code>SOETBS</code> monotonically — the input <code>CAPF_TBSPC_FORECAST</code> / days-to-full actually needs</td></tr>
-            <tr><td class="def"><b>SH</b> (Sales History) rollups and cubes</td><td>burn CPU with essentially no growth, so the CPU and tablespace series move <em>independently</em></td></tr>
-            <tr><td class="def">Weekday / weekend contrast</td><td>gives <code>dow_weeks</code> (the SAME_DOW and HOUR_OF_WEEK baselines) a real seasonal signal</td></tr>
-            <tr><td class="def"><code>anomaly_load.sql</code> + a 24-user burst</td><td>a genuine outlier for <code>CAPA_ANOM</code> to find</td></tr>
+            <tr><td class="def"><b>SOE</b> (Order Entry) OLTP inserts</td><td>grow <code>SOETBS</code> monotonically, for <code>CAPF_TBSPC_FORECAST</code> / days-to-full</td></tr>
+            <tr><td class="def"><b>SH</b> (Sales History) rollups and cubes</td><td>CPU with almost no growth, so CPU and tablespace series move independently</td></tr>
+            <tr><td class="def">Weekday / weekend contrast</td><td>seasonal signal for <code>dow_weeks</code> (SAME_DOW and HOUR_OF_WEEK baselines)</td></tr>
+            <tr><td class="def"><code>anomaly_load.sql</code> + a 24-user burst</td><td>an outlier for <code>CAPA_ANOM</code></td></tr>
           </tbody>
         </table>
       </div>
 
-      <p>The daily shape runs as six phases — <span class="inline">ramp</span> (4 SOE users, 45 min),
+      <p>Six daily phases: <span class="inline">ramp</span> (4 SOE users, 45 min),
         <span class="inline">peak</span> (16 users, 60 min, CPU near
         <span class="inline">cpu_sat_pct</span>), <span class="inline">dss</span> (3 SH users, 30 min),
         <span class="inline">mixed</span> (8 SOE + 2 SH, 45 min), <span class="inline">batch</span>
         (6 users, 20 min, redo/undo heavy) and <span class="inline">anomaly</span> (24 users, 30 min).
-        <span class="inline">run_phase.sh</span> forces an AWR snapshot either side of each phase, so
-        phase boundaries line up with snapshot boundaries; weekday-only phases self-skip at weekends
-        and the ones that do run halve their user count.</p>
+        <span class="inline">run_phase.sh</span> forces an AWR snapshot before and after each phase.
+        At weekends weekday-only phases skip and the others halve their user count.</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">workstation · bash</span><span class="term__tag in">you run</span></div>
-<pre>cp bench/env.sh.example bench/env.sh &amp;&amp; $EDITOR bench/env.sh   <span class="c-cmt"># once — the only place credentials live</span>
+<pre>cp bench/env.sh.example bench/env.sh &amp;&amp; $EDITOR bench/env.sh   <span class="c-cmt"># once; the only place credentials live</span>
 
 ./bench/setup/setup.sh                <span class="c-cmt"># AWR settings + tablespaces + both schemas</span>
 ./bench/run_day.sh --short            <span class="c-cmt"># ~50 min smoke run</span>
@@ -1089,28 +1016,24 @@ crontab bench/cron/bench.crontab      <span class="c-cmt"># daily shape from her
         <span class="inline">bench/setup/01_awr_settings.sql</span> switches the CDB to 15-minute
         snapshots with 35-day retention, and <span class="inline">02_bench_objects.sql</span> creates
         <span class="inline">SOETBS</span> / <span class="inline">SHTBS</span> (capped autoextend) plus
-        a PDB-local wizard DBA. That is <em>not</em> read-only — test boxes only.
-        <span class="inline">teardown.sh</span> reverses all of it.</p>
+        a PDB-local wizard DBA. Test boxes only; <span class="inline">teardown.sh</span> reverses
+        it.</p>
       </div>
 
       <div class="callout tip">
         <span class="ico">▸</span>
-        <p><strong>Watching the machinery before 14 days have passed.</strong> Forecasts stay
+        <p><strong>Before 14 days of history.</strong> Forecasts stay
         <span class="pill crit">INSUFFICIENT_HISTORY</span> until
-        <span class="inline">min_train_days</span> daily points exist. On a test database <em>only</em>,
-        lower the gate temporarily — <span class="inline">UPDATE cap_config SET cfg_value = 3 WHERE
-        cfg_name = 'min_train_days';</span> — and put it back to 14 afterwards. And if
-        <span class="inline">SOETBS</span> grows too slowly to give a useful forecast, lower
-        <span class="inline">TBS_MAXSIZE</span> rather than pushing more concurrency at the VM:
-        <span class="inline">days_to_full</span> is only meaningful against a <em>bounded</em>
-        tablespace.</p>
+        <span class="inline">min_train_days</span> daily points exist. On a test database only, lower
+        it temporarily: <span class="inline">UPDATE cap_config SET cfg_value = 3 WHERE
+        cfg_name = 'min_train_days';</span>, then restore 14. If
+        <span class="inline">SOETBS</span> grows too slowly, lower
+        <span class="inline">TBS_MAXSIZE</span> rather than adding concurrency;
+        <span class="inline">days_to_full</span> needs a bounded tablespace.</p>
       </div>
 
-      <p>Full detail — layout, the per-phase table, sizing notes for a small VM, and the queries that
-        tell you the load reached the seam — is in
-        <span class="inline">bench/README.md</span>.</p>
-
-      <p>For how to read the eight sections of the report output, see
+      <p>Layout, per-phase table, small-VM sizing and queries that confirm the load reached the seam:
+        <span class="inline">bench/README.md</span>. Reading the report:
         <a href="usage.html#sections">Usage · Reading the report</a>.</p>
 
       <nav class="pager" id="pager" aria-label="Previous and next page"></nav>

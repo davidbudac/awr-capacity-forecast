@@ -57,7 +57,7 @@ loaded, so an empty alert list is never mistaken for missing data.
 Built and tested on APEX 26.2 (Oracle Database 23ai Free). The export uses
 the 26.2 import API, so the target instance must run APEX 26.2 or later.
 
-1. **Suite.** Install the suite (`install.sql`, any seam mode) in the schema
+1. **Suite.** Install the suite (`install.sql`, any deploy mode) in the schema
    that will be the application's parsing schema. The app needs the
    `CAPR_*` views from `ddl/45` and `ddl/55` (part of `install.sql`) and
    `CAP_CONFIG`.

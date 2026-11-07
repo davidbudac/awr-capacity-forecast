@@ -10,7 +10,7 @@
 --
 -- ORDER MATTERS: the CAP_FIXTURE_* tables must exist before these views
 -- compile. Run test/fixture_install.sql (which creates + fills them) BEFORE
--- @install.sql with seam_mode=fixture.
+-- @install.sql with deploy_mode=fixture.
 --
 -- The fixture tables already store the post-mapping CAPV columns (bytes stay
 -- blocks, counters stay cumulative, etc.), so these views are thin

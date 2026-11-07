@@ -7,7 +7,7 @@
 -- WHENEVER SQLERROR EXIT FAILURE + a final RAISE).
 --
 -- Prereqs (same schema): test/fixture_install.sql, then @install.sql with
--- seam_mode=fixture. The Tier 2 ESM assertion lives in run_test_ml.sql
+-- deploy_mode=fixture. The Tier 2 ESM assertion lives in run_test_ml.sql
 -- (separate, because it needs CREATE MINING MODEL).
 --
 SET DEFINE OFF
@@ -27,6 +27,14 @@ EXCEPTION
 END;
 /
 CREATE TABLE cap_fixture_alerts_snap AS SELECT * FROM capr_alerts WHERE 1 = 0;
+
+-- The assertions expect an empty Tier 2 registry: CAP_ML_MODEL survives a
+-- re-install, so models left by an earlier --ml run go stale and add
+-- MODEL_HEALTH alerts. run_test_ml.sql trains its own afterwards.
+BEGIN
+    cap_forecast_ml.drop_all;
+END;
+/
 
 DECLARE
     g_pass  PLS_INTEGER := 0;
@@ -3563,7 +3571,7 @@ BEGIN
                + (SELECT COUNT(*) FROM capr_weekly_digest) + (SELECT COUNT(*) FROM capr_forecast_accuracy)
           INTO v_n FROM dual;
         chk_int('every results view answers on empty tables (rows)', v_n, 0);
-        chk_str('cap_results.seam_mode', cap_results.seam_mode, 'fixture');
+        chk_str('cap_results.deploy_mode', cap_results.deploy_mode, 'fixture');
 
         DBMS_OUTPUT.PUT_LINE('=== results layer: R0 backdated, R1, R2 ===');
         SELECT u.* BULK COLLECT INTO v_hidden
@@ -3603,7 +3611,7 @@ BEGIN
         SELECT COUNT(*) INTO v_n
           FROM cap_alert_event a JOIN cap_alert_event b ON a.run_id < b.run_id AND a.at_time > b.at_time;
         chk_int ('run_id order = at_time order for CAP_ALERT_EVENT (inverted event pairs)', v_n, 0);
-        SELECT as_of_day, backdated, n_alert, n_event, seam_mode, n_fit INTO v_dt, v_c1, v_a, v_b, v_str, v_c
+        SELECT as_of_day, backdated, n_alert, n_event, deploy_mode, n_fit INTO v_dt, v_c1, v_a, v_b, v_str, v_c
           FROM cap_run WHERE run_id = run_0;
         chk_true('R0: as_of_day TRUNC(SYSDATE) - 7, backdated Y, no alert state (n_alert, n_event NULL), seam fixture (got '
                  || TO_CHAR(v_dt, 'YYYY-MM-DD') || ' ' || v_c1 || ' ' || NVL(TO_CHAR(v_a), 'NULL') || ' ' || v_str || ')',

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Getting started — AWR Capacity Forecast</title>
-<meta name="description" content="Clone the repository, run one command, read your first capacity report. Preflight, install and the first report in one go, with nothing written to AWR.">
+<meta name="description" content="Clone the repository, run quickstart.sh: preflight, install and the first capacity report.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23b06a0d'/><path d='M16 8L24 23L8 23Z' fill='%23fff'/></svg>">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
@@ -52,27 +52,24 @@
       <!-- ===================== HERO ===================== -->
       <section class="hero" id="start">
         <span class="eyebrow">Getting started</span>
-        <h1>Clone it, run one command, read the report</h1>
-        <p class="lead">Nothing to download beyond this repository, nothing to configure, nothing
-          written to your AWR data. One script runs the preflight, installs the views and prints
-          your first capacity report.</p>
+        <h1>Install and first report</h1>
+        <p class="lead"><span class="inline">quickstart.sh</span> runs the preflight, installs the
+          views and spools the first capacity report. Nothing is written to AWR.</p>
       </section>
 
       <div class="callout">
         <span class="ico">i</span>
-        <p><strong>You need three things.</strong> An Oracle Database 19c or newer with the
-        Diagnostics Pack (that is where AWR comes from), a <span class="inline">sqlplus</span> that
-        can reach it, and a connection as <span class="inline">sysdba</span> to
-        <span class="inline">CDB$ROOT</span>, because that is where AWR history lives. Anything
-        else is optional and covered under <a href="reference.html#advanced-install">Advanced
-        install</a>.</p>
+        <p><strong>Requirements:</strong> Oracle Database 19c or newer with the Diagnostics Pack
+        (AWR), <span class="inline">sqlplus</span>, and a <span class="inline">sysdba</span>
+        connection to <span class="inline">CDB$ROOT</span> (where AWR history lives), and a
+        <span class="inline">pga_aggregate_limit</span> with about 1.5&nbsp;GB to spare per session
+        that runs a report (<a href="reference.html#memory">Memory (PGA)</a>). Other options:
+        <a href="reference.html#advanced-install">Advanced install</a>.</p>
       </div>
 
       <!-- ===================== STEPS ===================== -->
       <div class="section-head" id="steps">
-        <span class="eyebrow">Three steps</span>
-        <h2>From zero to a report</h2>
-        <p>About five minutes, most of it waiting for the views to compile.</p>
+        <h2>Steps</h2>
       </div>
 
       <div class="steps">
@@ -80,9 +77,8 @@
         <div class="step">
           <div class="step__rail"><div class="step__n">1</div><div class="step__line"></div></div>
           <div class="step__body">
-            <h4>Get the code where <span class="inline">sqlplus</span> is</h4>
-            <p>The database host is the easiest place: <span class="inline">sqlplus</span> is
-              already there and <span class="inline">/ as sysdba</span> just works.</p>
+            <h4>Clone the repository where <span class="inline">sqlplus</span> runs</h4>
+            <p>On the database host, <span class="inline">/ as sysdba</span> needs no password.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">DB host · bash</span><span class="term__tag in">you run</span></div>
@@ -96,30 +92,29 @@ cd awr-capacity-forecast</pre>
           <div class="step__rail"><div class="step__n">2</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Run the quickstart</h4>
-            <p>One command. It runs the read-only preflight, installs every object into the current
-              schema and spools your first report. Safe to re-run at any time. If the preflight
-              reports a FAIL line it stops before installing and says why; fix it and re-run, or
-              <span class="inline">DEFINE force_install = Y</span> in SQL*Plus to install anyway.</p>
+            <p>Runs the read-only preflight, installs every object into the current schema and
+              spools the first report. Re-runnable. On a preflight FAIL it stops before installing;
+              fix and re-run, or <span class="inline">DEFINE force_install = Y</span> in SQL*Plus to
+              install anyway.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">DB host · bash</span><span class="term__tag in">you run</span></div>
 <pre>./quickstart.sh                    <span class="c-cmt"># connects as / as sysdba</span></pre>
             </div>
-            <p>No shell, or connecting from elsewhere? The same thing from inside SQL*Plus, started
-              in the repository directory:</p>
+            <p>From SQL*Plus, started in the repository directory:</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · CDB$ROOT</span><span class="term__tag in">alternative</span></div>
 <pre>sqlplus / as sysdba
 <span class="c-prompt">SQL&gt;</span> @quickstart.sql</pre>
             </div>
-            <p>The tail of the output tells you it worked and where the report went:</p>
+            <p>Expected tail of the output:</p>
             <div class="term">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">output</span><span class="term__tag">expect</span></div>
 <pre>  <span class="c-pass">All CAP* objects valid in schema SYS.</span>
 ============================================================
- Install complete (seam_mode = local, schema = SYS).
+ Install complete (deploy_mode = local, schema = SYS).
 ============================================================
 ...
 Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
@@ -131,21 +126,19 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
           <div class="step__rail"><div class="step__n">3</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Read the report</h4>
-            <p>Plain text, eight sections, top to bottom: days-to-full per tablespace, growth
-              forecasts, anomalies, CPU trend, then the fixed-ceiling series. The first lines say in
-              plain English whether anything is heading for trouble.</p>
+            <p>Plain text, eight sections: days-to-full per tablespace, growth forecasts,
+              anomalies, CPU trend, then the fixed-ceiling series. The first lines summarise what
+              is heading for a limit.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">DB host · bash</span><span class="term__tag in">you run</span></div>
 <pre>less reports/cap_report_*.txt</pre>
             </div>
-            <p>Want to know what you are looking at before you run it? Open the
-              <a href="demo/cap_report_demo.html" target="_blank" rel="noopener">sample HTML report</a>
-              (or its <a href="demo/cap_report_demo.txt" target="_blank" rel="noopener">text twin</a>):
-              the real output of both drivers against a fictional e-commerce database with 150 days of
-              designed history. From here on, a report is just
-              <span class="inline">@report/report.sql</span> from the repository directory, and
-              <a href="usage.html">Usage</a> explains every section.</p>
+            <p>Samples: <a href="demo/cap_report_demo.html" target="_blank" rel="noopener">HTML report</a>,
+              <a href="demo/cap_report_demo.txt" target="_blank" rel="noopener">text report</a>
+              (both drivers run against a fictional e-commerce database with 150 days of designed
+              history). Later reports: <span class="inline">@report/report.sql</span> from the
+              repository directory. <a href="usage.html">Usage</a> covers each section.</p>
           </div>
         </div>
 
@@ -153,11 +146,9 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
 
       <div class="callout warn">
         <span class="ico">!</span>
-        <p><strong>First report says INSUFFICIENT_HISTORY? That is expected.</strong> Stock AWR keeps
-        only 8 days of history and a forecast needs at least 14 daily points, so on a fresh database
-        the suite refuses to project a trend it cannot see yet. Nothing is broken. Raise retention
-        once and the forecasts fill in over the following weeks. This is the
-        <em>only</em> change to Oracle anywhere in this guide, and it is optional.</p>
+        <p><strong>INSUFFICIENT_HISTORY on a fresh database.</strong> Stock AWR keeps 8 days; a
+        forecast needs at least 14 daily points. Raising retention (optional, the only change to
+        Oracle on this page) fills the forecasts in over the following weeks.</p>
       </div>
 
       <div class="term in">
@@ -168,9 +159,8 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
 
       <!-- ===================== WHAT HAPPENED ===================== -->
       <div class="section-head" id="what">
-        <span class="eyebrow">Under the hood</span>
-        <h2>What the quickstart just did</h2>
-        <p>Three existing scripts in a row, nothing more. You can run each on its own later.</p>
+        <h2>What the quickstart runs</h2>
+        <p>Three scripts, each runnable on its own.</p>
       </div>
 
       <div class="tablewrap">
@@ -178,8 +168,8 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
           <caption><span class="inline">quickstart.sql</span>, step by step</caption>
           <thead><tr><th scope="col">Step</th><th scope="col">Script</th><th scope="col">Does</th></tr></thead>
           <tbody>
-            <tr><td class="num">1</td><td><span class="inline">doctor.sql</span></td><td class="def">Read-only preflight: target schema, Diagnostics Pack, <span class="inline">DBA_HIST_*</span> grants, privileges, AWR retention, how much history each source holds and which features it is enough for. Prints a PASS / WARN / FAIL checklist and explains any gap.</td></tr>
-            <tr><td class="num">2</td><td><span class="inline">install.sql</span></td><td class="def">Creates the views, three small config tables and the Tier 2 package in the current schema, in local mode. As <span class="inline">/ as sysdba</span> that schema is SYS, and the installer prints a warning saying so. Idempotent; re-running never overwrites a knob you changed. Fails loudly if any object is invalid. Skipped when step 1 reported a FAIL.</td></tr>
+            <tr><td class="num">1</td><td><span class="inline">doctor.sql</span></td><td class="def">Read-only preflight: target schema, Diagnostics Pack, <span class="inline">DBA_HIST_*</span> grants, privileges, AWR retention, history per source and the features it supports. Prints a PASS / WARN / FAIL checklist.</td></tr>
+            <tr><td class="num">2</td><td><span class="inline">install.sql</span></td><td class="def">Creates the views, seven small tables and two packages in the current schema, local mode. As <span class="inline">/ as sysdba</span> that schema is SYS (the installer warns). Idempotent; re-running keeps changed knob values. Exits with an error if any object is invalid. Skipped when step 1 reported a FAIL.</td></tr>
             <tr><td class="num">3</td><td><span class="inline">report/report.sql</span></td><td class="def">The read-only text report, spooled to <span class="inline">reports/</span>.</td></tr>
           </tbody>
         </table>
@@ -187,44 +177,42 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
 
       <div class="callout tip">
         <span class="ico">▸</span>
-        <p><strong>Read-only against AWR, always.</strong> The only rows the suite ever writes are in
-        its own <span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>
-        and <span class="inline">CAP_ML_MODEL</span> tables. Remove everything again with
+        <p><strong>Read-only against AWR.</strong> The suite writes only to its own
+        <span class="inline">CAP_*</span> tables (see <a href="index.html#impact">Impact on the target database</a>). Remove everything again with
         <span class="inline">@uninstall.sql</span>.</p>
       </div>
 
       <!-- ===================== NEXT ===================== -->
       <div class="section-head" id="next">
-        <span class="eyebrow">Read next</span>
-        <h2>Where to go from here</h2>
-        <p>The quickstart puts the suite in SYS. For a real install, create a dedicated owner with
-          <span class="inline">create_owner.sql</span> and install as that user. That, warehouse or
-          fixture mode, scheduler jobs and upgrades are all under Advanced install.</p>
+        <h2>Next</h2>
+        <p>The quickstart installs into SYS. For a permanent install, create a dedicated owner with
+          <span class="inline">create_owner.sql</span> and install as that user (Advanced install,
+          with warehouse / fixture mode, scheduler jobs and upgrades).</p>
       </div>
       <div class="cardgrid">
         <a class="card" href="tutorial.html">
           <div class="k">03 · Start</div>
           <h3>Tutorial</h3>
-          <p>Fifteen minutes from install to reading every number, with animated worked examples.</p>
-          <div class="go">Walk through it →</div>
+          <p>Install to reading every number, with animated worked examples.</p>
+          <div class="go">Tutorial →</div>
         </a>
         <a class="card" href="usage.html">
           <div class="k">05 · Guide</div>
           <h3>Usage</h3>
           <p>Read the eight sections, drill into a series, poll the alert view, add Tier 2.</p>
-          <div class="go">Read the report →</div>
+          <div class="go">Usage →</div>
         </a>
         <a class="card" href="concepts.html">
           <div class="k">04 · Guide</div>
           <h3>How it works</h3>
           <p>The seam, the five-layer pipeline, and how forecast quality is judged.</p>
-          <div class="go">See the architecture →</div>
+          <div class="go">How it works →</div>
         </a>
         <a class="card" href="reference.html#advanced-install">
           <div class="k">07 · Reference</div>
           <h3>Advanced install</h3>
-          <p>Prerequisites in detail, the three seam modes, load order, jobs, upgrading.</p>
-          <div class="go">Go deeper →</div>
+          <p>Prerequisites, the three deploy modes, load order, jobs, upgrading.</p>
+          <div class="go">Advanced install →</div>
         </a>
       </div>
 

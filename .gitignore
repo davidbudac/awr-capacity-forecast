@@ -17,3 +17,6 @@ __pycache__/
 
 # vendored agent skills (third-party); skills-lock.json pins them, `skills` reinstalls
 .agents/
+
+# install.sh: the generated driver (holds passwords while it runs)
+.install_driver_*.sql

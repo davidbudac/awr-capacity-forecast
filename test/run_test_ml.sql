@@ -11,7 +11,7 @@
 -- model, and the AUTO tie margin.
 -- Exits NON-ZERO on failure.
 --
--- Prereqs: fixtures installed, suite installed (seam_mode=fixture), schema has
+-- Prereqs: fixtures installed, suite installed (deploy_mode=fixture), schema has
 -- CREATE MINING MODEL.
 --
 SET DEFINE OFF

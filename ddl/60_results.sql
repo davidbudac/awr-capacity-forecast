@@ -51,6 +51,14 @@ DECLARE
     EXCEPTION
         WHEN OTHERS THEN IF SQLCODE != -1430 THEN RAISE; END IF;
     END;
+    -- ORA-00904 old name absent (fresh install or already renamed),
+    -- ORA-00957 new name already present.
+    PROCEDURE rename_col(p_tab VARCHAR2, p_old VARCHAR2, p_new VARCHAR2) IS
+    BEGIN
+        EXECUTE IMMEDIATE 'ALTER TABLE ' || p_tab || ' RENAME COLUMN ' || p_old || ' TO ' || p_new;
+    EXCEPTION
+        WHEN OTHERS THEN IF SQLCODE NOT IN (-904, -957) THEN RAISE; END IF;
+    END;
     -- ORA-00955 name used, ORA-01408 column list already indexed.
     PROCEDURE add_ix(p_ddl VARCHAR2) IS
     BEGIN
@@ -62,7 +70,8 @@ BEGIN
     -- ---- CAP_RUN ----
     create_tab('CREATE TABLE cap_run (run_id NUMBER CONSTRAINT cap_run_pk PRIMARY KEY)');
     add_col('cap_run', 'as_of_day  DATE');
-    add_col('cap_run', 'seam_mode  VARCHAR2(16)');
+    rename_col('cap_run', 'seam_mode', 'deploy_mode');
+    add_col('cap_run', 'deploy_mode VARCHAR2(16)');
     add_col('cap_run', 'started_at TIMESTAMP');
     add_col('cap_run', 'ended_at   TIMESTAMP');
     add_col('cap_run', 'status     VARCHAR2(8)');
@@ -292,7 +301,7 @@ WITH lr AS (
      )
 SELECT r.run_id,
        r.as_of_day,
-       r.seam_mode,
+       r.deploy_mode,
        r.started_at,
        r.ended_at,
        EXTRACT(DAY    FROM (r.ended_at - r.started_at)) * 86400
@@ -616,11 +625,11 @@ CREATE OR REPLACE PACKAGE cap_results AUTHID DEFINER AS
     PROCEDURE purge(p_keep_days IN NUMBER DEFAULT 400);
 
     -- Forget everything: every run, snapshot, event and alert state, acks
-    -- included. For a fresh start (e.g. after a seam_mode change) and tests.
+    -- included. For a fresh start (e.g. after a deploy_mode change) and tests.
     PROCEDURE reset;
 
-    -- local | warehouse | fixture, read from what CAPV_SNAPSHOT depends on.
-    FUNCTION seam_mode RETURN VARCHAR2;
+    -- local | repository | warehouse | fixture, read from what CAPV_SNAPSHOT depends on.
+    FUNCTION deploy_mode RETURN VARCHAR2;
 END cap_results;
 /
 
@@ -633,11 +642,13 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
         RETURN CASE p_sev WHEN 'CRIT' THEN 1 WHEN 'WARN' THEN 2 ELSE 3 END;
     END rank_of;
 
-    FUNCTION seam_mode RETURN VARCHAR2 IS
+    FUNCTION deploy_mode RETURN VARCHAR2 IS
         v VARCHAR2(16);
     BEGIN
         SELECT CASE WHEN COUNT(CASE WHEN referenced_name LIKE 'CAP\_FIXTURE\_%' ESCAPE '\' THEN 1 END) > 0
                     THEN 'fixture'
+                    WHEN COUNT(CASE WHEN referenced_name LIKE 'CAP\_H\_%' ESCAPE '\' THEN 1 END) > 0
+                    THEN 'repository'
                     WHEN COUNT(CASE WHEN referenced_name LIKE 'AWRV\_%' ESCAPE '\' THEN 1 END) > 0
                     THEN 'warehouse'
                     WHEN COUNT(*) > 0
@@ -649,7 +660,7 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
           AND  name  = 'CAPV_SNAPSHOT'
           AND  type  = 'VIEW';
         RETURN v;
-    END seam_mode;
+    END deploy_mode;
 
     -- One read of CAPR_ALERTS, one row per state_key (worst severity, then
     -- the latest day: an anomaly key can carry several episodes), merged
@@ -800,8 +811,8 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
     PROCEDURE insert_running(p_run IN NUMBER, p_asof IN DATE, p_back IN CHAR) IS
         PRAGMA AUTONOMOUS_TRANSACTION;
     BEGIN
-        INSERT INTO cap_run (run_id, as_of_day, seam_mode, started_at, status, backdated, run_by)
-        VALUES (p_run, p_asof, seam_mode, SYSTIMESTAMP, 'RUNNING', p_back,
+        INSERT INTO cap_run (run_id, as_of_day, deploy_mode, started_at, status, backdated, run_by)
+        VALUES (p_run, p_asof, deploy_mode, SYSTIMESTAMP, 'RUNNING', p_back,
                 SYS_CONTEXT('USERENV', 'SESSION_USER'));
         COMMIT;
     END insert_running;

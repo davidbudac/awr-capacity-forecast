@@ -1452,7 +1452,7 @@ the security note.
 exception-wrapped anonymous block so a missing privilege prints one WARN line
 instead of aborting: pack access, direct `DBA_HIST_*` reads, `SESSION_PRIVS`,
 AWR retention and interval per dbid, days of history per source versus
-`min_train_days`, invalid `CAP*` objects and the detected seam mode — closing
+`min_train_days`, invalid `CAP*` objects and the detected deploy mode — closing
 with a plain-English explanation of why forecasts would read
 `INSUFFICIENT_HISTORY`. It queries `ALL_*` filtered on
 `SYS_CONTEXT('USERENV','CURRENT_SCHEMA')` rather than `USER_OBJECTS`, because

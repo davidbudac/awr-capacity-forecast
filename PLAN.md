@@ -95,7 +95,7 @@ every new number (see `test/run_test.sql`).
       in one exception-wrapped anonymous block — pack access, direct
       `DBA_HIST_*` reads, `SESSION_PRIVS`, AWR retention/interval per dbid,
       days of history per source vs `min_train_days`, invalid `CAP*` objects +
-      detected seam mode, then a plain-English "why `INSUFFICIENT_HISTORY`".
+      detected deploy mode, then a plain-English "why `INSUFFICIENT_HISTORY`".
 
 ## M9 — Forecast quality (Tier 1)
 
@@ -575,12 +575,146 @@ fixture harness and both reports.
       table and the level-shift table are no longer in the HTML (text report,
       CSV); the page needs JavaScript.
 
+## M24 — Fleet deployment: standalone, or target + repository
+
+Two ways to deploy from this one repo:
+
+- **Standalone** (`deploy_mode=local`, unchanged): the suite on the measured
+  database, reading its own AWR.
+- **Target + repository** (`deploy_mode=repository`): a target gets no
+  suite, only a read-only common user `C##AWRRDR` in `CDB$ROOT`. The
+  repository database pulls the 17 `DBA_HIST_*` views ddl/10 reads over one
+  DB link per target into persisted copies, and runs the whole suite (jobs,
+  ML, reports, APEX / ORDS / ELK) over every registered target. Nothing is
+  ever written on a target.
+
+Decided 2026-11-07:
+
+- **Copy, not federate.** Live `@link` views would cap history at the
+  target's AWR retention (8 days by default) and run the deep view stack
+  (1.1 to 1.4 GB of PGA a session) across links. Copies let the repository
+  keep `repo_retention_days` of history while targets keep their default
+  retention, and they move the forecasting load off production.
+- **Pull, not push.** The repository connects to each target's listener.
+  A target-side exporter is out of scope.
+- **Own slim collector, not `../awr-fleet-warehouse`.** The warehouse would
+  need root-safe keys and six more sources first, collects sqlstat / wait
+  volume capacity never reads, and means two repos to install. Port its
+  proven patterns: a high-water mark per (target, dbid) under
+  `FOR UPDATE NOWAIT`, 500-snapshot chunks committed atomically, DBID
+  discovery, a DBID already owned by another target refused and logged
+  (clones restored without NID), per-target health.
+- **Copies are DBA_HIST-shaped.** `CAP_H_<view>` keeps the columns ddl/10
+  reads, keyed with `con_dbid` wherever the source has it. Measured on
+  dbmint 2026-11-07: from the root, seg_stat, seg_stat_obj, parameter and
+  the CON_ time model / sysstat span every container, and the warehouse's
+  DBID-only keys collided there (seg_stat 1624, seg_stat_obj 101 duplicate
+  key groups; ORA-00001 on a root pull). `ddl/13_seam_repository.sql` is
+  generated from ddl/10 by renaming `dba_hist_x` to `cap_h_x`, so both seams
+  share one body: a missing copy column fails the install compile, and the
+  M24.5 diff proves the semantics.
+- **Target floor 19c** for v1, the only release tested.
+- **Warehouse mode retires** once parity passes (M24.9): one fleet path.
+
+- [x] **M24.0 Rename `seam_mode` to `deploy_mode`.** The install define, the
+      `CAP_RUN` column (renamed in place by ddl/60, history kept),
+      `cap_results.deploy_mode`, doctor, docs. Old `DEFINE seam_mode` scripts
+      now get prompted for `deploy_mode`.
+- [x] **M24.1 Vocabulary and install.sh.** Roles: standalone, target,
+      repository. The wizard's first question becomes the role. Rename the
+      install.sh key `TARGET=self|schema` to `INTO` (target now means a
+      measured database). Check: `--dry-run` of every shipped profile emits
+      the same driver as before the rename. Done 2026-11-07, drivers
+      byte-identical; also fixed the profile loader, which cut every value at
+      `#` (`C##AWRRDR` loaded as `C`). Profiles `target.env`, `repository.env`.
+- [x] **M24.2 Source manifest and generator.** One manifest lists the 17
+      views: key columns, incremental column (`snap_id`, or none for the
+      dimensions TABLESPACE / DATAFILE / DATABASE_INSTANCE / PDB_INSTANCE /
+      SEG_STAT_OBJ) and copied columns. A generator (Python, like
+      `report/html/build.py`) writes the `CAP_H_*` DDL, the collector's pull
+      statements, the target grant list and ddl/13. A test lint fails when
+      regenerating changes anything. The golden rule "DBA_HIST_* only in
+      ddl/10" widens to ddl/10 plus the generated collector; settle the file
+      layout here (generated copies + seam, hand-written registry + package
+      included before ddl/13 in repository mode). Check: ddl/13 compiles over
+      empty copies in a scratch schema. Done: `repository/build.py` writes
+      ddl/13 (copies + `CAP_REPO_SOURCE` + seam), which ends by including the
+      hand-written `repository/cap_repo.sql`; `--check` runs in both dbmint
+      scripts.
+- [x] **M24.3 Target scripts.** `target/prepare.sql` (SYSDBA in `CDB$ROOT`):
+      `C##AWRRDR`, CREATE SESSION, direct SELECT on the manifest's views,
+      `CONTAINER_DATA=ALL`; it prints AWR retention / interval advice and
+      changes nothing else. `target/check.sql`: pack access, retention
+      longer than the collect gap, grants, container visibility. Check on
+      dbmint: as `C##AWRRDR`, every per-container view shows the same
+      `con_dbid` count as under SYSDBA (`ddl/11_seam_warehouse.sql` notes a
+      least-privilege root reader saw the root only). Done: without
+      `CONTAINER_DATA` the reader saw 1 container of 3, with it 3. The same
+      gap hit standalone owners (the filter follows the querying session, so
+      the owner's jobs saw the root only); `create_owner.sql` now sets it.
+- [x] **M24.4 Registry and collector.** Persisted tables `CAP_TARGET`,
+      `CAP_TARGET_DBID`, `CAP_HWM`, `CAP_COLLECT_LOG` and every `CAP_H_*`:
+      created idempotently, never in `00_drop`, dropped only by
+      `uninstall.sql` (a copy cannot be re-pulled once the target's AWR has
+      aged out). Package `cap_repo`: `add_target(name, connect, user,
+      password)` (NULL password = wallet; creates the link, probes it,
+      discovers DBIDs), `remove_target(name, purge)`, `set_enabled`,
+      `collect(name)`, `collect_all`. Facts append past the high-water mark;
+      dimensions MERGE on their natural key. Check over a dbmint loopback
+      link: a second collect adds 0 rows, a collect killed mid-chunk
+      converges on rerun, and per-view row counts equal the source over the
+      collected range. Done on dbmint (CAPX2 over a loopback link to cdb1's
+      root): a wrong password fails with ORA-01017 and leaves no link; the
+      backfill copied 154k rows of 1166 snapshots in under 2 s; a second
+      collect copies nothing; remove_target deletes copies and link. The
+      windows start at the high-water mark, not the oldest snapshot: AWR
+      keeps CON_SYSSTAT rows of already-purged snapshots. A review then added:
+      remove_target locks the DBID rows (no chunk lands after its delete),
+      `set_link_password` (reader rotation, copies kept; tested), uninstall
+      drops owned links through a throwaway definer's-rights procedure
+      (tested), equality joins in the MERGEs, a ddl/10 fallback matched per
+      statistic and a `build.py` check that the copy filters keep every
+      literal ddl/10 filters on.
+- [x] **M24.5 Parity, the ship gate.** Local and repository installs over
+      the same CDB root, collected to the same snap_id; diff every view: zero
+      rows. Done 2026-11-07 as `test/dbmint_parity.sh CAPX2 C##CAPLOC`
+      (`test/parity_fingerprint.sql`: row count + order-free hash per view):
+      all 12 `CAPV_*` views equal at the repository's high-water mark and all
+      51 `CAPD/CAPF/CAPA/CAPR` views equal (clock columns skipped, both
+      schemas reset first), 5.5 min end to end. A collect whose first chunk
+      failed (a grant revoked mid-way) rolled back whole, and the rerun
+      converged to the same fingerprints.
+- [ ] **M24.6 Fleet identity.** In repository mode the report header comes
+      from `CAP_TARGET` instead of `SYS_CONTEXT` (`report/report.sql`,
+      `report/report_html.sql`); the target name rides on `CAPV_CONTAINER`;
+      `CAPR_TARGETS` shows link, DBIDs, newest snapshot, lag and last error;
+      `run_report.sh --target NAME`; a failing collect surfaces as an alert
+      (DATA_STALE or a new kind). Check: two registered targets (dbmint, plus
+      the 23cfree docker if it takes AWR snapshots).
+- [ ] **M24.7 Jobs, retention, doctor.** `CAP_COLLECT_JOB` (hourly) in
+      repository mode; refresh and retrain keep their fixed times. Knob
+      `repo_retention_days` (`CAP_CFG_CHECK`: at least the longest training
+      window) and a purge. doctor in repository mode reports per target:
+      link, lag, days collected against what each feature needs.
+- [ ] **M24.8 Profiles and docs.** `profiles/standalone.env` (today's
+      production), `target.env`, `repository.env`; docs "Measure one
+      database" and "Measure a fleet" as equal paths; CLAUDE.md layout and
+      persisted-table list; `test/docs_lint.sh`.
+- [ ] **M24.9 Retire warehouse mode.** Delete `ddl/11_seam_warehouse.sql`,
+      `profiles/warehouse.env`, the warehouse branches of install.sql /
+      install.sh / doctor, and the warehouse sections of the docs and
+      CLAUDE.md. `../awr-fleet-warehouse` stays its own product.
+- [ ] **M24.10 Scale.** Load K synthetic DBIDs into the copies (the demo
+      fixture, shifted), time `cap_results.refresh`, both reports and the ML
+      retrain, and record peak PGA. Persist per-run results for the site
+      only if the views are too slow.
+
 ## v2 (unchanged)
 
 - [ ] Memory forecasting (SGA/PGA from `DBA_HIST_MEM_DYNAMIC_COMP` (the
       19c view name) / `DBA_HIST_PGASTAT`).
 - [ ] Cross-DBID series stitching (non-CDB → PDB migrations) keyed on a stable
-      warehouse `target_id`.
+      `CAP_TARGET.target_id`.
 
 ---
 

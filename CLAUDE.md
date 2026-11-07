@@ -12,10 +12,15 @@ for making changes safely.
   the Tier 2 registry `CAP_ML_MODEL` (written by `cap_forecast_ml`) and the
   results layer `CAP_RUN` / `CAP_FIT_HIST` / `CAP_ALERT_STATE` /
   `CAP_ALERT_EVENT` (written only by `cap_results`). The reports and every
-  `CAPV/CAPD/CAPF/CAPA/CAPR` view only SELECT. Preserve this.
+  `CAPV/CAPD/CAPF/CAPA/CAPR` view only SELECT. In repository mode
+  `cap_repo` writes `CAP_TARGET` / `CAP_TARGET_DBID` / `CAP_COLLECT_LOG` and
+  the `CAP_H_*` copies, and runs only SELECTs on a target. Preserve this.
 - **All analytics go through the `CAPV_*` seam.** Never reference `DBA_HIST_*`
-  outside `ddl/10_seam_local.sql`. That is what keeps local / warehouse /
-  fixture modes byte-identical downstream.
+  outside `ddl/10_seam_local.sql`, except the repository's reads over a
+  target's link: the pull statements `repository/build.py` generates into
+  `CAP_REPO_SOURCE` and `cap_repo`'s probe / DBID discovery. That is what
+  keeps local / repository / warehouse / fixture modes byte-identical
+  downstream.
 - **Config, not constants.** Thresholds live in `CAP_CONFIG`, read only through
   the one-row view `CAP_CFG` (`CROSS JOIN cap_cfg cfg`, one column per knob,
   no defaults inlined). Views never read `cap_config` directly.
@@ -28,11 +33,15 @@ for making changes safely.
   cfg_default`. The one exception is `suite_version`, overwritten by every
   install (bump it in the MERGE and in its `CAP_CFG_CHECK` rule together).
   `CAP_CFG_CHECK` reports each knob OK / MISSING / BAD with a reason.
-- **Seven persisted tables survive a re-install:** `CAP_CONFIG` and
+- **Persisted tables survive a re-install:** `CAP_CONFIG` and
   `CAP_TBSPC_OVERRIDE` (ddl/05), `CAP_ML_MODEL` (ddl/50), `CAP_RUN`,
-  `CAP_FIT_HIST`, `CAP_ALERT_STATE`, `CAP_ALERT_EVENT` (ddl/60). Each is
-  created idempotently, NOT dropped by `ddl/00_drop.sql`, dropped only by
-  `uninstall.sql`. `CAP_TBSPC_OVERRIDE` holds operator-set tablespace
+  `CAP_FIT_HIST`, `CAP_ALERT_STATE`, `CAP_ALERT_EVENT` (ddl/60), and in
+  repository mode `CAP_TARGET`, `CAP_TARGET_DBID`, `CAP_COLLECT_LOG`
+  (repository/cap_repo.sql) and the `CAP_H_*` copies (ddl/13), which cannot
+  be re-pulled once a target's AWR has aged out. Each is created
+  idempotently, NOT dropped by `ddl/00_drop.sql`, dropped only by
+  `uninstall.sql` (which first drops the links `add_target` made, through a
+  throwaway definer's-rights procedure: only the owner can drop them). `CAP_TBSPC_OVERRIDE` holds operator-set tablespace
   ceilings, exclusions and per-tablespace `dtf_warn` / `dtf_crit` /
   `nearfull_warn_pct` / `nearfull_crit_pct` (NULL = the knob), applied once in
   `CAPD_TBSPC_DAILY`; `dbid`/`con_dbid` `0` are wildcards and the most
@@ -55,8 +64,9 @@ for making changes safely.
 ## Layout / load order
 
 `install.sql` includes, in order: `ddl/00_drop` → `05_config` (CAP_CONFIG,
-CAP_CFG, CAP_CFG_CHECK, CAP_TBSPC_OVERRIDE) → the seam (`10`/`11`/`12` by
-`seam_mode`: twelve CAPV_* views + CAPV_CONTRACT) → `20_daily` →
+CAP_CFG, CAP_CFG_CHECK, CAP_TBSPC_OVERRIDE) → the seam (`10`/`13`/`11`/`12` for
+`deploy_mode` local / repository / warehouse / fixture: twelve CAPV_* views +
+CAPV_CONTRACT; `13` also creates the copies and pulls `repository/cap_repo.sql`) → `20_daily` →
 `25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `35_series_forecast`
 (CAPF_SERIES_FORECAST) → `40_anomaly` → `45_report_views` (CAPR_CONTAINER,
 CAPR_ANOMALIES, CAPR_FRESHNESS, CAPR_SEVERITY, the section views, CAPR_SERIES,
@@ -157,8 +167,8 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   line. Never end a PROMPT with a hyphen (that killed the report header once).
 - **A PROMPT line ending in `;` loses the semicolon** (SQL*Plus strips it as a
   terminator). End PROMPT sentences with `.` instead.
-- **`&&seam_mode` prompts if undefined** — non-interactive callers must
-  `DEFINE seam_mode` up front or a heredoc line gets consumed as the answer.
+- **`&&deploy_mode` prompts if undefined** — non-interactive callers must
+  `DEFINE deploy_mode` up front or a heredoc line gets consumed as the answer.
 - **A `--` comment line ending in `;` terminates the statement buffer** in
   plain-SQL context (SQL*Plus doesn't parse comments when scanning for the
   terminator), truncating a CREATE VIEW mid-statement with a baffling
@@ -359,25 +369,83 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
 Connect where AWR is visible: `sqlplus / as sysdba` in `CDB\$ROOT` (AWR lives
 there for local mode).
 
-- **Local smoke** (real AWR): install `seam_mode=local` as sysdba in CDB\$ROOT,
+- **Local smoke** (real AWR): install `deploy_mode=local` as sysdba in CDB\$ROOT,
   run the report. Expect `INSUFFICIENT_HISTORY` everywhere unless retention was
   raised (default 8 days).
 - **Fixture harness + ML** need `CREATE TABLE/VIEW/TYPE/PROCEDURE` and (for ML)
   `CREATE MINING MODEL`. `V$*` views are **not** required — the report uses
   `SYS_CONTEXT` for identity. Create a test user in a PDB with those privileges,
-  then run: `@test/fixture_install.sql` → `DEFINE seam_mode=fixture` →
+  then run: `@test/fixture_install.sql` → `DEFINE deploy_mode=fixture` →
   `@install.sql` → `@test/run_test.sql` (+ `EXEC cap_forecast_ml.train_all` →
   `@test/run_test_ml.sql`). Both exit non-zero on failure and print their own
   totals (`RESULT:` / "All fixture assertions passed."); docs never quote a
   count. Sync the repo to the DB host first because of the relative `@@`
   includes. The full fixture run takes about 20 minutes now.
 - **dbmint lever:** `test/dbmint_harness.sh <SCHEMA> [--ml] [--no-fixture]
-  [--sql FILE]` lints, rsyncs to `~/awr_cap_<schema>/` and runs the steps as
+  [--pga] [--sql FILE]` lints, rsyncs to `~/awr_cap_<schema>/` and runs the steps as
   SYSDBA + `CURRENT_SCHEMA` in PDB1; log `/tmp/dbmint_harness_<SCHEMA>.log`.
+  `--pga` ends each step with `test/pga_probe.sql` (the session's peak PGA).
   `CAPX1`..`CAPX3` and `CAPW1`..`CAPW3` in PDB1 are throwaway schemas for
   parallel runs (one schema per concurrent run; ask before dropping them);
   `CAPDEMO` feeds the lab dashboards and `CAPTEST` is the shared default.
   Shared schemas collide (ORA-04063 / ORA-00942 mid-reinstall).
+- **Parity lever (M24.5):** `test/dbmint_parity.sh <REPO_SCHEMA> <LOCAL_USER>
+  [--seam-only] [--no-install]` prepares cdb1's root as a target (reader
+  `C##AWRRDR`, new random password per run), installs local mode into the
+  common user (`C##CAPLOC`) and repository mode into the PDB1 schema
+  (`CAPX2`), registers the root over a loopback link, collects and diffs
+  `test/parity_fingerprint.sql` output: every `CAPV_*` view cut at the
+  repository's high-water mark, then every `CAPD/CAPF/CAPA/CAPR` view in two
+  parallel sessions (exit 5 = a snapshot landed mid-run, rerun). Logs
+  `/tmp/dbmint_parity.*` locally.
+- **PGA is the resource that bites.** One suite session peaks at ~1.1-1.3 GB of
+  PGA (a report driver, `cap_results.refresh`; `run_test.sql` 1.8 GB), and
+  almost none of it is sort/hash work area (largest < 8 MB): it is
+  non-tunable memory from parsing and running the deep view stack, kept until
+  the session ends, so `pga_aggregate_target` does not cap it and
+  `pga_aggregate_limit` must hold background + ~1.5 GB per concurrent suite
+  session. Over the limit, sessions sit on "acknowledge over PGA limit" (that
+  stalled two parallel harness runs on a 4 GB dbmint with a 2 GB limit).
+  Measured figures live in `docs/reference.html#memory`.
+
+## Repository mode (M24)
+
+- **Two deployments.** Standalone = `deploy_mode=local` on the measured
+  database. Target + repository: the target gets only `target/prepare.sql`
+  (a read-only common user, direct SELECT on the seventeen views, nothing
+  else) and the repository runs the suite with `deploy_mode=repository` over
+  `CAP_H_*` copies that `cap_repo.collect` pulls over one DB link per target.
+  `install.sh` asks the role first (standalone / target / repository /
+  warehouse / fixture); profiles `target.env` and `repository.env`.
+- **`repository/build.py` owns the copy contract.** Its manifest lists each
+  source view's copied columns, kind (F fact appended per snap_id window, D
+  dimension MERGEd null-safe on its key, S dimension scoped to a fact's
+  chunk: SEG_STAT_OBJ) and row filter (a superset of ddl/10's). It writes
+  `ddl/13_seam_repository.sql`: the copy tables (created once, columns only
+  ever added), `CAP_REPO_SOURCE` (the finished pull statements) and the seam,
+  which is ddl/10 with `dba_hist_x` renamed `cap_h_x`. Never edit ddl/13;
+  change the manifest or ddl/10 and rerun it. `--check` (also run by both
+  dbmint scripts) fails on a stale ddl/13 or when ddl/10, target/prepare.sql
+  or create_owner.sql name other views than the manifest.
+- **CONTAINER_DATA (verified 19.27).** A common user without `CONTAINER_DATA
+  = ALL` that reads `DBA_HIST_*` in CDB$ROOT sees the root's rows only (1
+  container instead of 3). The filter follows the querying session, so SYS
+  through a view sees everything while the owner's own sessions and jobs do
+  not. `target/prepare.sql` and `create_owner.sql` (local mode) both set it.
+- **AWR purges its tables unevenly.** `DBA_HIST_CON_SYSSTAT` kept rows for
+  snapshots 2657..2695 after they had left `DBA_HIST_SNAPSHOT` (which shows
+  only `status = 0`, completed, snapshots). The collector's window therefore
+  starts at the high-water mark (0 on the first collect), not at the oldest
+  snapshot, so the copies hold exactly what the target's views show.
+- **Links.** `cap_repo` is definer's rights, so `CREATE DATABASE LINK` in
+  `add_target` creates the link in the suite owner's schema even when SYS
+  calls it under `CURRENT_SCHEMA` (needs the privilege granted directly;
+  `create_owner.sql` with `owner_mode = repository`). With a `db_domain`
+  the link is stored as `CAP_<NAME>.<domain>`; the bare name resolves.
+- **Not yet built:** see PLAN.md M24.6 onwards (target names in reports and
+  `CAPR_TARGETS`, the collect job and `repo_retention_days` purge, docs).
+  RAC: one high-water mark per DBID, so a snapshot that completes on one
+  instance before another could be copied half; untested.
 
 ## Warehouse mode (Milestone W / M6 — done)
 

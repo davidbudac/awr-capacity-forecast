@@ -383,3 +383,34 @@ hr.soft{border:none;border-top:1px solid var(--border);margin:40px 0}
 .figure img { display: block; width: 100%; height: auto; border: 1px solid var(--line, rgba(128,128,128,.35)); border-radius: 10px; }
 .figure figcaption { margin-top: .5rem; font-size: .85rem; opacity: .75; }
 
+
+/* ---- concept diagrams (concepts.html): one small SVG per idea ---- */
+.dg{display:block;width:100%;max-width:640px;margin:14px 0 18px}
+.dg .g{stroke:var(--border);stroke-width:1}
+.dg .ax{stroke:var(--border-strong);stroke-width:1;fill:none}
+.dg .ln{fill:none;stroke:var(--text);stroke-width:1.7;stroke-linejoin:round;stroke-linecap:round}
+.dg .fc{fill:none;stroke:var(--accent);stroke-width:1.8;stroke-dasharray:6 4;stroke-linecap:round}
+.dg .alt{fill:none;stroke:var(--faint);stroke-width:1.5;stroke-dasharray:3 3}
+.dg .band{fill:var(--accent);opacity:.14;stroke:none}
+.dg .zone{fill:var(--surface);stroke:var(--border)}
+.dg .soft{fill:var(--accent-soft);stroke:none}
+.dg .ceil{fill:none;stroke:var(--crit);stroke-width:1.3;stroke-dasharray:5 4}
+.dg .pt{fill:var(--text)}
+.dg .pa{fill:var(--accent)}
+.dg .bad{fill:none;stroke:var(--crit);stroke-width:1.8}
+.dg .badf{fill:var(--crit)}
+.dg .okf{fill:var(--ok)}
+.dg .box{fill:var(--surface);stroke:var(--border-strong);stroke-width:1}
+.dg .boxa{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1}
+.dg .edge{fill:none;stroke:var(--faint);stroke-width:1.2}
+.dg .head{fill:var(--faint)}
+.dg text{font-family:var(--sans);font-size:11px;fill:var(--muted)}
+.dg .t{fill:var(--text)}
+.dg .tm{font-family:var(--mono);font-size:11px;fill:var(--text)}
+.dg .ta{fill:var(--accent-text);font-weight:600}
+.dg .tc{fill:var(--crit);font-weight:600}
+.dg .ts{font-size:10px;fill:var(--faint)}
+.dg-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:12px 24px;margin:14px 0 18px}
+.dg-row .dg{margin:0;max-width:190px}
+.dg-row figcaption,.dg-fig figcaption{font-size:13px;color:var(--muted);margin-top:4px}
+.dg-fig{margin:0}

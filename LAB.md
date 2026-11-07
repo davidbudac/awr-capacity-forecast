@@ -36,7 +36,7 @@ ORDS module. Every sqlplus call needs the oraenv preamble:
 then `ALTER SESSION SET CONTAINER = PDB1; ALTER SESSION SET CURRENT_SCHEMA = CAPDEMO;`.
 To re-anchor the fixtures to today: from `~/awr-capacity-forecast` on the
 VM run `@test/demo_fixture.sql` (CAPDEMO) or `@test/fixture_install.sql`
-(CAPTEST), then `DEFINE seam_mode = fixture`, `@install.sql`,
+(CAPTEST), then `DEFINE deploy_mode = fixture`, `@install.sql`,
 `EXEC cap_forecast_ml.train_all`, then `@grafana/ords/awrcap_module.sql CAPDEMO`
 if the schema was recreated. One harness at a time.
 
@@ -92,7 +92,7 @@ not touch those. Ours: workspace **AWRCAP**, parsing schema **AWRCAP**, app
 The data is the demo story installed INTO FREEPDB1 (schema AWRCAP, fixture
 mode, `test/demo_fixture.sql`, ESM models trained), not the dbmint VM, so the
 app works with the VM down. Re-anchor it to today with the same four steps
-as on the VM (fixture, `DEFINE seam_mode = fixture`, `@install.sql`,
+as on the VM (fixture, `DEFINE deploy_mode = fixture`, `@install.sql`,
 `EXEC cap_forecast_ml.train_all`) connected as AWRCAP, then press **Refresh
 data** in the app.
 

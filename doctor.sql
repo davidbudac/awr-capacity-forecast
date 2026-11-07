@@ -21,7 +21,7 @@
 -- The DBA_HIST_* checks count only when the install reads DBA_HIST_* (local
 -- mode). Doctor takes the mode from the installed CAPV_SNAPSHOT, assumes local
 -- before install, and lets a caller say which install it is about to run:
---   SQL> DEFINE cap_doctor_mode = fixture     -- local | warehouse | fixture
+--   SQL> DEFINE cap_doctor_mode = fixture     -- local | repository | warehouse | fixture
 --   SQL> @doctor.sql
 -- quickstart.sql sets it to local.
 --
@@ -76,7 +76,7 @@ DECLARE
     v_short_hist    PLS_INTEGER := 0;       -- sources with < min_train_days
     v_retention_d   NUMBER;
     v_installed     BOOLEAN     := FALSE;
-    v_seam_mode     VARCHAR2(30);           -- local | warehouse | fixture
+    v_deploy_mode     VARCHAR2(30);           -- local | warehouse | fixture
     v_seam_refs     VARCHAR2(200);
     v_hist_applies  BOOLEAN     := TRUE;    -- FALSE in fixture / warehouse mode
     v_intended      VARCHAR2(30) := :cap_doctor_mode_v;   -- caller's DEFINE, or NULL
@@ -274,7 +274,7 @@ BEGIN
         note('mode under test : ' || v_intended || ' (DEFINE cap_doctor_mode)');
     END IF;
 
-    -- Installed here? Then the knobs come from CAP_CFG and the seam mode is
+    -- Installed here? Then the knobs come from CAP_CFG and the deploy mode is
     -- inferred from what CAPV_SNAPSHOT actually depends on.
     DECLARE
         v_rows NUMBER;
@@ -300,16 +300,17 @@ BEGIN
                     AND  name  = 'CAPV_SNAPSHOT'
                     AND  type  = 'VIEW') LOOP
             v_seam_refs := SUBSTR(v_seam_refs || r.referenced_name || ' ', 1, 200);
-            IF    r.referenced_name = 'DBA_HIST_SNAPSHOT'      THEN v_seam_mode := 'local';
-            ELSIF r.referenced_name LIKE 'AWRV\_%' ESCAPE '\'  THEN v_seam_mode := 'warehouse';
-            ELSIF r.referenced_name LIKE 'CAP\_FIXTURE\_%' ESCAPE '\' THEN v_seam_mode := 'fixture';
+            IF    r.referenced_name = 'DBA_HIST_SNAPSHOT'      THEN v_deploy_mode := 'local';
+            ELSIF r.referenced_name LIKE 'AWRV\_%' ESCAPE '\'  THEN v_deploy_mode := 'warehouse';
+            ELSIF r.referenced_name LIKE 'CAP\_H\_%' ESCAPE '\' THEN v_deploy_mode := 'repository';
+            ELSIF r.referenced_name LIKE 'CAP\_FIXTURE\_%' ESCAPE '\' THEN v_deploy_mode := 'fixture';
             END IF;
         END LOOP;
     END IF;
-    IF v_intended NOT IN ('local', 'warehouse', 'fixture') THEN
+    IF v_intended NOT IN ('local', 'repository', 'warehouse', 'fixture') THEN
         v_intended := NULL;
     END IF;
-    v_hist_applies := COALESCE(v_intended, v_seam_mode, 'local') = 'local';
+    v_hist_applies := COALESCE(v_intended, v_deploy_mode, 'local') = 'local';
 
     -- =================================================================
     -- 1. Target schema
@@ -357,7 +358,7 @@ BEGIN
                 v_pack_ok := TRUE;
                 emit('PASS', 'pack access', v_val);
             ELSE
-                emit('FAIL', 'pack access', v_val
+                emit(hst('FAIL'), 'pack access', v_val
                      || ' -- AWR is not licensed/enabled; DBA_HIST_* will be empty');
             END IF;
         ELSE
@@ -371,7 +372,7 @@ BEGIN
             emit('WARN', 'statistics_level',
                  'cannot read v$parameter (' || NVL(v_e, 'no row') || ')');
         ELSIF UPPER(v_val) = 'BASIC' THEN
-            emit('FAIL', 'statistics_level', 'BASIC -- AWR takes no automatic snapshots');
+            emit(hst('FAIL'), 'statistics_level', 'BASIC -- AWR takes no automatic snapshots');
         ELSE
             emit('PASS', 'statistics_level', v_val);
         END IF;
@@ -382,7 +383,7 @@ BEGIN
     -- =================================================================
     hdr(' 3. DBA_HIST_* readable (local seam, ' || v_views.COUNT || ' views)');
     IF NOT v_hist_applies THEN
-        note('Seam mode is ' || COALESCE(v_intended, v_seam_mode)
+        note('Deploy mode is ' || COALESCE(v_intended, v_deploy_mode)
              || ': these views are not used, so these lines are INFO.');
     END IF;
     FOR i IN 1 .. v_views.COUNT LOOP
@@ -485,6 +486,24 @@ BEGIN
             ELSE
                 emit('WARN', 'direct MINING MODEL', v_schema
                      || ' lacks a direct CREATE MINING MODEL; Tier 2 training will fail');
+            END IF;
+        END;
+    END IF;
+
+    -- cap_repo (repository mode) creates its DB links with the owner's
+    -- DIRECT privileges too. Without it, register targets over links the
+    -- DBA made (cap_repo.add_target p_db_link).
+    IF COALESCE(v_intended, v_deploy_mode) = 'repository' AND v_schema <> 'SYS' THEN
+        DECLARE
+            v_g NUMBER := direct_sys_priv('CREATE DATABASE LINK');
+        BEGIN
+            IF v_g IS NULL THEN
+                emit('WARN', 'direct DB LINK', 'cannot read DBA_SYS_PRIVS for ' || v_schema);
+            ELSIF v_g = 1 THEN
+                emit('PASS', 'direct DB LINK', 'granted directly to ' || v_schema);
+            ELSE
+                emit('WARN', 'direct DB LINK', v_schema || ' lacks a direct CREATE DATABASE'
+                     || ' LINK; add_target can only use links a DBA made (p_db_link)');
             END IF;
         END;
     END IF;
@@ -733,13 +752,13 @@ BEGIN
             END IF;
         END;
 
-        IF v_seam_mode IS NULL AND v_seam_refs IS NULL THEN
-            emit('WARN', 'seam mode', 'CAPV_SNAPSHOT not found in this schema');
-        ELSIF v_seam_mode IS NULL THEN
-            emit('WARN', 'seam mode', 'unrecognised: ' || v_seam_refs);
+        IF v_deploy_mode IS NULL AND v_seam_refs IS NULL THEN
+            emit('WARN', 'deploy mode', 'CAPV_SNAPSHOT not found in this schema');
+        ELSIF v_deploy_mode IS NULL THEN
+            emit('WARN', 'deploy mode', 'unrecognised: ' || v_seam_refs);
         ELSE
-            emit('PASS', 'seam mode', v_seam_mode || '  (CAPV_SNAPSHOT -> ' || v_seam_refs || ')');
-            IF v_seam_mode = 'local' AND (v_seam_fails > 0 OR v_grant_missing > 0) THEN
+            emit('PASS', 'deploy mode', v_deploy_mode || '  (CAPV_SNAPSHOT -> ' || v_seam_refs || ')');
+            IF v_deploy_mode = 'local' AND (v_seam_fails > 0 OR v_grant_missing > 0) THEN
                 note('Local seam installed but some DBA_HIST_* view is unreadable or not');
                 note('granted directly (check 3).');
             END IF;
@@ -996,11 +1015,12 @@ BEGIN
         note('cannot read every DBA_HIST_* view the seam needs (check 3).');
     END IF;
     IF NOT v_hist_applies THEN
-        note('Seam mode here is ' || COALESCE(v_intended, v_seam_mode)
+        note('Deploy mode here is ' || COALESCE(v_intended, v_deploy_mode)
              || ', so checks 3, 5 and 6 (DBA_HIST_*)');
         note('do not apply to this install -- the data comes from '
-             || CASE COALESCE(v_intended, v_seam_mode)
+             || CASE COALESCE(v_intended, v_deploy_mode)
                      WHEN 'warehouse' THEN 'the AWRV_* views.'
+                     WHEN 'repository' THEN 'the CAP_H_* copies (cap_repo.collect).'
                      ELSE 'CAP_FIXTURE_* tables.' END);
     ELSIF NOT v_installed AND v_intended IS NULL THEN
         note('Not installed here, so checks 3, 5 and 6 assume local mode. Fixture and');

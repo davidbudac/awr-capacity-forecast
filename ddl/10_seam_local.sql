@@ -137,9 +137,10 @@ WHERE  stat_name IN ('BUSY_TIME','IDLE_TIME','IOWAIT_TIME',
 --     DB CPU series and the root's series was really the whole CDB.
 --   * PDB$SEED is dropped by CON_ID <> 2 (CON_ID 2 is always the seed in a
 --     CDB). It runs no workload and would only add a zero series.
---   * Fallback: a snapshot with no CON_ row at all (a non-CDB, or AWR data
---     imported from one) reads DBA_HIST_SYS_TIME_MODEL, where con_dbid is
---     the dbid.
+--   * Fallback: a snapshot with no CON_ row for the statistic (a non-CDB, or
+--     AWR data imported from one) reads DBA_HIST_SYS_TIME_MODEL, where
+--     con_dbid is the dbid. Matching on the statistic, not on any CON_ row,
+--     keeps the repository's copies (only these three names) exact.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capv_time_model AS
 SELECT c.dbid                   AS dbid,
@@ -158,7 +159,8 @@ WHERE  s.stat_name IN ('DB CPU','DB time','background cpu time')
   AND  NOT EXISTS (SELECT 1
                    FROM   dba_hist_con_sys_time_model c
                    WHERE  c.dbid = s.dbid AND c.snap_id = s.snap_id
-                     AND  c.instance_number = s.instance_number);
+                     AND  c.instance_number = s.instance_number
+                     AND  c.stat_name = s.stat_name);
 
 -- --------------------------------------------------------------------
 -- CAPV_CONTAINER -- container/database naming dimension: one row per
@@ -248,7 +250,8 @@ WHERE  s.stat_name = 'redo size'
   AND  NOT EXISTS (SELECT 1
                    FROM   dba_hist_con_sysstat c
                    WHERE  c.dbid = s.dbid AND c.snap_id = s.snap_id
-                     AND  c.instance_number = s.instance_number);
+                     AND  c.instance_number = s.instance_number
+                     AND  c.stat_name = s.stat_name);
 
 -- --------------------------------------------------------------------
 -- CAPV_PARAMETER -- the init parameters the suite reads as ceilings, one

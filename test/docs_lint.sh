@@ -2,7 +2,7 @@
 # test/docs_lint.sh -- catch documentation drift against the DDL.
 # Bash + grep/awk only. Five checks, each prints one OK / FAIL summary line:
 #   1. every knob the ddl/05 seed MERGE inserts is named in docs/reference.html;
-#   2. every view / table / package / procedure that ddl/ and ml/ create is
+#   2. every view / table / package / procedure that ddl/, ml/ and repository/ create is
 #      named in the object index of docs/reference.html (id="objects" up to
 #      id="teardown"), case-insensitive;
 #   3. no document hard-codes an assertion count (the harness prints its own;
@@ -41,7 +41,7 @@ done
 report "knobs seeded in ddl/05 named in $REF" "$(echo "$knobs" | grep -c .)" "$miss"
 
 # ---- 2. objects -------------------------------------------------------------
-objects=$(cat ddl/*.sql ml/*.pks ml/*.pkb 2>/dev/null \
+objects=$(cat ddl/*.sql ml/*.pks ml/*.pkb repository/*.sql 2>/dev/null \
   | grep -v -E '^\s*--' \
   | grep -oiE "CREATE( OR REPLACE)?( FORCE)? (VIEW|TABLE|PACKAGE|PROCEDURE|FUNCTION|TYPE) +[a-z0-9_\$]+" \
   | grep -viE 'PACKAGE BODY|TYPE BODY' \
@@ -51,7 +51,7 @@ miss=""
 for o in $objects; do
   printf '%s' "$index_txt" | grep -qE "(^|[^A-Z0-9_\$])${o//\$/\\\$}([^A-Z0-9_\$]|$)" || miss="$miss$o"$'\n'
 done
-report "objects created in ddl/ + ml/ named in the $REF object index" "$(echo "$objects" | grep -c .)" "$miss"
+report "objects created in ddl/ + ml/ + repository/ named in the $REF object index" "$(echo "$objects" | grep -c .)" "$miss"
 
 # ---- 3. hard-coded assertion counts ------------------------------------------
 # A standalone number of two or more digits (not part of 19c, 18:00 or M15)

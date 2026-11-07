@@ -3,7 +3,7 @@
 -- =====================================================================
 -- Runs, in order:
 --   1. doctor.sql          preflight checklist (read-only; PASS/WARN/FAIL)
---   2. install.sql         seam_mode = local, into the current schema
+--   2. install.sql         deploy_mode = local, into the current schema
 --   3. report/report.sql   the first text report -> reports/cap_report_*.txt
 --
 -- Usage -- from the REPO ROOT (the @@ includes resolve from the outermost
@@ -15,7 +15,7 @@
 -- or simply  ./quickstart.sh  (same thing, wrapped).
 --
 -- Local mode only. For warehouse / fixture mode use install.sql directly with
--- DEFINE seam_mode (see docs: Reference -> Advanced install).
+-- DEFINE deploy_mode (see docs: Reference -> Advanced install).
 --
 -- Read-only against AWR: the only writes are the suite's own CAP_CONFIG /
 -- CAP_TBSPC_OVERRIDE / CAP_ML_MODEL tables. Re-running is idempotent.
@@ -81,8 +81,8 @@ COLUMN cap_gate CLEAR
 WHENEVER SQLERROR CONTINUE
 
 PROMPT
-PROMPT ==== [2/3] install -- install.sql  (seam_mode = local) ====
-DEFINE seam_mode = 'local'
+PROMPT ==== [2/3] install -- install.sql  (deploy_mode = local) ====
+DEFINE deploy_mode = 'local'
 @@install.sql
 
 PROMPT
@@ -98,6 +98,6 @@ PROMPT    EXEC DBMS_WORKLOAD_REPOSITORY.MODIFY_SNAPSHOT_SETTINGS(retention => 90
 PROMPT  then re-run @report/report.sql once history has accumulated.
 PROMPT ############################################################
 PROMPT
-UNDEFINE seam_mode
+UNDEFINE deploy_mode
 UNDEFINE force_install
 UNDEFINE cap_doctor_mode

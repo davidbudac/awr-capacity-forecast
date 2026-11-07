@@ -21,6 +21,7 @@
 --   SQL> DEFINE owner_pw    = secret      -- omitted: NO AUTHENTICATION
 --   SQL> DEFINE owner_ts    = USERS       -- default: database default tablespace
 --   SQL> DEFINE owner_quota = 1G          -- default 1G; UNLIMITED is allowed
+--   SQL> DEFINE owner_mode  = repository  -- default local; see below
 --   SQL> @create_owner.sql
 --
 -- Without owner_pw the user is schema-only (NO AUTHENTICATION): nobody can log
@@ -36,6 +37,14 @@
 --           plus DBA_HIST_WR_CONTROL and V_$PARAMETER, which only doctor.sql
 --           reads (retention, pack access, STATISTICS_LEVEL).
 --   quota   owner_quota on owner_ts.
+--   owner_mode = repository: CREATE DATABASE LINK instead of the DBA_HIST_*
+--           grants and CONTAINER_DATA. A repository reads the copies it
+--           pulls from its targets (repository/cap_repo.sql), not its own AWR,
+--           and its definer's-rights collector creates the links it uses.
+--   CDB$ROOT only: CONTAINER_DATA = ALL. The DBA_HIST_* rows a session sees
+--           follow the querying user, and a common user without it sees the
+--           root's rows only (verified on 19.27), so the owner's own sessions
+--           and its scheduler jobs would lose every PDB series.
 --
 -- Idempotent: an existing user (ORA-01920) is kept as is, password and default
 -- tablespace untouched; the quota and grants are re-applied. Exits non-zero if
@@ -57,7 +66,9 @@ COLUMN cap_o_in  NEW_VALUE owner       NOPRINT
 COLUMN cap_p_in  NEW_VALUE owner_pw    NOPRINT
 COLUMN cap_t_in  NEW_VALUE owner_ts    NOPRINT
 COLUMN cap_q_in  NEW_VALUE owner_quota NOPRINT
-SELECT NULL AS cap_o_in, NULL AS cap_p_in, NULL AS cap_t_in, NULL AS cap_q_in
+COLUMN cap_m_in  NEW_VALUE owner_mode  NOPRINT
+SELECT NULL AS cap_o_in, NULL AS cap_p_in, NULL AS cap_t_in, NULL AS cap_q_in,
+       NULL AS cap_m_in
 FROM   dual WHERE 1 = 0;
 
 COLUMN cap_o_eff NEW_VALUE owner       NOPRINT
@@ -75,6 +86,7 @@ COLUMN cap_o_in  CLEAR
 COLUMN cap_p_in  CLEAR
 COLUMN cap_t_in  CLEAR
 COLUMN cap_q_in  CLEAR
+COLUMN cap_m_in  CLEAR
 COLUMN cap_o_eff CLEAR
 COLUMN cap_t_eff CLEAR
 COLUMN cap_q_eff CLEAR
@@ -91,6 +103,7 @@ DECLARE
     v_pw     VARCHAR2(128) := '&owner_pw';
     v_ts     VARCHAR2(128) := DBMS_ASSERT.SIMPLE_SQL_NAME('&owner_ts');
     v_quota  VARCHAR2(20)  := '&owner_quota';
+    v_mode   VARCHAR2(20)  := LOWER(NVL('&owner_mode', 'local'));
     v_cont   VARCHAR2(20);
     v_fail   PLS_INTEGER   := 0;
     v_new    BOOLEAN       := TRUE;
@@ -122,6 +135,14 @@ DECLARE
             DBMS_OUTPUT.PUT_LINE('          ' || SQLERRM);
     END run;
 BEGIN
+    IF v_mode NOT IN ('local', 'repository') THEN
+        RAISE_APPLICATION_ERROR(-20001, 'owner_mode must be local or repository, not ' || v_mode);
+    END IF;
+    IF v_mode = 'repository' THEN
+        v_sys.EXTEND;
+        v_sys(v_sys.LAST) := 'CREATE DATABASE LINK';
+        v_obj := t_list();
+    END IF;
     IF NOT REGEXP_LIKE(v_quota, '^([0-9]+[KMGT]?|UNLIMITED)$') THEN
         RAISE_APPLICATION_ERROR(-20001, 'owner_quota must look like 500M, 1G or UNLIMITED, not '
                                         || v_quota);
@@ -167,6 +188,9 @@ BEGIN
     FOR i IN 1 .. v_obj.COUNT LOOP
         run('GRANT SELECT ON SYS.' || v_obj(i) || ' TO ' || v_owner || v_cont);
     END LOOP;
+    IF v_cont IS NOT NULL AND v_mode = 'local' THEN
+        run('ALTER USER ' || v_owner || ' SET CONTAINER_DATA = ALL CONTAINER = CURRENT');
+    END IF;
 
     DBMS_OUTPUT.PUT_LINE(' ');
     IF v_fail > 0 THEN
@@ -187,7 +211,7 @@ BEGIN
         DBMS_OUTPUT.PUT_LINE('    CONNECT ' || v_owner || '/<password>');
     END IF;
     DBMS_OUTPUT.PUT_LINE('    @doctor.sql');
-    DBMS_OUTPUT.PUT_LINE('    DEFINE seam_mode = local');
+    DBMS_OUTPUT.PUT_LINE('    DEFINE deploy_mode = ' || v_mode);
     DBMS_OUTPUT.PUT_LINE('    @install.sql');
 END;
 /
