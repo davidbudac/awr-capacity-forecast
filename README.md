@@ -1,4 +1,4 @@
-# AWR Capacity Predictions
+# AWR Capacity Forecast
 
 SQL-level capacity forecasting and deterministic anomaly detection **inside**
 Oracle Database (19c floor), driven entirely by AWR history. No external ML
@@ -6,10 +6,10 @@ stack and no agent: views, two operator tables, an OML package, a results
 package, and read-only SQL\*Plus reports (text, HTML, CSV). Three optional
 visual paths (Kibana, Grafana over ORDS, Oracle APEX) read the same views.
 
-📖 **Documentation site:** <https://davidbudac.github.io/awr_capacity_predictions/>
+📖 **Documentation site:** <https://davidbudac.github.io/awr-capacity-forecast/>
 
-🧪 **Sample report** (real output, fictional database): <https://davidbudac.github.io/awr_capacity_predictions/demo/cap_report_demo.html>
-(and the one-page briefing: <https://davidbudac.github.io/awr_capacity_predictions/demo/cap_brief_demo.html>)
+🧪 **Sample report** (real output, fictional database): <https://davidbudac.github.io/awr-capacity-forecast/demo/cap_report_demo.html>
+(and the one-page briefing: <https://davidbudac.github.io/awr-capacity-forecast/demo/cap_brief_demo.html>)
 
 What it answers:
 
@@ -104,8 +104,8 @@ which seam file `install.sql` loads.
 On the database host (or anywhere `sqlplus` can reach `CDB$ROOT` as sysdba):
 
 ```bash
-git clone https://github.com/davidbudac/awr_capacity_predictions.git
-cd awr_capacity_predictions
+git clone https://github.com/davidbudac/awr-capacity-forecast.git
+cd awr-capacity-forecast
 ./quickstart.sh                  # preflight (doctor.sql) + install (local mode) + first report
 ```
 
@@ -124,7 +124,7 @@ SYSDBA: `C##AWRCAP` in CDB$ROOT, `AWRCAP` in a PDB, with direct grants on
 every DBA_HIST_* view the seam reads) and install as that user.
 
 **New here?** The fifteen-minute
-[tutorial](https://davidbudac.github.io/awr_capacity_predictions/tutorial.html)
+[tutorial](https://davidbudac.github.io/awr-capacity-forecast/tutorial.html)
 (`docs/tutorial.html`) walks from install to the first report and daily use,
 then explains forecasts, bands, days-to-full, quality grades, anomalies and
 their baseline modes, CPU level shifts, freshness and severity, with worked
@@ -278,7 +278,7 @@ SQL> @report/report_brief.sql    -- spools reports/cap_brief_<db>_<ts>.html
 ```
 
 `report/run_report.sh --brief` writes it from cron. See the
-[sample briefing](https://davidbudac.github.io/awr_capacity_predictions/demo/cap_brief_demo.html).
+[sample briefing](https://davidbudac.github.io/awr-capacity-forecast/demo/cap_brief_demo.html).
 
 ## Tier 2 (OML ESM) — optional
 
@@ -317,7 +317,7 @@ A re-install inserts missing keys and refreshes `cfg_default` / `cfg_desc`,
 never your `cfg_value`. The one row it overwrites is `suite_version`, which
 records the release that built the objects and is not a knob. The full knob
 table, with defaults and the `CAP_CFG_CHECK` range rules, is in the
-[reference](https://davidbudac.github.io/awr_capacity_predictions/reference.html#config).
+[reference](https://davidbudac.github.io/awr-capacity-forecast/reference.html#config).
 
 Key knobs: `train_days` (90), `recent_days` (28), `min_train_days` (14),
 `r2_gate` (0.60), `cpu_sat_pct` (80), `cpu_gap_hours` (12: a snapshot
@@ -500,7 +500,7 @@ database host, add `elk/filebeat/awrcap.yml` to Filebeat's `inputs.d/` and
 run `elk/export.sh --sid <sid>` daily. Documents carry deterministic ids, so
 re-exports overwrite. Details, record shapes and limits:
 [`elk/README.md`](elk/README.md); a walkthrough with a screenshot is on the
-[Usage](https://davidbudac.github.io/awr_capacity_predictions/usage.html#kibana)
+[Usage](https://davidbudac.github.io/awr-capacity-forecast/usage.html#kibana)
 page.
 
 ## Optional: Grafana straight from Oracle (ORDS)
@@ -683,7 +683,7 @@ uses — the two are a matched pair; change them together. Cleanup:
 
 `test/demo_fixture.sql` is the other fixture: a designed 150-day story for a
 fictional e-commerce CDB ("ECOMPRD") that produces the
-[sample report](https://davidbudac.github.io/awr_capacity_predictions/demo/cap_report_demo.html).
+[sample report](https://davidbudac.github.io/awr-capacity-forecast/demo/cap_report_demo.html).
 Run it instead of `fixture_install.sql`, then install in fixture mode, run
 `cap_forecast_ml.train_all` and both report drivers.
 

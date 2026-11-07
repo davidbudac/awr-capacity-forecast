@@ -1,5 +1,5 @@
 --
--- doctor.sql -- preflight diagnostic for the AWR capacity-predictions suite.
+-- doctor.sql -- preflight diagnostic for the AWR capacity-forecast suite.
 -- =====================================================================
 -- Answers, in one page, "will this suite actually produce forecasts for me,
 -- and if not, why not?" -- BEFORE you run install.sql, and again afterwards.
@@ -259,7 +259,7 @@ DECLARE
 
 BEGIN
     DBMS_OUTPUT.PUT_LINE(RPAD('=', 74, '='));
-    DBMS_OUTPUT.PUT_LINE(' AWR Capacity Predictions -- doctor.sql preflight');
+    DBMS_OUTPUT.PUT_LINE(' AWR Capacity Forecast -- doctor.sql preflight');
     DBMS_OUTPUT.PUT_LINE(' ' || TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS'));
     DBMS_OUTPUT.PUT_LINE(RPAD('=', 74, '='));
     note('session user    : ' || v_session);

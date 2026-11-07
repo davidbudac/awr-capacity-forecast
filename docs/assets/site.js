@@ -1,5 +1,5 @@
 /* =====================================================================
-   AWR Capacity Predictions — documentation site behaviour.
+   AWR Capacity Forecast — documentation site behaviour.
    Runs on every page from an identical markup shell:
      - marks the current page in the sidebar
      - builds the "On this page" list + scrollspy from section headings

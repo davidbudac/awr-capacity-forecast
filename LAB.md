@@ -34,14 +34,14 @@ data re-anchored to 2026-10-17: **CAPDEMO** (demo_fixture, "ECOMPRD") and
 ORDS module. Every sqlplus call needs the oraenv preamble:
 `export ORACLE_SID=cdb1; export ORAENV_ASK=NO; . oraenv >/dev/null 2>&1; sqlplus -S -L / as sysdba`
 then `ALTER SESSION SET CONTAINER = PDB1; ALTER SESSION SET CURRENT_SCHEMA = CAPDEMO;`.
-To re-anchor the fixtures to today: from `~/awr_capacity_predictions` on the
+To re-anchor the fixtures to today: from `~/awr-capacity-forecast` on the
 VM run `@test/demo_fixture.sql` (CAPDEMO) or `@test/fixture_install.sql`
 (CAPTEST), then `DEFINE seam_mode = fixture`, `@install.sql`,
 `EXEC cap_forecast_ml.train_all`, then `@grafana/ords/awrcap_module.sql CAPDEMO`
 if the schema was recreated. One harness at a time.
 
 Sync the repo to the VM before running anything there:
-`rsync -az --delete -e 'ssh -p 2200' --exclude .git --exclude reports --exclude grafana/.ords.env --exclude grafana/ords/config --exclude grafana/.env ./ oracle@dbmint:~/awr_capacity_predictions/`
+`rsync -az --delete -e 'ssh -p 2200' --exclude .git --exclude reports --exclude grafana/.ords.env --exclude grafana/ords/config --exclude grafana/.env ./ oracle@dbmint:~/awr-capacity-forecast/`
 (the excludes keep the ORDS passwords and wallet off the VM).
 
 ## Start order
@@ -64,7 +64,7 @@ Sync the repo to the VM before running anything there:
    The input `inputs.d/awrcap.yml` is already in place (copy from
    `elk/filebeat/` if not).
 5. **Export for ELK** (daily, or whenever the fixtures were re-anchored):
-   `ssh -p 2200 oracle@dbmint 'cd ~/awr_capacity_predictions && for s in CAPDEMO CAPTEST; do elk/export.sh --sid cdb1 --container PDB1 --schema $s; done'`
+   `ssh -p 2200 oracle@dbmint 'cd ~/awr-capacity-forecast && for s in CAPDEMO CAPTEST; do elk/export.sh --sid cdb1 --container PDB1 --schema $s; done'`
    Filebeat ships within seconds; re-exports overwrite (deterministic ids).
 6. **Kibana objects** only after a builder change: `elk/setup.sh`
    (`ES_URL`/`KIBANA_URL` default to localhost; set them to the Tailscale

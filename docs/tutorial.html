@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Tutorial — AWR Capacity Predictions</title>
+<title>Tutorial — AWR Capacity Forecast</title>
 <meta name="description" content="A fifteen-minute walkthrough: install the suite, read the first report, run it day to day, and understand forecasts, bands, days-to-full, quality grades, anomalies, CPU level shifts, freshness and severity, with worked examples from the sample report.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23b06a0d'/><path d='M16 8L24 23L8 23Z' fill='%23fff'/></svg>">
 <link rel="stylesheet" href="assets/style.css">
@@ -127,7 +127,7 @@
     <a class="brand" href="index.html">
       <div class="brand__mark" aria-hidden="true">▲</div>
       <div>
-        <div class="brand__name">AWR Capacity<br>Predictions</div>
+        <div class="brand__name">AWR Capacity<br>Forecast</div>
         <div class="brand__sub">Documentation</div>
       </div>
     </a>
@@ -146,7 +146,7 @@
     <div class="sidebar__foot">
       <button class="theme-toggle" id="themeBtn" type="button">◐ System</button>
       <a class="sidebar__link" href="demo/cap_report_demo.html" target="_blank" rel="noopener">Sample report ↗</a>
-      <a class="sidebar__link" href="https://github.com/davidbudac/awr_capacity_predictions">Source on GitHub ↗</a>
+      <a class="sidebar__link" href="https://github.com/davidbudac/awr-capacity-forecast">Source on GitHub ↗</a>
     </div>
   </aside>
 
@@ -229,8 +229,8 @@
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">DB host · bash</span><span class="term__tag in">you run</span></div>
-<pre>git clone https://github.com/davidbudac/awr_capacity_predictions.git
-cd awr_capacity_predictions
+<pre>git clone https://github.com/davidbudac/awr-capacity-forecast.git
+cd awr-capacity-forecast
 ./quickstart.sh                      <span class="c-cmt"># sqlplus / as sysdba, CDB$ROOT</span></pre>
       </div>
 
@@ -723,7 +723,7 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
       <nav class="pager" id="pager" aria-label="Previous and next page"></nav>
 
       <footer class="foot">
-        AWR Capacity Predictions · in-database capacity forecasting · Oracle 19c floor<br>
+        AWR Capacity Forecast · in-database capacity forecasting · Oracle 19c floor<br>
         Hand-maintained documentation. Design rationale lives in
         <span class="inline">docs/design.md</span>.
       </footer>

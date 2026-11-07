@@ -242,7 +242,7 @@ SPOOL &cap_path
 @@&cap_tm_stop
 
 PROMPT ================================================================================
-PROMPT  AWR CAPACITY PREDICTIONS -- capacity + anomaly report
+PROMPT  AWR CAPACITY FORECAST -- capacity + anomaly report
 PROMPT ================================================================================
 PROMPT  Database : &cap_db
 PROMPT  Host     : &cap_host

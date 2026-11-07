@@ -1,5 +1,5 @@
 --
--- install.sql -- one-shot installer for the AWR capacity-predictions suite.
+-- install.sql -- one-shot installer for the AWR capacity-forecast suite.
 -- =====================================================================
 -- Creates every CAP_* / CAPV_ / CAPD_ / CAPF_ / CAPA_ object into the CURRENT
 -- schema, wiring the portable seam to one of three data sources.
@@ -49,7 +49,7 @@ ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,';
 
 PROMPT
 PROMPT ============================================================
-PROMPT  AWR Capacity Predictions -- install
+PROMPT  AWR Capacity Forecast -- install
 PROMPT ============================================================
 
 -- Resolve the seam script from seam_mode. An unrecognised mode forces a

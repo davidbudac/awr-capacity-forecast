@@ -113,8 +113,8 @@ complaint.
 
    ```
    rsync -az --delete -e 'ssh -p 2200' --exclude .git --exclude reports \
-       --exclude grafana/.ords.env --exclude grafana/ords/config ./ oracle@dbmint:~/awr_capacity_predictions/
-   # on the VM, from ~/awr_capacity_predictions, sqlplus / as sysdba:
+       --exclude grafana/.ords.env --exclude grafana/ords/config ./ oracle@dbmint:~/awr-capacity-forecast/
+   # on the VM, from ~/awr-capacity-forecast, sqlplus / as sysdba:
    ALTER SESSION SET CONTAINER = PDB1;
    ALTER SESSION SET CURRENT_SCHEMA = CAPDEMO;
    @ddl/45_report_views.sql

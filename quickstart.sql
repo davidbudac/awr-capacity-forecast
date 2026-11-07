@@ -35,7 +35,7 @@ SET FEEDBACK OFF
 
 PROMPT
 PROMPT ############################################################
-PROMPT  AWR Capacity Predictions -- quickstart (local mode)
+PROMPT  AWR Capacity Forecast -- quickstart (local mode)
 PROMPT  1/3 preflight   2/3 install   3/3 first report
 PROMPT ############################################################
 PROMPT

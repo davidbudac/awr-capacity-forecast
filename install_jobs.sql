@@ -91,7 +91,7 @@ SET TERMOUT ON
 
 PROMPT
 PROMPT ============================================================
-PROMPT  AWR Capacity Predictions -- scheduler jobs (opt-in)
+PROMPT  AWR Capacity Forecast -- scheduler jobs (opt-in)
 PROMPT ============================================================
 PROMPT  report_dir = &report_dir  (directory object for the alert snapshot)
 PROMPT  retrain    = &retrain_interval  (CAP_ML_RETRAIN schedule)
@@ -189,7 +189,7 @@ BEGIN
 
     l_f := UTL_FILE.FOPEN(UPPER(p_dir), c_file, 'w', 32767);
 
-    UTL_FILE.PUT_LINE(l_f, '# AWR Capacity Predictions -- alert snapshot');
+    UTL_FILE.PUT_LINE(l_f, '# AWR Capacity Forecast -- alert snapshot');
     UTL_FILE.PUT_LINE(l_f, '# generated : '
                            || TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS'));
     UTL_FILE.PUT_LINE(l_f, '# database  : ' || SYS_CONTEXT('USERENV', 'DB_NAME')

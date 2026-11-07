@@ -82,7 +82,7 @@ SET TERMOUT ON
 
 PROMPT
 PROMPT ============================================================
-PROMPT  AWR Capacity Predictions -- create_owner
+PROMPT  AWR Capacity Forecast -- create_owner
 PROMPT ============================================================
 
 DECLARE

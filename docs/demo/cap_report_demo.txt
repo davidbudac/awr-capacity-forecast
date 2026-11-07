@@ -1,5 +1,5 @@
 ================================================================================
-AWR CAPACITY PREDICTIONS -- capacity + anomaly report
+AWR CAPACITY FORECAST -- capacity + anomaly report
 ================================================================================
 Database : ECOMPRD
 Host     : db-prod-01.example.com

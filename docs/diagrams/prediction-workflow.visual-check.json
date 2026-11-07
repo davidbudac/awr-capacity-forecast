@@ -6,7 +6,7 @@
   "status": "pass",
   "visualReview": "pending",
   "artifact": {
-    "path": "/Users/davidbudac/claude_projects/awr_capacity_predictions/docs/diagrams/prediction-workflow.html",
+    "path": "/Users/davidbudac/claude_projects/awr-capacity-forecast/docs/diagrams/prediction-workflow.html",
     "sha256": "1e6a0e7a5c793039dabdeeeb3483cbf3b4536bf4c78cc06785352f3752f1aebd",
     "bytes": 813616
   },

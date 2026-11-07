@@ -1,4 +1,4 @@
-# Design — AWR Capacity Predictions
+# Design — AWR Capacity Forecast
 
 This document explains *why* each layer is shaped the way it is. For usage see
 `README.md`; for change-safety notes see `CLAUDE.md`.

@@ -12,7 +12,7 @@
 # snapshot bands with idle troughs in between -- the troughs matter as much as
 # the peaks for a believable daily profile.
 
-BENCH=/home/db/github/awr_capacity_predictions/bench
+BENCH=/home/db/github/awr-capacity-forecast/bench
 SHELL=/bin/bash
 
 0  6  * * *  $BENCH/run_phase.sh ramp  >> $BENCH/logs/cron.log 2>&1

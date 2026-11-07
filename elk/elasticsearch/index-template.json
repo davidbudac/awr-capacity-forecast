@@ -8,7 +8,7 @@
       "anomaly": "one per flagged event and baseline mode: tablespace growth, host CPU, DB CPU, workload series level/growth outlier (cap.baseline_mode TRAILING / SAME_DOW / HOUR_OF_WEEK, cap.grain DAY / HOUR), or a DB CPU level shift (no baseline_mode). The id keys on kind, series, mode and hour. @timestamp = the event day or hour (shift: first day of the recent window); cap.obs_day = the day (shift: last day of the window).",
       "alert": "one per CAPR_ALERTS row per export day (anomaly kinds: one per series, day and baseline mode). @timestamp = export day; cap.obs_day = the day the alert refers to."
     },
-    "managed_by": "awr_capacity_predictions/elk"
+    "managed_by": "awr-capacity-forecast/elk"
   },
   "index_patterns": [
     "awrcap-capacity*"
