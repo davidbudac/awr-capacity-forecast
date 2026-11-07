@@ -59,7 +59,7 @@
       </section>
 
       <p>The report has eight sections. Read them top to bottom, drill into any row you don't
-        believe, and wire <span class="inline">CAPR_ALERTS</span> into whatever already pages you.
+        believe, and <a href="#monitoring">wire the alerts</a> into whatever already pages you.
         Nothing here writes to your AWR data.</p>
 
       <!-- ===================== RUN ===================== -->
@@ -136,8 +136,8 @@
       <div class="section-head" id="html">
         <span class="eyebrow">Generate · alternative</span>
         <h2>HTML report</h2>
-        <p>A sibling driver renders the same sections as one self-contained HTML dashboard instead of
-          plain text — open the spooled file directly in a browser.</p>
+        <p>One self-contained page, one section per monitored metric, a chart for every series.
+          Open the spooled file in a browser.</p>
       </div>
 
       <div class="term in">
@@ -149,25 +149,22 @@
       </div>
 
       <p><span class="inline">report/report_html.sql</span> shares the same defaults file, the same
-        knobs, and the same <b>read-only</b> guarantee as the text report — the HTML is assembled in one
-        PL/SQL block via <span class="inline">DBMS_OUTPUT</span> and captured by <span class="inline">SPOOL</span>.
-        It opens with a verdict strip (critical, warnings, forecast quality, host CPU p95, Tier 2 models,
-        the last refresh run and data coverage) and a ranked <em>attention list</em> built from <span class="inline">CAPR_ALERTS</span>: one row per
-        issue with the number that matters at the right, and one line naming everything that is healthy.
-        Then come the charts, all drawn with one grammar: area under history, the 95% prediction band as a
-        shaded wedge, a labelled ceiling or saturation line, a “today” divider, hollow rings on unusual days,
-        the ESM point with its interval (at the model's furthest step, labelled "ESM +N days"), and the date
-        printed where the projection crosses the ceiling. The whole-database hero reads the suite's own
-        <span class="inline">DB_SIZE_GB</span> fit, so it prints the same days figure as section 7.
-        Tablespaces that need a look get a card with days-to-full as the big figure; flat or far-from-full ones
-        collapse into a one-row sparkline strip. CPU shows the busy-hour p95 (what saturates) and each
-        container’s DB CPU as a share of the host’s logical CPUs, with any sustained level shift shaded. Unusual days
-        are dot strips per series with the numbers folded underneath, and Tier 2 vs Tier 1 is one row per
-        series with the backtest verdict. Each section renders inside its own exception block: a broken
-        view prints a red block for that section, the footer counts it, and the rest of the page survives. Every column header carries a plain-English tooltip, the
-        glossary sits in one “How to read this report” fold, and it all renders as plain
-        <code>&lt;svg&gt;</code> with no chart library and no external assets, plus a sticky section nav and
-        a light/dark toggle. See the <a href="demo/cap_report_demo.html" target="_blank" rel="noopener">sample report</a>.</p>
+        knobs and the same <b>read-only</b> guarantee as the text report. Each metric is its own section:
+        tablespaces, database size, host CPU, DB CPU, sessions, processes, redo, undo, temp and ASM disk
+        groups. Each series is a card with its status, the numbers that matter (now, share of the limit,
+        growth, days to the limit) and a chart, drawn whether or not anything is wrong: history, the dashed
+        forecast with its 95% band, the limit and its warning line, a “today” divider, rings on unusual days,
+        the ESM point, and a dot where the forecast crosses the line the days figure counts to. CPU cards add
+        a 14-day by 24-hour heat strip with the flagged hours outlined. The page opens with the alert counts,
+        one index row per metric (status, headline, sparkline, the date its soonest limit is reached), the <span class="inline">CAPR_ALERTS</span> list, each row linking to its
+        card; hovering a chart prints the value of that day. Past <code>top_n</code> series in one metric,
+        the rest are compact rows with a sparkline. The SQL writes the rows of the point-feed views
+        (<span class="inline">CAPR_FIT</span>, <span class="inline">CAPR_SERIES_POINTS</span>,
+        <span class="inline">CAPR_FORECAST_POINTS</span>, <span class="inline">CAPR_ANOMALIES</span>,
+        <span class="inline">CAPR_ALERTS</span>, <span class="inline">CAPR_HOURLY_POINTS</span>) into the page
+        as JSON, and a script in the page draws it: no library, no external assets, works offline, needs
+        JavaScript. A view that fails leaves its block empty and the page names it. See the
+        <a href="demo/cap_report_demo.html" target="_blank" rel="noopener">sample report</a>.</p>
 
       <p><span class="inline">report/report_brief.sql</span> is the optional one-page briefing for a reader who
         wants the answer rather than the tables. It leads with one sentence (what fills, when, and how much
@@ -181,8 +178,8 @@
         <span class="ico">i</span>
         <p><strong>The two drivers read the same rows.</strong> Both consume the
         <span class="k">CAPR_</span> per-section views, where every derived number, label, severity
-        marker and unit conversion is computed once; only chart geometry is calculated in the HTML
-        driver. The text and HTML reports therefore cannot show different numbers.</p>
+        marker and unit conversion is computed once; the HTML driver reads the point-feed views built on
+        them and only lays the rows out. The text and HTML reports therefore cannot show different numbers.</p>
       </div>
 
       <!-- ===================== READING THE REPORT ===================== -->
@@ -287,6 +284,129 @@
         <span class="inline">drill_tbspc.sql</span> requires a tablespace name — without one it prints
         usage and stops. Both are read-only, never prompt, and
         <code>UNDEFINE</code> their arguments at the end.</p>
+
+      <!-- ===================== MONITORING ===================== -->
+      <div class="section-head" id="monitoring">
+        <span class="eyebrow">Integrate</span>
+        <h2>Monitoring: alarm on days to full</h2>
+        <p>Plain SQL that an existing monitor (OEM metric extension, Zabbix, Nagios, a scheduler job)
+          can run to page someone before a tablespace fills. Every query here only SELECTs.</p>
+      </div>
+
+      <p>Pick one of three levels. The suite computes days to full the same way at every level. The
+        levels differ in who owns the threshold and who remembers what already paged.</p>
+
+      <div class="tablewrap">
+        <table>
+          <caption>Three ways to feed a monitor</caption>
+          <thead><tr><th scope="col">Level</th><th scope="col">Read</th><th scope="col">Thresholds</th><th scope="col">Use when</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td><span class="inline">CAPR_TBSPC_DAYS_TO_FULL</span></td><td class="def">Yours, in the monitor</td><td class="def">The monitor already holds the alarm rules and only needs the numbers.</td></tr>
+            <tr><td class="num">2</td><td><span class="inline">CAPR_ALERTS</span></td><td class="def">The suite's: <span class="inline">dtf_warn</span> / <span class="inline">dtf_crit</span>, per tablespace in <span class="inline">CAP_TBSPC_OVERRIDE</span></td><td class="def">The monitor de-duplicates on its own key and alarms on <code>severity</code>.</td></tr>
+            <tr><td class="num">3</td><td><span class="inline">CAPR_ALERTS_LATEST</span> + <span class="inline">CAPR_ALERT_EVENTS</span></td><td class="def">The suite's, plus open / resolved state and acks</td><td class="def">You want one page per change (new, escalated, resolved), not one per poll.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Level 1: the numbers, your thresholds</h3>
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">SQL*Plus</span><span class="term__tag in">poll it</span></div>
+<pre><span class="c-prompt">SQL&gt;</span> SELECT db_pdb, tablespace_name,
+  2         ROUND(pct_used, 1) pct_used, ROUND(cur_gb, 1) cur_gb, ROUND(limit_gb, 1) limit_gb,
+  3         ROUND(slope_mb, 1) mb_per_day,
+  4         days_to_full,                   <span class="c-cmt">-- point estimate; NULL = not growing or no fit</span>
+  5         dtf_worst, dtf_best,            <span class="c-cmt">-- the prediction band (worst = soonest)</span>
+  6         quality, limit_below_used,
+  7         sev_dtf, sev_nearfull,          <span class="c-cmt">-- the suite's own verdicts, for comparison</span>
+  8         eff_dtf_warn, eff_dtf_crit,     <span class="c-cmt">-- thresholds in force for this tablespace</span>
+  9         need_gib_30, need_gib_90, add_by_day
+ 10    FROM capr_tbspc_days_to_full
+ 11   WHERE is_current = 'Y'
+ 12   ORDER BY rank_dtf;
+
+<span class="c-cmt">-- alarm rule: a trustworthy fit that runs out within 30 days, or a ceiling already under usage</span>
+<span class="c-prompt">SQL&gt;</span> SELECT db_pdb, tablespace_name, days_to_full, dtf_worst, pct_used
+  2    FROM capr_tbspc_days_to_full
+  3   WHERE is_current = 'Y'
+  4     AND (   (quality IN ('OK', 'CYCLIC') AND NVL(dtf_worst, days_to_full) &lt;= 30)
+  5          OR limit_below_used = 'Y');</pre>
+      </div>
+
+      <p>Alarm only on <code>quality</code> <code>OK</code> or <code>CYCLIC</code>.
+        <code>INSUFFICIENT_HISTORY</code>, <code>FLAT</code> and <code>LOW_CONFIDENCE</code> fits
+        still have a <span class="inline">days_to_full</span>, but it is not reliable enough to page on.
+        A CYCLIC tablespace is judged on its per-cycle peaks. Alarm on
+        <span class="inline">dtf_worst</span> to page early, or on
+        <span class="inline">days_to_full</span> for fewer false alarms. A tablespace that is nearly
+        full with erratic growth has no reliable fit. To catch it, also alarm on
+        <span class="inline">pct_used</span> or <code>sev_nearfull &lt;&gt; 'OK'</code>.
+        <span class="inline">limit_source</span> says where the ceiling comes from (see
+        <a href="#limits">limit_source</a>).</p>
+
+      <h3>Level 2: the suite's alerts</h3>
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">SQL*Plus</span><span class="term__tag in">poll it</span></div>
+<pre><span class="c-prompt">SQL&gt;</span> SELECT severity, db_pdb, series_key AS tablespace_name,
+  2         kind, value, threshold, unit, message, state_key
+  3    FROM capr_alerts
+  4   WHERE kind IN ('TBSPC_FULL', 'TBSPC_NEARFULL')
+  5   ORDER BY sev_rank, value;</pre>
+      </div>
+
+      <p>A <code>TBSPC_FULL</code> row has <code>value</code> = days to full, <code>unit</code>
+        <code>DAYS</code>, and fires only for a current tablespace with an OK (or CYCLIC peak) fit
+        inside <span class="inline">dtf_warn</span>. <code>TBSPC_NEARFULL</code> is percent used and
+        fires at any fit quality. Map <code>severity</code> (CRIT / WARN) to your monitor's levels and
+        use <span class="inline">message</span> as the notification text. De-duplicate on
+        <span class="inline">state_key</span>, which stays the same while the issue lasts. Don't
+        de-duplicate on <span class="inline">alert_key</span>, which changes every day. To change
+        the thresholds, see <a href="#config">Configuration</a> or
+        <a href="#override">CAP_TBSPC_OVERRIDE</a>. <span class="inline">gated_by</span> in
+        <span class="inline">CAPR_TBSPC_DAYS_TO_FULL</span> says why a tablespace did not alert.</p>
+
+      <h3>Level 3: alert state, one page per change</h3>
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">SQL*Plus</span><span class="term__tag in">poll it</span></div>
+<pre><span class="c-cmt">-- once a day: EXEC cap_results.refresh, or enable CAP_REFRESH_JOB (01:30)</span>
+
+<span class="c-cmt">-- what is open and not acknowledged</span>
+<span class="c-prompt">SQL&gt;</span> SELECT severity, db_pdb, series_key, value, message, first_seen, age_days, state_key
+  2    FROM capr_alerts_latest
+  3   WHERE kind = 'TBSPC_FULL'
+  4   ORDER BY sev_rank, value;
+
+<span class="c-cmt">-- what changed since the last poll: page on these</span>
+<span class="c-prompt">SQL&gt;</span> SELECT run_id, event, severity, prev_severity, db_pdb, series_key, message
+  2    FROM capr_alert_events
+  3   WHERE kind = 'TBSPC_FULL' AND run_id &gt; :last_run_id;
+
+<span class="c-cmt">-- silence one for a week (an escalation clears the ack)</span>
+<span class="c-prompt">SQL&gt;</span> EXEC cap_results.ack('&lt;state_key&gt;', SYSDATE + 7, 'disk ordered, CHG0042')</pre>
+      </div>
+
+      <p><span class="inline">CAPR_ALERTS_LATEST</span> reads two small tables. A frequent poll of it
+        costs almost nothing. <span class="inline">CAPR_ALERTS</span> and
+        <span class="inline">CAPR_TBSPC_DAYS_TO_FULL</span> run the whole view chain on every query.
+        The forecast changes only when AWR adds a day, so an hourly or daily poll of those is enough.
+        The events are <code>NEW</code>, <code>ESCALATED</code>, <code>DEESCALATED</code>,
+        <code>RESOLVED</code> and <code>REOPENED</code>. For the details, see
+        <a href="#results">Alert state</a>.</p>
+
+      <div class="callout">
+        <span class="ico">i</span>
+        <p><strong>Also watch the watcher.</strong> If AWR stops, the forecast freezes and no alerts
+        fire. Alarm on <code>DATA_STALE</code> rows in <span class="inline">CAPR_ALERTS</span> (newest
+        snapshot older than <span class="inline">stale_hours</span>). At level 3, also alarm on
+        <code>SELECT 1 FROM capr_runs WHERE is_last = 'Y' AND stale_run = 'Y'</code>, which returns a
+        row when the refresh job has stopped.</p>
+      </div>
+
+      <p>Your monitor may expect HTTP or Prometheus instead of SQL. The ORDS module in
+        <span class="inline">grafana/</span> publishes the same views and a <code>metrics</code>
+        endpoint (see <a href="#grafana">Grafana</a>).</p>
 
       <!-- ===================== ALERTS ===================== -->
       <div class="section-head" id="alerts">

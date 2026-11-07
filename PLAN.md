@@ -562,6 +562,18 @@ fixture harness and both reports.
       (the stale `is_current = 'N'` case is tested by flipping `stale_days`),
       a live two-session proof of the `refresh` lock, a permanent RAC fixture
       dbid.
+- [x] **M23 HTML report by metric.** `report/report_html.sql` rebuilt around
+      the metrics instead of the analytic sections: one section per family
+      (tablespaces, database size, host CPU, DB CPU, sessions, processes, redo,
+      undo, temp, ASM), one card per series with status, key numbers and a
+      chart even when nothing is wrong, an hourly heat strip on CPU cards, an
+      overview index plus the alert list. The SQL writes the point-feed
+      views into a JSON block; `report/html/report.js` draws it (sources
+      `report.css` / `report.js`, generated `page_head.sql` / `page_tail.sql`
+      via `report/html/build.py`). `test/report_html_test.sh` (harness lint
+      stage). The text report is unchanged. Left: the ESM-vs-REGR backtest
+      table and the level-shift table are no longer in the HTML (text report,
+      CSV); the page needs JavaScript.
 
 ## v2 (unchanged)
 

@@ -1168,17 +1168,8 @@ the two drivers, and they cannot drift.
 All of them resolve `db_pdb` through `CAPR_CONTAINER` themselves. The last
 three read `CAPF_COMPARE` / `CAPF_BACKTEST`, which `ddl/50_ml.sql` creates
 *after* `ddl/45_report_views.sql`, so they live in `ddl/55_report_views_ml.sql`
-(loaded last by `install.sql`). What is still computed inside
-`report_html.sql` is only chart *geometry*: the pixel positions of the
-`CAPD_*` history points, the anomaly dots and the timeline. The
-whole-database hero used to run its own regression (always OLS, no reset, its
-own gap fill, days to 100%), so the shipped demo said "5 mo" in the hero and
-"7 mo" in section 7. Since M21.2 it reads `CAPR_SERIES` `DB_SIZE_GB`, the row
-section 7 prints, with its history from `CAPR_SERIES_POINTS` and its
-projection and band from `CAPR_FORECAST_POINTS`; every chart draws the
-projections and band knots the views anchor, with no re-anchoring in the
-driver. The ESM marker sits at `last_day + esm_horizon_days -
-esm_age_days`, the offset `CAPR_FORECAST_POINTS` gives it.
+(loaded last by `install.sql`). Since M23 `report_html.sql` reads none of
+them: it reads the point feeds below (see M23).
 
 `CAPR_SEGMENT_GROWTH` (M21, ddl/45) answers "which segment is filling this
 tablespace": one row per (dbid, con_dbid, tablespace, owner, object,
@@ -1401,6 +1392,33 @@ failing query closes any open table, prints a red "Section N failed:
 footer says how many sections failed. The healthy-chip groups of section 0
 (tablespaces, series, hosts) each stop at 30 chips and print "+N more", so
 a fleet cannot overflow the 32000-byte accumulator.
+
+**M23 — the HTML report by metric.** The HTML report used to follow the text
+report's sections (days to full, forecast, unusual days, CPU, ESM, series), so
+one tablespace showed up in five places and a reader could not tell which
+metrics the page covered or how each behaved. It now has one section per
+metric family (tablespaces, database size, host CPU, DB CPU, sessions,
+processes, redo, undo, temp, ASM disk groups) and one card per series, built
+from the point feeds the dashboards read: `CAPR_FIT` (`CAPR_FIT_HISTORY` under
+SNAPSHOT), `CAPR_SERIES_POINTS`, `CAPR_FORECAST_POINTS`, `CAPR_ANOMALIES`,
+`CAPR_ALERTS` (`CAPR_ALERTS_LATEST`), `CAPR_CONTAINER` and the last 14 days of
+`CAPR_HOURLY_POINTS`. A card's status is the worst severity of its alerts and
+its fit; its chart draws the history, the forecast knots and band as the views
+anchor them, the limit, the warning line (`nearfull_warn_pct` for
+tablespaces, `series_sat_pct` for series, `cpu_sat_pct` for CPU) and the
+crossing of the line `days_to_full` counts to. The driver writes each view
+once into one JSON block (each read in its own exception handler, its wall
+time in `seconds`) and `report/html/report.js` lays the page out in the
+browser; the family table, the facts per family and the wording live there.
+`report/html/build.py` turns `report.css` and `report.js` into
+`page_head.sql` / `page_tail.sql` (one `DBMS_OUTPUT.PUT_LINE(q'~...~')` per
+line, non-ASCII escaped, because `DBMS_OUTPUT` and the client character set
+turn it into `?`; the JSON strings go through `ASCIISTR` for the same
+reason). `test/report_html_test.sh` checks that the generated files and the
+docs demo are current and renders the demo under a stub DOM with each data
+block emptied in turn. On the demo story the page takes about a minute, down
+from 164 s. M21's per-section failure blocks and U12's collections below
+describe the previous driver.
 
 **Report cost (U12).** Each read of a `CAPA_ANOM`-backed or forecast view
 re-runs its chain, so a view read many times dominates. The HTML driver reads

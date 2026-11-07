@@ -40,8 +40,8 @@ for making changes safely.
 - **APEX contract.** `apex/build.py` selects `CAPR_SERIES_POINTS`,
   `CAPR_FORECAST_POINTS`, `CAPR_FIT`, `CAPR_ANOMALIES`, `CAPR_ALERTS` and
   `CAPR_CONTAINER` by named column. Only ADD columns to these six views; never
-  rename or drop one. `apex/test/apex_smoke.sql` proves it. ORDS and the ELK
-  export select from the same views.
+  rename or drop one. `apex/test/apex_smoke.sql` proves it. ORDS, the ELK
+  export and `report/report_html.sql` select from the same views.
 - **The baseline mode is part of every anomaly key.** `CAPA_ANOM` holds one row
   per observation AND `baseline_mode` (2 per day, TRAILING + SAME_DOW; 1 per
   CPU hour, HOUR_OF_WEEK). Read it only with `baseline_mode = ...` or GROUP BY
@@ -95,7 +95,15 @@ CAP_ML_RETRAIN daily 02:00, CAP_REPORT_SPOOL_JOB 03:00),
 `docs/demo/cap_brief_demo.html`), `report/run_report.sh`
 (cron wrapper: text / --html / --brief / --csv, --scope, --snapshot, non-zero exit on a
 non-zero sqlplus exit or any ORA-/SP2-; `test/run_report_sh_test.sh` is its
-mock-sqlplus test, no DB needed), `report/drill_tbspc.sql` / `report/drill_cpu.sql`
+mock-sqlplus test, no DB needed), `report/report_html.sql` (one section per
+metric, one card per series: it spools the point-feed views as one JSON block
+between the generated `report/html/page_head.sql` / `page_tail.sql`; edit
+`report/html/report.css` / `report.js`, run `python3 report/html/build.py`,
+never the generated .sql; non-ASCII must stay escaped because DBMS_OUTPUT
+turns it into `?`; `test/report_html_test.sh` checks the generated files and
+renders `docs/demo/cap_report_demo.html` under a stub DOM, no DB needed; the
+demo is `build.py --preview` of a spooled demo-story report with its identity
+strings genericised), `report/drill_tbspc.sql` / `report/drill_cpu.sql`
 (single-series drill-down; drill_tbspc prints "who is filling it" from
 CAPR_SEGMENT_GROWTH). Both report drivers take `[top_n] [anomaly_days]
 [show_esm] [dbid] [con_dbid] [LIVE|SNAPSHOT]`, `-` skips one.

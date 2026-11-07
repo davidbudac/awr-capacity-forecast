@@ -83,7 +83,8 @@ CAPR_* results      (ddl/60, optional to use) CAP_RESULTS.refresh snapshots
   |                 CAPR_FIT and CAPR_ALERTS into run history and alert state:
   |                 CAPR_ALERTS_LATEST, CAPR_ALERT_EVENTS, CAPR_WEEKLY_DIGEST,
   |                 CAPR_FORECAST_ACCURACY, CAPR_COVERAGE
-report/             read-only SQL*Plus text report (sections 0-7) + HTML twin
+report/             read-only SQL*Plus text report (sections 0-7) + HTML report
+                    (one section per metric, report/html/ renderer)
                     + CSV export + run_report.sh (cron) + two drill scripts
 ```
 
@@ -224,32 +225,42 @@ with no tablespace prints usage and stops. Read-only, like everything else.
 
 ## HTML report
 
-`report/report_html.sql` is a sibling driver that renders the same sections
-as one self-contained HTML page. It opens with a verdict strip (critical,
-warnings, forecast quality, host CPU p95, Tier 2 models, the last refresh run
-and data coverage) and a ranked attention list built from `CAPR_ALERTS`: one
-row per issue with the number that matters, and one line naming what is
-healthy. The charts share one grammar: area under history, the 95%
-prediction band as a shaded wedge, a labelled ceiling or saturation line, a
-"today" divider, hollow rings on unusual days, the ESM point and the date
-where the projection crosses the ceiling. The whole-database hero reads the
-suite's own `DB_SIZE_GB` fit, so it prints the same days figure as section 7.
-Tablespaces that need a look get a card; quiet ones collapse into a sparkline
-strip. Charts are plain `<svg>`: no JavaScript library and no external
-assets. Each section renders inside its own exception block, so a broken
-view prints a red block for that section and the footer counts it instead of
-losing the page. Like the text report it reads only the `CAPR_*` views (only
-chart geometry is computed in the driver), so the two cannot show different
-numbers:
+`report/report_html.sql` writes one self-contained HTML page with one section
+per monitored metric: tablespaces, database size, host CPU, DB CPU, sessions,
+processes, redo, undo, temp and ASM disk groups. Every series gets a card
+with its status, the three or four numbers that matter (now, share of the
+limit, growth, days to the limit) and a chart, whether or not anything is
+wrong. The charts share one grammar: history, the dashed forecast with its
+95% band, the limit and its warning line, a "today" divider, rings on unusual
+days, the ESM point, and a dot where the forecast crosses the line the days
+figure counts to. CPU cards add a heat strip of the last 14 days by hour, with
+the flagged hours outlined. The page opens with the alert counts, one index
+row per metric (status, headline, sparkline and the date its soonest limit is
+reached) and the `CAPR_ALERTS` list, each row linking to its card. Status
+color marks only critical and warning; a limit line turns red only when the
+series is at risk. Hovering a
+chart prints the value of that day or of the forecast. Past `top_n` series in
+one metric, the rest are compact rows with a sparkline.
+
+The SQL reads each point-feed view once (`CAPR_FIT`, `CAPR_SERIES_POINTS`,
+`CAPR_FORECAST_POINTS`, `CAPR_ANOMALIES`, `CAPR_ALERTS`, `CAPR_CONTAINER`,
+`CAPR_HOURLY_POINTS`, the same views the APEX, Grafana and ELK paths read) and
+writes the rows into the page as one JSON block. `report/html/report.js`
+draws the page in the browser: no library, no external assets, works offline,
+needs JavaScript. A view that fails leaves its block empty and the page names
+it.
 
 ```sql
 sqlplus / as sysdba              -- run from the REPO ROOT (@@ include paths)
 SQL> @report/report_html.sql     -- spools reports/cap_report_<db>_<ts>.html
 ```
 
-Same arguments, same defaults file, same read-only guarantee (the HTML is
-built in one PL/SQL block via `DBMS_OUTPUT`, captured by `SPOOL`). Open the
-spooled `.html` file directly in a browser.
+Same arguments, same defaults file, same read-only guarantee as the text
+report. To change the page, edit `report/html/report.css` or
+`report/html/report.js` and run `python3 report/html/build.py`, which
+regenerates the two SQL files the driver includes;
+`test/report_html_test.sh` checks them and renders the demo without a
+database.
 
 ### One-page briefing (optional)
 
