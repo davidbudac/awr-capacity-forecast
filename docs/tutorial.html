@@ -347,7 +347,7 @@ SEV  KIND             DB/PDB               MESSAGE
 
       <h3>Run the report on a schedule</h3>
       <p><span class="inline">report/run_report.sh</span> is the cron wrapper. It runs the drivers from
-        the repository root and exits non-zero when sqlplus fails or any ORA- or SP2- line appears.</p>
+        the repository root and exits non-zero when sqlplus fails or a line starts with ORA- or SP2-.</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">crontab · oracle</span><span class="term__tag in">example</span></div>
@@ -356,7 +356,8 @@ SEV  KIND             DB/PDB               MESSAGE
 
       <p>Add <span class="inline">--schema C##AWRCAP</span> when the suite lives in a dedicated owner,
         <span class="inline">--csv</span> for one CSV per section view, and
-        <span class="inline">--scope 3141592653:3141592654</span> to report on one container only.
+        <span class="inline">--scope 3141592653:3141592654</span> to report on one container only, or
+        <span class="inline">--target NAME</span> to report on one target by name (<span class="inline">CAPR_TARGETS</span>).
         The drivers by hand: <span class="inline">@report/report.sql</span>,
         <span class="inline">@report/report_html.sql</span> and
         <span class="inline">@report/report_csv.sql</span>.</p>

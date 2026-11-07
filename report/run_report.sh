@@ -7,19 +7,25 @@
 # the repo root so the @@ includes
 # resolve, and checks each run: the script exits non-zero when sqlplus exits
 # non-zero (a failed --container / --schema ALTER SESSION aborts the session),
-# when the session output has any ORA- or SP2- line, or when a spool is
-# missing or contains one. Prints the path of every file it wrote.
+# when a line of the session output starts with ORA- or SP2-, or when a
+# spool is missing or has such a line. Only the start of a line counts:
+# SQL*Plus prints its errors there, while an alert message that quotes an
+# Oracle error (DATA_STALE's failing collect, MODEL_HEALTH's failed build)
+# sits inside a report line. Prints the path of every file it wrote.
 # Read-only against the database, like the drivers.
 #
 # Usage:
 #   report/run_report.sh [connect] [--html] [--brief] [--csv] [--scope dbid[:con_dbid]]
-#                        [--snapshot] [--keep N] [--container PDB]
+#                        [--target NAME] [--snapshot] [--keep N] [--container PDB]
 #                        [--schema OWNER]
 #     connect        sqlplus connect string, default "/ as sysdba" (quote it)
 #     --html         also write the HTML report
 #     --brief        also write the one-page HTML briefing
 #     --csv          also write the CSV directory
 #     --scope D[:C]  only dbid D (and con_dbid C); C alone: --scope -:C
+#     --target NAME  only target NAME (CAPR_TARGETS, any case): its dbid with
+#                    the newest snapshot. With --scope only as -:C. An unknown
+#                    name fails the run (ORA-20003).
 #     --snapshot     read the alert list and the section 1 / 7 fits from the
 #                    last refresh run (CAP_RESULTS.refresh) instead of live
 #     --keep N       after a good run, keep only the newest N reports of each
@@ -33,6 +39,7 @@
 #   30 6 * * * . /home/oracle/.bash_profile; /opt/awrcap/report/run_report.sh "/ as sysdba" --html --keep 14 >> /var/log/awrcap_report.log 2>&1
 #
 set -u
+err_re='^(ORA|SP2)-[0-9]{4,5}'
 
 cd "$(dirname "$0")/.." || exit 2
 
@@ -43,6 +50,8 @@ do_csv=0
 keep=""
 sdbid="-"
 scon="-"
+target=""
+has_target=0
 source="LIVE"
 container=""
 schema=""
@@ -61,9 +70,10 @@ while [ $# -gt 0 ]; do
         --scope)     shift
                      sdbid="${1%%:*}"
                      case "$1" in *:*) scon="${1#*:}" ;; esac ;;
+        --target)    shift; target="${1:-}"; has_target=1 ;;
         --container) shift; container="${1:-}" ;;
         --schema)    shift; schema="${1:-}" ;;
-        -h|--help)   sed -n '2,34p' "$0"; exit 0 ;;
+        -h|--help)   awk 'NR > 1 { if (!/^#/) exit; print }' "$0"; exit 0 ;;
         *)           echo "run_report.sh: unknown argument '$1'" >&2; exit 2 ;;
     esac
     shift
@@ -74,6 +84,11 @@ for v in "$sdbid" "$scon"; do
 done
 [ -z "$sdbid" ] && sdbid="-"
 [ -z "$scon" ] && scon="-"
+if [ $has_target -eq 1 ]; then
+    [[ "$target" =~ ^[A-Za-z][A-Za-z0-9_]*$ ]] || { echo "run_report.sh: --target wants a target name (a letter, then letters, digits or _), got '$target'" >&2; exit 2; }
+    [ "$sdbid" = "-" ] || { echo "run_report.sh: --target and a --scope dbid both name the database; use --scope -:C with --target" >&2; exit 2; }
+    sdbid="$target"
+fi
 case "$keep" in ''|*[!0-9]*) [ -n "$keep" ] && { echo "run_report.sh: --keep wants a number" >&2; exit 2; } ;; esac
 case "$container$schema" in *[!A-Za-z0-9_\$#]*) echo "run_report.sh: bad --container / --schema name" >&2; exit 2 ;; esac
 
@@ -102,13 +117,13 @@ SQL
     st=$?
     if [ $st -ne 0 ]; then
         echo "FAIL $label: sqlplus exit $st (sqlplus said:)" >&2
-        grep -E '(ORA|SP2)-[0-9]{4,5}' "$log" | head -5 >&2
+        grep -E "$err_re" "$log" | head -5 >&2
         rc=1
         return
     fi
-    if grep -q -E '(ORA|SP2)-[0-9]{4,5}' "$log"; then
+    if grep -q -E "$err_re" "$log"; then
         echo "FAIL $label: session output contains errors:" >&2
-        grep -E '(ORA|SP2)-[0-9]{4,5}' "$log" | head -5 >&2
+        grep -E "$err_re" "$log" | head -5 >&2
         rc=1
         return
     fi
@@ -119,9 +134,9 @@ SQL
         rc=1
         return
     fi
-    if grep -q -r -E '(ORA|SP2)-[0-9]{4,5}' "$out"; then
+    if grep -q -r -E "$err_re" "$out"; then
         echo "FAIL $label: $out contains errors:" >&2
-        grep -h -E '(ORA|SP2)-[0-9]{4,5}' -r "$out" | head -5 >&2
+        grep -h -E "$err_re" -r "$out" | head -5 >&2
         rc=1
         return
     fi

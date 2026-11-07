@@ -9,7 +9,9 @@
 -- target (repository/cap_repo.sql pulls them over a DB link) into CAP_H_*
 -- tables of the same shape. The seam views below are ddl/10's with every
 -- dba_hist_<x> renamed cap_h_<x>, so both modes present the same CAPV_*
--- contract from one body; the notes on every view live in ddl/10.
+-- contract from one body; the notes on every view live in ddl/10. A view
+-- of repository/seam_overrides.sql replaces ddl/10's (CAPV_TARGET reads
+-- the target registry), so cap_repo.sql is included before the seam.
 --
 SET DEFINE OFF
 
@@ -83,7 +85,8 @@ BEGIN
     ensure('cap_h_pdb_instance', SYS.ODCIVARCHAR2LIST(
         'dbid NUMBER', 'con_dbid NUMBER', 'pdb_name VARCHAR2(128 CHAR)'));
     ensure('cap_h_database_instance', SYS.ODCIVARCHAR2LIST(
-        'dbid NUMBER', 'db_name VARCHAR2(9 CHAR)'));
+        'dbid NUMBER', 'instance_number NUMBER', 'startup_time TIMESTAMP(3)', 'db_name VARCHAR2(9 CHAR)',
+        'host_name VARCHAR2(64 CHAR)'));
     ensure('cap_h_asm_diskgroup', SYS.ODCIVARCHAR2LIST(
         'dbid NUMBER', 'con_dbid NUMBER', 'group_number NUMBER', 'name VARCHAR2(128 CHAR)'));
     ensure('cap_h_seg_stat_obj', SYS.ODCIVARCHAR2LIST(
@@ -191,12 +194,13 @@ SELECT 14 AS seq, 'PDB_INSTANCE' AS source_name, 'D' AS kind, 'CAP_H_PDB_INSTANC
 UNION ALL
 SELECT 15 AS seq, 'DATABASE_INSTANCE' AS source_name, 'D' AS kind, 'CAP_H_DATABASE_INSTANCE' AS copy_table,
        q'~MERGE INTO cap_h_database_instance t
-           USING (SELECT DISTINCT dbid, db_name
+           USING (SELECT DISTINCT dbid, instance_number, startup_time, db_name, host_name
                   FROM dba_hist_database_instance@{LINK}
                   WHERE dbid = :1) s
-           ON (t.dbid = s.dbid AND DECODE(t.db_name, s.db_name, 1, 0) = 1)
-           WHEN NOT MATCHED THEN INSERT (dbid, db_name)
-                VALUES (s.dbid, s.db_name)~' AS pull_sql FROM dual
+           ON (t.dbid = s.dbid AND DECODE(t.instance_number, s.instance_number, 1, 0) = 1 AND DECODE(t.startup_time, s.startup_time, 1, 0) = 1)
+           WHEN MATCHED THEN UPDATE SET t.db_name = s.db_name, t.host_name = s.host_name
+           WHEN NOT MATCHED THEN INSERT (dbid, instance_number, startup_time, db_name, host_name)
+                VALUES (s.dbid, s.instance_number, s.startup_time, s.db_name, s.host_name)~' AS pull_sql FROM dual
 UNION ALL
 SELECT 16 AS seq, 'ASM_DISKGROUP' AS source_name, 'D' AS kind, 'CAP_H_ASM_DISKGROUP' AS copy_table,
        q'~MERGE INTO cap_h_asm_diskgroup t
@@ -222,6 +226,7 @@ SELECT 17 AS seq, 'SEG_STAT_OBJ' AS source_name, 'S' AS kind, 'CAP_H_SEG_STAT_OB
            WHEN NOT MATCHED THEN INSERT (dbid, con_dbid, ts#, obj#, dataobj#, owner, object_name, subobject_name, object_type, tablespace_name)
                 VALUES (s.dbid, s.con_dbid, s.ts#, s.obj#, s.dataobj#, s.owner, s.object_name, s.subobject_name, s.object_type, s.tablespace_name)~' AS pull_sql FROM dual;
 
+@@repository/cap_repo.sql
 
 CREATE OR REPLACE VIEW capv_snapshot AS
 SELECT dbid                     AS dbid,
@@ -309,6 +314,38 @@ LEFT  JOIN (SELECT dbid, con_dbid, MAX(pdb_name) AS con_name
             FROM   cap_h_pdb_instance
             GROUP  BY dbid, con_dbid) p
   ON  p.dbid = k.dbid AND p.con_dbid = k.con_dbid;
+
+CREATE OR REPLACE VIEW capv_target AS
+SELECT CAST(t.target_name AS VARCHAR2(30))      AS target_name,
+       d.dbid                                   AS dbid,
+       CAST('LINK' AS VARCHAR2(10))             AS feed,
+       CAST(h.host_name AS VARCHAR2(64))        AS host_name,
+       CAST(t.connect_string AS VARCHAR2(4000)) AS address,
+       CAST(t.db_link AS VARCHAR2(128))         AS db_link,
+       CAST(t.enabled AS VARCHAR2(1))           AS enabled,
+       d.last_snap_id                           AS collected_snap_id,
+       (SELECT MAX(g.logged_at) FROM cap_collect_log g
+        WHERE  g.target_name = t.target_name AND g.dbid = d.dbid
+          AND  g.status IN ('OK', 'NOTHING') AND g.logged_at >= t.added_at) AS last_ok_at,
+       (SELECT MAX(g.logged_at) FROM cap_collect_log g
+        WHERE  g.target_name = t.target_name AND (g.dbid = d.dbid OR g.dbid IS NULL)
+          AND  g.status = 'ERROR' AND g.logged_at >= t.added_at)            AS last_error_at,
+       (SELECT CAST(MAX(g.message) KEEP (DENSE_RANK LAST ORDER BY g.logged_at, g.log_id)
+                    AS VARCHAR2(4000))
+        FROM   cap_collect_log g
+        WHERE  g.target_name = t.target_name AND (g.dbid = d.dbid OR g.dbid IS NULL)
+          AND  g.status = 'ERROR' AND g.logged_at >= t.added_at)            AS last_error,
+       (SELECT COUNT(*) FROM cap_collect_log g
+        WHERE  g.target_name = t.target_name AND g.dbid = d.dbid
+          AND  g.status = 'GAP' AND g.logged_at >= t.added_at)              AS n_gaps
+FROM   cap_target t
+LEFT   JOIN cap_target_dbid d
+  ON   d.target_id = t.target_id
+LEFT   JOIN (SELECT dbid,
+                    MAX(host_name) KEEP (DENSE_RANK LAST ORDER BY startup_time NULLS FIRST) AS host_name
+             FROM   cap_h_database_instance
+             GROUP  BY dbid) h
+  ON   h.dbid = d.dbid;
 
 CREATE OR REPLACE VIEW capv_resource_limit AS
 SELECT dbid                     AS dbid,
@@ -441,5 +478,3 @@ LEFT   JOIN per_con p
 LEFT   JOIN snap_end e
   ON   e.dbid = p.dbid AND e.snap_id = p.max_snap_id
 GROUP  BY k.source_name, k.per_container_expected;
-
-@@repository/cap_repo.sql

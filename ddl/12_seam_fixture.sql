@@ -49,6 +49,25 @@ CREATE OR REPLACE VIEW capv_container AS
 SELECT dbid, con_dbid, db_name, con_name
 FROM   cap_fixture_container;
 
+-- One target per fixture dbid, named by its db_name, fed FIXTURE; the
+-- fixture has no host name and nothing is collected. SUBSTR: db_name is a
+-- VARCHAR2(128) here and CAST would raise on a longer value.
+CREATE OR REPLACE VIEW capv_target AS
+SELECT CAST(SUBSTR(MAX(db_name), 1, 30) AS VARCHAR2(30)) AS target_name,
+       dbid                                     AS dbid,
+       CAST('FIXTURE' AS VARCHAR2(10))          AS feed,
+       CAST(NULL AS VARCHAR2(64))               AS host_name,
+       CAST(NULL AS VARCHAR2(4000))             AS address,
+       CAST(NULL AS VARCHAR2(128))              AS db_link,
+       CAST('Y' AS VARCHAR2(1))                 AS enabled,
+       CAST(NULL AS NUMBER)                     AS collected_snap_id,
+       CAST(NULL AS DATE)                       AS last_ok_at,
+       CAST(NULL AS DATE)                       AS last_error_at,
+       CAST(NULL AS VARCHAR2(4000))             AS last_error,
+       CAST(NULL AS NUMBER)                     AS n_gaps
+FROM   cap_fixture_container
+GROUP  BY dbid;
+
 -- M11 sources. CAP_FIXTURE_RESOURCE_LIMIT stores limit_value ALREADY as a
 -- NUMBER (the local seam's 'UNLIMITED'-to-NULL conversion is part of the
 -- mapping, not of the contract), and CAP_FIXTURE_SYSSTAT deliberately holds a

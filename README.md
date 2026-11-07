@@ -178,11 +178,13 @@ Read-only: the report only SELECTs; it creates/modifies no database object.
 `@report/report_csv.sql [dbid] [con_dbid]` writes one CSV per CAPR section
 view (every column, every row in the scope) into
 `reports/cap_csv_<db>_<ts>/`. For cron, `report/run_report.sh [connect]
-[--html] [--csv] [--scope D[:C]] [--snapshot] [--keep N] [--container PDB]
-[--schema OWNER]` runs the drivers from the repo root and exits non-zero when
+[--html] [--csv] [--scope D[:C]] [--target NAME] [--snapshot] [--keep N]
+[--container PDB] [--schema OWNER]` runs the drivers from the repo root
+(`--target` scopes them to one target by name) and exits non-zero when
 sqlplus exits non-zero (a failed `--container` / `--schema` aborts the run),
-when the session output has an ORA- or SP2- line, or when a spool is missing or
-holds one.
+when a line of the session output starts with ORA- or SP2-, or when a spool is
+missing or has such a line (an alert message quoting an Oracle error does not
+count: SQL*Plus prints its errors at the start of a line).
 
 ### Drill-down
 

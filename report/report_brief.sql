@@ -21,8 +21,9 @@
 --   SQL> @report/report_brief.sql - - - 42424242 42424243
 --   SQL> @report/report_brief.sql - - - - - SNAPSHOT
 -- Arguments as in report/report_html.sql: [top_n] [anomaly_days] [show_esm]
--- [dbid] [con_dbid] [LIVE|SNAPSHOT], '-' skips one. show_esm only toggles
--- the "Second model" fact of the evidence panels.
+-- [dbid] [con_dbid] [LIVE|SNAPSHOT], '-' skips one; dbid may also be a
+-- target name (report/scope.sql). show_esm only toggles the "Second model"
+-- fact of the evidence panels.
 --
 -- Each section renders inside its own exception handler: a failing query
 -- prints a visible "section failed" box and the page carries on.
@@ -63,29 +64,24 @@ SELECT NVL(NULLIF(TRIM('&1'), '-'), '&top_n')                  AS eff_top_n,
        NVL(NULLIF(UPPER(TRIM('&3')), '-'), UPPER('&show_esm')) AS eff_esm
 FROM   dual;
 
-COLUMN eff_sdbid NEW_VALUE cap_sdbid NOPRINT
-COLUMN eff_scon  NEW_VALUE cap_scon  NOPRINT
+-- Scope and identity: cap_sdbid / cap_scon, the target, cap_db / cap_host /
+-- cap_user / cap_gen and the file stem (report/scope.sql). '-' = omitted.
+COLUMN cap_a1 NEW_VALUE cap_arg_db  NOPRINT
+COLUMN cap_a2 NEW_VALUE cap_arg_con NOPRINT
+SELECT NVL(TRIM('&4'), '-') AS cap_a1, NVL(TRIM('&5'), '-') AS cap_a2 FROM dual;
+COLUMN cap_a1 CLEAR
+COLUMN cap_a2 CLEAR
+@@report/scope.sql
+
 COLUMN eff_src   NEW_VALUE cap_src   NOPRINT
-SELECT NVL(REGEXP_SUBSTR(TRIM('&4'), '^[0-9]+$'), 'NULL')                  AS eff_sdbid,
-       NVL(REGEXP_SUBSTR(TRIM('&5'), '^[0-9]+$'), 'NULL')                  AS eff_scon,
-       CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END AS eff_src
+SELECT CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END AS eff_src
 FROM   dual;
 
-COLUMN cap_db   NEW_VALUE cap_db   NOPRINT
-COLUMN cap_host NEW_VALUE cap_host NOPRINT
-COLUMN cap_user NEW_VALUE cap_user NOPRINT
-COLUMN cap_gen  NEW_VALUE cap_gen  NOPRINT
 COLUMN cap_path NEW_VALUE cap_path NOPRINT
 COLUMN cap_file NEW_VALUE cap_file NOPRINT
-SELECT SYS_CONTEXT('USERENV','DB_NAME')                                       AS cap_db,
-       SYS_CONTEXT('USERENV','SERVER_HOST')                                   AS cap_host,
-       SYS_CONTEXT('USERENV','CURRENT_SCHEMA')                                AS cap_user,
-       TO_CHAR(SYSTIMESTAMP,'YYYY-MM-DD HH24:MI:SS TZR')                      AS cap_gen,
-       'cap_brief_'
-         || REGEXP_REPLACE(SYS_CONTEXT('USERENV','DB_NAME'),'[^A-Za-z0-9]+','_') || '_'
+SELECT 'cap_brief_' || '&cap_stem' || '_'
          || TO_CHAR(SYSDATE,'YYYYMMDDHH24MI') || '.html'                      AS cap_file,
-       'reports/cap_brief_'
-         || REGEXP_REPLACE(SYS_CONTEXT('USERENV','DB_NAME'),'[^A-Za-z0-9]+','_') || '_'
+       'reports/cap_brief_' || '&cap_stem' || '_'
          || TO_CHAR(SYSDATE,'YYYYMMDDHH24MI') || '.html'                      AS cap_path
 FROM   dual;
 
@@ -94,13 +90,14 @@ FROM   dual;
 VARIABLE b_top_n        NUMBER
 VARIABLE b_anomaly_days NUMBER
 VARIABLE b_show_esm     VARCHAR2(10)
-VARIABLE b_cap_db       VARCHAR2(200)
-VARIABLE b_cap_host     VARCHAR2(200)
-VARIABLE b_cap_user     VARCHAR2(200)
+VARIABLE b_cap_db       VARCHAR2(400)
+VARIABLE b_cap_host     VARCHAR2(400)
+VARIABLE b_cap_user     VARCHAR2(400)
 VARIABLE b_cap_gen      VARCHAR2(200)
 VARIABLE b_cap_file     VARCHAR2(200)
 VARIABLE b_sdbid        NUMBER
 VARIABLE b_scon         NUMBER
+VARIABLE b_starget      VARCHAR2(128)
 VARIABLE b_src          VARCHAR2(10)
 
 BEGIN
@@ -114,6 +111,7 @@ BEGIN
   :b_cap_file     := '&cap_file';
   :b_sdbid        := &cap_sdbid;
   :b_scon         := &cap_scon;
+  :b_starget      := '&cap_starget';
   :b_src          := '&cap_src';
 END;
 /
@@ -129,13 +127,14 @@ DECLARE
   top_n        PLS_INTEGER  := :b_top_n;
   anomaly_days PLS_INTEGER  := :b_anomaly_days;
   show_esm     VARCHAR2(10) := :b_show_esm;
-  cap_db   VARCHAR2(200) := :b_cap_db;
-  cap_host VARCHAR2(200) := :b_cap_host;
-  cap_user VARCHAR2(200) := :b_cap_user;
+  cap_db   VARCHAR2(400) := :b_cap_db;
+  cap_host VARCHAR2(400) := :b_cap_host;
+  cap_user VARCHAR2(400) := :b_cap_user;
   cap_gen  VARCHAR2(200) := :b_cap_gen;
   cap_file VARCHAR2(200) := :b_cap_file;
   s_dbid   NUMBER        := :b_sdbid;
   s_con    NUMBER        := :b_scon;
+  s_target VARCHAR2(128) := :b_starget;
   v_src    VARCHAR2(10)  := :b_src;
 
   dtf_warn NUMBER;
@@ -1056,16 +1055,6 @@ DECLARE
   END panel;
 
 BEGIN
-  -- The AWR database name(s) in scope, not the session's: a PDB session or a
-  -- warehouse owner would otherwise title the page with its own name.
-  BEGIN
-    SELECT NVL(LISTAGG(db_name, ', ') WITHIN GROUP (ORDER BY db_name), cap_db)
-    INTO   cap_db
-    FROM  (SELECT DISTINCT db_name FROM capr_container
-           WHERE (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con));
-  EXCEPTION
-    WHEN OTHERS THEN NULL;
-  END;
   p('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">');
   p('<title>Capacity briefing, ' || esc(cap_db) || '</title><style>');
   p(':root{--paper:#f6f7f9;--sheet:#fff;--ink:#16243b;--ink-2:#41506a;--mute:#6c778a;--rule:#dfe3ea;');
@@ -1127,7 +1116,8 @@ BEGIN
     FROM   cap_cfg;
     SELECT MAX(last_ok_run_id) INTO v_snap_run FROM capr_runs;
     IF s_dbid IS NOT NULL OR s_con IS NOT NULL THEN
-      SELECT 'scope ' || TRIM(CASE WHEN s_dbid IS NOT NULL THEN 'dbid ' || s_dbid END
+      SELECT 'scope ' || CASE WHEN s_target IS NOT NULL THEN 'target ' || s_target || ': ' END
+             || TRIM(CASE WHEN s_dbid IS NOT NULL THEN 'dbid ' || s_dbid END
                               || CASE WHEN s_con IS NOT NULL THEN ' con_dbid ' || s_con END)
              || ' (' || NVL(LISTAGG(db_pdb, ', ') WITHIN GROUP (ORDER BY db_pdb), 'no such container') || ')'
         INTO v_scope_lbl

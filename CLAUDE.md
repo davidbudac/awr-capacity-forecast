@@ -65,11 +65,11 @@ for making changes safely.
 
 `install.sql` includes, in order: `ddl/00_drop` → `05_config` (CAP_CONFIG,
 CAP_CFG, CAP_CFG_CHECK, CAP_TBSPC_OVERRIDE) → the seam (`10`/`13`/`11`/`12` for
-`deploy_mode` local / repository / warehouse / fixture: twelve CAPV_* views +
+`deploy_mode` local / repository / warehouse / fixture: thirteen CAPV_* views +
 CAPV_CONTRACT; `13` also creates the copies and pulls `repository/cap_repo.sql`) → `20_daily` →
 `25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `35_series_forecast`
 (CAPF_SERIES_FORECAST) → `40_anomaly` → `45_report_views` (CAPR_CONTAINER,
-CAPR_ANOMALIES, CAPR_FRESHNESS, CAPR_SEVERITY, the section views, CAPR_SERIES,
+CAPR_ANOMALIES, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
 CAPR_SEGMENT_GROWTH, the point feeds CAPR_SERIES_POINTS / CAPR_HOURLY_POINTS,
 CAPR_FIT) → `50_ml` (CAP_ML_MODEL, pulls `ml/cap_forecast_ml.pks/.pkb`, the
 ESM views, CAPF_COMPARE, CAPF_BACKTEST, CAPF_ESM_HEALTH[_SUMMARY]) →
@@ -103,8 +103,9 @@ CAP_ML_RETRAIN daily 02:00, CAP_REPORT_SPOOL_JOB 03:00),
 `report/report_csv.sql` (one CSV per CAPR section view), `report/report_brief.sql`
 (one-page "Runway" briefing from CAPR_FIT[_HISTORY] + the alert list; demo
 `docs/demo/cap_brief_demo.html`), `report/run_report.sh`
-(cron wrapper: text / --html / --brief / --csv, --scope, --snapshot, non-zero exit on a
-non-zero sqlplus exit or any ORA-/SP2-; `test/run_report_sh_test.sh` is its
+(cron wrapper: text / --html / --brief / --csv, --scope, --target, --snapshot, non-zero exit on a
+non-zero sqlplus exit or a line starting ORA-/SP2- (an alert message quoting
+an ORA- mid-line is content); `test/run_report_sh_test.sh` is its
 mock-sqlplus test, no DB needed), `report/report_html.sql` (one section per
 metric, one card per series: it spools the point-feed views as one JSON block
 between the generated `report/html/page_head.sql` / `page_tail.sql`; edit
@@ -442,8 +443,27 @@ there for local mode).
   calls it under `CURRENT_SCHEMA` (needs the privilege granted directly;
   `create_owner.sql` with `owner_mode = repository`). With a `db_domain`
   the link is stored as `CAP_<NAME>.<domain>`; the bare name resolves.
-- **Not yet built:** see PLAN.md M24.6 onwards (target names in reports and
-  `CAPR_TARGETS`, the collect job and `repo_retention_days` purge, docs).
+- **Fleet identity (M24.6).** `CAPV_TARGET` (one row per target and dbid:
+  name, `feed`, AWR host, and in repository mode link, `enabled`, high-water
+  mark and collect health from `CAP_COLLECT_LOG` since `added_at`) is in
+  every seam; the repository version is `repository/seam_overrides.sql`,
+  which build.py puts in ddl/13 in place of ddl/10's (`--check` fails on an
+  override ddl/10 lacks), so ddl/13 includes `cap_repo.sql` before the seam.
+  `CAPR_CONTAINER.target_name` (last column) names `db_pdb`; `CAPR_TARGETS`
+  adds freshness and `collect_state`. `report/scope.sql` gives all four
+  drivers their scope and Database / Host / file stem from it, and resolves a
+  target name passed as the dbid argument (`run_report.sh --target`;
+  unknown name = ORA-20003). DATA_STALE names the target, says why the copy
+  stopped and is silent for a disabled target. The parity fingerprint skips
+  CAPV_TARGET / CAPR_TARGETS (they differ by design). Keep the override's
+  collect-health columns as scalar subqueries (index `CAP_COLLECT_LOG_IX`):
+  the optimizer drops an unselected one, so `CAPR_CONTAINER` (read by every
+  report view, wants only `target_name`) never touches the log. As joins to
+  aggregated CTEs they were materialised on every read (19.27 plan).
+  `test/repo_synth_target.sql NAME DBID SHIFT_DAYS` clones a collected
+  target's copies under a fake target (a fleet from one database).
+- **Not yet built:** see PLAN.md M24.7 onwards (the collect job and
+  `repo_retention_days` purge, docs).
   RAC: one high-water mark per DBID, so a snapshot that completes on one
   instance before another could be copied half; untested.
 

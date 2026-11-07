@@ -148,6 +148,29 @@ SELECT dbid                     AS dbid,
 FROM   awrv_container;
 
 -- --------------------------------------------------------------------
+-- CAPV_TARGET (M24.6) -- one row per dbid, named like CAPV_CONTAINER (the
+-- warehouse Target's display name), fed WAREHOUSE. The warehouse keeps no
+-- AWR host name and this suite collects nothing here, so host_name and the
+-- collect columns are NULL. SUBSTR because a display name may exceed the
+-- contract's 30 characters, and CAST would raise instead of truncating.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capv_target AS
+SELECT CAST(SUBSTR(MAX(db_name), 1, 30) AS VARCHAR2(30)) AS target_name,
+       dbid                                     AS dbid,
+       CAST('WAREHOUSE' AS VARCHAR2(10))        AS feed,
+       CAST(NULL AS VARCHAR2(64))               AS host_name,
+       CAST(NULL AS VARCHAR2(4000))             AS address,
+       CAST(NULL AS VARCHAR2(128))              AS db_link,
+       CAST('Y' AS VARCHAR2(1))                 AS enabled,
+       CAST(NULL AS NUMBER)                     AS collected_snap_id,
+       CAST(NULL AS DATE)                       AS last_ok_at,
+       CAST(NULL AS DATE)                       AS last_error_at,
+       CAST(NULL AS VARCHAR2(4000))             AS last_error,
+       CAST(NULL AS NUMBER)                     AS n_gaps
+FROM   awrv_container
+GROUP  BY dbid;
+
+-- --------------------------------------------------------------------
 -- CAPV_RESOURCE_LIMIT (M11.1) -- WAREHOUSE GAP: the awr-fleet-warehouse
 -- collector does not gather DBA_HIST_RESOURCE_LIMIT yet (there is no
 -- awrw_resource_limit fact and hence no awrv_resource_limit seam view), so

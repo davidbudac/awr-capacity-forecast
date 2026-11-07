@@ -112,8 +112,9 @@
         section view (alerts, days to full, forecast, anomalies, CPU trend and shifts, series, fit) into
         <span class="inline">reports/cap_csv_&lt;db&gt;_&lt;ts&gt;/</span>: every column and row in
         scope, a header line, every value quoted.
-        <span class="inline">report/run_report.sh [connect] [--html] [--csv] [--scope D[:C]] [--snapshot]
-        [--keep N] [--container PDB] [--schema OWNER]</span> runs the drivers from the repo root, prints
+        <span class="inline">report/run_report.sh [connect] [--html] [--csv] [--scope D[:C]] [--target NAME]
+        [--snapshot] [--keep N] [--container PDB] [--schema OWNER]</span> runs the drivers from the repo root
+        (<code>--target</code> scopes them to one target by name, its dbid with the newest snapshot), prints
         each file it wrote, and exits non-zero when sqlplus exits non-zero (a failed
         <code>--container</code> / <code>--schema</code> aborts the run), when the session output has an
         <code>ORA-</code> or <code>SP2-</code> line, or when a spool is missing or contains one.</p>
@@ -445,7 +446,7 @@
             <tr><td><span class="k">SERIES_LIMIT</span></td><td class="def"><span class="pill crit">CRIT</span> ≤ <span class="inline">dtf_crit</span>, else <span class="pill warn">WARN</span></td><td class="def"><span class="inline">CAPF_SERIES_FORECAST</span>: quality OK and <code>days_to_limit ≤ dtf_warn</code> to <span class="inline">series_sat_pct</span>% of the limit.</td></tr>
             <tr><td><span class="k">SERIES_NEARLIMIT</span></td><td class="def"><span class="pill crit">CRIT</span> ≥ <span class="inline">nearfull_crit_pct</span>, else <span class="pill warn">WARN</span></td><td class="def"><code>pct_of_limit ≥ nearfull_warn_pct</code> now, at any fit quality (processes, sessions, total DB size).</td></tr>
             <tr><td><span class="k">SERIES_ANOM</span></td><td class="def"><span class="pill warn">WARN</span> on HIGH, <span class="pill">INFO</span> on LOW</td><td class="def">An anomaly on <code>PROCESSES</code>, <code>SESSIONS</code>, <code>REDO_GB_DAY</code> (level) or <code>DB_SIZE_GB</code> (daily growth), modes from <span class="inline">alert_modes_series</span> (default 1 = TRAILING).</td></tr>
-            <tr><td><span class="k">DATA_STALE</span></td><td class="def"><span class="pill warn">WARN</span></td><td class="def">A dbid's newest AWR snapshot ended at least <span class="inline">stale_hours</span> (36) ago. A dbid older than <span class="inline">data_stale_max_days</span> (14) is retired and listed in <span class="inline">CAPR_COVERAGE</span> instead.</td></tr>
+            <tr><td><span class="k">DATA_STALE</span></td><td class="def"><span class="pill warn">WARN</span></td><td class="def">A dbid's newest AWR snapshot ended at least <span class="inline">stale_hours</span> (36) ago. A dbid older than <span class="inline">data_stale_max_days</span> (14) is retired and listed in <span class="inline">CAPR_COVERAGE</span> instead. In repository mode the message names the target, says no snapshot was copied, and why when <span class="inline">CAPR_TARGETS</span> knows: collects failing (with the newest error) or never collected. A disabled target raises none.</td></tr>
             <tr><td><span class="k">MODEL_HEALTH</span></td><td class="def"><span class="pill warn">WARN</span> failed, <span class="pill">INFO</span> stale</td><td class="def">A Tier 2 model failed its last build, or is older than <span class="inline">esm_max_age_days</span>, per <span class="inline">CAPF_ESM_HEALTH_SUMMARY</span>.</td></tr>
           </tbody>
         </table>

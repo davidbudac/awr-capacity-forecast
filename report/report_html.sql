@@ -22,7 +22,8 @@
 --   SQL> @report/report_html.sql - - - - - SNAPSHOT        -- from the last refresh run
 -- top_n = full cards per section (the rest are compact rows, still charted),
 -- anomaly_days = the window of the anomaly lists, show_esm AUTO | Y | N =
--- the Tier 2 ESM point on the charts. [dbid] [con_dbid] scope every block.
+-- the Tier 2 ESM point on the charts. [dbid] [con_dbid] scope every block,
+-- and dbid may also be a target name (report/scope.sql).
 -- SNAPSHOT reads the fits from CAPR_FIT_HISTORY and the alerts from
 -- CAPR_ALERTS_LATEST of the newest OK refresh run.
 --
@@ -65,31 +66,24 @@ SELECT NVL(NULLIF(TRIM('&1'), '-'), '&top_n')                  AS eff_top_n,
        NVL(NULLIF(UPPER(TRIM('&3')), '-'), UPPER('&show_esm')) AS eff_esm
 FROM   dual;
 
-COLUMN eff_sdbid NEW_VALUE cap_sdbid NOPRINT
-COLUMN eff_scon  NEW_VALUE cap_scon  NOPRINT
+-- Scope and identity: cap_sdbid / cap_scon, cap_db / cap_host / cap_user /
+-- cap_gen and the file stem (report/scope.sql). '-' = an omitted argument.
+COLUMN cap_a1 NEW_VALUE cap_arg_db  NOPRINT
+COLUMN cap_a2 NEW_VALUE cap_arg_con NOPRINT
+SELECT NVL(TRIM('&4'), '-') AS cap_a1, NVL(TRIM('&5'), '-') AS cap_a2 FROM dual;
+COLUMN cap_a1 CLEAR
+COLUMN cap_a2 CLEAR
+@@report/scope.sql
+
 COLUMN eff_src   NEW_VALUE cap_src   NOPRINT
-SELECT NVL(REGEXP_SUBSTR(TRIM('&4'), '^[0-9]+$'), 'NULL')                  AS eff_sdbid,
-       NVL(REGEXP_SUBSTR(TRIM('&5'), '^[0-9]+$'), 'NULL')                  AS eff_scon,
-       CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END AS eff_src
+SELECT CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END AS eff_src
 FROM   dual;
 
-COLUMN cap_db   NEW_VALUE cap_db   NOPRINT
-COLUMN cap_host NEW_VALUE cap_host NOPRINT
-COLUMN cap_user NEW_VALUE cap_user NOPRINT
-COLUMN cap_gen  NEW_VALUE cap_gen  NOPRINT
 COLUMN cap_path NEW_VALUE cap_path NOPRINT
 COLUMN cap_file NEW_VALUE cap_file NOPRINT
-SELECT SYS_CONTEXT('USERENV','DB_NAME')
-         || CASE WHEN TO_NUMBER(SYS_CONTEXT('USERENV','CON_ID')) NOT IN (0,1)
-                 THEN ' / ' || SYS_CONTEXT('USERENV','CON_NAME') ELSE '' END  AS cap_db,
-       SYS_CONTEXT('USERENV','SERVER_HOST')                                   AS cap_host,
-       SYS_CONTEXT('USERENV','CURRENT_SCHEMA')                                AS cap_user,
-       TO_CHAR(SYSTIMESTAMP,'YYYY-MM-DD HH24:MI:SS TZR')                      AS cap_gen,
-       'cap_report_'
-         || REGEXP_REPLACE(SYS_CONTEXT('USERENV','DB_NAME'),'[^A-Za-z0-9]+','_') || '_'
+SELECT 'cap_report_' || '&cap_stem' || '_'
          || TO_CHAR(SYSDATE,'YYYYMMDDHH24MI') || '.html'                      AS cap_file,
-       'reports/cap_report_'
-         || REGEXP_REPLACE(SYS_CONTEXT('USERENV','DB_NAME'),'[^A-Za-z0-9]+','_') || '_'
+       'reports/cap_report_' || '&cap_stem' || '_'
          || TO_CHAR(SYSDATE,'YYYYMMDDHH24MI') || '.html'                       AS cap_path
 FROM   dual;
 
@@ -98,9 +92,9 @@ FROM   dual;
 VARIABLE b_top_n        NUMBER
 VARIABLE b_anomaly_days NUMBER
 VARIABLE b_show_esm     VARCHAR2(10)
-VARIABLE b_cap_db       VARCHAR2(200)
-VARIABLE b_cap_host     VARCHAR2(200)
-VARIABLE b_cap_user     VARCHAR2(200)
+VARIABLE b_cap_db       VARCHAR2(400)
+VARIABLE b_cap_host     VARCHAR2(400)
+VARIABLE b_cap_user     VARCHAR2(400)
 VARIABLE b_cap_gen      VARCHAR2(200)
 VARIABLE b_cap_file     VARCHAR2(200)
 VARIABLE b_sdbid        NUMBER
@@ -307,12 +301,13 @@ BEGIN
   lap('meta');
 
   ----------------------------------------------------------------------
-  -- containers: dbid / con_dbid -> labels.
+  -- containers: dbid / con_dbid -> labels; "db" is the target name.
   ----------------------------------------------------------------------
   BEGIN
     v_sep := NULL;
     w('[');
-    FOR r IN (SELECT dbid, con_dbid, db_name, con_name, db_pdb FROM capr_container ORDER BY dbid, con_dbid) LOOP
+    FOR r IN (SELECT dbid, con_dbid, NVL(target_name, db_name) AS db_name, con_name, db_pdb
+              FROM capr_container ORDER BY dbid, con_dbid) LOOP
       IF in_scope(r.dbid, r.con_dbid) THEN
         w(v_sep || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"db":' || js(r.db_name)
           || ',"pdb":' || js(r.con_name) || ',"label":' || js(r.db_pdb) || '}');

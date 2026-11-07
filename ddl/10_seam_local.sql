@@ -1,7 +1,7 @@
 --
 -- ddl/10_seam_local.sql -- CAPV_* portable seam over DBA_HIST_* (LOCAL mode).
 -- =====================================================================
--- These twelve views (plus the CAPV_CONTRACT diagnostic at the bottom) are the
+-- These thirteen views (plus the CAPV_CONTRACT diagnostic at the bottom) are the
 -- ONLY place the analytics touch Oracle's AWR dictionary. Everything
 -- downstream (CAPD_/CAPF_/CAPA_/report) is written once against CAPV_* and
 -- runs byte-identically in local, warehouse, or fixture mode. Swapping this
@@ -16,8 +16,9 @@
 -- level).
 --
 -- Column contract (identical in all three seam files):
---   * every view carries (dbid, con_dbid). DBA_HIST_SNAPSHOT has no CON_DBID
---     column, so CAPV_SNAPSHOT sets con_dbid := dbid. The tablespace/OS/time
+--   * every view carries (dbid, con_dbid), but CAPV_TARGET (per dbid).
+--     DBA_HIST_SNAPSHOT has no CON_DBID column, so CAPV_SNAPSHOT sets
+--     con_dbid := dbid. The tablespace/OS/time
 --     views expose the real CON_DBID, which is REQUIRED to separate PDBs:
 --     TABLESPACE_ID / TS# restart at 0 per container, so SYSTEM in the root
 --     and SYSTEM in a PDB collide unless con_dbid disambiguates them.
@@ -192,6 +193,32 @@ LEFT  JOIN (SELECT dbid, con_dbid, MAX(pdb_name) AS con_name
             FROM   dba_hist_pdb_instance
             GROUP  BY dbid, con_dbid) p
   ON  p.dbid = k.dbid AND p.con_dbid = k.con_dbid;
+
+-- --------------------------------------------------------------------
+-- CAPV_TARGET (M24.6) -- what the suite measures and how it is fed: one row
+-- per (target, dbid). Local mode measures this database, so each dbid is a
+-- target named by its AWR db_name, fed LOCAL. host_name is the host of the
+-- newest instance startup. The collect columns (address .. n_gaps) are
+-- repository-only and NULL here. The repository seam does not copy this
+-- view: repository/seam_overrides.sql defines it over CAP_TARGET and
+-- CAP_COLLECT_LOG instead. Same columns and types in every seam file.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capv_target AS
+SELECT CAST(MAX(db_name) AS VARCHAR2(30))       AS target_name,
+       dbid                                     AS dbid,
+       CAST('LOCAL' AS VARCHAR2(10))            AS feed,
+       CAST(MAX(host_name) KEEP (DENSE_RANK LAST ORDER BY startup_time NULLS FIRST)
+            AS VARCHAR2(64))                    AS host_name,
+       CAST(NULL AS VARCHAR2(4000))             AS address,
+       CAST(NULL AS VARCHAR2(128))              AS db_link,
+       CAST('Y' AS VARCHAR2(1))                 AS enabled,
+       CAST(NULL AS NUMBER)                     AS collected_snap_id,
+       CAST(NULL AS DATE)                       AS last_ok_at,
+       CAST(NULL AS DATE)                       AS last_error_at,
+       CAST(NULL AS VARCHAR2(4000))             AS last_error,
+       CAST(NULL AS NUMBER)                     AS n_gaps
+FROM   dba_hist_database_instance
+GROUP  BY dbid;
 
 -- --------------------------------------------------------------------
 -- CAPV_RESOURCE_LIMIT (M11.1) -- per-instance resource high-water marks vs

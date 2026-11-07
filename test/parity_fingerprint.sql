@@ -7,12 +7,15 @@
 -- Prints "FP <view> <rows> <hash>" for every view of the current schema in
 -- the layer, sorted by name, so two installs over the same AWR (local mode in
 -- CDB$ROOT, repository mode over a link to it) can be compared with diff.
---   seam   the CAPV_* views but CAPV_CONTRACT; a view with a SNAP_ID column
---          counts only rows with snap_id <= cut, so a snapshot that lands
---          between the two runs does not show up as a difference.
---   stack  every CAPD_ / CAPF_ / CAPA_ / CAPR_ view, whole. Only equal when
---          both installs see the same snapshots, so run both right after a
---          collect and check that CAPV_SNAPSHOT's newest snap_id matches.
+--   seam   the CAPV_* views but CAPV_CONTRACT and CAPV_TARGET; a view with a
+--          SNAP_ID column counts only rows with snap_id <= cut, so a snapshot
+--          that lands between the two runs does not show up as a difference.
+--   stack  every CAPD_ / CAPF_ / CAPA_ / CAPR_ view but CAPR_TARGETS, whole.
+--          Only equal when both installs see the same snapshots, so run both
+--          right after a collect and check that CAPV_SNAPSHOT's newest
+--          snap_id matches.
+-- CAPV_TARGET and CAPR_TARGETS describe how each install is fed (LOCAL or a
+-- LINK, its address and collect log), so they differ by design.
 -- The hash is order-free: SUM over rows of ORA_HASH of the row's column
 -- hashes. Numbers are hashed at nine significant digits, so two plans that
 -- add up the same values in a different order still agree. LOB columns are
@@ -54,8 +57,8 @@ BEGIN
     FOR v IN (SELECT view_name FROM all_views
               WHERE  owner = v_owner AND REGEXP_LIKE(view_name, v_pat)
               ORDER  BY view_name) LOOP
-        -- CAPV_CONTRACT summarises the seam with no snap_id to cut on.
-        CONTINUE WHEN v_layer = 'seam' AND v.view_name = 'CAPV_CONTRACT';
+        -- CAPV_CONTRACT has no snap_id to cut on, and the target views differ by design.
+        CONTINUE WHEN v.view_name IN ('CAPV_CONTRACT', 'CAPV_TARGET', 'CAPR_TARGETS');
         v_expr  := NULL;
         v_where := NULL;
         FOR c IN (SELECT column_name, data_type FROM all_tab_columns

@@ -18,7 +18,8 @@
 -- report/defaults.sql. show_esm is AUTO | Y | N.
 --   [dbid] [con_dbid]  scope: every section shows only that database / that
 --                      container, and the top_n bounds rank inside the scope.
---                      Omit them, or pass '-', for every database.
+--                      Omit them, or pass '-', for every database. dbid may
+--                      also be a target name (report/scope.sql).
 --   [source]           LIVE (default): evaluate the CAPR views now.
 --                      SNAPSHOT: the alert list reads CAPR_ALERTS_LATEST, the
 --                      section 1 and 7 tables read CAPR_FIT_HISTORY of the
@@ -95,17 +96,18 @@ SELECT NVL(NULLIF(TRIM('&1'), '-'), '&top_n')                  AS eff_top_n,
        NVL(NULLIF(UPPER(TRIM('&3')), '-'), UPPER('&show_esm')) AS eff_esm
 FROM   dual;
 
--- Scope and source. cap_sdbid / cap_scon are a number or the literal NULL,
--- so every section filters with
---   (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
--- and an unscoped run reads (NULL IS NULL OR dbid = NULL): always true.
--- Anything but digits (omitted, '-') means every database.
-COLUMN eff_sdbid NEW_VALUE cap_sdbid NOPRINT
-COLUMN eff_scon  NEW_VALUE cap_scon  NOPRINT
+-- Scope and identity (report/scope.sql): cap_sdbid / cap_scon, which every
+-- section filters on, the target name and the Database / Host / Schema
+-- header values. '-' stands for an omitted argument.
+COLUMN cap_a1 NEW_VALUE cap_arg_db  NOPRINT
+COLUMN cap_a2 NEW_VALUE cap_arg_con NOPRINT
+SELECT NVL(TRIM('&4'), '-') AS cap_a1, NVL(TRIM('&5'), '-') AS cap_a2 FROM dual;
+COLUMN cap_a1 CLEAR
+COLUMN cap_a2 CLEAR
+@@report/scope.sql
+
 COLUMN eff_src   NEW_VALUE cap_src   NOPRINT
-SELECT NVL(REGEXP_SUBSTR(TRIM('&4'), '^[0-9]+$'), 'NULL')                  AS eff_sdbid,
-       NVL(REGEXP_SUBSTR(TRIM('&5'), '^[0-9]+$'), 'NULL')                  AS eff_scon,
-       CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END AS eff_src
+SELECT CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END AS eff_src
 FROM   dual;
 SET TERMOUT ON
 DEFINE cap_tm_lbl = header
@@ -114,10 +116,6 @@ DEFINE cap_tm_lbl = header
 -- --------------------------------------------------------------------
 -- Resolve identity, config knobs, ESM availability, report path (once).
 -- --------------------------------------------------------------------
-COLUMN cap_db   NEW_VALUE cap_db   NOPRINT
-COLUMN cap_host NEW_VALUE cap_host NOPRINT
-COLUMN cap_user NEW_VALUE cap_user NOPRINT
-COLUMN cap_gen  NEW_VALUE cap_gen  NOPRINT
 COLUMN cap_path NEW_VALUE cap_path NOPRINT
 COLUMN dtf_warn NEW_VALUE dtf_warn NOPRINT
 COLUMN dtf_crit NEW_VALUE dtf_crit NOPRINT
@@ -139,16 +137,7 @@ COLUMN cap_snap_run  NEW_VALUE cap_snap_run  NOPRINT
 COLUMN sec1_file     NEW_VALUE sec1_file     NOPRINT
 COLUMN sec7_file     NEW_VALUE sec7_file     NOPRINT
 
--- Identity via SYS_CONTEXT (no catalog/v$ privileges needed, so the report
--- runs from any monitoring schema, not just one with SELECT_CATALOG_ROLE).
-SELECT SYS_CONTEXT('USERENV','DB_NAME')
-         || CASE WHEN TO_NUMBER(SYS_CONTEXT('USERENV','CON_ID')) NOT IN (0,1)
-                 THEN ' / ' || SYS_CONTEXT('USERENV','CON_NAME') ELSE '' END  AS cap_db,
-       SYS_CONTEXT('USERENV','SERVER_HOST')                                   AS cap_host,
-       USER                                                                  AS cap_user,
-       TO_CHAR(SYSTIMESTAMP,'YYYY-MM-DD HH24:MI:SS TZR')                      AS cap_gen,
-       'reports/cap_report_'
-         || REGEXP_REPLACE(SYS_CONTEXT('USERENV','DB_NAME'),'[^A-Za-z0-9]+','_') || '_'
+SELECT 'reports/cap_report_' || '&cap_stem' || '_'
          || TO_CHAR(SYSDATE,'YYYYMMDDHH24MI') || '.txt'                       AS cap_path
 FROM   dual;
 
@@ -201,7 +190,8 @@ DEFINE cap_src_lbl   = '&cap_src'
 -- section 1 / 7 files for the source. The SNAPSHOT run is the newest OK
 -- live refresh run (CAPR_RUNS.last_ok_run_id).
 SELECT CASE WHEN &cap_sdbid IS NULL AND &cap_scon IS NULL THEN 'every database in this schema'
-            ELSE TRIM(CASE WHEN &cap_sdbid IS NOT NULL THEN 'dbid ' || '&cap_sdbid' END
+            ELSE CASE WHEN '&cap_starget' IS NOT NULL THEN 'target ' || '&cap_starget' || ': ' END
+                 || TRIM(CASE WHEN &cap_sdbid IS NOT NULL THEN 'dbid ' || '&cap_sdbid' END
                       || CASE WHEN &cap_scon IS NOT NULL THEN ' con_dbid ' || '&cap_scon' END)
                  || ' (' || NVL((SELECT LISTAGG(db_pdb, ', ') WITHIN GROUP (ORDER BY db_pdb)
                                  FROM   capr_container

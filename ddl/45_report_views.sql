@@ -7,17 +7,21 @@
 --   CAPR_CONTAINER -- (dbid, con_dbid) -> human label. Wraps the CAPV_CONTAINER
 --                     seam view and computes db_pdb, the single display string
 --                     every report section prints instead of a raw con_dbid:
---                       * root / non-CDB row  -> just the database name
---                       * PDB row             -> DBNAME/PDBNAME
+--                       * root / non-CDB row  -> just the target name
+--                       * PDB row             -> TARGET/PDBNAME
 --                       * name unknown        -> the raw con_dbid as text
---                     Defining the label ONCE here keeps text and HTML reports
---                     from drifting.
+--                     The target name is CAPV_TARGET's (the name a repository
+--                     registered), else the AWR db_name; in local and
+--                     fixture mode the two are the same. Defining the label
+--                     ONCE here keeps text and HTML reports from drifting.
 --   CAPR_ANOMALIES -- every flagged anomaly event (one row per observation
 --                     and baseline mode, plus CPU level shifts) with its
 --                     severity, message and alert eligibility. Also a point
 --                     feed for external dashboards.
 --   CAPR_FRESHNESS -- one row per dbid: the age of its newest AWR snapshot
 --                     against SYSDATE (the DATA_STALE dead-man check).
+--   CAPR_TARGETS   -- one row per target and dbid: how it is fed, its
+--                     freshness and, in repository mode, its collect state.
 --   CAPR_SEVERITY  -- the single home of the forecast-type severities
 --                     (TBSPC_FULL / TBSPC_NEARFULL / CPU_SAT / DBCPU_SAT /
 --                     CPU_HOT / DBCPU_HOT / SERIES_LIMIT / SERIES_NEARLIMIT),
@@ -40,7 +44,10 @@
 SET DEFINE OFF
 
 -- --------------------------------------------------------------------
--- CAPR_CONTAINER
+-- CAPR_CONTAINER -- db_name is the AWR name, target_name the CAPV_TARGET
+-- name of the dbid (one target per dbid), NULL when the dbid has none.
+-- target_name is the last column: consumers select by name, and the APEX
+-- contract only ever adds columns.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_container AS
 SELECT c.dbid,
@@ -48,12 +55,15 @@ SELECT c.dbid,
        c.db_name,
        c.con_name,
        CASE
-           WHEN c.db_name IS NULL THEN TO_CHAR(c.con_dbid)
-           -- root (con_dbid = dbid, e.g. CDB$ROOT) and non-CDB: db name only
-           WHEN c.con_dbid = c.dbid OR c.con_name IS NULL THEN c.db_name
-           ELSE c.db_name || '/' || c.con_name
-       END AS db_pdb
-FROM   capv_container c;
+           WHEN NVL(t.target_name, c.db_name) IS NULL THEN TO_CHAR(c.con_dbid)
+           -- root (con_dbid = dbid, e.g. CDB$ROOT) and non-CDB: name only
+           WHEN c.con_dbid = c.dbid OR c.con_name IS NULL THEN NVL(t.target_name, c.db_name)
+           ELSE NVL(t.target_name, c.db_name) || '/' || c.con_name
+       END AS db_pdb,
+       t.target_name
+FROM   capv_container c
+LEFT   JOIN capv_target t
+  ON   t.dbid = c.dbid;
 
 -- --------------------------------------------------------------------
 -- CAPR_ANOMALIES -- one row per flagged event over the whole history (no
@@ -231,6 +241,62 @@ FROM  (SELECT dbid, CAST(MAX(end_interval_time) AS DATE) AS newest_snap
 CROSS  JOIN cap_cfg cfg
 LEFT   JOIN capr_container c
   ON   c.dbid = s.dbid AND c.con_dbid = s.dbid;
+
+-- --------------------------------------------------------------------
+-- CAPR_TARGETS (M24.6) -- one row per CAPV_TARGET row: what is measured,
+-- how it is fed, and whether the feed still works.
+--   target_name, dbid  the target and one of its DBIDs (repository: dbid
+--                  NULL for a registered target no DBID was found for yet)
+--   db_name        the AWR database name of the dbid (its root container)
+--   feed           LOCAL | LINK (repository) | FIXTURE | WAREHOUSE
+--   host_name      AWR host of the dbid's newest instance startup
+--   address, db_link, enabled  repository: CAP_TARGET's connect string,
+--                  link and switch (set_enabled); elsewhere NULL, NULL, 'Y'
+--   n_containers   CAPV_CONTAINER rows of the dbid
+--   newest_snap, age_hours, is_stale  CAPR_FRESHNESS of the dbid
+--   collected_snap_id  repository: the high-water mark (last snap_id copied)
+--   last_ok_at     repository: newest OK / NOTHING collect of the dbid
+--   last_error_at, last_error  repository: newest ERROR of the dbid or of
+--                  the whole target (a link that failed before any DBID)
+--   n_gaps         repository: GAP rows, snapshots purged before copied
+--   collect_state  NULL unless feed = 'LINK', as nothing is collected there.
+--                  Else DISABLED (enabled = 'N'), FAILING (an error newer than
+--                  the last good collect), NEVER (no good collect yet), OK.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_targets AS
+SELECT t.target_name,
+       t.dbid,
+       c.db_name,
+       t.feed,
+       t.host_name,
+       t.address,
+       t.db_link,
+       t.enabled,
+       NVL(c.n_containers, 0)                                             AS n_containers,
+       f.newest_snap,
+       f.age_hours,
+       f.is_stale,
+       t.collected_snap_id,
+       t.last_ok_at,
+       t.last_error_at,
+       t.last_error,
+       t.n_gaps,
+       CASE
+           WHEN t.feed <> 'LINK'                                       THEN NULL
+           WHEN t.enabled = 'N'                                        THEN 'DISABLED'
+           WHEN t.last_error_at > NVL(t.last_ok_at, DATE '1900-01-01') THEN 'FAILING'
+           WHEN t.last_ok_at IS NULL                                   THEN 'NEVER'
+           ELSE 'OK'
+       END                                                                AS collect_state
+FROM   capv_target t
+LEFT   JOIN (SELECT dbid,
+                    COUNT(*)                                          AS n_containers,
+                    MAX(CASE WHEN con_dbid = dbid THEN db_name END)   AS db_name
+             FROM   capv_container
+             GROUP  BY dbid) c
+  ON   c.dbid = t.dbid
+LEFT   JOIN capr_freshness f
+  ON   f.dbid = t.dbid;
 
 -- --------------------------------------------------------------------
 -- CAPR_SEVERITY -- the single home of the forecast-type severities. One row

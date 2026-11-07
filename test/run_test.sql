@@ -299,6 +299,21 @@ BEGIN
       WHERE kind = 'TBSPC_NEARFULL' AND db_pdb <> 'FIXCDB';
     chk_int('alerts resolve db_pdb', v_n, 0);
 
+    DBMS_OUTPUT.PUT_LINE('=== CAPV_TARGET / CAPR_TARGETS fleet identity (M24.6) ===');
+    SELECT COUNT(DISTINCT dbid) INTO v_num FROM cap_fixture_container;
+    SELECT COUNT(*), COUNT(DISTINCT dbid) INTO v_n, v_num2 FROM capv_target;
+    chk_int('CAPV_TARGET rows = fixture dbids', v_n, v_num);
+    chk_int('CAPV_TARGET distinct dbids = fixture dbids', v_num2, v_num);
+    SELECT target_name, feed INTO v_str, v_str2 FROM capv_target WHERE dbid = v_dbid;
+    chk_str('CAPV_TARGET target_name', v_str, 'FIXCDB');
+    chk_str('CAPV_TARGET feed', v_str2, 'FIXTURE');
+    SELECT target_name INTO v_str FROM capr_container
+      WHERE dbid = v_dbid AND con_dbid = v_dbid;
+    chk_str('CAPR_CONTAINER root target_name', v_str, 'FIXCDB');
+    SELECT COUNT(*), COUNT(collect_state) INTO v_n, v_num2 FROM capr_targets;
+    chk_int('CAPR_TARGETS one row per fixture dbid', v_n, v_num);
+    chk_int('CAPR_TARGETS collect_state NULL (nothing collected)', v_num2, 0);
+
     DBMS_OUTPUT.PUT_LINE('=== CAPR_ALERTS anomaly kinds (M8.1) ===');
     -- SPIKE_DAY is 10 days before LAST_DAY, INJECTED_TUE at most 6 days
     -- before -- both inside the default 14-day anomaly_report_days window.

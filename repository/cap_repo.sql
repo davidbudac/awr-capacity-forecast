@@ -2,7 +2,8 @@
 -- repository/cap_repo.sql -- target registry + collector (REPOSITORY mode).
 -- =====================================================================
 -- Included by the generated ddl/13_seam_repository.sql, after the CAP_H_*
--- copy tables and CAP_REPO_SOURCE exist. A repository database registers
+-- copy tables and CAP_REPO_SOURCE exist and before the seam views, because
+-- CAPV_TARGET reads the registry tables below. A repository database registers
 -- each target once (cap_repo.add_target) and copies the target's AWR into
 -- CAP_H_* over a DB link (cap_repo.collect, hourly from a job). Nothing is
 -- ever written on a target: every statement there is a SELECT.
@@ -76,6 +77,15 @@ BEGIN
         elapsed_s      NUMBER,
         message        VARCHAR2(4000 CHAR)
     )~';
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+-- CAPV_TARGET's collect-health lookups (one per target, DBID and status).
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE INDEX cap_collect_log_ix ON cap_collect_log'
+                      || ' (target_name, status, dbid, logged_at)';
 EXCEPTION
     WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
 END;

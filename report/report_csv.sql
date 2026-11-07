@@ -18,6 +18,7 @@
 --   SQL> @report/report_csv.sql 42424242              -- one dbid
 --   SQL> @report/report_csv.sql 42424242 42424243     -- one container
 --   SQL> @report/report_csv.sql - 42424243            -- one con_dbid, any dbid
+--   SQL> @report/report_csv.sql CDB1                  -- one target (report/scope.sql)
 -- Positional arguments are optional and UNDEFINEd at the end. Dates print as
 -- YYYY-MM-DD HH24:MI:SS, numbers unformatted (NUMFORMAT TM9).
 --
@@ -49,20 +50,21 @@ COLUMN 1 NEW_VALUE 1 NOPRINT
 COLUMN 2 NEW_VALUE 2 NOPRINT
 SELECT NULL AS "1", NULL AS "2" FROM dual WHERE 1 = 0;
 
--- Scope, as in report/report.sql: a number or the literal NULL.
-COLUMN eff_sdbid NEW_VALUE cap_sdbid NOPRINT
-COLUMN eff_scon  NEW_VALUE cap_scon  NOPRINT
+-- Scope, as in report/report.sql (report/scope.sql): a number or the
+-- literal NULL. '-' stands for an omitted argument.
+COLUMN cap_a1 NEW_VALUE cap_arg_db  NOPRINT
+COLUMN cap_a2 NEW_VALUE cap_arg_con NOPRINT
+SELECT NVL(TRIM('&1'), '-') AS cap_a1, NVL(TRIM('&2'), '-') AS cap_a2 FROM dual;
+@@report/scope.sql
+
 COLUMN cap_dir   NEW_VALUE cap_dir   NOPRINT
-SELECT NVL(REGEXP_SUBSTR(TRIM('&1'), '^[0-9]+$'), 'NULL') AS eff_sdbid,
-       NVL(REGEXP_SUBSTR(TRIM('&2'), '^[0-9]+$'), 'NULL') AS eff_scon,
-       'reports/cap_csv_'
-         || REGEXP_REPLACE(SYS_CONTEXT('USERENV','DB_NAME'),'[^A-Za-z0-9]+','_') || '_'
+SELECT 'reports/cap_csv_' || '&cap_stem' || '_'
          || TO_CHAR(SYSDATE,'YYYYMMDDHH24MISS')                AS cap_dir
 FROM   dual;
 COLUMN 1 CLEAR
 COLUMN 2 CLEAR
-COLUMN eff_sdbid CLEAR
-COLUMN eff_scon  CLEAR
+COLUMN cap_a1    CLEAR
+COLUMN cap_a2    CLEAR
 COLUMN cap_dir   CLEAR
 
 HOST mkdir -p &cap_dir

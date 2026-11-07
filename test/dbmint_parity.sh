@@ -19,8 +19,10 @@
 # cap_forecast_ml.drop_all), which a deploy-mode change needs anyway and which
 # would otherwise differ between the schemas. Then fingerprint
 # (test/parity_fingerprint.sql):
-#   seam   every CAPV_* view in both, cut at the repository's high-water mark;
-#   stack  every CAPD_/CAPF_/CAPA_/CAPR_ view, both sessions in parallel.
+#   seam   every CAPV_* view in both, cut at the repository's high-water mark,
+#          but CAPV_CONTRACT and CAPV_TARGET (how each install is fed);
+#   stack  every CAPD_/CAPF_/CAPA_/CAPR_ view but CAPR_TARGETS, both sessions
+#          in parallel.
 # The stack only compares when no snapshot landed during the run (dbmint
 # snapshots every 15 minutes); otherwise it exits 5, rerun with --no-install.
 # A view that errors fails the run even when both sides error alike.

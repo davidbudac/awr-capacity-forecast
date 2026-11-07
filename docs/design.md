@@ -40,11 +40,12 @@ This document explains *why* each layer is shaped the way it is. For usage see
 
 ## Layer 1 — the seam (`CAPV_*`)
 
-Twelve views re-present the AWR dictionary in a stable shape. Everything
+Thirteen views re-present the AWR dictionary in a stable shape. Everything
 downstream depends only on these, so swapping `ddl/10_seam_local.sql` for `11`
 (warehouse) or `12` (fixture) re-points the whole stack. Every view carries
-`(dbid, con_dbid)`. A thirteenth view, `CAPV_CONTRACT`, describes what the
-other twelve present (see the last bullet).
+`(dbid, con_dbid)` but `CAPV_TARGET`, which is per dbid. A fourteenth view,
+`CAPV_CONTRACT`, describes what the other thirteen present (see the last
+bullet).
 
 - `DBA_HIST_SNAPSHOT` has no `CON_DBID`, so `CAPV_SNAPSHOT` sets
   `con_dbid := dbid`. The tablespace / OS / time-model views expose the **real**
@@ -92,6 +93,17 @@ other twelve present (see the last bullet).
   (`con_name` stays NULL — no PDB-name dim collected yet); fixture mode reads
   `CAP_FIXTURE_CONTAINER`. Historical dictionaries only, same as the rest of
   the seam — never live `V$` views.
+- `CAPV_TARGET` (M24.6) says what is measured and how it is fed: one row per
+  (target, dbid) with `target_name`, `feed` (`LOCAL` / `LINK` / `FIXTURE` /
+  `WAREHOUSE`), the AWR `host_name` of the newest instance startup, and, in
+  repository mode only, the link, `enabled`, the high-water mark and the
+  collect health from `CAP_COLLECT_LOG` (newest good collect, newest error
+  of the dbid or of the whole target, purge gaps). Local, fixture and
+  warehouse mode name the target after the AWR `db_name`. The repository
+  version reads the registry, so it is not ddl/10's with the rename:
+  `repository/seam_overrides.sql` holds it and `repository/build.py` puts it
+  in ddl/13 in place of ddl/10's. `CAPR_CONTAINER.db_pdb` and every report
+  header take their database name from it.
 - `CAPV_RESOURCE_LIMIT` / `CAPV_SYSSTAT` (M11).
   `DBA_HIST_RESOURCE_LIMIT` (filtered to `processes` / `sessions`) has a
   `CON_DBID` column, but in `CDB$ROOT` its rows are root-only (verified on
@@ -1064,9 +1076,14 @@ M8.2, for the bundled reports themselves:
 
 - `CAPR_CONTAINER` wraps `CAPV_CONTAINER` and computes `db_pdb`, the one
   display label every report section prints instead of a raw `con_dbid`
-  (root/non-CDB → db name alone; PDB → `DBNAME/PDBNAME`; unnamed → the raw
-  `con_dbid` as text). Defining the label once keeps text and HTML from
-  drifting.
+  (root/non-CDB → target name alone; PDB → `TARGET/PDBNAME`; unnamed → the
+  raw `con_dbid` as text). The target name is `CAPV_TARGET`'s, carried as the
+  last column `target_name`; outside repository mode it is the AWR db name.
+  Defining the label once keeps text and HTML from drifting.
+- `CAPR_TARGETS` is one row per `CAPV_TARGET` row: feed, host, link,
+  containers, freshness (`CAPR_FRESHNESS`) and, in repository mode, the
+  collect log, summed up as `collect_state` (`OK` / `FAILING` / `NEVER` /
+  `DISABLED`; NULL where this suite collects nothing).
 - `CAPR_SEVERITY` is the **single home of the forecast-type severities**:
   one row per (kind, dbid, con_dbid, series_key) for `TBSPC_FULL`,
   `TBSPC_NEARFULL`, `CPU_SAT`, `DBCPU_SAT`, `CPU_HOT`, `DBCPU_HOT`,
@@ -1107,7 +1124,9 @@ M8.2, for the bundled reports themselves:
   INFO), `DATA_STALE` (one WARN per dbid from `CAPR_FRESHNESS`, except a
   dbid `data_stale_max_days` (14) or more old: that one is retired, an
   imported or decommissioned DBID, and shows in `CAPR_COVERAGE` instead of
-  paging forever),
+  paging forever. In repository mode the message says no snapshot was
+  copied, and why when `CAPR_TARGETS` knows: collects failing, with the
+  newest error, or never collected. A disabled target raises none),
   `MODEL_HEALTH` (per container from `CAPF_ESM_HEALTH_SUMMARY`: WARN when a
   forecast model failed its last build, INFO when none failed but some are
   stale; no registry rows, no row, so a Tier 1 install stays silent; the

@@ -684,13 +684,28 @@ Decided 2026-11-07:
       schemas reset first), 5.5 min end to end. A collect whose first chunk
       failed (a grant revoked mid-way) rolled back whole, and the rerun
       converged to the same fingerprints.
-- [ ] **M24.6 Fleet identity.** In repository mode the report header comes
+- [x] **M24.6 Fleet identity.** In repository mode the report header comes
       from `CAP_TARGET` instead of `SYS_CONTEXT` (`report/report.sql`,
       `report/report_html.sql`); the target name rides on `CAPV_CONTAINER`;
       `CAPR_TARGETS` shows link, DBIDs, newest snapshot, lag and last error;
       `run_report.sh --target NAME`; a failing collect surfaces as an alert
       (DATA_STALE or a new kind). Check: two registered targets (dbmint, plus
       the 23cfree docker if it takes AWR snapshots).
+      Done 2026-11-07, as a 13th seam view `CAPV_TARGET` (every mode; the
+      repository one in `repository/seam_overrides.sql`) rather than columns
+      on `CAPV_CONTAINER`: `CAPR_CONTAINER.target_name` and `db_pdb`,
+      `CAPR_TARGETS` (`collect_state` OK / FAILING / NEVER / DISABLED),
+      `report/scope.sql` for all four drivers (header, file stem, a target
+      name as the dbid argument), DATA_STALE naming the target and its last
+      collect error, silent for a disabled target (no new alert kind). The
+      23cfree docker shares its instance with another project, so the second
+      target is synthetic (`test/repo_synth_target.sql`, CDB1's copies
+      cloned 3 days back): fleet header "2 targets: CDB1, SYNTH", stems
+      `fleet` / `SYNTH`, `--target nope` = ORA-20003 + exit 1, FAILING with
+      ORA-02019 in DATA_STALE. Found on the way: `run_report.sh` failed any
+      report whose alert message quoted an ORA- (DATA_STALE, and MODEL_HEALTH
+      before it); it now counts only lines that start with ORA- / SP2-.
+      Parity unchanged (identity views skipped), fixture harness passes.
 - [ ] **M24.7 Jobs, retention, doctor.** `CAP_COLLECT_JOB` (hourly) in
       repository mode; refresh and retrain keep their fixed times. Knob
       `repo_retention_days` (`CAP_CFG_CHECK`: at least the longest training

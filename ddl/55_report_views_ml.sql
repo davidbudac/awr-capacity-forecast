@@ -379,7 +379,11 @@ LEFT   JOIN capr_container c
 --              DATA_STALE   the dbid's newest AWR snapshot is stale_hours or
 --              more old (CAPR_FRESHNESS, the one SYSDATE test), WARN. A dbid
 --              data_stale_max_days or more old is retired: no alert, it shows
---              in CAPR_COVERAGE (ddl/60) instead.
+--              in CAPR_COVERAGE (ddl/60) instead. The message names the
+--              target (CAPR_TARGETS). In repository mode it says no snapshot
+--              was copied and why, when known: the collects fail (the newest
+--              error) or the dbid was never collected. A disabled target
+--              raises nothing, as its copies are frozen on purpose.
 --              MODEL_HEALTH Tier 2 FORECAST models per container: WARN when
 --              any failed its last build, INFO when none failed but some are
 --              stale. No registry rows, no row: a Tier 1 install stays silent.
@@ -485,10 +489,17 @@ WITH alerts AS (
                ROUND(f.age_hours, 1),
                f.stale_hours,
                'HOURS',
-               'No AWR snapshot for ' || f.db_name || ' (dbid ' || TO_CHAR(f.dbid) || ') since '
+               CASE WHEN t.feed = 'LINK' THEN 'No AWR snapshot copied for ' ELSE 'No AWR snapshot for ' END
+                 || NVL(t.target_name, f.db_name) || ' (dbid ' || TO_CHAR(f.dbid) || ') since '
                  || TO_CHAR(f.newest_snap, 'YYYY-MM-DD HH24:MI') || ', '
                  || TO_CHAR(f.age_hours, 'FM9999990.0') || ' hours ago (stale_hours '
-                 || TO_CHAR(f.stale_hours) || '): its forecasts and alerts are frozen at that point',
+                 || TO_CHAR(f.stale_hours) || '): its forecasts and alerts are frozen at that point'
+                 || CASE t.collect_state
+                        WHEN 'FAILING' THEN '; collect failing, last error at '
+                             || TO_CHAR(t.last_error_at, 'YYYY-MM-DD HH24:MI') || ': '
+                             || SUBSTR(TRANSLATE(t.last_error, CHR(10) || CHR(13), '  '), 1, 200)
+                        WHEN 'NEVER' THEN '; never collected'
+                    END,
                NULL,
                'GE',
                f.stale_hours,
@@ -496,8 +507,11 @@ WITH alerts AS (
                NULL, NULL, NULL
         FROM   capr_freshness f
         CROSS  JOIN cap_cfg cfg
+        LEFT   JOIN capr_targets t
+          ON   t.dbid = f.dbid
         WHERE  f.is_stale = 'Y'
           AND  f.age_hours < cfg.data_stale_max_days * 24
+          AND  NVL(t.enabled, 'Y') = 'Y'
         UNION ALL
         -- ---- MODEL_HEALTH: Tier 2 training that failed or went stale. The
         -- newest error comes straight from the registry (CAPF_ESM_HEALTH

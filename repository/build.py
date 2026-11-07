@@ -12,11 +12,14 @@ which rows are worth copying. From it this script writes, in one file:
     (persisted: ddl/00_drop never drops them, uninstall.sql does);
   * CAP_REPO_SOURCE, a view holding the finished pull statement per source,
     which repository/cap_repo.sql executes over each target's DB link;
+  * the include of repository/cap_repo.sql (the registry the seam reads);
   * the CAPV_* seam: ddl/10_seam_local.sql with every dba_hist_<x> renamed
-    cap_h_<x>, so local and repository mode share one seam body.
+    cap_h_<x>, so local and repository mode share one seam body, except the
+    views repository/seam_overrides.sql defines, which replace ddl/10's.
 
 --check also proves that the views ddl/10 reads, the views target/prepare.sql
-grants and the first seventeen create_owner.sql grants are the manifest's.
+grants and the first seventeen create_owner.sql grants are the manifest's,
+and that ddl/13 defines exactly ddl/10's CAPV_* views.
 """
 import re
 import sys
@@ -25,6 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_SEAM = ROOT / "ddl" / "10_seam_local.sql"
+OVERRIDES = ROOT / "repository" / "seam_overrides.sql"
 OUT = ROOT / "ddl" / "13_seam_repository.sql"
 PREPARE = ROOT / "target" / "prepare.sql"
 CREATE_OWNER = ROOT / "create_owner.sql"
@@ -102,7 +106,9 @@ SOURCES = [
            key=["dbid", "con_dbid", "ts#"]),
     Source("DATAFILE", "D", [("dbid", N), ("con_dbid", N), ("ts#", N), ("block_size", N)]),
     Source("PDB_INSTANCE", "D", [("dbid", N), ("con_dbid", N), ("pdb_name", v(128))]),
-    Source("DATABASE_INSTANCE", "D", [("dbid", N), ("db_name", v(9))]),
+    Source("DATABASE_INSTANCE", "D", [("dbid", N), ("instance_number", N), ("startup_time", TS),
+                                      ("db_name", v(9)), ("host_name", v(64))],
+           key=["dbid", "instance_number", "startup_time"]),
     Source("ASM_DISKGROUP", "D", [("dbid", N), ("con_dbid", N), ("group_number", N),
                                   ("name", v(128))],
            key=["dbid", "con_dbid", "group_number"]),
@@ -214,12 +220,13 @@ def source_view():
     return out
 
 
-def seam_from_local():
-    """ddl/10 below its header, comment lines dropped, dba_hist_<x> -> cap_h_<x>."""
-    text = LOCAL_SEAM.read_text()
-    body = text[text.index("SET DEFINE OFF"):]
+CREATE_VIEW = re.compile(r"\s*CREATE\s+OR\s+REPLACE\s+VIEW\s+(\w+)", re.I)
+
+
+def strip_comments(text):
+    """Comment lines dropped, runs of blank lines collapsed to one."""
     lines, blank = [], False
-    for line in body.splitlines():
+    for line in text.splitlines():
         if line.lstrip().startswith("--"):
             continue
         if not line.strip():
@@ -228,8 +235,47 @@ def seam_from_local():
             blank = True
         else:
             blank = False
-        lines.append(re.sub(r"\bdba_hist_(\w+)", r"cap_h_\1", line, flags=re.I))
+        lines.append(line)
     return lines
+
+
+def view_blocks(lines):
+    """{view: its lines from CREATE OR REPLACE VIEW through the line ending in ';'}.
+
+    The first such line ends the statement for SQL*Plus too, so it ends it here."""
+    out, name = {}, None
+    for line in lines:
+        m = CREATE_VIEW.match(line)
+        if m:
+            name = m.group(1).lower()
+            out[name] = []
+        if name:
+            out[name].append(line)
+            if line.rstrip().endswith(";"):
+                name = None
+    return out
+
+
+def overrides():
+    return view_blocks(strip_comments(OVERRIDES.read_text()))
+
+
+def seam_from_local():
+    """ddl/10 below its header, comment lines dropped, dba_hist_<x> -> cap_h_<x>,
+    and each view of seam_overrides.sql in place of ddl/10's view of that name."""
+    text = LOCAL_SEAM.read_text()
+    over = overrides()
+    out, skip = [], False
+    for line in strip_comments(text[text.index("SET DEFINE OFF"):]):
+        m = CREATE_VIEW.match(line)
+        if m and m.group(1).lower() in over:
+            out += over[m.group(1).lower()]
+            skip = True
+        if skip:
+            skip = not line.rstrip().endswith(";")
+            continue
+        out.append(re.sub(r"\bdba_hist_(\w+)", r"cap_h_\1", line, flags=re.I))
+    return out
 
 
 def local_views():
@@ -276,17 +322,18 @@ def render():
         "-- target (repository/cap_repo.sql pulls them over a DB link) into CAP_H_*",
         "-- tables of the same shape. The seam views below are ddl/10's with every",
         "-- dba_hist_<x> renamed cap_h_<x>, so both modes present the same CAPV_*",
-        "-- contract from one body; the notes on every view live in ddl/10.",
+        "-- contract from one body; the notes on every view live in ddl/10. A view",
+        "-- of repository/seam_overrides.sql replaces ddl/10's (CAPV_TARGET reads",
+        "-- the target registry), so cap_repo.sql is included before the seam.",
         "--",
         "SET DEFINE OFF",
         "",
     ]
-    out = head + tables_block() + [""] + source_view() + [""]
+    out = head + tables_block() + [""] + source_view() + ["", "@@repository/cap_repo.sql"]
     seam = seam_from_local()
     if seam and seam[0].strip() == "SET DEFINE OFF":
         seam = seam[1:]
-    out += seam
-    out += ["", "@@repository/cap_repo.sql", ""]
+    out += seam + [""]
     return "\n".join(out)
 
 
@@ -300,6 +347,19 @@ def problems():
     if set(granted(CREATE_OWNER, len(want))) != want:
         out.append("create_owner.sql: its first seventeen DBA_HIST grants are not the manifest's views")
     out += filter_drift()
+    local = set(view_blocks(strip_comments(LOCAL_SEAM.read_text())))
+    over = overrides()
+    if set(over) - local:
+        out.append(f"repository/seam_overrides.sql defines {sorted(set(over) - local)}, which ddl/10 does not")
+    in_views = {l for lines in over.values() for l in lines}
+    if any(l.strip() and l not in in_views for l in strip_comments(OVERRIDES.read_text())):
+        out.append("repository/seam_overrides.sql has text outside a CREATE OR REPLACE VIEW")
+    if any(re.search(r"\bdba_hist_", l, flags=re.I) for lines in over.values() for l in lines):
+        out.append("repository/seam_overrides.sql reads DBA_HIST_* (the seam reads the cap_h_* copies)")
+    capv = lambda names: {n for n in names if n.startswith("capv_")}
+    generated = capv(view_blocks(render().splitlines()))
+    if generated != capv(local):
+        out.append(f"ddl/13 CAPV views differ from ddl/10's: {sorted(generated ^ capv(local))}")
     for s in SOURCES:
         cols = names(s)
         for k in s.key:
