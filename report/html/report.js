@@ -674,6 +674,10 @@
     CHARTS.push(spec);
     var o = ['<article class="card ' + SEV_CLASS[m.sev] + (m.fam.heat ? ' split' : '') + '" id="' + m.id + '">'];
     o.push('<div class="ch"><h3>' + esc(m.name) + '</h3>' + (m.ctr && m.ctr !== m.name ? '<span class="ctr">' + esc(m.ctr) + '</span>' : '') + tagsHtml(m) + pill(m.sev) + '</div>');
+    var va = m.alerts[0];
+    if (va && (m.sev === 'CRIT' || m.sev === 'WARN')) {
+      o.push('<p class="verdict ' + SEV_CLASS[m.sev] + '">' + alertFact(va, m) + ' · ' + alertWhen(va) + '</p>');
+    }
     o.push(factsHtml(m.facts));
     o.push('<div class="viz"><div><div class="chart" data-chart="' + id + '">' + svg + '<div class="tip"></div></div>');
     o.push(legendHtml(spec) + '</div>');
@@ -840,14 +844,17 @@
   var html = [];
   var dbName = (D.containers && D.containers[0] && D.containers[0].db) || M.db || '';
   document.title = 'Capacity · ' + dbName + ' · ' + (M.lastDay || '');
-  html.push('<header class="top"><div class="top-in"><div class="brand">Capacity report <span>' + esc(dbName) + '</span></div>');
-  html.push('<div class="ident"><span><b>' + esc(M.host) + '</b></span><span>data ' + (FIRST != null ? fDayY(FIRST) + ' – ' + fDayY(LAST) : '–') +
-    (FIRST != null ? ' (' + (LAST - FIRST + 1) + ' d)' : '') + '</span><span>generated ' + esc((M.generated || '').slice(0, 16)) + '</span>' +
-    (M.source && M.source !== 'LIVE' ? '<span><b>' + esc(M.source) + '</b></span>' : '') + '</div>');
-  html.push('<div class="tools"><button class="tbtn" id="themeBtn" type="button">Theme</button><button class="tbtn" type="button" onclick="window.print()">Print</button></div></div>');
-  html.push('<nav class="nav"><div class="nav-in"><a href="#overview">Overview</a>' + present.map(function (s) {
-    return '<a href="#' + s.fam.id + '"><span class="dot ' + SEV_CLASS[s.sev] + '"></span>' + esc(s.fam.title) + '<span class="n">' + s.ms.length + '</span></a>';
-  }).join('') + '</div></nav></header><main>');
+  var nCon = (D.containers || []).length;
+  var esmLine = M.esm && M.esm.ok != null ? 'ESM models ' + M.esm.ok + ' ok, ' + (M.esm.failed || 0) + ' failed, ' + (M.esm.stale || 0) + ' stale' : '';
+  html.push('<div class="page"><header class="mast"><span><b>' + esc(dbName) + '</b>' + esc(M.host || '') +
+    (nCon > 1 ? ', ' + nCon + ' containers' : '') + (FIRST != null ? ', data ' + fDayY(FIRST) + ' – ' + fDayY(LAST) + ' (' + (LAST - FIRST + 1) + ' d)' : '') +
+    '</span><span>Capacity report' + (LAST != null ? ' for ' + fDayY(LAST) : '') + '</span></header>');
+  html.push('<p class="gen"><span>Generated ' + esc((M.generated || '').slice(0, 16)) + (M.schema ? ' from schema ' + esc(M.schema) : '') +
+    (M.source && M.source !== 'LIVE' ? ' · <b>' + esc(M.source) + '</b>' : '') + ' · ' + present.length + ' metrics' + (esmLine ? ' · ' + esmLine : '') + '</span>' +
+    '<span class="tools"><button class="tbtn" id="themeBtn" type="button">Theme</button><button class="tbtn" type="button" onclick="window.print()">Print</button></span></p>');
+  html.push('<nav class="nav"><a href="#overview">Overview</a>' + present.map(function (s) {
+    return '<a class="' + SEV_CLASS[s.sev] + '" href="#' + s.fam.id + '">' + esc(s.fam.title) + '<span class="n">' + s.ms.length + '</span></a>';
+  }).join('') + '</nav><main>');
 
   (D.errors || []).forEach(function (e) {
     html.push('<div class="banner">Data block “' + esc(e.block) + '” failed: ' + esc(e.msg) + '</div>');
@@ -859,32 +866,43 @@
     html.push('<div class="banner warn">Newest AWR day is ' + fDayY(LAST) + ', ' + (GEN - LAST) + ' days before this report.</div>');
   }
 
-  var esmLine = M.esm && M.esm.ok != null ? 'ESM models ' + M.esm.ok + ' ok · ' + (M.esm.failed || 0) + ' failed · ' + (M.esm.stale || 0) + ' stale' : '';
-  html.push('<section id="overview"><div class="sh"><h2>Overview</h2></div>');
-  html.push('<div class="summary">' +
-    '<span class="sv crit"><b>' + nCrit + '</b> critical</span>' +
-    '<span class="sv warn"><b>' + nWarn + '</b> warning</span>' +
-    '<span class="sv"><b>' + nOk + '</b> of ' + nSeries + ' series healthy</span>' +
-    '<span class="sv muted">' + present.length + ' metrics · ' + esmLine + '</span></div>');
+  var listed = alerts.filter(function (a) { return a.sev === 'CRIT' || a.sev === 'WARN'; });
+  var nFitOk = present.reduce(function (n, s) { return n + s.ms.filter(function (m) { return m.f.q === 'OK'; }).length; }, 0);
+  var plural = function (n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); };
+  html.push('<section id="overview" class="ov">');
+  var top = listed[0];
+  if (top) {
+    var tm = metricBySeries[key(top.dbid, top.con, top.s)];
+    var fact = /_ANOM$/.test(top.kind) ? 'unusual on ' + alertWhen(top)
+      : alertFact(top, tm) + (top.unit === 'DAYS' || top.u === 'DAYS' ? ', on ' + fDay(Math.round(LAST + top.v)) : '');
+    html.push('<h1>' + esc(tm ? tm.name : top.s) + ' ' + fact.replace(/<[^>]*>/g, '') + '.</h1>');
+  } else {
+    html.push('<h1>Nothing needs attention.</h1>');
+  }
+  html.push('<p class="lede">' + nCrit + ' critical and ' + plural(nWarn, 'warning') + ' across ' + nSeries + ' series in ' + plural(present.length, 'metric') + '.' +
+    (absent.length ? ' No data for ' + absent.map(function (s) { return esc(s.fam.title); }).join(', ') + '.' : '') + '</p>');
+  html.push('<div class="tally">' +
+    '<div' + (nCrit ? ' class="crit"' : '') + '><b>' + nCrit + '</b><span>critical</span></div>' +
+    '<div' + (nWarn ? ' class="warn"' : '') + '><b>' + nWarn + '</b><span>warning</span></div>' +
+    '<div><b>' + nOk + '</b><span>of ' + nSeries + ' series healthy</span></div>' +
+    '<div><b>' + nFitOk + '/' + nSeries + '</b><span>fits graded OK</span></div></div>');
 
   html.push(spaceHtml());
 
-  html.push('<div class="idx">' + present.map(function (s) {
+  html.push('<h3>By metric</h3><div class="idx">' + present.map(function (s) {
     var soon = s.ms.filter(function (m) { return m.f.dtf != null && m.f.q === 'OK' && m.f.dtf <= 365; })
       .sort(function (x, y) { return x.f.dtf - y.f.dtf; })[0];
-    return '<a class="irow" href="#' + s.fam.id + '">' + sdot(s.sev) + '<span class="it">' + esc(s.fam.title) + '</span>' +
+    return '<a class="irow ' + SEV_CLASS[s.sev] + '" href="#' + s.fam.id + '">' + sdot(s.sev) + '<span class="it">' + esc(s.fam.title) + '</span>' +
       '<span class="ic">' + s.ms.length + '</span><span class="ih">' + headline(s.fam, s.ms) + '</span>' +
       sparkSvg(s.ms[0], 240, 28) + '<span class="iw">' + (soon ? stamp(LAST + soon.f.dtf) : '') + '</span></a>';
   }).join('') + '</div>');
-  if (absent.length) html.push('<div class="absent">No data: ' + absent.map(function (s) { return esc(s.fam.title); }).join(', ') + '</div>');
 
-  var listed = alerts.filter(function (a) { return a.sev === 'CRIT' || a.sev === 'WARN'; });
-  html.push('<div class="attn"><h3>Needs attention <span>' + listed.length + '</span></h3>');
+  html.push('<h3>Needs attention <span>' + listed.length + ' open</span></h3><div class="attn">');
   if (!listed.length) html.push('<div class="allok">Nothing needs attention</div>');
   listed.forEach(function (a) {
     var m = metricBySeries[key(a.dbid, a.con, a.s)];
     var href = m ? '#' + m.id : '#overview';
-    html.push('<a class="arow" href="' + href + '">' + pill(a.sev) + '<span class="m">' + esc(m ? m.fam.title : a.kind) + '</span>' +
+    html.push('<a class="arow ' + SEV_CLASS[a.sev] + '" href="' + href + '">' + pill(a.sev) + '<span class="m">' + esc(m ? m.fam.title : a.kind) + '</span>' +
       '<span class="s">' + esc(m ? m.name : a.s) + ' <span>' + esc(m ? m.ctr : conLabel(a.dbid, a.con)) + '</span></span>' +
       '<span class="f">' + alertFact(a, m) + '</span><span class="d">' + alertWhen(a) + '</span></a>');
   });
@@ -896,7 +914,7 @@
   html.push('<div class="secgrid">');
   present.forEach(function (s) {
     var wide = s.ms.length > 1 || s.fam.heat;
-    html.push('<section id="' + s.fam.id + '"' + (wide ? ' class="wide"' : '') + '><div class="sh"><h2><span class="dot ' + SEV_CLASS[s.sev] + '"></span>' + esc(s.fam.title) + '</h2><div class="sum">' + familySummary(s.fam, s.ms) + '</div></div>');
+    html.push('<section id="' + s.fam.id + '"' + (wide ? ' class="wide"' : '') + '><div class="sh"><h2>' + esc(s.fam.title) + '</h2><div class="sum">' + familySummary(s.fam, s.ms) + '</div></div>');
     var full = s.ms.slice(0, TOP_N), rest = s.ms.slice(TOP_N);
     html.push('<div class="cards">' + full.map(cardHtml).join('') + '</div>');
     if (rest.length) {
@@ -905,7 +923,7 @@
     html.push('</section>');
   });
   html.push('</div></main><footer class="foot"><span>' + esc(M.db) + '</span><span>schema ' + esc(M.schema) + '</span><span>suite ' + esc(K.suiteVersion || '') + '</span>' +
-    '<span>' + esc(M.run || '') + '</span><span>read-only</span><span>' + esc(M.file || '') + '</span></footer>');
+    '<span>' + esc(M.run || '') + '</span><span>read-only</span><span>' + esc(M.file || '') + '</span></footer></div>');
 
 
   document.getElementById('app').innerHTML = html.join('');
@@ -1012,7 +1030,7 @@
           Object.keys(links).forEach(function (k) { links[k].classList.toggle('on', k === e.target.id); });
         }
       });
-    }, { rootMargin: '-110px 0px -70% 0px' });
-    Array.prototype.forEach.call(document.querySelectorAll('main > section'), function (s) { io.observe(s); });
+    }, { rootMargin: '-60px 0px -70% 0px' });
+    Array.prototype.forEach.call(document.querySelectorAll('main section'), function (s) { io.observe(s); });
   }
 })();
