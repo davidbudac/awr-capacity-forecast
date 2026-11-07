@@ -742,6 +742,76 @@
     return '<b>' + esc(m.name) + '</b> ' + m.unit.fmt(f.v) + (f.pct != null ? ' · ' + num(f.pct, 1) + '%' : '');
   }
 
+  /* ---------- overview: space growth rates ---------- */
+
+  var SPACE_TOP = 5;
+
+  function famMetrics(id) {
+    var s = sections.filter(function (x) { return x.fam.id === id; })[0];
+    return s ? s.ms : [];
+  }
+  /* The rate a tablespace fills at: a cyclic one is judged on its peaks. */
+  function fillRate(f) { return f.q === 'CYCLIC' ? f.pkSlope : f.slope; }
+  function observedChange(pts, days) {
+    var last = null, first = null;
+    for (var i = pts.length - 1; i >= 0; i--) {
+      var p = pts[i];
+      if (p.y == null) continue;
+      if (last == null) last = p;
+      if (p.x >= last.x - days) first = p; else break;
+    }
+    return last && first && last.x > first.x ? { d: last.y - first.y, n: last.x - first.x } : null;
+  }
+
+  function spaceRow(m, cells) {
+    return '<a class="grow" href="#' + m.id + '"><span class="s">' + esc(m.name) + ' <span>' + esc(m.ctr) +
+      (QUALITY_TAG[m.f.q] ? ' · ' + QUALITY_TAG[m.f.q] : '') + '</span></span>' +
+      cells.map(function (c) { return '<span class="c">' + c + '</span>'; }).join('') + '</a>';
+  }
+
+  /* The tablespace with the fewest days to full, as one sentence. */
+  function fillsFirstHtml(ts) {
+    var first = ts.filter(function (m) { return m.f.dtf != null && m.f.q !== 'INSUFFICIENT_HISTORY'; })
+      .sort(function (a, b) { return a.f.dtf - b.f.dtf; })[0];
+    if (!first) return '<div class="lead">No tablespace is on course to fill.</div>';
+    var f = first.f, tone = dtfFact(f, '').tone;
+    return '<a class="lead" href="#' + first.id + '">Fills first: <b>' + esc(first.name) + '</b> <span>' + esc(first.ctr) +
+      (QUALITY_TAG[f.q] ? ' · ' + QUALITY_TAG[f.q] : '') + '</span>, ' +
+      (f.dtf > 3650 ? 'full <b>not in sight</b>' : 'full in <b class="' + (tone || '') + '">' + fDays(f.dtf) + '</b> (' + (f.dtf > 120 ? Math.round(f.dtf) + ' d, ' : '') + 'by ' + fDayY(Math.round(LAST + f.dtf)) + ')') +
+      ' at ' + first.unit.rate(fillRate(f)) + ', ' + num(f.pct, 1) + '% used now</a>';
+  }
+
+  function spaceHtml() {
+    var ts = famMetrics('tablespaces'), dbs = famMetrics('db-size');
+    if (!ts.length && !dbs.length) return '';
+    var out = ['<div class="rates">'];
+
+    if (dbs.length) {
+      out.push('<h3>Database size</h3><div class="ghead"><span></span><span>size</span><span>per day</span><span>per 30 d</span><span>last 30 d</span></div>');
+      dbs.forEach(function (m) {
+        var f = m.f, obs = observedChange(m.pts, 30);
+        out.push(spaceRow(m, [m.unit.fmt(f.v), m.unit.rate(f.slope),
+          f.slope == null ? '–' : sign(f.slope) + m.unit.fmt(Math.abs(f.slope) * 30),
+          obs ? sign(obs.d) + m.unit.fmt(Math.abs(obs.d)) : '–']));
+      });
+    }
+    if (ts.length) {
+      var fastest = ts.filter(function (m) { return fillRate(m.f) > 0; }).sort(function (a, b) {
+        var da = a.f.dtf == null ? 1e9 : a.f.dtf, db = b.f.dtf == null ? 1e9 : b.f.dtf;
+        return da - db || fillRate(b.f) - fillRate(a.f);
+      }).slice(0, SPACE_TOP);
+      out.push('<h3>Fastest-filling tablespaces</h3>' + fillsFirstHtml(ts));
+      if (!fastest.length) out.push('<div class="allok">No tablespace is growing</div>');
+      else out.push('<div class="ghead"><span></span><span>used</span><span>per day</span><span>per 30 d</span><span>full in</span></div>');
+      fastest.forEach(function (m) {
+        var f = m.f, r = fillRate(f);
+        out.push(spaceRow(m, [num(f.pct, 1) + '%', m.unit.rate(r), sign(r) + fBytes(Math.abs(r) * 30), dtfFact(f, '').v]));
+      });
+    }
+    out.push('</div>');
+    return out.join('');
+  }
+
   /* ---------- assemble ---------- */
 
   var sections = FAMILIES.map(function (fam) {
@@ -796,6 +866,8 @@
     '<span class="sv warn"><b>' + nWarn + '</b> warning</span>' +
     '<span class="sv"><b>' + nOk + '</b> of ' + nSeries + ' series healthy</span>' +
     '<span class="sv muted">' + present.length + ' metrics · ' + esmLine + '</span></div>');
+
+  html.push(spaceHtml());
 
   html.push('<div class="idx">' + present.map(function (s) {
     var soon = s.ms.filter(function (m) { return m.f.dtf != null && m.f.q === 'OK' && m.f.dtf <= 365; })
