@@ -177,6 +177,22 @@ section { margin-top: 56px; }
 .irow .ih b { color: var(--ink); font-weight: 500; }
 .irow svg { display: block; width: 100%; height: 28px; }
 .irow .iw { text-align: right; }
+.rates { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+  overflow: hidden; padding-bottom: 8px; margin-bottom: 20px; }
+.rates .lead { display: block; padding: 4px 20px 10px; font-size: 14px; color: var(--ink-2); transition: background-color .15s; }
+a.lead:hover { background: var(--surface-2); }
+.lead b { color: var(--ink); font-weight: 600; }
+.lead b.crit { color: var(--crit); }
+.lead b.warn { color: var(--warn); }
+.lead span { color: var(--ink-3); }
+.rates h3 { margin: 0; padding: 16px 20px 4px; font-size: 14px; font-weight: 600; }
+.ghead, .grow { display: grid; grid-template-columns: minmax(160px, 2fr) repeat(4, minmax(72px, 1fr)); gap: 16px; align-items: baseline; padding: 6px 20px; font-size: 13px; }
+.ghead { color: var(--ink-3); font-size: 12px; padding-block: 4px; }
+.ghead span, .grow .c { text-align: right; font-variant-numeric: tabular-nums; }
+.grow { border-top: 1px solid var(--line-2); transition: background-color .15s; }
+.grow:hover { background: var(--surface-2); }
+.grow .s { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grow .s span { font-weight: 400; color: var(--ink-3); }
 .absent { color: var(--ink-3); font-size: 13px; margin-top: 12px; }
 
 .attn { margin-top: 20px; }
@@ -293,6 +309,8 @@ section { margin-top: 56px; }
   .ident { display: none; }
   .summary .sv.muted { margin-left: 0; }
   .irow { grid-template-columns: 8px 1fr 64px; padding-inline: 16px; }
+  .ghead, .grow { grid-template-columns: minmax(0, 1fr) repeat(2, auto); padding-inline: 16px; }
+  .ghead span:nth-child(n+4), .grow .c:nth-child(n+4) { display: none; }
   .irow .ic, .irow .ih, .irow svg { display: none; }
   .arow { grid-template-columns: 1fr auto; gap: 4px 12px; padding-inline: 16px; }
   .arow .m { display: none; }
@@ -308,6 +326,6 @@ section { margin-top: 56px; }
 @media print {
   .top { position: static; backdrop-filter: none; }
   .nav, .tools { display: none; }
-  .card, .idx, .attn, .rows { break-inside: avoid; box-shadow: none; }
+  .card, .idx, .attn, .rows, .rates { break-inside: avoid; box-shadow: none; }
   body { background: #fff; }
 }
