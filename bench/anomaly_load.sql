@@ -8,6 +8,8 @@
 --
 -- The table is dropped by bench/teardown.sql, and re-running this script
 -- appends another chunk. Expects DEFINEs: owner, mb
+SET APPINFO OFF
+SET APPINFO "AWRCAP/bench/anomaly_load.sql"
 SET SERVEROUTPUT ON
 SET VERIFY OFF
 

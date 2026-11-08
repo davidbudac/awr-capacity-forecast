@@ -13,8 +13,8 @@
 #   --pga         end every step with test/pga_probe.sql (that session's peak
 #                 PGA, its largest work areas, the instance PGA counters)
 #
-# repository/build.py --check, test/lint_anom_joins.sh, test/run_report_sh_test.sh
-# and test/report_html_test.sh run first and a failure of any stops the run (exit 4).
+# repository/build.py --check, test/lint_anom_joins.sh, test/lint_appinfo.sh,
+# test/run_report_sh_test.sh and test/report_html_test.sh run first and a failure of any stops the run (exit 4).
 # Exit status is the SQL*Plus exit status of the last failing step; the log is
 # left in /tmp/dbmint_harness_<SCHEMA>.log and the RESULT / FAIL / ORA- lines
 # are echoed at the end. One schema per concurrent run (see CLAUDE.md).
@@ -38,6 +38,8 @@ LOG=/tmp/dbmint_harness_${SCHEMA}.log
 GEN_OUT=$(python3 "$HERE"/repository/build.py --check 2>&1) || { echo "$GEN_OUT"; echo "generated seam stale: not syncing"; exit 4; }
 echo "$GEN_OUT"
 LINT_OUT=$("$HERE"/test/lint_anom_joins.sh) || { echo "$LINT_OUT"; echo "lint failed: not syncing"; exit 4; }
+echo "$LINT_OUT"
+LINT_OUT=$("$HERE"/test/lint_appinfo.sh) || { echo "$LINT_OUT"; echo "lint failed: not syncing"; exit 4; }
 echo "$LINT_OUT"
 SH_OUT=$("$HERE"/test/run_report_sh_test.sh) || { echo "$SH_OUT"; echo "run_report.sh test failed: not syncing"; exit 4; }
 echo "$SH_OUT"

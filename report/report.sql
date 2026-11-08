@@ -32,6 +32,8 @@
 -- Requires the suite installed (any deploy mode). Tier 2 rows appear only if
 -- cap_forecast_ml.train_all has been run.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/report/report.sql"
 SET DEFINE '&'
 SET VERIFY     OFF
 SET FEEDBACK   OFF
@@ -111,6 +113,7 @@ SELECT CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END 
 FROM   dual;
 SET TERMOUT ON
 DEFINE cap_tm_lbl = header
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('header')
 @@&cap_tm_start
 
 -- --------------------------------------------------------------------
@@ -249,34 +252,42 @@ PROMPT        training days; raise DBMS_WORKLOAD_REPOSITORY retention for real t
 PROMPT ================================================================================
 
 DEFINE cap_tm_lbl = s0
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s0 at a glance')
 @@&cap_tm_start
 @@report/sections/00_at_a_glance.sql
 @@&cap_tm_stop
 DEFINE cap_tm_lbl = s1
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s1 days to full')
 @@&cap_tm_start
 @@&sec1_file
 @@&cap_tm_stop
 DEFINE cap_tm_lbl = s2
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s2 tbspc forecast')
 @@&cap_tm_start
 @@report/sections/02_tbspc_forecast.sql
 @@&cap_tm_stop
 DEFINE cap_tm_lbl = s3
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s3 tbspc anomalies')
 @@&cap_tm_start
 @@report/sections/03_tbspc_anomalies.sql
 @@&cap_tm_stop
 DEFINE cap_tm_lbl = s4
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s4 cpu trend')
 @@&cap_tm_start
 @@report/sections/04_cpu_trend.sql
 @@&cap_tm_stop
 DEFINE cap_tm_lbl = s5
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s5 cpu anomalies')
 @@&cap_tm_start
 @@report/sections/05_cpu_anomalies.sql
 @@&cap_tm_stop
 DEFINE cap_tm_lbl = s6
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s6 esm compare')
 @@&cap_tm_start
 @@&esm_file
 @@&cap_tm_stop
 DEFINE cap_tm_lbl = s7
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s7 series')
 @@&cap_tm_start
 @@&sec7_file
 @@&cap_tm_stop

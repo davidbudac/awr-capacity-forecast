@@ -9,6 +9,8 @@
 -- visible increments rather than one jump.
 --
 -- Expects DEFINEs: maxsize, admin_user, admin_pass
+SET APPINFO OFF
+SET APPINFO "AWRCAP/bench/setup/02_bench_objects.sql"
 SET SERVEROUTPUT ON
 SET VERIFY OFF
 

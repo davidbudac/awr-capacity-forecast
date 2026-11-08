@@ -23,6 +23,8 @@
 -- "COLUMN n NEW_VALUE n + zero-row SELECT" trick, and are UNDEFINEd at the
 -- end so a later argument-less @-call in the same session cannot inherit them.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/report/drill_tbspc.sql"
 SET DEFINE '&'
 SET VERIFY     OFF
 SET FEEDBACK   OFF

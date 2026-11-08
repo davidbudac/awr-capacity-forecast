@@ -8,6 +8,8 @@
 -- the app in the same instance (component ids are fixed and would collide).
 -- The app only reads the suite's CAPR_* views and CAP_CONFIG; it writes
 -- nothing but APEX session collections.
+set appinfo off
+set appinfo "AWRCAP/apex/install.sql"
 set define '&' verify off feedback off serveroutput on
 whenever sqlerror exit sql.sqlcode rollback
 column 1 new_value 1 noprint

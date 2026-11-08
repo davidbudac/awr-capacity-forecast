@@ -175,7 +175,11 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
         l_err   VARCHAR2(4000);
         l_rows  PLS_INTEGER;
         l_step  PLS_INTEGER;
+        l_mod   VARCHAR2(64);
+        l_act   VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_ACTION(p_model);
         IF p_purpose = 'FORECAST' THEN
             g_fc_built := g_fc_built + 1;
         END IF;
@@ -247,9 +251,11 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
                last_error = NULL, failed_at = NULL
          WHERE model_name = p_model;
         COMMIT;
+        DBMS_APPLICATION_INFO.SET_ACTION(l_act);
     EXCEPTION
         WHEN OTHERS THEN
             l_err := SUBSTR(SQLERRM || CHR(10) || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE, 1, 4000);
+            DBMS_APPLICATION_INFO.SET_ACTION(l_act);
             IF p_purpose = 'FORECAST' THEN
                 g_fc_failed := g_fc_failed + 1;
             END IF;
@@ -301,6 +307,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
         v_hold NUMBER := NVL(p_holdout_days, cfg_num('backtest_holdout_days', 28));
         v_min  NUMBER := cfg_num('min_train_days', 14);
     BEGIN
+        DBMS_APPLICATION_INFO.SET_ACTION('backtest tablespaces');
         FOR r IN c_tbspc(p_top_n, NULL, NULL, v_min) LOOP
             twins_tbspc(r.dbid, r.con_dbid, r.tablespace_name, r.last_day, v_hold);
         END LOOP;
@@ -316,6 +323,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
         v_cut   DATE;
         v_q     CLOB;
     BEGIN
+        DBMS_APPLICATION_INFO.SET_ACTION('backtest cpu');
         -- host busy%
         FOR r IN (SELECT dbid, con_dbid, last_day FROM capf_cpu_trend
                   WHERE  metric = 'BUSY_PCT' AND quality IN ('OK', 'LOW_CONFIDENCE')) LOOP
@@ -429,6 +437,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
         v_hold NUMBER := cfg_num('backtest_holdout_days', 28);
         v_n    PLS_INTEGER := 0;
     BEGIN
+        DBMS_APPLICATION_INFO.SET_ACTION('tablespaces');
         -- AUTO: build both candidates' holdout twins first, so CAPF_ESM_CANDIDATE
         -- has a MAPE per candidate by the time prod_tbspc chooses.
         IF auto_select THEN
@@ -454,6 +463,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
         v_model VARCHAR2(30);
         v_q     CLOB;
     BEGIN
+        DBMS_APPLICATION_INFO.SET_ACTION('cpu');
         -- host busy% : Holt-Winters additive, weekly season. M10.4: only where
         -- the Tier 1 CPU fit is OK / LOW_CONFIDENCE. Complete days only, as the
         -- Tier 1 fit: a partial first, restart or current day reads low.
@@ -481,35 +491,66 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
 
     -- ----------------------------------------------------------------
     PROCEDURE train_tablespaces(p_top_n IN NUMBER DEFAULT 20) IS
+        l_mod VARCHAR2(64);
+        l_act VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.train_tablespaces', NULL);
         reset_counts;
         do_tablespaces(p_top_n, NULL, NULL);
         raise_if_failed;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END train_tablespaces;
 
     -- ----------------------------------------------------------------
     PROCEDURE train_tablespace(p_tablespace_name IN VARCHAR2,
                                p_con_dbid        IN NUMBER DEFAULT NULL) IS
+        l_mod VARCHAR2(64);
+        l_act VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.train_tablespace', NULL);
         reset_counts;
         -- top-N does not apply to a named series; any cap above the number of
         -- containers will do.
         do_tablespaces(1000000, p_tablespace_name, p_con_dbid);
         raise_if_failed;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END train_tablespace;
 
     -- ----------------------------------------------------------------
     PROCEDURE train_cpu IS
+        l_mod VARCHAR2(64);
+        l_act VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.train_cpu', NULL);
         reset_counts;
         do_cpu;
         raise_if_failed;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END train_cpu;
 
     -- ----------------------------------------------------------------
     PROCEDURE train_all(p_top_n    IN NUMBER  DEFAULT 20,
                         p_backtest IN BOOLEAN DEFAULT TRUE) IS
+        l_mod VARCHAR2(64);
+        l_act VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.train_all', NULL);
         reset_counts;
         do_tablespaces(p_top_n, NULL, NULL);   -- trains the candidate twins too when AUTO
         IF p_backtest AND NOT auto_select THEN
@@ -522,6 +563,11 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
             backtest_cpu(NULL);
         END IF;
         raise_if_failed;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END train_all;
 
     -- ----------------------------------------------------------------
@@ -533,14 +579,27 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
     -- ----------------------------------------------------------------
     PROCEDURE train_backtest(p_top_n        IN NUMBER DEFAULT 20,
                              p_holdout_days IN NUMBER DEFAULT NULL) IS
+        l_mod VARCHAR2(64);
+        l_act VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.train_backtest', NULL);
         backtest_tbspc(p_top_n, p_holdout_days);
         backtest_cpu(p_holdout_days);
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END train_backtest;
 
     -- ----------------------------------------------------------------
     PROCEDURE drop_all IS
+        l_mod VARCHAR2(64);
+        l_act VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.drop_all', NULL);
         FOR r IN (SELECT model_name FROM cap_ml_model) LOOP
             drop_quiet(r.model_name);
             drop_quiet(r.model_name || c_tmp_sfx);
@@ -561,6 +620,11 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
             END LOOP;
         EXCEPTION WHEN OTHERS THEN NULL;   -- no data-dictionary access: skip
         END;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END drop_all;
 
     -- ----------------------------------------------------------------

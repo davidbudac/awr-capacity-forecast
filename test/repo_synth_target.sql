@@ -14,6 +14,8 @@
 -- link_owned = 'N': cap_repo.remove_target(TARGET) deletes the rows and
 -- drops no link.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/test/repo_synth_target.sql"
 SET DEFINE '&'
 SET VERIFY OFF
 SET FEEDBACK OFF

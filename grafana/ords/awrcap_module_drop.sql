@@ -8,6 +8,8 @@
 -- with ORDS.ENABLE_SCHEMA(p_enabled => FALSE) if awrcap was the only one.
 -- A missing module is a no-op.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/grafana/ords/awrcap_module_drop.sql"
 SET DEFINE ON
 SET VERIFY OFF
 SET FEEDBACK OFF

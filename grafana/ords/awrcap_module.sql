@@ -23,6 +23,8 @@
 -- block between plsql('metrics', q'~ and ~'); and print the page with
 -- OWA_UTIL.SHOWPAGE (grafana/API.md shows how).
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/grafana/ords/awrcap_module.sql"
 SET DEFINE ON
 SET VERIFY OFF
 SET FEEDBACK OFF

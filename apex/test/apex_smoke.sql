@@ -2,6 +2,8 @@
 -- Run as the parsing schema:  @test/apex_smoke.sql [app_id]   (default 110)
 -- Runs the page loader for every page and every region query of the app under
 -- representative filter values in an APEX session; exits non-zero on any failure.
+set appinfo off
+set appinfo "AWRCAP/apex/test/apex_smoke.sql"
 set serveroutput on size unlimited format wrapped feedback off verify off define on
 whenever sqlerror exit failure rollback
 column 1 new_value 1 noprint

@@ -29,6 +29,8 @@
 --
 -- As SYS this installs into SYS. For a dedicated owner see create_owner.sql.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/quickstart.sql"
 SET DEFINE '&'
 SET VERIFY   OFF
 SET FEEDBACK OFF

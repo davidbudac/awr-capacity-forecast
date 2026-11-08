@@ -10,6 +10,8 @@
 --
 -- Reversed by bench/teardown.sql. Costs SYSAUX space (~1.8 GB used against a
 -- 64 GB max here), which is itself a legitimate growth series for the report.
+SET APPINFO OFF
+SET APPINFO "AWRCAP/bench/setup/01_awr_settings.sql"
 SET SERVEROUTPUT ON
 SET VERIFY OFF
 

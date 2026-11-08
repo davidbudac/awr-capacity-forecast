@@ -630,6 +630,10 @@ CREATE OR REPLACE PACKAGE cap_results AUTHID DEFINER AS
 
     -- local | repository | fixture, read from what CAPV_SNAPSHOT depends on.
     FUNCTION deploy_mode RETURN VARCHAR2;
+
+    -- Every procedure above labels its session MODULE 'AWRCAP/cap_results.<name>'
+    -- (refresh: ACTION = the step) and puts the caller's MODULE / ACTION back
+    -- when it returns or raises.
 END cap_results;
 /
 
@@ -828,7 +832,11 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
         l_cov_c NUMBER;
         l_cov   VARCHAR2(4000);
         l_err   VARCHAR2(4000);
+        l_mod   VARCHAR2(64);
+        l_act   VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_results.refresh', 'lock');
         l_back := CASE WHEN l_asof < TRUNC(l_now) THEN 'Y' ELSE 'N' END;
         -- Serialise first, backdated runs included: the lock is held from
         -- run_id allocation to the final COMMIT, so run_id order is commit
@@ -845,6 +853,7 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
                     || TO_CHAR(l_asof, 'YYYY-MM-DD') || ' is after today');
             END IF;
 
+            DBMS_APPLICATION_INFO.SET_ACTION('fit snapshot');
             INSERT INTO cap_fit_hist (
                 run_id, as_of_day, dbid, con_dbid, db, db_name, con_name, kind, series, unit, method,
                 value, limit_value, pct, slope_per_day, r2, quality, days_to_full, days_to_full_lo,
@@ -861,10 +870,12 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
             l_fit := SQL%ROWCOUNT;
 
             IF l_back = 'N' THEN
+                DBMS_APPLICATION_INFO.SET_ACTION('merge alerts');
                 merge_alerts(l_run, l_now, l_alert, l_anom, l_event);
             END IF;
 
             -- The same aggregation the HTML report's coverage line makes.
+            DBMS_APPLICATION_INFO.SET_ACTION('coverage');
             SELECT COUNT(*), COUNT(CASE WHEN retired = 'N' THEN 1 END),
                    LISTAGG(summary, ' | ' ON OVERFLOW TRUNCATE) WITHIN GROUP (ORDER BY dbid)
             INTO   l_cov_n, l_cov_c, l_cov
@@ -886,13 +897,22 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
                 COMMIT;
                 RAISE;
         END;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END refresh;
 
     PROCEDURE ack(p_key   IN VARCHAR2,
                   p_until IN DATE     DEFAULT NULL,
                   p_note  IN VARCHAR2 DEFAULT NULL,
                   p_by    IN VARCHAR2 DEFAULT SYS_CONTEXT('USERENV', 'SESSION_USER')) IS
+        l_mod VARCHAR2(64);
+        l_act VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_results.ack', NULL);
         UPDATE cap_alert_state
            SET ack_until = NVL(p_until, c_far),
                ack_note  = SUBSTR(p_note, 1, 400),
@@ -904,10 +924,19 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
                                             || p_key);
         END IF;
         COMMIT;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END ack;
 
     PROCEDURE unack(p_key IN VARCHAR2) IS
+        l_mod VARCHAR2(64);
+        l_act VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_results.unack', NULL);
         UPDATE cap_alert_state
            SET ack_until = NULL, ack_note = NULL, ack_by = NULL, acked_at = NULL
          WHERE state_key = p_key OR last_alert_key = p_key;
@@ -916,13 +945,22 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
                                             || p_key);
         END IF;
         COMMIT;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END unack;
 
     PROCEDURE purge(p_keep_days IN NUMBER DEFAULT 400) IS
         l_last    NUMBER;
         l_last_ok NUMBER;
         l_cut     TIMESTAMP := SYSTIMESTAMP - NUMTODSINTERVAL(p_keep_days, 'DAY');
+        l_mod     VARCHAR2(64);
+        l_act     VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_results.purge', NULL);
         -- A refresh waits at its first LOCK until this commits. Same lock
         -- order as refresh: CAP_ALERT_STATE, then CAP_RUN.
         LOCK TABLE cap_alert_state IN EXCLUSIVE MODE;
@@ -941,10 +979,19 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
         DELETE FROM cap_alert_state
          WHERE state = 'RESOLVED' AND resolved_at < CAST(l_cut AS DATE);
         COMMIT;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END purge;
 
     PROCEDURE reset IS
+        l_mod VARCHAR2(64);
+        l_act VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_results.reset', NULL);
         LOCK TABLE cap_alert_state IN EXCLUSIVE MODE;
         LOCK TABLE cap_run IN EXCLUSIVE MODE;
         DELETE FROM cap_alert_event;
@@ -952,6 +999,11 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
         DELETE FROM cap_fit_hist;
         DELETE FROM cap_run;
         COMMIT;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END reset;
 
 END cap_results;

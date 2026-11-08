@@ -138,6 +138,12 @@ CREATE OR REPLACE PACKAGE cap_repo AUTHID DEFINER AS
     -- copied view, else the error text. Never raises; rolls back the
     -- caller's transaction (the remote SELECT opens a distributed one).
     FUNCTION ping(p_name IN VARCHAR2) RETURN VARCHAR2;
+
+    -- Every procedure above labels its session MODULE 'AWRCAP/cap_repo.<name>'
+    -- (collect: ACTION = the target and DBID it copies) and puts the caller's
+    -- MODULE / ACTION back when it returns or raises. The target's session
+    -- behind the link does not inherit them, so it is labelled too: MODULE
+    -- as here, ACTION 'from <owner>@<container>' of this repository.
 END cap_repo;
 /
 
@@ -186,6 +192,20 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
                                             || ' (see CAP_TARGET)');
     END get_target;
 
+    -- Over the target's PUBLIC EXECUTE on DBMS_APPLICATION_INFO; a target
+    -- that revoked it just shows an unlabelled session.
+    PROCEDURE label_remote(p_link IN VARCHAR2) IS
+        l_mod VARCHAR2(64);
+        l_act VARCHAR2(64);
+    BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        EXECUTE IMMEDIATE 'BEGIN dbms_application_info.set_module@' || p_link || '(:m, :a); END;'
+            USING l_mod, SUBSTR('from ' || SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') || '@'
+                                || SYS_CONTEXT('USERENV', 'CON_NAME'), 1, 32);
+    EXCEPTION
+        WHEN OTHERS THEN NULL;
+    END label_remote;
+
     PROCEDURE close_link(p_link IN VARCHAR2) IS
     BEGIN
         DBMS_SESSION.CLOSE_DATABASE_LINK(p_link);
@@ -199,6 +219,7 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         v_missing VARCHAR2(4000);
     BEGIN
         EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM dual@' || p_link INTO v_n;
+        label_remote(p_link);
         FOR s IN (SELECT source_name FROM cap_repo_source ORDER BY seq) LOOP
             BEGIN
                 EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM dba_hist_' || LOWER(s.source_name)
@@ -261,6 +282,7 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
             RETURN ROUND((DBMS_UTILITY.GET_TIME - v_t0) / 100, 1);
         END secs;
     BEGIN
+        DBMS_APPLICATION_INFO.SET_ACTION(SUBSTR(t.target_name || ' ' || p_dbid, 1, 32));
         EXECUTE IMMEDIATE 'SELECT MIN(snap_id), MAX(snap_id) FROM dba_hist_snapshot@'
                           || t.db_link || ' WHERE dbid = :1'
             INTO v_min, v_max USING p_dbid;
@@ -362,7 +384,11 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         v_id    NUMBER;
         v_n     NUMBER;
         v_cons  VARCHAR2(4000);
+        l_mod   VARCHAR2(64);
+        l_act   VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_repo.add_target', NULL);
         SELECT COUNT(*) INTO v_n FROM cap_target WHERE target_name = v_name;
         IF v_n > 0 THEN
             RAISE_APPLICATION_ERROR(-20073, 'target ' || v_name || ' is already registered');
@@ -416,6 +442,11 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         say('target ' || v_name || ' registered over link ' || v_link
             || CASE WHEN v_n > 0 THEN '; containers visible: ' || v_cons END);
         say('next: EXEC cap_repo.collect(''' || v_name || ''')');
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END add_target;
 
     PROCEDURE collect(p_name        IN VARCHAR2    DEFAULT NULL,
@@ -425,7 +456,11 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         v_seen   PLS_INTEGER := 0;
         v_t      cap_target%ROWTYPE;
         t        cap_target%ROWTYPE;
+        l_mod   VARCHAR2(64);
+        l_act   VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_repo.collect', NULL);
         IF p_chunk_snaps IS NULL OR p_chunk_snaps < 1 THEN
             RAISE_APPLICATION_ERROR(-20071, 'p_chunk_snaps must be at least 1');
         END IF;
@@ -444,7 +479,9 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
             SELECT * INTO t FROM cap_target WHERE target_id = r.target_id;
             v_seen := v_seen + 1;
             BEGIN
+                DBMS_APPLICATION_INFO.SET_ACTION(SUBSTR(t.target_name, 1, 32));
                 discover(t.target_id, t.target_name, t.db_link);
+                label_remote(t.db_link);
                 COMMIT;
             EXCEPTION
                 WHEN OTHERS THEN
@@ -471,23 +508,41 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         IF v_fail > 0 THEN
             RAISE_APPLICATION_ERROR(-20070, v_fail || ' collect(s) failed; see CAP_COLLECT_LOG');
         END IF;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END collect;
 
     PROCEDURE set_enabled(p_name IN VARCHAR2, p_enabled IN VARCHAR2) IS
         t cap_target%ROWTYPE := get_target(p_name);
+        l_mod   VARCHAR2(64);
+        l_act   VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_repo.set_enabled', NULL);
         IF UPPER(p_enabled) NOT IN ('Y', 'N') THEN
             RAISE_APPLICATION_ERROR(-20071, 'p_enabled must be Y or N');
         END IF;
         UPDATE cap_target SET enabled = UPPER(p_enabled) WHERE target_id = t.target_id;
         COMMIT;
         say('target ' || t.target_name || CASE UPPER(p_enabled) WHEN 'Y' THEN ' enabled' ELSE ' disabled' END);
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END set_enabled;
 
     PROCEDURE remove_target(p_name IN VARCHAR2) IS
         t      cap_target%ROWTYPE := get_target(p_name);
         v_rows NUMBER := 0;
+        l_mod   VARCHAR2(64);
+        l_act   VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_repo.remove_target', NULL);
         -- Waits for a running collect chunk of these DBIDs to commit, so no
         -- chunk lands after the copies are deleted.
         FOR d IN (SELECT dbid FROM cap_target_dbid WHERE target_id = t.target_id
@@ -511,11 +566,20 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
             END;
         END IF;
         say('target ' || t.target_name || ' removed, ' || v_rows || ' copied rows deleted');
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END remove_target;
 
     PROCEDURE set_link_password(p_name IN VARCHAR2, p_password IN VARCHAR2) IS
         t cap_target%ROWTYPE := get_target(p_name);
+        l_mod   VARCHAR2(64);
+        l_act   VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_repo.set_link_password', NULL);
         IF t.link_owned = 'N' THEN
             RAISE_APPLICATION_ERROR(-20071, 'link ' || t.db_link || ' was made outside'
                                             || ' cap_repo: change it there');
@@ -531,6 +595,11 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         probe(t.db_link);
         close_link(t.db_link);
         say('link ' || t.db_link || ' of target ' || t.target_name || ' recreated, probe OK');
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
     END set_link_password;
 
     -- No lock against collect: collect only inserts above each DBID's
@@ -551,7 +620,11 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
             || ' NVL(MIN(CASE WHEN end_interval_time >= :cut THEN snap_id END),'
             || ' MAX(snap_id) + 1) AS cut_snap FROM cap_h_snapshot GROUP BY dbid) c'
             || ' WHERE c.dbid = t.dbid)';
+        l_mod   VARCHAR2(64);
+        l_act   VARCHAR2(64);
     BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_repo.purge', NULL);
         IF p_days IS NULL THEN
             SELECT MAX(value), MAX(status), MAX(reason)
             INTO   v_days, v_status, v_reason
@@ -568,6 +641,7 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         END IF;
         IF v_days = 0 THEN
             say('repo_retention_days 0: nothing purged');
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
             RETURN;
         END IF;
         v_cut := SYSDATE - v_days;
@@ -590,10 +664,12 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
                   p_msg  => 'snapshots that ended before ' || TO_CHAR(v_cut, 'YYYY-MM-DD HH24:MI')
                             || ' (' || CASE WHEN p_days IS NULL THEN 'repo_retention_days'
                                             ELSE 'p_days' END || ' ' || v_days || ')');
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
     EXCEPTION
         WHEN OTHERS THEN
             ROLLBACK;
             log_event(NULL, NULL, 'ERROR', p_msg => 'purge: ' || SQLERRM);
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
             RAISE;
     END purge;
 

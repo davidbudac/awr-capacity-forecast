@@ -10,6 +10,8 @@
 -- deploy_mode=fixture. The Tier 2 ESM assertion lives in run_test_ml.sql
 -- (separate, because it needs CREATE MINING MODEL).
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/test/run_test.sql"
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED
 SET FEEDBACK OFF VERIFY OFF LINES 200 PAGES 0

@@ -847,7 +847,7 @@ All fixture assertions passed.</pre>
               <span class="ico">i</span>
               <p><strong>Steps 1 to 6 on dbmint in one script.</strong>
               <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--sql FILE]</span>
-              runs <span class="inline">test/lint_anom_joins.sh</span> first and stops on a violation (exit 4),
+              runs <span class="inline">test/lint_anom_joins.sh</span> and <span class="inline">test/lint_appinfo.sh</span> first and stops on a violation (exit 4),
               rsyncs the checkout to <span class="inline">~/awr_cap_&lt;schema&gt;/</span>, runs the fixture
               install, the install, <span class="inline">run_test.sql</span> and, with
               <span class="inline">--ml</span>, the Tier&nbsp;2 steps as SYSDBA with
@@ -877,6 +877,17 @@ All fixture assertions passed.</pre>
               drill script reads it without a <code>baseline_mode =</code> predicate within the next 8 lines.
               Join <span class="inline">CAPA_ANOM_DAY</span> (one row per point) instead. Standalone:
               <span class="inline">test/lint_anom_joins.sh</span> from the repo root.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
+              <p><strong>Session-label lint.</strong>
+              <span class="inline">test/lint_appinfo.sh</span> fails when a runnable SQL*Plus script lacks
+              <code>SET APPINFO OFF</code> and <code>SET APPINFO "AWRCAP/&lt;its path&gt;"</code>, when a
+              procedure in the <span class="inline">cap_results</span>, <span class="inline">cap_forecast_ml</span>
+              or <span class="inline">cap_repo</span> spec (or <span class="inline">cap_report_spool</span>) does not set
+              MODULE <code>AWRCAP/&lt;package&gt;.&lt;procedure&gt;</code>, and when a scheduler job does not set
+              CLIENT_IDENTIFIER to its own name (<a href="reference.html#labels">Session labels</a>).
+              Standalone: <span class="inline">test/lint_appinfo.sh</span> from the repo root.</p>
             </div>
           </div>
         </div>

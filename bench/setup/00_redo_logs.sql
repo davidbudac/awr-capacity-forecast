@@ -6,6 +6,8 @@
 -- them with 3 x &redo_mb MB online and 4 x &redo_mb MB standby groups (OMF).
 -- Idempotent: skips groups that are already >= &redo_mb. Run on the PRIMARY;
 -- a physical standby needs the same standby-redo change on its side.
+SET APPINFO OFF
+SET APPINFO "AWRCAP/bench/setup/00_redo_logs.sql"
 SET SERVEROUTPUT ON VERIFY OFF FEEDBACK OFF
 DECLARE
     want_mb   CONSTANT NUMBER := &redo_mb;

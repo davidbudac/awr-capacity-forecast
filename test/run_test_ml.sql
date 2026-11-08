@@ -14,6 +14,8 @@
 -- Prereqs: fixtures installed, suite installed (deploy_mode=fixture), schema has
 -- CREATE MINING MODEL.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/test/run_test_ml.sql"
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED
 SET FEEDBACK OFF VERIFY OFF LINES 200 PAGES 0

@@ -35,6 +35,8 @@
 -- zero-row SELECT" trick), so a bare call never prompts or hangs, and both
 -- are UNDEFINEd at the end so a later argument-less @-call cannot inherit them.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/report/drill_cpu.sql"
 SET DEFINE '&'
 SET VERIFY     OFF
 SET FEEDBACK   OFF

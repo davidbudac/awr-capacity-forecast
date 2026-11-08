@@ -14,7 +14,9 @@ for making changes safely.
   `CAP_ALERT_EVENT` (written only by `cap_results`). The reports and every
   `CAPV/CAPD/CAPF/CAPA/CAPR` view only SELECT. In repository mode
   `cap_repo` writes `CAP_TARGET` / `CAP_TARGET_DBID` / `CAP_COLLECT_LOG` and
-  the `CAP_H_*` copies, and runs only SELECTs on a target. Preserve this.
+  the `CAP_H_*` copies, and runs only SELECTs on a target (plus one
+  `dbms_application_info.set_module@link` that labels its session there).
+  Preserve this.
 - **All analytics go through the `CAPV_*` seam.** Never reference `DBA_HIST_*`
   outside `ddl/10_seam_local.sql`, except the repository's reads over a
   target's link: the pull statements `repository/build.py` generates into
@@ -57,6 +59,18 @@ for making changes safely.
   (one row per observation). `test/lint_anom_joins.sh` enforces it (any
   `capa_anom` read outside ddl/40, ddl/45, test/, bench/ and the drill
   scripts fails; drill reads need a `baseline_mode =` predicate).
+- **Every session is labelled** (reference.html#labels). A runnable SQL*Plus
+  script runs `SET APPINFO OFF` then `SET APPINFO "AWRCAP/<its path>"` (after
+  any CONNECT: a label set before it is lost); a public procedure of
+  `cap_results` / `cap_forecast_ml` / `cap_repo` saves the caller's
+  MODULE/ACTION, sets MODULE `'AWRCAP/<package>.<procedure>'` and ACTION its
+  step, and restores them on return AND in a `WHEN OTHERS ... RAISE` handler
+  (and before any early RETURN); a scheduler job_action starts with
+  `DBMS_SESSION.SET_IDENTIFIER('<job name>')`. Functions called from SQL
+  (`get_forecast`, `deploy_mode`, `ping`) never set MODULE. Module and action
+  do not cross a DB link, hence `cap_repo.label_remote`.
+  `test/lint_appinfo.sh` enforces the first three; a new runnable script,
+  procedure or job needs its label or the lint fails.
 - **19c syntax floor.** Inline `OVER (PARTITION BY ... ORDER BY ...)` on every
   window call — the standalone `WINDOW` clause is 21c+. No 21c/23c features.
 
@@ -88,7 +102,7 @@ valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 (read by `CAPR_ALERTS` in ddl/55), `CAPR_SERIES_ANOMALIES`, `CAPR_HOURLY_POINTS`.
 `CAPA_TBSPC_ANOM` / `CAPA_CPU_ANOM` are gone (still in `00_drop` so an upgrade
 removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
-`test/lint_anom_joins.sh`, syncs and runs the whole fixture harness on dbmint.
+`test/lint_anom_joins.sh` and `test/lint_appinfo.sh`, syncs and runs the whole fixture harness on dbmint.
 `test/docs_lint.sh` checks the docs against the DDL (knobs, object index,
 alert kinds, no assertion counts, no "generated" claim, every `CREATE TABLE`
 in ddl/ + repository/ plus `CAP_H_*` named in reference.html#tables and in

@@ -103,6 +103,8 @@
 -- Run this BEFORE @install.sql with deploy_mode=fixture (the seam views need the
 -- tables to exist), then run test/run_test.sql.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/test/fixture_install.sql"
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED
 WHENEVER SQLERROR EXIT FAILURE

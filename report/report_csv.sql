@@ -22,6 +22,8 @@
 -- Positional arguments are optional and UNDEFINEd at the end. Dates print as
 -- YYYY-MM-DD HH24:MI:SS, numbers unformatted (NUMFORMAT TM9).
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/report/report_csv.sql"
 SET DEFINE '&'
 SET VERIFY     OFF
 SET FEEDBACK   OFF
@@ -71,6 +73,7 @@ HOST mkdir -p &cap_dir
 
 SET MARKUP CSV ON DELIMITER , QUOTE ON
 
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_alerts')
 SPOOL &cap_dir/capr_alerts.csv
 SELECT *
 FROM   capr_alerts
@@ -79,6 +82,7 @@ WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
 ORDER  BY sev_rank, kind, db_pdb, series_key, day_dt;
 SPOOL OFF
 
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_tbspc_days_to_full')
 SPOOL &cap_dir/capr_tbspc_days_to_full.csv
 SELECT *
 FROM   capr_tbspc_days_to_full
@@ -87,6 +91,7 @@ WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
 ORDER  BY rank_dtf;
 SPOOL OFF
 
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_tbspc_forecast')
 SPOOL &cap_dir/capr_tbspc_forecast.csv
 SELECT *
 FROM   capr_tbspc_forecast
@@ -95,6 +100,7 @@ WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
 ORDER  BY rank_report;
 SPOOL OFF
 
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_tbspc_anomalies')
 SPOOL &cap_dir/capr_tbspc_anomalies.csv
 SELECT *
 FROM   capr_tbspc_anomalies
@@ -103,6 +109,7 @@ WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
 ORDER  BY days_ago, con_dbid, tablespace_name, mode_rank;
 SPOOL OFF
 
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_cpu_trend')
 SPOOL &cap_dir/capr_cpu_trend.csv
 SELECT *
 FROM   capr_cpu_trend
@@ -111,6 +118,7 @@ WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
 ORDER  BY con_dbid, metric;
 SPOOL OFF
 
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_cpu_anomalies')
 SPOOL &cap_dir/capr_cpu_anomalies.csv
 SELECT *
 FROM   capr_cpu_anomalies
@@ -119,6 +127,7 @@ WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
 ORDER  BY days_ago, con_dbid, metric, mode_rank, ts;
 SPOOL OFF
 
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_cpu_shifts')
 SPOOL &cap_dir/capr_cpu_shifts.csv
 SELECT *
 FROM   capr_cpu_shifts
@@ -127,6 +136,7 @@ WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
 ORDER  BY rank_shift;
 SPOOL OFF
 
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_series')
 SPOOL &cap_dir/capr_series.csv
 SELECT *
 FROM   capr_series
@@ -135,6 +145,7 @@ WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
 ORDER  BY rank_series;
 SPOOL OFF
 
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_fit')
 SPOOL &cap_dir/capr_fit.csv
 SELECT *
 FROM   capr_fit
@@ -143,6 +154,7 @@ WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
 ORDER  BY sev_rank, days_to_full, db, kind, series;
 SPOOL OFF
 
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_anomalies')
 SPOOL &cap_dir/capr_anomalies.csv
 SELECT *
 FROM   capr_anomalies

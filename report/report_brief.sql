@@ -28,6 +28,8 @@
 -- Each section renders inside its own exception handler: a failing query
 -- prints a visible "section failed" box and the page carries on.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/report/report_brief.sql"
 SET DEFINE '&'
 SET VERIFY     OFF
 SET FEEDBACK   OFF

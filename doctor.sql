@@ -44,6 +44,8 @@
 -- Everything runs inside ONE anonymous block with per-check EXCEPTION
 -- handlers, so no single privilege error can cut the checklist short.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/doctor.sql"
 SET FEEDBACK OFF
 SET VERIFY OFF
 SET LINESIZE 200
