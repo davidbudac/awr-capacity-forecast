@@ -209,7 +209,7 @@
 
       <p>A view's prefix names its layer. Only <span class="inline">CAPV_</span> views read
         <span class="inline">DBA_HIST_*</span>, so the layers above run unchanged on local AWR, a
-        central warehouse or the test fixture.</p>
+        repository's copies of other databases' AWR or the test fixture.</p>
 
       <!-- ===================== 2. INSTALL ===================== -->
       <div class="section-head" id="install" data-min="2">
@@ -783,7 +783,7 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
       ["DBA_HIST_TBSPC_SPACE_USAGE",
        "One row per tablespace per snapshot, here hourly. Read only. On 2026-10-17 the last snapshot of the day has AUDIT_TRAIL at 119.60 GiB used, maxsize 130.00 GiB."],
       ["CAPV_TBSPC_USAGE",
-       "The seam: the only layer that knows the row source. Local AWR, a central warehouse and the test fixture present the same columns."],
+       "The seam: the only layer that knows the row source. Local AWR, a repository's copies and the test fixture present the same columns."],
       ["CAPD_TBSPC_DAILY",
        "One row per tablespace per day, from the day's last snapshot: 2026-10-17, 119.60 GiB used, 1.21 GiB more than the day before. CPU: CAPD_CPU_DAILY."],
       ["CAPF_TBSPC_FORECAST · CAPA_ANOM",

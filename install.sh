@@ -10,8 +10,8 @@
 #
 # Options:
 #   --profile P     a name from profiles/ (quickstart, standalone, target,
-#                   repository, warehouse, fixture-test, demo) or a path to a
-#                   KEY=VALUE file. Without --interactive it runs silently.
+#                   repository, fixture-test, demo) or a path to a KEY=VALUE
+#                   file. Without --interactive it runs silently.
 #   --set KEY=VAL   override one answer (repeatable; applied after the profile)
 #   --interactive   with --profile: walk the wizard, profile answers as defaults
 #   --save FILE     write the final answers to FILE (secrets never written)
@@ -42,7 +42,7 @@ cd "$HERE"
 #   kind: yn, choice:a/b/c, list:a/b/c (comma list or none), name (SQL
 #   identifier or empty), text (no quotes or newlines), int
 KEYS=(
-"ROLE|standalone|choice:standalone/target/repository/warehouse/fixture|What this database is: standalone (the suite reads its own AWR), target (only a read-only AWR reader for a repository), repository (the suite reads AWR copied from registered targets), warehouse (awr-fleet-warehouse AWRV_* views, retiring), fixture (test data)"
+"ROLE|standalone|choice:standalone/target/repository/fixture|What this database is: standalone (the suite reads its own AWR), target (only a read-only AWR reader for a repository), repository (the suite reads AWR copied from registered targets), fixture (test data)"
 "CONNECT|/ as sysdba|text|SQL*Plus connect string (no password; '/ as sysdba' for OS auth)"
 "CONTAINER||name|Container to switch to after connecting (empty = stay where you land, e.g. CDB\$ROOT)"
 "INTO|self|choice:self/schema|Install into the connected schema (self) or into another schema via CURRENT_SCHEMA (schema)"
@@ -186,7 +186,6 @@ EOF
   standalone  the suite on this database, reading its own AWR
   target      no suite: a read-only AWR reader that a repository database pulls from
   repository  the suite here, reading AWR copied from the targets you register
-  warehouse   the suite over the awr-fleet-warehouse AWRV_* views (retiring)
   fixture     test data instead of AWR (assertion harness, demo)
 EOF
   ask ROLE

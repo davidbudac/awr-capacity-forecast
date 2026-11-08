@@ -12,7 +12,7 @@
 --            C##AWRCAP (the C## prefix is mandatory for a common user), and
 --            grants with CONTAINER=ALL.
 --   non-CDB  in the database. Default owner AWRCAP. No CONTAINER clause.
---   a PDB    a local user, default AWRCAP. Use this for fixture or warehouse
+--   a PDB    a local user, default AWRCAP. Use this for fixture or repository
 --            mode, or for PDB-level AWR.
 --
 -- Usage (every DEFINE is optional):

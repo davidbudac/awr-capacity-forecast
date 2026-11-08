@@ -96,9 +96,9 @@
 --     tablespaces are EXCLUDED (their usage is transient, not growth), and
 --     CAP_TBSPC_OVERRIDE limits / exclusions (M9.5) are already applied. So
 --     "total DB size" here means permanent-tablespace bytes actually used.
---   * REDO_GB_DAY is per container in local mode (CAPV_SYSSTAT reads
+--   * REDO_GB_DAY is per container (CAPV_SYSSTAT reads
 --     DBA_HIST_CON_SYSSTAT). The log stream is shared, so the CDB's redo is
---     the SUM over its containers. Warehouse mode still has one CDB-level row.
+--     the SUM over its containers.
 --   * PROCESSES / SESSIONS are CDB-wide: DBA_HIST_RESOURCE_LIMIT is root-only
 --     in CDB$ROOT.
 --

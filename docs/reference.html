@@ -193,12 +193,12 @@
             <tr><th scope="row"><code>CAPV_OSSTAT</code></th><td class="def">view</td><td class="def">Host OS stats — BUSY/IDLE (centiseconds) and core counts</td></tr>
             <tr><th scope="row"><code>CAPV_TIME_MODEL</code></th><td class="def">view</td><td class="def">Time-model DB CPU / DB time (microseconds), per container. Local mode reads <code>DBA_HIST_CON_SYS_TIME_MODEL</code> without <code>PDB$SEED</code>: the root row is <code>CDB$ROOT</code> alone and the CDB total is the sum. A non-CDB snapshot falls back to <code>DBA_HIST_SYS_TIME_MODEL</code></td></tr>
             <tr><th scope="row"><code>CAPV_CONTAINER</code></th><td class="def">view</td><td class="def">Naming dimension: one row per <code>(dbid, con_dbid)</code> with <code>db_name</code> + <code>con_name</code>, the source of every <code>db_pdb</code> label</td></tr>
-            <tr><th scope="row"><code>CAPV_TARGET</code></th><td class="def">view</td><td class="def"><strong>M24.6</strong>: what is measured and how it is fed, one row per (target, dbid): <code>target_name</code>, <code>dbid</code>, <code>feed</code> (<code>LOCAL</code> / <code>LINK</code> / <code>FIXTURE</code> / <code>WAREHOUSE</code>), <code>host_name</code> (AWR host of the newest instance startup), then the repository-only <code>address</code>, <code>db_link</code>, <code>enabled</code>, <code>collected_snap_id</code> (high-water mark), <code>last_ok_at</code>, <code>last_error_at</code> / <code>last_error</code> (newest <code>ERROR</code> of the dbid or of the whole target) and <code>n_gaps</code>, from <code>CAP_TARGET</code>, <code>CAP_TARGET_DBID</code> and the <code>CAP_COLLECT_LOG</code> rows since the target was added. Outside repository mode the target is the AWR <code>db_name</code> and the collect columns are NULL (<code>enabled</code> 'Y'). The repository version lives in <span class="inline">repository/seam_overrides.sql</span></td></tr>
-            <tr><th scope="row"><code>CAPV_RESOURCE_LIMIT</code></th><td class="def">view</td><td class="def"><strong>M11</strong>: <code>processes</code> / <code>sessions</code> utilisation vs the init parameter; <code>LIMIT_VALUE</code> converted from VARCHAR2 (<code>UNLIMITED</code> &rarr; NULL). Zero rows in warehouse mode (no resource-limit fact collected yet). In <code>CDB$ROOT</code> its rows are root-only, so the limits are CDB-wide</td></tr>
-            <tr><th scope="row"><code>CAPV_SYSSTAT</code></th><td class="def">view</td><td class="def"><strong>M11</strong>: system statistics filtered to <code>redo size</code>, a cumulative byte counter. Per container in local mode (<code>DBA_HIST_CON_SYSSTAT</code>, same seed filter and non-CDB fallback as <code>CAPV_TIME_MODEL</code>); one CDB-level row in warehouse mode</td></tr>
-            <tr><th scope="row"><code>CAPV_PARAMETER</code></th><td class="def">view</td><td class="def">Init parameters as numbers, one row per snapshot, instance and name: <code>cpu_count</code>, <code>processes</code>, <code>sessions</code>, <code>db_recovery_file_dest_size</code>, <code>sga_target</code>, <code>sga_max_size</code>, <code>pga_aggregate_target</code>, <code>pga_aggregate_limit</code>, <code>memory_target</code>. <code>value_num</code> converted from <code>DBA_HIST_PARAMETER.VALUE</code> (non-numeric &rarr; NULL). Root rows only, <code>con_dbid := dbid</code>. Zero rows in warehouse mode (not collected yet)</td></tr>
-            <tr><th scope="row"><code>CAPV_ASM_DISKGROUP</code></th><td class="def">view</td><td class="def">ASM diskgroup size per snapshot: <code>group_name</code> (no <code>+</code>), <code>total_mb</code>, <code>free_mb</code> (raw, before mirroring) and <code>usable_file_mb</code> (NULL: not in the 19c AWR view). <code>DBA_HIST_ASM_DISKGROUP_STAT</code> joined to <code>DBA_HIST_ASM_DISKGROUP</code>. No rows without ASM; zero rows in warehouse mode</td></tr>
-            <tr><th scope="row"><code>CAPV_SEG_STAT</code></th><td class="def">view</td><td class="def">Segment space deltas per snapshot, instance and segment: <code>DBA_HIST_SEG_STAT</code> joined to <code>DBA_HIST_SEG_STAT_OBJ</code> on <code>(dbid, con_dbid, ts#, obj#, dataobj#)</code>, with <code>tablespace_id</code>, <code>tablespace_name</code>, <code>owner</code>, <code>object_name</code>, <code>subobject_name</code>, <code>object_type</code>, <code>space_used_delta</code>, <code>space_allocated_delta</code> (bytes). Per container. AWR keeps only the top segments of each snapshot. Warehouse mode: a <code>WHERE 1 = 0</code> stub</td></tr>
+            <tr><th scope="row"><code>CAPV_TARGET</code></th><td class="def">view</td><td class="def"><strong>M24.6</strong>: what is measured and how it is fed, one row per (target, dbid): <code>target_name</code>, <code>dbid</code>, <code>feed</code> (<code>LOCAL</code> / <code>LINK</code> / <code>FIXTURE</code>), <code>host_name</code> (AWR host of the newest instance startup), then the repository-only <code>address</code>, <code>db_link</code>, <code>enabled</code>, <code>collected_snap_id</code> (high-water mark), <code>last_ok_at</code>, <code>last_error_at</code> / <code>last_error</code> (newest <code>ERROR</code> of the dbid or of the whole target) and <code>n_gaps</code>, from <code>CAP_TARGET</code>, <code>CAP_TARGET_DBID</code> and the <code>CAP_COLLECT_LOG</code> rows since the target was added. Outside repository mode the target is the AWR <code>db_name</code> and the collect columns are NULL (<code>enabled</code> 'Y'). The repository version lives in <span class="inline">repository/seam_overrides.sql</span></td></tr>
+            <tr><th scope="row"><code>CAPV_RESOURCE_LIMIT</code></th><td class="def">view</td><td class="def"><strong>M11</strong>: <code>processes</code> / <code>sessions</code> utilisation vs the init parameter; <code>LIMIT_VALUE</code> converted from VARCHAR2 (<code>UNLIMITED</code> &rarr; NULL). In <code>CDB$ROOT</code> its rows are root-only, so the limits are CDB-wide</td></tr>
+            <tr><th scope="row"><code>CAPV_SYSSTAT</code></th><td class="def">view</td><td class="def"><strong>M11</strong>: system statistics filtered to <code>redo size</code>, a cumulative byte counter. Per container (<code>DBA_HIST_CON_SYSSTAT</code>, same seed filter and non-CDB fallback as <code>CAPV_TIME_MODEL</code>)</td></tr>
+            <tr><th scope="row"><code>CAPV_PARAMETER</code></th><td class="def">view</td><td class="def">Init parameters as numbers, one row per snapshot, instance and name: <code>cpu_count</code>, <code>processes</code>, <code>sessions</code>, <code>db_recovery_file_dest_size</code>, <code>sga_target</code>, <code>sga_max_size</code>, <code>pga_aggregate_target</code>, <code>pga_aggregate_limit</code>, <code>memory_target</code>. <code>value_num</code> converted from <code>DBA_HIST_PARAMETER.VALUE</code> (non-numeric &rarr; NULL). Root rows only, <code>con_dbid := dbid</code></td></tr>
+            <tr><th scope="row"><code>CAPV_ASM_DISKGROUP</code></th><td class="def">view</td><td class="def">ASM diskgroup size per snapshot: <code>group_name</code> (no <code>+</code>), <code>total_mb</code>, <code>free_mb</code> (raw, before mirroring) and <code>usable_file_mb</code> (NULL: not in the 19c AWR view). <code>DBA_HIST_ASM_DISKGROUP_STAT</code> joined to <code>DBA_HIST_ASM_DISKGROUP</code>. No rows without ASM</td></tr>
+            <tr><th scope="row"><code>CAPV_SEG_STAT</code></th><td class="def">view</td><td class="def">Segment space deltas per snapshot, instance and segment: <code>DBA_HIST_SEG_STAT</code> joined to <code>DBA_HIST_SEG_STAT_OBJ</code> on <code>(dbid, con_dbid, ts#, obj#, dataobj#)</code>, with <code>tablespace_id</code>, <code>tablespace_name</code>, <code>owner</code>, <code>object_name</code>, <code>subobject_name</code>, <code>object_type</code>, <code>space_used_delta</code>, <code>space_allocated_delta</code> (bytes). Per container. AWR keeps only the top segments of each snapshot</td></tr>
             <tr><th scope="row"><code>CAPV_CONTRACT</code></th><td class="def">view</td><td class="def">Diagnostic over the seam: one row per fact source with <code>n_rows</code>, <code>n_con_dbid</code>, <code>min_snap_id</code> / <code>max_snap_id</code>, <code>max_end_time</code> and <code>per_container_expected</code> (<code>Y</code> for tablespace usage, time model, sysstat). Full scans; read by doctor.sql, never by the analytic views</td></tr>
 
             <tr><td colspan="3"><b><span class="k">CAPD_</span> — daily views (9)</b> · one clean row per day (and, for CPU, per interval and per hour)</td></tr>
@@ -343,7 +343,6 @@
             <tr><td><span class="inline">--profile repository</span></td><td class="def">repository</td><td class="def">A dedicated owner with <code>CREATE DATABASE LINK</code>, the preflight, <span class="inline">deploy_mode = repository</span> and the five scheduler jobs created disabled. No models and no report yet: those need targets registered and collected (<a href="#repository">Repository mode</a>).</td></tr>
             <tr><td><span class="inline">--profile fixture-test</span></td><td class="def">fixture</td><td class="def">The assertion harness: fixture data in schema <span class="inline">CAPTEST</span> of <span class="inline">PDB1</span>, install, Tier 2, then <span class="inline">test/run_test.sql</span> and <span class="inline">test/run_test_ml.sql</span>.</td></tr>
             <tr><td><span class="inline">--profile demo</span></td><td class="def">fixture</td><td class="def">The 150-day ECOMPRD demo story in a throwaway PDB schema, Tier 2 and every report kind.</td></tr>
-            <tr><td><span class="inline">--profile warehouse</span></td><td class="def">warehouse</td><td class="def">The suite over the <span class="inline">awr-fleet-warehouse</span> <span class="kt">AWRV_*</span> views, as the warehouse owner. Retiring: repository mode replaces it.</td></tr>
           </tbody>
         </table>
       </div>
@@ -627,9 +626,9 @@
         <p><strong>Summary.</strong> Counts PASS/WARN/FAIL and says why forecasts would be
         <span class="pill crit">INSUFFICIENT_HISTORY</span>: how many sources hold fewer than
         <span class="inline">min_train_days</span> distinct days, and whether retention caps history
-        below the training window. In warehouse or fixture mode the
+        below the training window. In repository or fixture mode the
         <span class="kt">DBA_HIST_*</span> lines (checks 3, 5 and 6) print as INFO and do not count;
-        <code>DEFINE cap_doctor_mode = fixture</code> (or <code>warehouse</code>) names the install
+        <code>DEFINE cap_doctor_mode = fixture</code> (or <code>repository</code>) names the install
         to come. It leaves <span class="inline">cap_doctor_fail</span>, the number of FAIL
         lines, defined for the caller: <span class="inline">quickstart.sql</span> stops before install
         when it is not 0, unless <code>DEFINE force_install = Y</code>.</p>
@@ -658,14 +657,6 @@
               <td class="def"><span class="kt">CAP_H_*</span>, copies of each registered target's <span class="kt">DBA_HIST_*</span></td>
               <td class="def">The <span class="inline">create_owner.sql</span> owner made with <code>owner_mode = repository</code>, on any 19c database or PDB</td>
               <td class="def">Measures every registered target. Targets get only a read-only reader (<a href="#repository">Repository mode</a>).</td>
-            </tr>
-            <tr>
-              <td><span class="k">warehouse</span></td>
-              <td class="def"><span class="kt">AWRV_*</span> seam views</td>
-              <td class="def">Warehouse owner (<span class="inline">AWRWH</span>), or a schema with
-                SELECT on the AWRV_* views</td>
-              <td class="def">Presents every collected database, keyed on
-                <span class="inline">(dbid, con_dbid)</span>. Some seam views are stubs; see below.</td>
             </tr>
             <tr>
               <td><span class="k">fixture</span></td>
@@ -815,7 +806,7 @@
           <tbody>
             <tr><td><span class="k">00</span></td><td class="def"><span class="inline">ddl/00_drop.sql</span></td><td class="def">Idempotent teardown of every <span class="inline">CAP*</span> view plus the two ESM types. <b>Leaves the <a href="#tables">persisted tables</a> alone</b>; still drops retired objects such as <span class="inline">CAPA_TBSPC_ANOM</span>, so an upgrade removes them.</td></tr>
             <tr><td><span class="k">05</span></td><td class="def"><span class="inline">ddl/05_config.sql</span></td><td class="def"><span class="inline">CAP_CONFIG</span> (created idempotently, then MERGE-seeded), the config views <span class="obj">CAP_CFG</span> <span class="obj">CAP_CFG_CHECK</span>, and <span class="inline">CAP_TBSPC_OVERRIDE</span>.</td></tr>
-            <tr><td><span class="k">seam</span></td><td class="def"><span class="inline">ddl/10_seam_local.sql</span> · <span class="inline">13_seam_repository.sql</span> · <span class="inline">11_seam_warehouse.sql</span> · <span class="inline">12_seam_fixture.sql</span></td><td class="def">The thirteen <span class="k">CAPV_</span> views, chosen by <span class="inline">deploy_mode</span>: <span class="obj">CAPV_SNAPSHOT</span> <span class="obj">CAPV_TBSPC_USAGE</span> <span class="obj">CAPV_TABLESPACE</span> <span class="obj">CAPV_DATAFILE</span> <span class="obj">CAPV_OSSTAT</span> <span class="obj">CAPV_TIME_MODEL</span> <span class="obj">CAPV_SYSSTAT</span> <span class="obj">CAPV_RESOURCE_LIMIT</span> <span class="obj">CAPV_PARAMETER</span> <span class="obj">CAPV_ASM_DISKGROUP</span> <span class="obj">CAPV_SEG_STAT</span> <span class="obj">CAPV_CONTAINER</span> <span class="obj">CAPV_TARGET</span>, plus the <span class="obj">CAPV_CONTRACT</span> diagnostic</td></tr>
+            <tr><td><span class="k">seam</span></td><td class="def"><span class="inline">ddl/10_seam_local.sql</span> · <span class="inline">13_seam_repository.sql</span> · <span class="inline">12_seam_fixture.sql</span></td><td class="def">The thirteen <span class="k">CAPV_</span> views, chosen by <span class="inline">deploy_mode</span>: <span class="obj">CAPV_SNAPSHOT</span> <span class="obj">CAPV_TBSPC_USAGE</span> <span class="obj">CAPV_TABLESPACE</span> <span class="obj">CAPV_DATAFILE</span> <span class="obj">CAPV_OSSTAT</span> <span class="obj">CAPV_TIME_MODEL</span> <span class="obj">CAPV_SYSSTAT</span> <span class="obj">CAPV_RESOURCE_LIMIT</span> <span class="obj">CAPV_PARAMETER</span> <span class="obj">CAPV_ASM_DISKGROUP</span> <span class="obj">CAPV_SEG_STAT</span> <span class="obj">CAPV_CONTAINER</span> <span class="obj">CAPV_TARGET</span>, plus the <span class="obj">CAPV_CONTRACT</span> diagnostic</td></tr>
             <tr><td><span class="k">20</span></td><td class="def"><span class="inline">ddl/20_daily_views.sql</span></td><td class="def">Daily series: <span class="obj">CAPD_TBSPC_DAILY</span> <span class="obj">CAPD_TBSPC_DELTA</span> <span class="obj">CAPD_COUNTER_DELTA</span> <span class="obj">CAPD_CPU_INTERVAL</span> <span class="obj">CAPD_CPU_DAILY</span> <span class="obj">CAPD_DBTIME_INTERVAL</span> <span class="obj">CAPD_DBTIME_DAILY</span> <span class="obj">CAPD_CPU_HOURLY</span>. This is where <span class="inline">CAP_TBSPC_OVERRIDE</span> is applied, once.</td></tr>
             <tr><td><span class="k">25</span></td><td class="def"><span class="inline">ddl/25_series_daily.sql</span></td><td class="def"><span class="obj">CAPD_SERIES_DAILY</span>, the M11 fixed-ceiling series (<code>PROCESSES</code>, <code>SESSIONS</code>, <code>REDO_GB_DAY</code>, <code>DB_SIZE_GB</code>, <code>ASM_DG:+&lt;group&gt;</code>, <code>TEMP_PEAK:&lt;ts&gt;</code>, <code>UNDO_PEAK:&lt;ts&gt;</code>) in one generic view keyed by a <span class="inline">series</span> name, with the gap columns the anomaly layer reads.</td></tr>
             <tr><td><span class="k">30</span></td><td class="def"><span class="inline">ddl/30_forecast_views.sql</span></td><td class="def">Tier 1 fits: <span class="obj">CAPF_TBSPC_FORECAST</span> <span class="obj">CAPF_CPU_TREND</span>.</td></tr>
@@ -896,41 +887,6 @@
         </table>
       </div>
       <p>Writing <span class="inline">CAP_TBSPC_OVERRIDE</span> rows: <a href="usage.html#override">Usage</a>.</p>
-
-      <!-- ===================== WAREHOUSE ===================== -->
-      <div class="section-head" id="warehouse">
-        <span class="eyebrow">Install</span>
-        <h2>Warehouse mode</h2>
-        <p>The seam reads a central fleet collector (<span class="inline">awr-fleet-warehouse</span>).</p>
-      </div>
-      <p>Install where the <span class="kt">AWRV_*</span> views are visible: as the warehouse owner
-        (<span class="inline">AWRWH</span>), or a schema with direct SELECT on them.
-        <span class="inline">ddl/11_seam_warehouse.sql</span> maps the
-        <span class="k">CAPV_</span> views onto the <span class="kt">AWRV_*</span> views; everything
-        downstream is byte-identical to local mode. The warehouse presents every collected database
-        (one target reads as one DB, many as a fleet report); every row carries its
-        <span class="inline">con_dbid</span>.</p>
-      <div class="term in">
-        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
-          <span class="term__title">sqlplus · AWRWH</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-cmt">-- connected as the warehouse owner (or a schema with SELECT on AWRV_*)</span>
-<span class="c-prompt">SQL&gt;</span> DEFINE deploy_mode = 'warehouse'
-<span class="c-prompt">SQL&gt;</span> @install.sql</pre>
-      </div>
-
-      <div class="callout warn">
-        <span class="ico">!</span>
-        <p><strong>Stub views in warehouse mode.</strong> The collector does not gather
-        <span class="kt">DBA_HIST_RESOURCE_LIMIT</span> yet (no <span class="inline">awrv_resource_limit</span>),
-        so <span class="inline">CAPV_RESOURCE_LIMIT</span> emits the column contract with
-        <code>WHERE 1 = 0</code> (a missing object would leave <span class="inline">CAPD_SERIES_DAILY</span>
-        and everything above it <code>INVALID</code>). Effect: no <code>PROCESSES</code> / <code>SESSIONS</code>
-        series; <code>REDO_GB_DAY</code>, <code>DB_SIZE_GB</code> and the rest work. Tracked as a TODO on M11.1 in
-        <span class="inline">PLAN.md</span>. <span class="inline">CAPV_PARAMETER</span> and
-        <span class="inline">CAPV_ASM_DISKGROUP</span> are stubs the same way (neither
-        <span class="kt">DBA_HIST_PARAMETER</span> nor the ASM diskgroup views are collected): no
-        <code>cpu_count</code> ceiling, no FRA days, no <code>ASM_DG</code> series.</p>
-      </div>
 
       <!-- ===================== JOBS ===================== -->
       <div class="section-head" id="jobs">

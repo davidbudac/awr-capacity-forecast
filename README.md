@@ -58,7 +58,7 @@ Two forecasting engines run side by side:
 ## Architecture — layered views over a portable seam
 
 ```
-CAPV_*  seam        DBA_HIST-shaped views  (local | repository | warehouse | fixture)
+CAPV_*  seam        DBA_HIST-shaped views  (local | repository | fixture)
   |                 incl. CAPV_CONTAINER: (dbid, con_dbid) -> DB / PDB names;
   |                 per-container time model and redo from the DBA_HIST_CON_ views;
   |                 CAPV_CONTRACT says which sources carry rows
@@ -99,9 +99,8 @@ target's AWR has aged out.
 
 The **seam** is the portability trick: all analytics are written once against
 the thin `CAPV_*` views, so the identical SQL runs against local `DBA_HIST_*`,
-a repository's copies of other databases' `DBA_HIST_*`, the
-`awr-fleet-warehouse` `AWRV_*` views, or the test fixtures. `install.sql`
-loads one seam file per mode.
+a repository's copies of other databases' `DBA_HIST_*`, or the test fixtures.
+`install.sql` loads one seam file per mode.
 
 ## Two ways to deploy
 
@@ -197,7 +196,7 @@ examples from the sample report.
 
 ```sql
 sqlplus / as sysdba           -- install where DBA_HIST_* is visible: CDB$ROOT
-SQL> DEFINE deploy_mode = 'local'   -- local | repository | warehouse | fixture
+SQL> DEFINE deploy_mode = 'local'   -- local | repository | fixture
 SQL> @install.sql
 ```
 
@@ -212,7 +211,6 @@ Modes:
 |-----------|--------|-------|
 | `local` (default) | `DBA_HIST_*` | needs Diagnostics Pack + **direct** SELECT grants on the DBA_HIST views (not via a role). Install in `CDB$ROOT`. |
 | `repository` | `CAP_H_*`, copies of registered targets' `DBA_HIST_*` | install as an owner made with `DEFINE owner_mode = repository` + `@create_owner.sql` (CREATE DATABASE LINK, no AWR grants), on any 19c database or PDB; register targets with `cap_repo.add_target` and copy with `cap_repo.collect` (see [Measure a fleet](#measure-a-fleet)). `ddl/13_seam_repository.sql` is generated from ddl/10 by `repository/build.py`. |
-| `warehouse` | `awrv_*` seam views | the [awr-fleet-warehouse](../awr-fleet-warehouse) collector gathers tablespace/OSSTAT/time-model history from the fleet; install this suite as the warehouse owner (or a schema with SELECT on the `AWRV_*` views). Presents every collected database keyed on `(dbid, con_dbid)`. The warehouse has no resource-limit, parameter, ASM or segment facts yet, so `CAPV_RESOURCE_LIMIT`, `CAPV_PARAMETER`, `CAPV_ASM_DISKGROUP` and `CAPV_SEG_STAT` are zero-row stubs there (the `PROCESSES` / `SESSIONS` / `ASM_DG` series are simply empty), and its time model is the CDB-wide one. |
 | `fixture` | `CAP_FIXTURE_*` | test hook; run `test/fixture_install.sql` (or `test/demo_fixture.sql`) first. |
 
 Uninstall: `@uninstall.sql`.
@@ -634,7 +632,7 @@ states, retired dbids) and the live seam-contract check over
 registered target, its link, collect health and days copied. It creates
 nothing and every probe is exception-wrapped.
 Doctor takes the deploy mode from the install, assumes local before one, or
-reads `DEFINE cap_doctor_mode = local | warehouse | fixture`; it leaves the
+reads `DEFINE cap_doctor_mode = local | repository | fixture`; it leaves the
 count of FAIL lines in `cap_doctor_fail`, which `quickstart.sql` uses to stop
 before installing.
 
@@ -825,8 +823,7 @@ suite depends on it.
   snapshot; the seam reads `DBA_HIST_CON_SYS_TIME_MODEL` /
   `DBA_HIST_CON_SYSSTAT` instead, so each PDB gets its own DB CPU and redo
   series and the root row is CDB$ROOT alone. `DBA_HIST_RESOURCE_LIMIT` is
-  root-only, so `PROCESSES` / `SESSIONS` are CDB-wide series. Warehouse mode
-  still collects the CDB-wide views.
+  root-only, so `PROCESSES` / `SESSIONS` are CDB-wide series.
 - **Container identity.** Analytics key on `(dbid, con_dbid)`; `con_dbid`
   separates PDBs (their `TS#` values collide), and `dbid` is folded into ESM
   model names + report correlations so a cross-database `con_dbid` collision

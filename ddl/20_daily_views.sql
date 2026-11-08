@@ -186,7 +186,7 @@ FROM (
 --   source      OSSTAT     BUSY_TIME / IDLE_TIME / IOWAIT_TIME (centiseconds)
 --               TIME_MODEL DB CPU / DB time / background cpu time (microseconds)
 --               SYSSTAT    every CAPV_SYSSTAT name, consumers filter
---                          (local / warehouse: 'redo size', bytes)
+--                          (REDO reads 'redo size', bytes)
 --   delta       value - previous value of the same counter, by snap_id
 --   ivl_sec     end_time - prev_end_time in whole seconds
 --   is_restart  'Y' when the interval spans an instance startup (startup_time
@@ -195,8 +195,8 @@ FROM (
 -- The first snapshot of each partition has no predecessor and no row. A NULL
 -- value gives a NULL delta, which every consumer drops.
 -- NULL startup_time: DECODE treats two NULLs as equal, so a source that never
--- fills startup_time (possible in a warehouse) keeps its intervals, and only a
--- NULL-to-value change counts as a restart. A plain startup_time =
+-- fills startup_time (the seam does not require it) keeps its intervals, and
+-- only a NULL-to-value change counts as a restart. A plain startup_time =
 -- prev_startup test is never true for NULLs and emptied such a series.
 -- A delta is attributed to the day its interval ENDS on, everywhere.
 -- CAPD_CPU_INTERVAL, CAPD_DBTIME_INTERVAL and the REDO_GB_DAY branch of

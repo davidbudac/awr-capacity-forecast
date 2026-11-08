@@ -248,7 +248,7 @@ LEFT   JOIN capr_container c
 --   target_name, dbid  the target and one of its DBIDs (repository: dbid
 --                  NULL for a registered target no DBID was found for yet)
 --   db_name        the AWR database name of the dbid (its root container)
---   feed           LOCAL | LINK (repository) | FIXTURE | WAREHOUSE
+--   feed           LOCAL | LINK (repository) | FIXTURE
 --   host_name      AWR host of the dbid's newest instance startup
 --   address, db_link, enabled  repository: CAP_TARGET's connect string,
 --                  link and switch (set_enabled); elsewhere NULL, NULL, 'Y'

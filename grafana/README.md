@@ -95,9 +95,10 @@ and object names, never row data.
 
 - **One schema per module.** The endpoints serve the schema the module is
   defined in, so a board shows the databases that schema's seam presents:
-  one CDB with its PDBs in local mode, the whole fleet in warehouse mode.
-  For several local-mode installs, define the module in each and add one
-  Infinity data source per database, or use the warehouse seam.
+  one CDB with its PDBs in local mode, every registered target in
+  repository mode. For several local-mode installs, define the module in
+  each and add one Infinity data source per database, or measure them from
+  one repository.
 - **Live queries.** Every refresh runs the CAPF_/CAPA_ views, whose
   self-joins and ESM lookups take seconds at fixture size (forecast and
   anomalies endpoints: 5 to 7 s here; a full board fills in 10 to 20 s).

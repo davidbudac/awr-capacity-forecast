@@ -2113,7 +2113,7 @@ BEGIN
           WHERE dbid = v_dbid AND con_dbid = v_dbid AND source = 'OSSTAT' AND is_restart = 'Y';
         chk_int('OSSTAT restart intervals in the series', v_n, 2);
 
-        -- NULL startup_time (a warehouse may not fill it): the series must
+        -- NULL startup_time (the seam does not require it): the series must
         -- survive, with restarts still caught by their negative deltas.
         SELECT COUNT(*) INTO v_cnt0 FROM capd_cpu_daily WHERE dbid = v_dbid;
         SAVEPOINT u3_nullstart;

@@ -742,10 +742,24 @@ Decided 2026-11-07:
       byte-identical, checked on dbmint). `docs_lint.sh` checks 6 (every
       persisted table in reference.html#tables and the CLAUDE.md bullet) and
       7 (every profile in reference.html and the install.sh help).
-- [ ] **M24.9 Retire warehouse mode.** Delete `ddl/11_seam_warehouse.sql`,
+- [x] **M24.9 Retire warehouse mode.** Delete `ddl/11_seam_warehouse.sql`,
       `profiles/warehouse.env`, the warehouse branches of install.sql /
       install.sh / doctor, and the warehouse sections of the docs and
       CLAUDE.md. `../awr-fleet-warehouse` stays its own product.
+      Done 2026-11-08: deploy modes are local / repository / fixture.
+      `deploy_mode = warehouse` aborts before any DDL, `ROLE=warehouse`
+      and `--profile warehouse` exit 2, and doctor says an unknown
+      `cap_doctor_mode` is ignored before it reports the installed mode.
+      `cap_results.deploy_mode` lost its AWRV_ branch. Comments that cited
+      the warehouse keep their fact (the ORA-07445 typed-constant stubs now
+      live in ddl/12). Docs: the #warehouse section, the modes / profile
+      rows and the fourth source in the concepts diagram are gone; the
+      design.md Milestone W entry stays as history. `docs_lint.sh` check 8
+      fails on a warehouse-mode token in any tracked file but PLAN.md and
+      bench/. Checked: all six profiles' `--dry-run` drivers byte-identical
+      to HEAD; on dbmint install.sh re-installed CAPX2 (repository) and
+      C##CAPLOC (local) with 0 INVALID, doctor 0 FAIL, and the fixture
+      harness on CAPX1 passed with 0 failed.
 - [ ] **M24.10 Scale.** Load K synthetic DBIDs into the copies (the demo
       fixture, shifted), time `cap_results.refresh`, both reports and the ML
       retrain, and record peak PGA. Persist per-run results for the site

@@ -85,9 +85,11 @@ FROM   cap_fixture_sysstat;
 -- CAPV_PARAMETER / CAPV_ASM_DISKGROUP / CAPV_SEG_STAT over CAP_FIXTURE_PARAMETER /
 -- CAP_FIXTURE_ASM_DISKGROUP / CAP_FIXTURE_SEG_STAT (value_num already a NUMBER,
 -- group_name without the '+'). test/demo_fixture.sql builds the demo story
--- without these three tables, so a missing table gets the zero-row contract stub of
--- ddl/11_seam_warehouse.sql (typed constants, see the ORA-07445 note there)
--- instead of an INVALID view. The lookup goes
+-- without these three tables, so a missing table gets a zero-row contract stub
+-- instead of an INVALID view. The stub columns are typed constants, not
+-- CAST(NULL ...): with NULL join keys, CAPD_DBTIME_DAILY over a zero-row
+-- CAPV_PARAMETER raised ORA-07445 [qksopVisitOpns] (join predicate push-down)
+-- on 19.27. The lookup goes
 -- through ALL_TABLES on CURRENT_SCHEMA because USER_TABLES follows the
 -- session user (SYSDBA + CURRENT_SCHEMA installs).
 DECLARE
@@ -142,10 +144,10 @@ END;
 -- the source is host / instance / spine level (OSSTAT, RESOURCE_LIMIT,
 -- PARAMETER, ASM_DISKGROUP, SNAPSHOT), so n_con_dbid = 1 against a 'Y' means
 -- the per-PDB series are missing. SEG_STAT is per container too. ASM_DISKGROUP
--- has n_rows = 0 on a database without ASM, SEG_STAT on the warehouse seam
--- until the collector gathers it. A diagnostic for doctor.sql: it full-scans every source, and no
--- analytic view selects from it. The body reads only CAPV_* and is the same
--- in all three seam files.
+-- has n_rows = 0 on a database without ASM, and a stub above on a fixture
+-- without its table. A diagnostic for doctor.sql: it full-scans every
+-- source, and no analytic view selects from it. The body reads only CAPV_*
+-- and is the same in all three seam files.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capv_contract AS
 WITH src AS (

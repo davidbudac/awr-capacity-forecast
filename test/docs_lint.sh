@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test/docs_lint.sh -- catch documentation drift against the DDL.
-# Bash + grep/awk only. Seven checks, each prints one OK / FAIL summary line
-# (6 and 7 one per document they read):
+# Bash + grep/awk, and git for check 8. Eight checks, each prints one OK / FAIL
+# summary line (6 and 7 one per document they read):
 #   1. every knob the ddl/05 seed MERGE inserts is named in docs/reference.html;
 #   2. every view / table / package / procedure that ddl/, ml/ and repository/ create is
 #      named in the object index of docs/reference.html (id="objects" up to
@@ -17,7 +17,9 @@
 #      docs/reference.html (id="tables" up to the next section head) and in the
 #      CLAUDE.md "Persisted tables survive a re-install" bullet, case-insensitive;
 #   7. every profiles/*.env is named in docs/reference.html as --profile NAME or
-#      NAME.env, and in the --profile help of install.sh.
+#      NAME.env, and in the --profile help of install.sh;
+#   8. no tracked file but PLAN.md and bench/ names the retired warehouse mode
+#      (M24.9): its views, owner, seam file, profile, role or deploy_mode.
 # Exit 1 when any check fails.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -127,5 +129,14 @@ done
 n_profiles=$(echo "$profiles" | grep -c .)
 report "profiles/*.env named in $REF (--profile NAME or NAME.env)" "$n_profiles" "$miss_ref"
 report "profiles/*.env named in the install.sh --profile help" "$n_profiles" "$miss_help"
+
+# ---- 8. retired warehouse mode -----------------------------------------------------
+# PLAN.md keeps the milestone history, bench/'s warehouses are SwingBench's, and
+# this script spells out the tokens it looks for.
+not_wh=(-- . ':!PLAN.md' ':!bench' ':!test/docs_lint.sh')
+hits=$(git grep -n -I -i -E \
+  "awrv_|awrwh|11_seam_warehouse|warehouse\.env|profile +warehouse|role *= *warehouse|deploy_mode *= *'?warehouse" \
+  "${not_wh[@]}")
+report "tracked files without a retired warehouse-mode token" "$(git ls-files "${not_wh[@]}" | grep -c .)" "$hits"
 
 exit $rc

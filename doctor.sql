@@ -28,12 +28,12 @@
 -- The DBA_HIST_* checks count only when the install reads DBA_HIST_* (local
 -- mode). Doctor takes the mode from the installed CAPV_SNAPSHOT, assumes local
 -- before install, and lets a caller say which install it is about to run:
---   SQL> DEFINE cap_doctor_mode = fixture     -- local | repository | warehouse | fixture
+--   SQL> DEFINE cap_doctor_mode = fixture     -- local | repository | fixture
 --   SQL> @doctor.sql
 -- quickstart.sql sets it to local.
 --
 -- Note on the CAPV_* seam rule (CLAUDE.md): that rule says the ANALYTICS must
--- never touch DBA_HIST_* outside ddl/10_seam_local.sql, so local / warehouse /
+-- never touch DBA_HIST_* outside ddl/10_seam_local.sql, so local / repository /
 -- fixture modes stay byte-identical downstream. doctor.sql is not analytics --
 -- it is a preflight probe whose entire job is to test whether those base
 -- objects are reachable, so it references them directly and on purpose. Every
@@ -83,9 +83,9 @@ DECLARE
     v_short_hist    PLS_INTEGER := 0;       -- sources with < min_train_days
     v_retention_d   NUMBER;
     v_installed     BOOLEAN     := FALSE;
-    v_deploy_mode     VARCHAR2(30);           -- local | warehouse | fixture
+    v_deploy_mode     VARCHAR2(30);           -- local | repository | fixture
     v_seam_refs     VARCHAR2(200);
-    v_hist_applies  BOOLEAN     := TRUE;    -- FALSE in fixture / warehouse mode
+    v_hist_applies  BOOLEAN     := TRUE;    -- FALSE in repository / fixture mode
     v_intended      VARCHAR2(30) := :cap_doctor_mode_v;   -- caller's DEFINE, or NULL
 
     -- knobs: CAP_CFG when installed, else the shipped defaults (05_config)
@@ -327,7 +327,10 @@ BEGIN
     note('NOTE: probes and SESSION_PRIVS below are the SESSION USER''s. ALTER SESSION');
     note('      SET CURRENT_SCHEMA changes where objects resolve, not what you may do;');
     note('      the direct-grant checks look at the current schema itself.');
-    IF v_intended IS NOT NULL THEN
+    IF v_intended NOT IN ('local', 'repository', 'fixture') THEN
+        note('mode under test : ' || v_intended || ' ignored (DEFINE cap_doctor_mode = local | repository | fixture)');
+        v_intended := NULL;
+    ELSIF v_intended IS NOT NULL THEN
         note('mode under test : ' || v_intended || ' (DEFINE cap_doctor_mode)');
     END IF;
 
@@ -358,14 +361,10 @@ BEGIN
                     AND  type  = 'VIEW') LOOP
             v_seam_refs := SUBSTR(v_seam_refs || r.referenced_name || ' ', 1, 200);
             IF    r.referenced_name = 'DBA_HIST_SNAPSHOT'      THEN v_deploy_mode := 'local';
-            ELSIF r.referenced_name LIKE 'AWRV\_%' ESCAPE '\'  THEN v_deploy_mode := 'warehouse';
             ELSIF r.referenced_name LIKE 'CAP\_H\_%' ESCAPE '\' THEN v_deploy_mode := 'repository';
             ELSIF r.referenced_name LIKE 'CAP\_FIXTURE\_%' ESCAPE '\' THEN v_deploy_mode := 'fixture';
             END IF;
         END LOOP;
-    END IF;
-    IF v_intended NOT IN ('local', 'repository', 'warehouse', 'fixture') THEN
-        v_intended := NULL;
     END IF;
     v_hist_applies := COALESCE(v_intended, v_deploy_mode, 'local') = 'local';
     add_need('trend fit (min_train_days)',                       v_min_train);
@@ -508,7 +507,7 @@ BEGIN
     END IF;
     IF v_seam_fails > 0 AND v_hist_applies THEN
         note('Local mode needs every view above readable by the owning schema.');
-        note('Warehouse / fixture mode do not need them.');
+        note('Repository / fixture mode do not need them.');
     END IF;
 
     -- =================================================================
@@ -1183,15 +1182,14 @@ BEGIN
              || ', so checks 3, 5 and 6 (DBA_HIST_*)');
         note('do not apply to this install -- the data comes from '
              || CASE COALESCE(v_intended, v_deploy_mode)
-                     WHEN 'warehouse' THEN 'the AWRV_* views.'
                      WHEN 'repository' THEN 'the CAP_H_* copies (cap_repo.collect).'
                      ELSE 'CAP_FIXTURE_* tables.' END);
         IF v_installed AND COALESCE(v_intended, v_deploy_mode) = 'repository' THEN
             note('Check 11 covers what feeds them: each target''s link, collect and days copied.');
         END IF;
     ELSIF NOT v_installed AND v_intended IS NULL THEN
-        note('Not installed here, so checks 3, 5 and 6 assume local mode. Fixture and');
-        note('warehouse installs do not read DBA_HIST_*.');
+        note('Not installed here, so checks 3, 5 and 6 assume local mode. Repository');
+        note('and fixture installs do not read DBA_HIST_*.');
     END IF;
     IF v_short_hist > 0 AND v_hist_applies THEN
         note('Why forecasts may say INSUFFICIENT_HISTORY:');

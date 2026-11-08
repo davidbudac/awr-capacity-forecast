@@ -4,9 +4,10 @@
 -- These thirteen views (plus the CAPV_CONTRACT diagnostic at the bottom) are the
 -- ONLY place the analytics touch Oracle's AWR dictionary. Everything
 -- downstream (CAPD_/CAPF_/CAPA_/report) is written once against CAPV_* and
--- runs byte-identically in local, warehouse, or fixture mode. Swapping this
--- file for ddl/11_seam_warehouse.sql or ddl/12_seam_fixture.sql re-points the
--- same column contract at a different source.
+-- runs byte-identically in local, repository, or fixture mode. Swapping this
+-- file for ddl/13_seam_repository.sql (generated from it by
+-- repository/build.py) or ddl/12_seam_fixture.sql re-points the same column
+-- contract at a different source.
 --
 -- LOCAL mode requires the Diagnostics Pack and DIRECT SELECT grants (not via
 -- a role) on the DBA_HIST_* views for the installing schema, so the views
@@ -50,8 +51,9 @@
 --   * RTIME on TBSPC_SPACE_USAGE is an NLS-fragile VARCHAR2 -- we deliberately
 --     ignore it and derive timestamps by joining snap_id -> CAPV_SNAPSHOT.
 --   * We never join live DBA_TABLESPACES: it drops history for dropped
---     tablespaces and does not exist in warehouse mode. DBA_HIST_TABLESPACE /
---     DBA_HIST_DATAFILE are the historical dimensions.
+--     tablespaces and in repository mode describes the repository, not the
+--     target. DBA_HIST_TABLESPACE / DBA_HIST_DATAFILE are the historical
+--     dimensions.
 --
 SET DEFINE OFF
 
@@ -103,8 +105,8 @@ FROM   dba_hist_tablespace;
 -- --------------------------------------------------------------------
 -- CAPV_DATAFILE -- block size per tablespace (MAX across its datafiles).
 -- Secondary/fallback source of the blocks->bytes factor (CAPV_TABLESPACE is
--- primary). Kept because it survives dropped tablespaces and mirrors the
--- warehouse contract; the daily layer LEFT JOINs it and COALESCEs.
+-- primary). Kept because it survives dropped tablespaces; the daily layer
+-- LEFT JOINs it and COALESCEs.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capv_datafile AS
 SELECT dbid                     AS dbid,
@@ -376,10 +378,9 @@ JOIN   dba_hist_seg_stat_obj o
 -- the source is host / instance / spine level (OSSTAT, RESOURCE_LIMIT,
 -- PARAMETER, ASM_DISKGROUP, SNAPSHOT), so n_con_dbid = 1 against a 'Y' means
 -- the per-PDB series are missing. SEG_STAT is per container too. ASM_DISKGROUP
--- has n_rows = 0 on a database without ASM, SEG_STAT on the warehouse seam
--- until the collector gathers it. A diagnostic for doctor.sql: it full-scans every source, and no
--- analytic view selects from it. The body reads only CAPV_* and is the same
--- in all three seam files.
+-- has n_rows = 0 on a database without ASM. A diagnostic for doctor.sql: it
+-- full-scans every source, and no analytic view selects from it. The body
+-- reads only CAPV_* and is the same in all three seam files.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capv_contract AS
 WITH src AS (

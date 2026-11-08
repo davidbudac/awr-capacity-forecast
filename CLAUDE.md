@@ -19,8 +19,7 @@ for making changes safely.
   outside `ddl/10_seam_local.sql`, except the repository's reads over a
   target's link: the pull statements `repository/build.py` generates into
   `CAP_REPO_SOURCE` and `cap_repo`'s probe / DBID discovery. That is what
-  keeps local / repository / warehouse / fixture modes byte-identical
-  downstream.
+  keeps local / repository / fixture modes byte-identical downstream.
 - **Config, not constants.** Thresholds live in `CAP_CONFIG`, read only through
   the one-row view `CAP_CFG` (`CROSS JOIN cap_cfg cfg`, one column per knob,
   no defaults inlined). Views never read `cap_config` directly.
@@ -64,8 +63,8 @@ for making changes safely.
 ## Layout / load order
 
 `install.sql` includes, in order: `ddl/00_drop` → `05_config` (CAP_CONFIG,
-CAP_CFG, CAP_CFG_CHECK, CAP_TBSPC_OVERRIDE) → the seam (`10`/`13`/`11`/`12` for
-`deploy_mode` local / repository / warehouse / fixture: thirteen CAPV_* views +
+CAP_CFG, CAP_CFG_CHECK, CAP_TBSPC_OVERRIDE) → the seam (`10`/`13`/`12` for
+`deploy_mode` local / repository / fixture: thirteen CAPV_* views +
 CAPV_CONTRACT; `13` also creates the copies and pulls `repository/cap_repo.sql`) → `20_daily` →
 `25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `35_series_forecast`
 (CAPF_SERIES_FORECAST) → `40_anomaly` → `45_report_views` (CAPR_CONTAINER,
@@ -94,11 +93,12 @@ removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
 alert kinds, no assertion counts, no "generated" claim, every `CREATE TABLE`
 in ddl/ + repository/ plus `CAP_H_*` named in reference.html#tables and in
 the "Persisted tables" bullet above, every `profiles/*.env` in
-reference.html#installer and install.sh's `--profile` help).
+reference.html#installer and install.sh's `--profile` help, and no token of
+the retired warehouse mode in a tracked file outside PLAN.md and bench/).
 `install.sh` is the guided / silent installer for every role (one SQL*Plus
 driver per run, log in `reports/install_<ts>.log`); `profiles/*.env` are its
 answer files: `standalone` (dedicated owner, ML, jobs), `target`,
-`repository`, plus `quickstart`, `demo`, `fixture-test`, `warehouse`.
+`repository`, plus `quickstart`, `demo`, `fixture-test`.
 `docs/start.html` presents "Measure one database" and "Measure a fleet" as
 equal paths; reference.html `#installer` / `#repository` hold the detail.
 Opt-in extras outside install.sql: `create_owner.sql` (run once as SYSDBA:
@@ -130,8 +130,9 @@ CAPR_SEGMENT_GROWTH). Both report drivers take `[top_n] [anomaly_days]
 [show_esm] [dbid] [con_dbid] [LIVE|SNAPSHOT]`, `-` skips one.
 `test/demo_fixture.sql` fills the CAP_FIXTURE_* tables with a designed 150-day
 "ECOMPRD" story (hourly snapshots, two containers, 32 threads / 16 cores; no
-PARAMETER / ASM / SEG_STAT tables, so those seam views fall back to their
-zero-row stubs); `docs/demo/` holds the reports generated from it (identity
+PARAMETER / ASM / SEG_STAT tables, so those seam views fall back to ddl/12's
+zero-row stubs, typed constants because `CAST(NULL)` join keys raised
+ORA-07445 on 19.27); `docs/demo/` holds the reports generated from it (identity
 strings genericised: database ECOMPRD, host db-prod-01.example.com, schema
 CAPMON) for the docs site. Regenerate it in a throwaway schema (not CAPDEMO,
 which feeds the lab dashboards): fixture_remove (plus `DROP TABLE
@@ -212,9 +213,9 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   nothing is INVALID. Failures exit via `WHENEVER SQLERROR EXIT FAILURE`
   (`SQL.SQLCODE` exits 0 for codes that are multiples of 256).
 - **doctor.sql** takes the mode from the installed `CAPV_SNAPSHOT`, assumes
-  local before install, or reads `DEFINE cap_doctor_mode = local | warehouse
-  | fixture` (no prompt when undefined). It probes every DBA_HIST_* view
-  ddl/10 reads and the target schema's direct grants, prints a readiness table
+  local before install, or reads `DEFINE cap_doctor_mode = local |
+  repository | fixture` (no prompt when undefined). It probes every
+  DBA_HIST_* view ddl/10 reads and the target schema's direct grants, prints a readiness table
   (days each feature needs vs days available), suite_version, the fit-quality
   mix, `CAP_CFG_CHECK`, the results layer and the live `CAPV_CONTRACT` check,
   and leaves `cap_doctor_fail` (count of FAIL lines, "1" if the block did not
@@ -249,9 +250,8 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   live in `DBA_HIST_CON_SYS_TIME_MODEL` / `DBA_HIST_CON_SYSSTAT`, which
   `CAPV_TIME_MODEL` / `CAPV_SYSSTAT` read (PDB$SEED dropped; a snapshot with no
   CON_ row, i.e. a non-CDB, falls back to the SYS_ views). So the root row is
-  CDB$ROOT alone and the CDB total is the sum. The warehouse collector still
-  gathers the SYS_ views (sibling-repo TODO). Host CPU (OSSTAT) records under
-  the CDB `con_dbid`.
+  CDB$ROOT alone and the CDB total is the sum. Host CPU (OSSTAT) records
+  under the CDB `con_dbid`.
 - **CPU denominators.** `db_cpu_pct` and its p95 / max / peak twins divide by
   logical-CPU seconds per interval, `LEAST(NUM_CPUS, cpu_count) x ivl_sec`
   (`NUM_CPUS`, else `NUM_CPU_CORES`; AWR's %Total CPU uses NUM_CPUS, and
@@ -357,8 +357,8 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
 - **Wall clock labelled Z, everywhere.** AWR times are DB-local DATEs; every
   export stamps them with a `Z` as a label, not an instant (dashboards run in
   UTC: Kibana `dateFormat:tz`, Grafana). HOUR_OF_WEEK's `ts - 7k` follows the
-  local clock across DST, as workload does. Warehouse mode has no per-source
-  timezone.
+  local clock across DST, as workload does. In repository mode each target's
+  times stay on that target's own clock; there is no per-target timezone.
 - **`CAPR_ALERTS` anomaly rows come FROM `CAPR_ANOMALIES`, not the reverse.**
   `CAPR_ANOMALIES` owns severity, message and `alerting` (mode enabled by the
   `alert_modes_{tbspc,cpu,series}` bitmask, 1=TRAILING 2=SAME_DOW
@@ -427,7 +427,7 @@ there for local mode).
   else) and the repository runs the suite with `deploy_mode=repository` over
   `CAP_H_*` copies that `cap_repo.collect` pulls over one DB link per target.
   `install.sh` asks the role first (standalone / target / repository /
-  warehouse / fixture); profiles `standalone.env`, `target.env`,
+  fixture); profiles `standalone.env`, `target.env`,
   `repository.env`. A repository install's closing banner names
   `cap_repo.add_target` / `collect` as the next step.
 - **`repository/build.py` owns the copy contract.** Its manifest lists each
@@ -487,32 +487,9 @@ there for local mode).
   where package `CAP_REPO` exists; doctor section 10 checks them and section
   11 checks each target (link, collect state, staleness, gaps, days per
   DBID vs section 7's needs, which `CAP_CFG_CHECK` mirrors).
-- **Not yet built:** see PLAN.md M24.9 (retire warehouse mode) and M24.10
-  (scale).
+- **Not yet built:** see PLAN.md M24.10 (scale).
   RAC: one high-water mark per DBID, so a snapshot that completes on one
   instance before another could be copied half; untested.
-
-## Warehouse mode (Milestone W / M6 — done)
-
-- The `awr-fleet-warehouse` collector now gathers the three sources this suite
-  needs into `awrw_tbspc_stat` / `awrw_osstat` / `awrw_time_model` (+ the
-  `awrw_tablespace` / `awrw_datafile` dims) and exposes them as `AWRV_*` seam
-  views. `ddl/11_seam_warehouse.sql` re-maps CAPV_* onto those AWRV_* views, so
-  warehouse mode is byte-identical downstream to local mode.
-- Install warehouse mode where the AWRV_* views are visible: **as the warehouse
-  owner (AWRWH)**, or a schema with direct SELECT grants on them. The warehouse
-  presents every collected database; the report shows con_dbid per row (one
-  target reads as one DB, many targets as a fleet report).
-- Those warehouse-side objects live in the sibling repo
-  (`../awr-fleet-warehouse`): facts in `ddl/30_facts.sql`, dims in
-  `ddl/20_dimensions.sql`, AWRV_* in `ddl/50_awrv_views.sql`, collector pulls in
-  `collect/awrw_collect.pkb`, forward migration `migrate/002_capacity_facts.sql`.
-  Those five capacity tables are the only ones there keyed on `(dbid, con_dbid)`.
-- Warehouse gaps (sibling-repo TODOs): the collector gathers the CDB-wide
-  SYS_ time model / sysstat, not the CON_ views, and nothing yet for
-  `CAPV_RESOURCE_LIMIT`, `CAPV_PARAMETER`, `CAPV_ASM_DISKGROUP`; ddl/11 emits
-  zero-row stubs for those (typed constants: `CAST(NULL)` join keys raised
-  ORA-07445 on 19.27) and maps `CAPV_SEG_STAT` to a stub as well.
 
 ## Not yet built (see PLAN.md milestones)
 

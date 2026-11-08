@@ -107,7 +107,7 @@
           <tbody>
             <tr><td><b>AWR</b></td><td class="def">Automatic Workload Repository, Oracle's built-in performance history. The suite only reads it.</td></tr>
             <tr><td><b>Seam</b> &nbsp;<span class="k">CAPV_</span> views</td><td class="def">An adapter layer of <span class="inline">CAPV_</span> views. All analytics read from them; the install chooses what they point at.</td></tr>
-            <tr><td><b>Mode</b> <span class="inline">deploy_mode</span></td><td class="def">What the seam points at: <span class="k">local</span> = this database's AWR · <span class="k">repository</span> = copies of the registered targets' AWR · <span class="k">warehouse</span> = a central collector covering many databases · <span class="k">fixture</span> = test data.</td></tr>
+            <tr><td><b>Mode</b> <span class="inline">deploy_mode</span></td><td class="def">What the seam points at: <span class="k">local</span> = this database's AWR · <span class="k">repository</span> = copies of the registered targets' AWR · <span class="k">fixture</span> = test data.</td></tr>
             <tr><td><b>Fixture</b></td><td class="def">Hand-built sample rows with answers known in advance. Real AWR cannot take inserted rows, so fixtures are how the math is tested.</td></tr>
             <tr><td><b>Harness</b></td><td class="def">The script that loads a fixture, runs the suite and prints <span class="pill ok">PASS</span>/<span class="pill crit">FAIL</span> per expected number.</td></tr>
             <tr><td><b>Tier 1 (REGR)</b></td><td class="def">The always-on forecast: linear regression in plain SQL. Nothing trained.</td></tr>
@@ -138,23 +138,21 @@
         the local one with each <span class="inline">DBA_HIST_</span> name swapped for its copy, and a
         parity test diffs every view of a local and a repository install over the same database.</p>
 
-            <svg class="dg" viewBox="0 0 640 196" role="img" aria-label="Four sources, one seam: local AWR, a repository's copies of other databases' AWR, the warehouse or fixtures feed the CAPV views; the same analytics SQL runs above them.">
+            <svg class="dg" viewBox="0 0 640 150" role="img" aria-label="Three sources, one seam: local AWR, a repository's copies of other databases' AWR, or fixtures feed the CAPV views; the same analytics SQL runs above them.">
 <defs><marker id="a-seam" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0 0L10 5L0 10z"/></marker></defs>
 <rect class="box" x="10" y="12" width="150" height="34" rx="5"/><text class="tm" x="85" y="34" text-anchor="middle">DBA_HIST_*</text>
 <rect class="box" x="10" y="58" width="150" height="34" rx="5"/><text class="tm" x="85" y="80" text-anchor="middle">CAP_H_*</text>
-<rect class="box" x="10" y="104" width="150" height="34" rx="5"/><text class="tm" x="85" y="126" text-anchor="middle">AWRV_*</text>
-<rect class="box" x="10" y="150" width="150" height="34" rx="5"/><text class="tm" x="85" y="172" text-anchor="middle">CAP_FIXTURE_*</text>
-<text class="ts" x="168" y="33">local</text><text class="ts" x="168" y="79">repository</text><text class="ts" x="168" y="125">warehouse</text><text class="ts" x="168" y="171">fixture</text>
-<path class="edge" d="M236 29 C 266 29 266 90 290 92" marker-end="url(#a-seam)"/>
-<path class="edge" d="M236 75 C 266 75 266 95 290 96" marker-end="url(#a-seam)"/>
-<path class="edge" d="M236 121 C 266 121 266 101 290 100" marker-end="url(#a-seam)"/>
-<path class="edge" d="M236 167 C 266 167 266 106 290 104" marker-end="url(#a-seam)"/>
-<rect class="boxa" x="295" y="75" width="120" height="46" rx="5"/>
-<text class="tm" x="355" y="95" text-anchor="middle">CAPV_</text><text class="ta" x="355" y="111" text-anchor="middle">one file per mode</text>
-<path class="edge" d="M415 98 L 455 98" marker-end="url(#a-seam)"/>
-<rect class="box" x="460" y="63" width="170" height="70" rx="5"/>
-<text class="t" x="545" y="91" text-anchor="middle">same SQL above</text>
-<text class="tm" x="545" y="111" text-anchor="middle">CAPD → CAPF/CAPA → CAPR</text>
+<rect class="box" x="10" y="104" width="150" height="34" rx="5"/><text class="tm" x="85" y="126" text-anchor="middle">CAP_FIXTURE_*</text>
+<text class="ts" x="168" y="33">local</text><text class="ts" x="168" y="79">repository</text><text class="ts" x="168" y="125">fixture</text>
+<path class="edge" d="M236 29 C 266 29 266 69 290 71" marker-end="url(#a-seam)"/>
+<path class="edge" d="M236 75 L 290 75" marker-end="url(#a-seam)"/>
+<path class="edge" d="M236 121 C 266 121 266 81 290 79" marker-end="url(#a-seam)"/>
+<rect class="boxa" x="295" y="52" width="120" height="46" rx="5"/>
+<text class="tm" x="355" y="72" text-anchor="middle">CAPV_</text><text class="ta" x="355" y="88" text-anchor="middle">one file per mode</text>
+<path class="edge" d="M415 75 L 455 75" marker-end="url(#a-seam)"/>
+<rect class="box" x="460" y="40" width="170" height="70" rx="5"/>
+<text class="t" x="545" y="68" text-anchor="middle">same SQL above</text>
+<text class="tm" x="545" y="88" text-anchor="middle">CAPD → CAPF/CAPA → CAPR</text>
 </svg>
 <div class="tablewrap">
         <table>
@@ -162,7 +160,6 @@
           <tbody>
             <tr><td><span class="k">local</span></td><td class="def">ddl/10_seam_local.sql</td><td class="def"><span class="kt">DBA_HIST_*</span> (Diagnostics Pack)</td><td class="def">sysdba in CDB$ROOT</td></tr>
             <tr><td><span class="k">repository</span></td><td class="def">ddl/13_seam_repository.sql (generated)</td><td class="def"><span class="kt">CAP_H_*</span> copies of each registered target's <span class="kt">DBA_HIST_*</span></td><td class="def">an owner with CREATE DATABASE LINK, any 19c database</td></tr>
-            <tr><td><span class="k">warehouse</span></td><td class="def">ddl/11_seam_warehouse.sql</td><td class="def"><span class="kt">AWRV_*</span> fleet-warehouse views</td><td class="def">warehouse owner (AWRWH)</td></tr>
             <tr><td><span class="k">fixture</span></td><td class="def">ddl/12_seam_fixture.sql</td><td class="def"><span class="kt">CAP_FIXTURE_*</span> deterministic tables</td><td class="def">any schema w/ CREATE privs</td></tr>
           </tbody>
         </table>
@@ -174,11 +171,10 @@
       </div>
 
       <div class="pipe">
-        <div class="pipe__cap">One of four sources feeds the seam</div>
+        <div class="pipe__cap">One of three sources feeds the seam</div>
         <div class="sources">
           <div class="src"><h5>Local</h5><code>DBA_HIST_*</code><p>Live AWR in CDB$ROOT</p></div>
           <div class="src"><h5>Repository</h5><code>CAP_H_*</code><p>Targets' AWR, copied over a link</p></div>
-          <div class="src"><h5>Warehouse</h5><code>AWRV_*</code><p>Collected fleet history</p></div>
           <div class="src"><h5>Fixture</h5><code>CAP_FIXTURE_*</code><p>Deterministic test data</p></div>
         </div>
         <div class="conn"></div>

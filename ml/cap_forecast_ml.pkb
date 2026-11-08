@@ -6,9 +6,9 @@
 --     stable MD5 of (dbid | con_dbid | series_key), prefixed with a letter so
 --     it is a legal identifier and re-training rebuilds the same name in place.
 --     dbid is in the hash so two databases with a colliding con_dbid + series
---     name (warehouse / migration) get distinct models. M10.4: the BACKTEST
---     tablespace twins hash (... | model_type) as well, because there is now
---     one twin per candidate model type.
+--     name (a repository's targets / migration) get distinct models. M10.4:
+--     the BACKTEST tablespace twins hash (... | model_type) as well, because
+--     there is now one twin per candidate model type.
 --   * data_query is built as literal-embedded text per series because
 --     CREATE_MODEL2's data_query cannot bind. Series keys here are Oracle
 --     identifiers (tablespace names / fixed metric strings), so simple
@@ -71,7 +71,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
     -- ----------------------------------------------------------------
     -- model_name for a series: letter prefix + 16 hex of MD5(identity).
     -- Identity includes dbid so a con_dbid+key collision across databases
-    -- (warehouse / DBID migration) does not overwrite another db's model.
+    -- (a repository's targets / DBID migration) does not overwrite another db's model.
     -- ----------------------------------------------------------------
     FUNCTION model_name_for(p_prefix IN VARCHAR2,
                             p_dbid IN NUMBER,

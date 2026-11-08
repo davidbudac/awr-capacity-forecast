@@ -14,7 +14,7 @@
 --
 -- or simply  ./quickstart.sh  (same thing, wrapped).
 --
--- Local mode only. For warehouse / fixture mode use install.sql directly with
+-- Local mode only. For repository / fixture mode use install.sql directly with
 -- DEFINE deploy_mode (see docs: Reference -> Advanced install).
 --
 -- Read-only against AWR: the only writes are the suite's own CAP_CONFIG /
@@ -47,7 +47,7 @@ HOST mkdir -p reports
 
 PROMPT ==== [1/3] preflight -- doctor.sql ====
 -- Judge readiness for the local install this script is about to run, even if
--- the schema currently holds a fixture or warehouse install.
+-- the schema currently holds a fixture or repository install.
 DEFINE cap_doctor_mode = 'local'
 @@doctor.sql
 SET DEFINE '&'

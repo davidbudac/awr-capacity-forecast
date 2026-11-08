@@ -2,12 +2,12 @@
 -- install.sql -- one-shot installer for the AWR capacity-forecast suite.
 -- =====================================================================
 -- Creates every CAP_* / CAPV_ / CAPD_ / CAPF_ / CAPA_ object into the CURRENT
--- schema, wiring the portable seam to one of four data sources.
+-- schema, wiring the portable seam to one of three data sources.
 --
 -- Usage (the caller MUST DEFINE deploy_mode first; see note below):
 --
 --   sqlplus c##awrcap/...                -- the owner create_owner.sql made
---   SQL> DEFINE deploy_mode = 'local'      -- local | repository | warehouse | fixture
+--   SQL> DEFINE deploy_mode = 'local'      -- local | repository | fixture
 --   SQL> @install.sql
 --
 -- The header prints the target schema. Installing into SYS still works (the
@@ -22,9 +22,6 @@
 --              repository/cap_repo.sql). Needs CREATE DATABASE LINK granted
 --              directly; no DBA_HIST_* grants. Register targets afterwards
 --              with cap_repo.add_target and copy with cap_repo.collect.
---   warehouse  CAPV_* over the awr-fleet-warehouse AWRV_* seam views. Install
---              where those views are visible: as the warehouse owner (AWRWH),
---              or in a schema with direct SELECT grants on the AWRV_* views.
 --   fixture    CAPV_* over CAP_FIXTURE_* tables. Run test/fixture_install.sql
 --              FIRST to create + populate them, then install with this mode.
 --
@@ -65,7 +62,6 @@ SELECT 'ddl/' ||
        CASE LOWER(NVL('&&deploy_mode', 'local'))
             WHEN 'local'     THEN '10_seam_local.sql'
             WHEN 'repository' THEN '13_seam_repository.sql'
-            WHEN 'warehouse' THEN '11_seam_warehouse.sql'
             WHEN 'fixture'   THEN '12_seam_fixture.sql'
             ELSE TO_CHAR(1/0)   -- invalid deploy_mode -> abort
        END AS seam_script
@@ -183,8 +179,7 @@ END;
 /
 
 -- Any INVALID object among our prefixes is a real install failure, in every
--- deploy mode (warehouse mode compiles valid against the awr-fleet-warehouse
--- AWRV_* views, as of Milestone W).
+-- deploy mode.
 DECLARE
     v_bad   PLS_INTEGER  := 0;
 BEGIN
@@ -205,8 +200,7 @@ BEGIN
             'Install incomplete: ' || v_bad || ' object(s) invalid in schema '
             || SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') || ' (see list above). '
             || 'Check DBA_HIST_* grants (local mode), CREATE DATABASE LINK (repository '
-            || 'mode), the AWRV_* views + SELECT grants (warehouse mode), or '
-            || 'CAP_FIXTURE_* tables (fixture mode).');
+            || 'mode) or CAP_FIXTURE_* tables (fixture mode).');
     END IF;
     DBMS_OUTPUT.PUT_LINE('  All CAP* objects valid in schema '
                          || SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') || '.');

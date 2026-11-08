@@ -11,8 +11,8 @@ This document explains *why* each layer is shaped the way it is. For usage see
   anomaly flag exposes the exact arithmetic (value, median, MAD-sigma,
   threshold, robust z) so an operator can reproduce it by hand.
 - **Portable.** Analytics are written once against a thin seam so the same SQL
-  serves local AWR, a repository's copies of other databases' AWR, a fleet
-  warehouse, or test fixtures.
+  serves local AWR, a repository's copies of other databases' AWR, or test
+  fixtures.
 - **Read-only.** Nothing the report touches is ever modified. The suite
   writes only to `CAP_*` tables it owns, never to AWR: the config and
   override tables (operator), the model registry (`cap_forecast_ml`) and the
@@ -118,14 +118,15 @@ one DB link per target and runs everything else. The choices, made
   horizon) is `BAD` in `CAP_CFG_CHECK`, and `purge` refuses to run on it,
   because a purge cannot be undone.
 
-The warehouse mode below (`ddl/11`, over `../awr-fleet-warehouse`) predates
-this and retires in M24.9.
+A warehouse mode, a seam over the `../awr-fleet-warehouse` collector,
+predated M24. M24.9 retired it, so repository mode is the one fleet path;
+`../awr-fleet-warehouse` stays its own product.
 
 ## Layer 1 — the seam (`CAPV_*`)
 
 Thirteen views re-present the AWR dictionary in a stable shape. Everything
 downstream depends only on these, so swapping `ddl/10_seam_local.sql` for
-`13` (repository, generated from `10`), `11` (warehouse) or `12` (fixture)
+`13` (repository, generated from `10`) or `12` (fixture)
 re-points the whole stack. Every view carries
 `(dbid, con_dbid)` but `CAPV_TARGET`, which is per dbid. A fourteenth view,
 `CAPV_CONTRACT`, describes what the other thirteen present (see the last
@@ -153,9 +154,7 @@ bullet).
   `DBA_HIST_SNAPSHOT`. Reading the `SYS_` views gave local mode one DB CPU
   and redo series per CDB, labelled as the root, so per-PDB `DB_CPU_PCT`,
   `DBCPU_SAT`, the PDB level shift and `host_share_pct` only ever worked on
-  fixture data. The warehouse collector still gathers the `SYS_` views, so in
-  warehouse mode those two series stay CDB-level (header of
-  `ddl/11_seam_warehouse.sql`; a collector change in the sibling repo).
+  fixture data.
 - **Units are passed through, not normalized** (documented in the file header):
   tablespace sizes stay in DB **blocks**; OSSTAT `*_TIME` stays in
   **centiseconds**; time-model values stay in **microseconds**. Conversion is
@@ -166,24 +165,23 @@ bullet).
   silently drops that tablespace.
 - `RTIME` on `TBSPC_SPACE_USAGE` is an NLS-fragile VARCHAR2 and is ignored;
   timestamps come from joining `snap_id` → `CAPV_SNAPSHOT`. Live
-  `DBA_TABLESPACES` is never joined (loses dropped tablespaces; absent in
-  warehouse mode).
+  `DBA_TABLESPACES` is never joined (loses dropped tablespaces; in
+  repository mode it describes the repository, not the target).
 - `CAPV_CONTAINER` (M7.2) is the naming dimension: one row per
-  `(dbid, con_dbid)` with `db_name` + `con_name`. Local mode reads
+  `(dbid, con_dbid)` with `db_name` + `con_name`. Local mode (repository
+  mode over the copies) reads
   `DBA_HIST_PDB_INSTANCE` (which names every container including `CDB$ROOT`,
   whose `con_dbid` equals the CDB dbid — verified on 19c) with a
-  `DBA_HIST_DATABASE_INSTANCE` fallback branch for non-CDBs; warehouse mode
-  maps `db_name` to the Target's display name via `awrv_container`
-  (`con_name` stays NULL — no PDB-name dim collected yet); fixture mode reads
-  `CAP_FIXTURE_CONTAINER`. Historical dictionaries only, same as the rest of
+  `DBA_HIST_DATABASE_INSTANCE` fallback branch for non-CDBs; fixture mode
+  reads `CAP_FIXTURE_CONTAINER`. Historical dictionaries only, same as the rest of
   the seam — never live `V$` views.
 - `CAPV_TARGET` (M24.6) says what is measured and how it is fed: one row per
-  (target, dbid) with `target_name`, `feed` (`LOCAL` / `LINK` / `FIXTURE` /
-  `WAREHOUSE`), the AWR `host_name` of the newest instance startup, and, in
+  (target, dbid) with `target_name`, `feed` (`LOCAL` / `LINK` / `FIXTURE`),
+  the AWR `host_name` of the newest instance startup, and, in
   repository mode only, the link, `enabled`, the high-water mark and the
   collect health from `CAP_COLLECT_LOG` (newest good collect, newest error
-  of the dbid or of the whole target, purge gaps). Local, fixture and
-  warehouse mode name the target after the AWR `db_name`. The repository
+  of the dbid or of the whole target, purge gaps). Local and fixture mode
+  name the target after the AWR `db_name`. The repository
   version reads the registry, so it is not ddl/10's with the rename:
   `repository/seam_overrides.sql` holds it and `repository/build.py` puts it
   in ddl/13 in place of ddl/10's. `CAPR_CONTAINER.db_pdb` and every report
@@ -195,12 +193,7 @@ bullet).
   series. Its `LIMIT_VALUE` is a `VARCHAR2(10)` that can read `UNLIMITED`,
   converted here to a NUMBER (non-numeric → NULL = "no ceiling").
   `CAPV_SYSSTAT` is filtered to `redo size`, a cumulative byte counter, per
-  container (see above). The warehouse collects SYSSTAT whole
-  (`awrv_sysstat`, no `CON_DBID`, so `con_dbid := dbid`: one CDB-level redo
-  series) but has **no** resource-limit fact yet, so
-  `ddl/11_seam_warehouse.sql` emits `CAPV_RESOURCE_LIMIT` with the exact
-  column contract and `WHERE 1 = 0`: the stack stays valid in warehouse mode
-  and the `PROCESSES` / `SESSIONS` series simply have no rows there.
+  container (see above).
 - `CAPV_PARAMETER` / `CAPV_ASM_DISKGROUP`. `CAPV_PARAMETER` reads
   `DBA_HIST_PARAMETER` for nine names (`cpu_count`, `processes`, `sessions`,
   `db_recovery_file_dest_size`, `sga_target`, `sga_max_size`,
@@ -215,12 +208,12 @@ bullet).
   `DBA_HIST_ASM_DISKGROUP` (the `NAME`, no leading `+`) on
   `(dbid, group_number, con_dbid)`. The 19c view has no `USABLE_FILE_MB`
   (verified), so `usable_file_mb` is NULL; sizes are raw MB, before
-  mirroring. A database without ASM has no rows. Neither source is collected
-  by the warehouse yet: `ddl/11` emits both as `WHERE 1 = 0` contract stubs
-  (sibling-repo TODO in its header). The fixture seam reads
-  `CAP_FIXTURE_PARAMETER` / `CAP_FIXTURE_ASM_DISKGROUP` and falls back to the
-  same stubs when a table is missing, because `test/demo_fixture.sql` does
-  not build them.
+  mirroring. A database without ASM has no rows. The fixture seam reads
+  `CAP_FIXTURE_PARAMETER` / `CAP_FIXTURE_ASM_DISKGROUP` and falls back to a
+  `WHERE 1 = 0` contract stub when a table is missing, because
+  `test/demo_fixture.sql` does not build them. The stub columns are typed
+  constants, not `CAST(NULL ...)`: with NULL join keys, `CAPD_DBTIME_DAILY`
+  over a zero-row `CAPV_PARAMETER` raised ORA-07445 on 19.27.
 - `CAPV_SEG_STAT` (M21) reads `DBA_HIST_SEG_STAT` joined to
   `DBA_HIST_SEG_STAT_OBJ` on `(dbid, con_dbid, ts#, obj#, dataobj#)`: one
   row per snapshot, instance and segment with `tablespace_id` (`TS#`),
@@ -229,9 +222,8 @@ bullet).
   on 19.27 in `CDB$ROOT`: both views carry `CON_DBID`, with rows for the
   root and every PDB, and a dropped object keeps its row named
   `** MISSING **`. AWR keeps only the top segments of each snapshot, so the
-  deltas cover the busiest segments, not all of them. The warehouse seam is a
-  `WHERE 1 = 0` stub until the collector gathers both views; the fixture
-  reads `CAP_FIXTURE_SEG_STAT`, with the same fallback stub.
+  deltas cover the busiest segments, not all of them. The fixture reads
+  `CAP_FIXTURE_SEG_STAT`, with the same fallback stub.
 - `CAPV_CONTRACT` is a diagnostic over the seam itself, the same body in all
   three seam files: one row per fact source (`SNAPSHOT`, `TBSPC_USAGE`,
   `OSSTAT`, `TIME_MODEL`, `SYSSTAT`, `RESOURCE_LIMIT`, `PARAMETER`,
@@ -240,9 +232,9 @@ bullet).
   tablespace usage, time model, sysstat and segment stats, `N` for the host,
   instance and spine sources). `doctor.sql` section 10 prints every row and
   warns when a `Y` source shows a single `con_dbid` on a CDB. `n_con_dbid = 1` against a
-  `Y` says the per-PDB series are missing, which is what a warehouse with the
-  old collector shows. It full-scans every source, so no analytic view reads
-  it. It is meant for `doctor.sql`.
+  `Y` says the per-PDB series are missing, which is what a common user
+  without `CONTAINER_DATA = ALL` sees in `CDB$ROOT`. It full-scans every
+  source, so no analytic view reads it. It is meant for `doctor.sql`.
 
 ## Layer 2 — daily series (`CAPD_*`)
 
@@ -675,8 +667,8 @@ n_samples, covered_sec, is_complete, day_gap, max_interval_hours, gap_flag)` —
   `is_restart = 'N'`, the same rule as `CAPD_CPU_DAILY`. The delta is
   attributed to the day the interval **ends** on. It is the one flow series
   here, so it carries `covered_sec` / `is_complete` (Layer 2, day coverage);
-  the level series carry NULL / `'Y'`. In local mode it is per container (the
-  CDB's redo is the sum); in warehouse mode it is one CDB-level series.
+  the level series carry NULL / `'Y'`. It is per container (the CDB's redo is
+  the sum).
 - `PROCESSES` / `SESSIONS` are CDB-wide: `DBA_HIST_RESOURCE_LIMIT` is
   root-only in `CDB$ROOT`.
 - The M15 gap columns feed the anomaly layer: `day_gap` (days since the
@@ -1662,15 +1654,10 @@ AWR history. See `bench/README.md`.
 
 ## Roadmap
 
-- **Milestone W / M6 — done.** `awr-fleet-warehouse` now carries
-  `awrw_tbspc_stat` / `awrw_osstat` / `awrw_time_model` facts + `awrw_tablespace`
-  / `awrw_datafile` dims and their `AWRV_*` seam views, collected by the fleet
-  collector (three fact pulls + two dim loads). `ddl/11_seam_warehouse.sql`
-  re-maps CAPV_* onto those AWRV_* views, so warehouse mode is a working seam,
-  byte-identical downstream to local mode. Install as the warehouse owner. The
-  five capacity tables are the only warehouse objects keyed on `(dbid, con_dbid)`
-  (TS# restarts per container); shipped for existing warehouses as
-  `migrate/002_capacity_facts.sql`.
+- **Milestone W / M6 — done.** Warehouse mode put the seam over the
+  tablespace, OSSTAT and time-model facts the `awr-fleet-warehouse`
+  collector gathered, byte-identical downstream to local mode. Retired in
+  M24.9 (2026-11-08).
 - **M7–M21 — done.** `PLAN.md` carries each milestone with its commit: the
   report and integration work (M7, M8), forecast quality (M9), CPU (M10), the
   fixed-ceiling series (M11), the three visual paths (M12–M14), the anomaly
@@ -1679,4 +1666,4 @@ AWR history. See `bench/README.md`.
   extensions, M21 consumers and docs).
 - **v2** — memory forecasting (SGA / PGA from `DBA_HIST_MEM_DYNAMIC_COMP`, the
   19c view name, and `DBA_HIST_PGASTAT`); cross-DBID series stitching
-  (non-CDB → PDB migrations) keyed on a stable warehouse `target_id`.
+  (non-CDB → PDB migrations) keyed on a stable `CAP_TARGET.target_id`.
