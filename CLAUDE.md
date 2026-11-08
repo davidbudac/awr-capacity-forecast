@@ -99,7 +99,8 @@ packages ignore role grants), `quickstart.sql` / `quickstart.sh` (doctor →
 install local → report/report.sql, in one run; the docs' "Getting started"
 path), `doctor.sql` (preflight), `install_jobs.sql` / `uninstall_jobs.sql`
 (DBMS_SCHEDULER, all created disabled: CAP_REFRESH_JOB 01:30,
-CAP_ML_RETRAIN daily 02:00, CAP_REPORT_SPOOL_JOB 03:00),
+CAP_ML_RETRAIN daily 02:00, CAP_REPORT_SPOOL_JOB 03:00; where package
+CAP_REPO exists also CAP_COLLECT_JOB hourly :05 and CAP_PURGE_JOB 01:00),
 `report/report_csv.sql` (one CSV per CAPR section view), `report/report_brief.sql`
 (one-page "Runway" briefing from CAPR_FIT[_HISTORY] + the alert list; demo
 `docs/demo/cap_brief_demo.html`), `report/run_report.sh`
@@ -462,8 +463,20 @@ there for local mode).
   aggregated CTEs they were materialised on every read (19.27 plan).
   `test/repo_synth_target.sql NAME DBID SHIFT_DAYS` clones a collected
   target's copies under a fake target (a fleet from one database).
-- **Not yet built:** see PLAN.md M24.7 onwards (the collect job and
-  `repo_retention_days` purge, docs).
+- **Jobs, retention, doctor (M24.7).** `cap_repo.purge(p_days)` deletes the
+  F (fact) copies of snapshots older than `repo_retention_days` (400; 0 =
+  keep) per DBID, cut at the first snap_id that ended inside the window, the
+  SNAPSHOT copy last, plus older `CAP_COLLECT_LOG` rows, in one transaction,
+  and logs PURGED (target NULL, so `CAPV_TARGET` ignores it). D/S copies
+  stay. It refuses a knob `CAP_CFG_CHECK` calls BAD (below the longest
+  doctor section 7 need). No lock against collect, which only inserts above
+  the high-water mark. `cap_repo.ping(name)` returns NULL or the probe's
+  error: doctor runs as SYSDBA, and a private link resolves only for its
+  owner. `install_jobs.sql` adds `CAP_COLLECT_JOB` / `CAP_PURGE_JOB` only
+  where package `CAP_REPO` exists; doctor section 10 checks them and section
+  11 checks each target (link, collect state, staleness, gaps, days per
+  DBID vs section 7's needs, which `CAP_CFG_CHECK` mirrors).
+- **Not yet built:** see PLAN.md M24.8 onwards (profiles, docs).
   RAC: one high-water mark per DBID, so a snapshot that completes on one
   instance before another could be copied half; untested.
 

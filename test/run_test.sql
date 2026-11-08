@@ -3460,11 +3460,25 @@ BEGIN
 
     -- suite_version: stamped by every install, BAD when older than this release.
     SELECT suite_version INTO v_num FROM cap_cfg;
-    chk_int('suite_version = 22', v_num, 22);
-    UPDATE cap_config SET cfg_value = 21 WHERE cfg_name = 'suite_version';
+    chk_int('suite_version = 24', v_num, 24);
+    UPDATE cap_config SET cfg_value = 23 WHERE cfg_name = 'suite_version';
     SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'suite_version';
-    chk_str('CAP_CFG_CHECK suite_version=21 < 22', v_str, 'BAD');
+    chk_str('CAP_CFG_CHECK suite_version=23 < 24', v_str, 'BAD');
     UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'suite_version';
+    COMMIT;
+
+    -- repo_retention_days: 0, or at least the longest window a feature reads
+    -- (here the ESM horizon, 4 x 30 = 120 days).
+    SELECT status, value INTO v_str, v_num FROM cap_cfg_check WHERE knob = 'repo_retention_days';
+    chk_str('CAP_CFG_CHECK repo_retention_days shipped', v_str, 'OK');
+    chk_int('repo_retention_days shipped', v_num, 400);
+    UPDATE cap_config SET cfg_value = 30 WHERE cfg_name = 'repo_retention_days';
+    SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'repo_retention_days';
+    chk_str('CAP_CFG_CHECK repo_retention_days = 30 < 120', v_str, 'BAD');
+    UPDATE cap_config SET cfg_value = 0 WHERE cfg_name = 'repo_retention_days';
+    SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'repo_retention_days';
+    chk_str('CAP_CFG_CHECK repo_retention_days = 0 (keep everything)', v_str, 'OK');
+    UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'repo_retention_days';
     COMMIT;
 
     -- Tier 2 and engine knobs' range rules: BAD below / outside the range,

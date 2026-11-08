@@ -566,7 +566,9 @@ available). If the suite is installed it adds invalid `CAP*` objects, the
 deploy mode, `suite_version`, the fit-quality mix, `CAP_CFG_CHECK`, the results
 layer (last run, failed or running runs, the refresh job, open vs acked
 states, retired dbids) and the live seam-contract check over
-`CAPV_CONTRACT`. It creates nothing and every probe is exception-wrapped.
+`CAPV_CONTRACT`; in repository mode also the collect and purge jobs and, per
+registered target, its link, collect health and days copied. It creates
+nothing and every probe is exception-wrapped.
 Doctor takes the deploy mode from the install, assumes local before one, or
 reads `DEFINE cap_doctor_mode = local | warehouse | fixture`; it leaves the
 count of FAIL lines in `cap_doctor_fail`, which `quickstart.sql` uses to stop
@@ -581,6 +583,8 @@ current schema (`CURRENT_SCHEMA`).
 | `CAP_REFRESH_JOB` | daily 01:30 (`DEFINE refresh_interval`) | `cap_results.refresh`: run history, alert state, events |
 | `CAP_ML_RETRAIN` | daily 02:00 (`DEFINE retrain_interval`) | `cap_forecast_ml.train_all` |
 | `CAP_REPORT_SPOOL_JOB` | daily 03:00 | `cap_report_spool(p_dir)` |
+| `CAP_COLLECT_JOB` | hourly at :05 (`DEFINE collect_interval`) | repository mode only: `cap_repo.collect` |
+| `CAP_PURGE_JOB` | daily 01:00 | repository mode only: `cap_repo.purge`, copies older than `repo_retention_days` |
 
 `cap_report_spool` writes `<dir>/cap_alerts.txt` through `UTL_FILE`: a
 pollable snapshot (header with timestamp, data-through, the last refresh run
@@ -599,6 +603,8 @@ DIRECTORY` / `GRANT READ, WRITE` DDL if it is missing. Override its name with
 EXEC DBMS_SCHEDULER.ENABLE('CAP_REFRESH_JOB')
 EXEC DBMS_SCHEDULER.ENABLE('CAP_ML_RETRAIN')
 EXEC DBMS_SCHEDULER.ENABLE('CAP_REPORT_SPOOL_JOB')
+EXEC DBMS_SCHEDULER.ENABLE('CAP_COLLECT_JOB')  -- repository mode only
+EXEC DBMS_SCHEDULER.ENABLE('CAP_PURGE_JOB')    -- repository mode only
 @uninstall_jobs.sql                            -- drops the jobs + the procedure
 ```
 

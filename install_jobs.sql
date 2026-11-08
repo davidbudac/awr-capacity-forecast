@@ -2,7 +2,8 @@
 -- install_jobs.sql -- OPT-IN DBMS_SCHEDULER automation for the suite.
 -- =====================================================================
 -- NOT part of install.sql. Run it separately, in the schema that owns the
--- suite, only if you want the three background jobs below:
+-- suite, only if you want the background jobs below (the last two only in
+-- repository mode, where package CAP_REPO exists):
 --
 --   CAP_REFRESH_JOB   daily (01:30) cap_results.refresh -- snapshot CAPR_FIT
 --                     and CAPR_ALERTS into the results tables (CAP_RUN,
@@ -28,6 +29,13 @@
 --                     a refresh run on record it lists the OPEN, not acked
 --                     alerts of CAPR_ALERTS_LATEST plus the last run's
 --                     events; with none it evaluates CAPR_ALERTS live.
+--   CAP_COLLECT_JOB   hourly (:05) cap_repo.collect -- copy every enabled
+--                     target's new snapshots into CAP_H_*. The schedule is
+--                     the collect_interval DEFINE. A run ends FAILED
+--                     (ORA-20070) when any target failed; the reason is in
+--                     CAP_COLLECT_LOG and CAPR_TARGETS.
+--   CAP_PURGE_JOB     daily (01:00) cap_repo.purge -- delete the copies older
+--                     than repo_retention_days, before the 01:30 refresh.
 --
 -- Why the "_JOB" suffix: DBMS_SCHEDULER jobs live in the SAME schema
 -- namespace as procedures, so a job called CAP_REPORT_SPOOL beside a
@@ -53,6 +61,8 @@
 --                                        -- optional; default daily 02:00
 --   SQL> DEFINE refresh_interval = 'FREQ=HOURLY;BYMINUTE=15'
 --                                        -- optional; default daily 01:30
+--   SQL> DEFINE collect_interval = 'FREQ=MINUTELY;INTERVAL=30'
+--                                        -- optional; default hourly at :05
 --   SQL> @install_jobs.sql
 --
 -- The directory object is NOT created here (that needs CREATE ANY DIRECTORY
@@ -60,7 +70,10 @@
 -- and prints the exact DDL if it is missing.
 --
 -- Read-only against AWR, as ever: the jobs only read the CAP views and write
--- to CAP_ML_MODEL, the results tables and the OS file.
+-- to CAP_ML_MODEL, the results tables and the OS file. In repository mode
+-- the collect job SELECTs over each target's link and writes the CAP_H_*
+-- copies, CAP_TARGET_DBID and CAP_COLLECT_LOG; the purge job deletes old
+-- copies and log rows.
 --
 -- Remove everything with @uninstall_jobs.sql.
 --
@@ -87,6 +100,17 @@ SELECT NVL('&retrain_interval', 'FREQ=DAILY;BYHOUR=2;BYMINUTE=0;BYSECOND=0') AS 
 COLUMN refresh_interval NEW_VALUE refresh_interval NOPRINT
 SELECT CAST(NULL AS VARCHAR2(200)) AS refresh_interval FROM dual WHERE 1 = 0;
 SELECT NVL('&refresh_interval', 'FREQ=DAILY;BYHOUR=1;BYMINUTE=30;BYSECOND=0') AS refresh_interval FROM dual;
+COLUMN collect_interval NEW_VALUE collect_interval NOPRINT
+SELECT CAST(NULL AS VARCHAR2(200)) AS collect_interval FROM dual WHERE 1 = 0;
+SELECT NVL('&collect_interval', 'FREQ=HOURLY;BYMINUTE=5;BYSECOND=0') AS collect_interval FROM dual;
+-- Repository mode = package CAP_REPO in the target schema (ALL_OBJECTS on
+-- CURRENT_SCHEMA: USER_OBJECTS follows the session user).
+COLUMN repo_mode NEW_VALUE repo_mode NOPRINT
+SELECT CASE WHEN COUNT(*) > 0 THEN 'Y' ELSE 'N' END AS repo_mode
+FROM   all_objects
+WHERE  owner       = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+  AND  object_name = 'CAP_REPO'
+  AND  object_type = 'PACKAGE';
 SET TERMOUT ON
 
 PROMPT
@@ -96,6 +120,7 @@ PROMPT ============================================================
 PROMPT  report_dir = &report_dir  (directory object for the alert snapshot)
 PROMPT  retrain    = &retrain_interval  (CAP_ML_RETRAIN schedule)
 PROMPT  refresh    = &refresh_interval  (CAP_REFRESH_JOB schedule)
+PROMPT  collect    = &collect_interval  (CAP_COLLECT_JOB schedule, repository mode)
 PROMPT
 
 -- --------------------------------------------------------------------
@@ -140,8 +165,10 @@ AS
     -- NOT the full capacity report -- that needs SQL*Plus formatting; this is
     -- one line per alert plus a header.
     -- Format: SEVERITY|KIND|DB_PDB|SERIES_KEY|DAY|VALUE|THRESHOLD|UNIT|MESSAGE
-    -- The header says how fresh the data is (one "data through" line per dbid,
-    -- from CAPR_FRESHNESS) and which refresh run the list comes from.
+    -- The header names what is measured (the targets of CAPR_TARGETS) and
+    -- where the suite runs, says how fresh the data is (one "data through"
+    -- line per target and dbid, with its collect state when that is not OK)
+    -- and which refresh run the list comes from.
     -- With an OK live refresh run on record the alerts are the OPEN, not
     -- acked states of CAPR_ALERTS_LATEST (the last run's view; acked ones
     -- are left out) and the run's events follow as '#event|' lines; with
@@ -154,6 +181,7 @@ AS
     l_info  PLS_INTEGER := 0;
     l_tot   PLS_INTEGER := 0;
     l_run   NUMBER;
+    l_targets VARCHAR2(4000);
 
     PROCEDURE alert_line(p_sev VARCHAR2, p_kind VARCHAR2, p_db VARCHAR2, p_key VARCHAR2,
                          p_day DATE, p_val NUMBER, p_thr NUMBER, p_unit VARCHAR2, p_msg VARCHAR2) IS
@@ -192,16 +220,25 @@ BEGIN
     UTL_FILE.PUT_LINE(l_f, '# AWR Capacity Forecast -- alert snapshot');
     UTL_FILE.PUT_LINE(l_f, '# generated : '
                            || TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS'));
-    UTL_FILE.PUT_LINE(l_f, '# database  : ' || SYS_CONTEXT('USERENV', 'DB_NAME')
-                           || ' / ' || NVL(SYS_CONTEXT('USERENV', 'CON_NAME'), 'non-CDB'));
-    UTL_FILE.PUT_LINE(l_f, '# schema    : ' || SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA'));
-    FOR d IN (SELECT dbid, db_name, newest_snap, age_hours, is_stale
-              FROM   capr_freshness
-              ORDER  BY dbid) LOOP
-        UTL_FILE.PUT_LINE(l_f, '# data through: ' || d.db_name || ' (dbid ' || d.dbid || ') '
-                               || TO_CHAR(d.newest_snap, 'YYYY-MM-DD HH24:MI') || ', '
-                               || TO_CHAR(d.age_hours, 'FM9999990.0') || ' h ago'
-                               || CASE WHEN d.is_stale = 'Y' THEN ' (STALE)' END);
+    SELECT LISTAGG(target_name, ', ' ON OVERFLOW TRUNCATE) WITHIN GROUP (ORDER BY target_name)
+    INTO   l_targets
+    FROM   (SELECT DISTINCT target_name FROM capr_targets);
+    UTL_FILE.PUT_LINE(l_f, '# database  : ' || NVL(l_targets, '(no target)'));
+    UTL_FILE.PUT_LINE(l_f, '# schema    : ' || SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') || ' on '
+                           || NVL(SYS_CONTEXT('USERENV', 'CDB_NAME'), SYS_CONTEXT('USERENV', 'DB_NAME'))
+                           || CASE WHEN SYS_CONTEXT('USERENV', 'CDB_NAME') IS NOT NULL
+                                   THEN '/' || SYS_CONTEXT('USERENV', 'CON_NAME') END);
+    FOR d IN (SELECT target_name, dbid, newest_snap, age_hours, is_stale, collect_state
+              FROM   capr_targets
+              WHERE  dbid IS NOT NULL
+              ORDER  BY target_name, dbid) LOOP
+        UTL_FILE.PUT_LINE(l_f, '# data through: ' || d.target_name || ' (dbid ' || d.dbid || ') '
+                               || CASE WHEN d.newest_snap IS NULL THEN 'no snapshot yet'
+                                       ELSE TO_CHAR(d.newest_snap, 'YYYY-MM-DD HH24:MI') || ', '
+                                            || TO_CHAR(d.age_hours, 'FM9999990.0') || ' h ago' END
+                               || CASE WHEN d.is_stale = 'Y' THEN ' (STALE)' END
+                               || CASE WHEN d.collect_state <> 'OK'
+                                       THEN ' collect ' || d.collect_state END);
     END LOOP;
     IF l_run IS NULL THEN
         UTL_FILE.PUT_LINE(l_f, '# refresh   : no refresh run yet (live evaluation of CAPR_ALERTS)');
@@ -297,7 +334,7 @@ BEGIN
 END;
 /
 
-PROMPT -- (re)creating the three jobs, DISABLED ...
+PROMPT -- (re)creating the jobs, DISABLED ...
 
 -- --------------------------------------------------------------------
 -- Drop-if-exists. ORA-27475 (unknown job) / ORA-27476 (does not exist) are
@@ -318,6 +355,8 @@ BEGIN
     drop_job('CAP_REFRESH_JOB');
     drop_job('CAP_ML_RETRAIN');
     drop_job('CAP_REPORT_SPOOL_JOB');
+    drop_job('CAP_COLLECT_JOB');
+    drop_job('CAP_PURGE_JOB');
 END;
 /
 
@@ -369,6 +408,35 @@ BEGIN
 END;
 /
 
+BEGIN
+    IF '&repo_mode' = 'N' THEN
+        DBMS_OUTPUT.PUT_LINE('  CAP_COLLECT_JOB and CAP_PURGE_JOB not created: no package CAP_REPO'
+                             || ' here (repository mode only).');
+        RETURN;
+    END IF;
+    DBMS_SCHEDULER.CREATE_JOB(
+        job_name        => 'CAP_COLLECT_JOB',
+        job_type        => 'PLSQL_BLOCK',
+        job_action      => 'BEGIN cap_repo.collect; END;',
+        start_date      => SYSTIMESTAMP,
+        repeat_interval => '&collect_interval',
+        enabled         => FALSE,
+        auto_drop       => FALSE,
+        comments        => 'AWR capacity: copy the targets'' AWR (cap_repo.collect)');
+    DBMS_OUTPUT.PUT_LINE('  created CAP_COLLECT_JOB   (disabled, &collect_interval)');
+    DBMS_SCHEDULER.CREATE_JOB(
+        job_name        => 'CAP_PURGE_JOB',
+        job_type        => 'PLSQL_BLOCK',
+        job_action      => 'BEGIN cap_repo.purge; END;',
+        start_date      => SYSTIMESTAMP,
+        repeat_interval => 'FREQ=DAILY;BYHOUR=1;BYMINUTE=0;BYSECOND=0',
+        enabled         => FALSE,
+        auto_drop       => FALSE,
+        comments        => 'AWR capacity: delete copies older than repo_retention_days (cap_repo.purge)');
+    DBMS_OUTPUT.PUT_LINE('  created CAP_PURGE_JOB     (disabled, FREQ=DAILY 01:00)');
+END;
+/
+
 PROMPT
 PROMPT -- current state:
 SET FEEDBACK ON
@@ -378,7 +446,8 @@ COLUMN repeat_interval FORMAT A44
 SELECT job_name, enabled, repeat_interval
 FROM   all_scheduler_jobs
 WHERE  owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
-  AND  job_name IN ('CAP_REFRESH_JOB', 'CAP_ML_RETRAIN', 'CAP_REPORT_SPOOL_JOB')
+  AND  job_name IN ('CAP_REFRESH_JOB', 'CAP_ML_RETRAIN', 'CAP_REPORT_SPOOL_JOB',
+                    'CAP_COLLECT_JOB', 'CAP_PURGE_JOB')
 ORDER  BY job_name;
 SET FEEDBACK OFF
 
@@ -388,6 +457,13 @@ PROMPT  Jobs installed, DISABLED. To turn them on:
 PROMPT    EXEC DBMS_SCHEDULER.ENABLE('CAP_REFRESH_JOB')
 PROMPT    EXEC DBMS_SCHEDULER.ENABLE('CAP_ML_RETRAIN')
 PROMPT    EXEC DBMS_SCHEDULER.ENABLE('CAP_REPORT_SPOOL_JOB')
+BEGIN
+    IF '&repo_mode' = 'Y' THEN
+        DBMS_OUTPUT.PUT_LINE('    EXEC DBMS_SCHEDULER.ENABLE(''CAP_COLLECT_JOB'')');
+        DBMS_OUTPUT.PUT_LINE('    EXEC DBMS_SCHEDULER.ENABLE(''CAP_PURGE_JOB'')');
+    END IF;
+END;
+/
 PROMPT  To run one once, right now:
 PROMPT    EXEC DBMS_SCHEDULER.RUN_JOB('CAP_REPORT_SPOOL_JOB')
 PROMPT  Or write the snapshot by hand, no job needed:

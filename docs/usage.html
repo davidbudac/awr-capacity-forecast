@@ -990,6 +990,8 @@ COMMIT;</pre>
 <span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_REFRESH_JOB')      <span class="c-cmt">-- daily 01:30, results layer</span>
 <span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_ML_RETRAIN')       <span class="c-cmt">-- daily 02:00</span>
 <span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_REPORT_SPOOL_JOB')  <span class="c-cmt">-- daily 03:00</span>
+<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_COLLECT_JOB')       <span class="c-cmt">-- repository mode: hourly cap_repo.collect</span>
+<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_PURGE_JOB')         <span class="c-cmt">-- repository mode: daily 01:00 cap_repo.purge</span>
 
 <span class="c-cmt">-- run one once, right now</span>
 <span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.RUN_JOB('CAP_REPORT_SPOOL_JOB')

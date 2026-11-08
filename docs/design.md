@@ -1043,18 +1043,23 @@ no partitioned ESM) via `DBMS_DATA_MINING.CREATE_MODEL2(mining_function =>
 
 ### Retraining (M8.3 — opt-in, never part of `install.sql`)
 
-`@install_jobs.sql` at the repo root creates three `DBMS_SCHEDULER` jobs, all
-**DISABLED**, idempotently: `CAP_REFRESH_JOB` (daily 01:30,
+`@install_jobs.sql` at the repo root creates three `DBMS_SCHEDULER` jobs (five
+in repository mode), all **DISABLED**, idempotently: `CAP_REFRESH_JOB` (daily 01:30,
 `cap_results.refresh`, `DEFINE refresh_interval`; Layer 7),
 `CAP_ML_RETRAIN` (daily 02:00 by default,
 `cap_forecast_ml.train_all`; `DEFINE retrain_interval` overrides the calendar
 string) and `CAP_REPORT_SPOOL_JOB` (daily 03:00), which
-calls the `cap_report_spool(p_dir)` procedure the same script creates. That
-procedure writes a pollable `<dir>/cap_alerts.txt` snapshot of `CAPR_ALERTS`
+calls the `cap_report_spool(p_dir)` procedure the same script creates. Where
+package `CAP_REPO` exists (repository mode) it adds `CAP_COLLECT_JOB` (hourly
+at :05, `cap_repo.collect`, `DEFINE collect_interval`) and `CAP_PURGE_JOB`
+(daily 01:00, `cap_repo.purge`: the copies older than `repo_retention_days`,
+before the refresh). The spool procedure writes a pollable
+`<dir>/cap_alerts.txt` snapshot of `CAPR_ALERTS`
 through `UTL_FILE` — *not* the formatted report, because SQL\*Plus spooling
 cannot happen inside a scheduler job; keep driving `report/report.sql` from
-cron for that. The file's header has one "data through" line per dbid (newest snapshot and
-its age, from `CAPR_FRESHNESS`) and `DATA_STALE` rows come first, so a
+cron for that. The file's header names the measured targets and has one
+"data through" line per target and dbid (newest snapshot and its age, and the
+collect state when it is not OK, from `CAPR_TARGETS`) and `DATA_STALE` rows come first, so a
 stalled AWR cannot pass for a quiet system. Once a refresh run exists the
 file lists the OPEN, not acked alerts of `CAPR_ALERTS_LATEST` and the last
 run's events, with a header line naming the run, its age and a STALE REFRESH
@@ -1481,7 +1486,12 @@ covers the results layer and the live seam contract: the last `CAPR_RUNS`
 row and `stale_run`, FAILED runs of the last 7 days with the first error
 line, RUNNING runs older than an hour, `CAP_REFRESH_JOB` (enabled, last
 scheduler run), open versus acknowledged alert states, retired dbids from
-`CAPR_COVERAGE`, and every `CAPV_CONTRACT` row.
+`CAPR_COVERAGE`, and every `CAPV_CONTRACT` row. In repository mode (M24.7)
+section 10 adds `CAP_COLLECT_JOB` and `CAP_PURGE_JOB`, and section 11 checks
+each registered target: its link through `cap_repo.ping` (a private DB link
+resolves only for its owner, and doctor may run as SYSDBA), the collect
+state, staleness, gaps, and the days copied per DBID against section 7's
+needs.
 
 `drill_cpu.sql`'s residual footer follows `cpu_deseason`: with the knob at 1
 the residuals are taken against the deseasoned fit input (value minus its

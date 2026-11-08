@@ -706,11 +706,24 @@ Decided 2026-11-07:
       report whose alert message quoted an ORA- (DATA_STALE, and MODEL_HEALTH
       before it); it now counts only lines that start with ORA- / SP2-.
       Parity unchanged (identity views skipped), fixture harness passes.
-- [ ] **M24.7 Jobs, retention, doctor.** `CAP_COLLECT_JOB` (hourly) in
+- [x] **M24.7 Jobs, retention, doctor.** `CAP_COLLECT_JOB` (hourly) in
       repository mode; refresh and retrain keep their fixed times. Knob
       `repo_retention_days` (`CAP_CFG_CHECK`: at least the longest training
       window) and a purge. doctor in repository mode reports per target:
       link, lag, days collected against what each feature needs.
+      Done 2026-11-07: `install_jobs.sql` adds `CAP_COLLECT_JOB` (hourly
+      :05) and `CAP_PURGE_JOB` (daily 01:00) when `CAP_REPO` exists;
+      `repo_retention_days` 400 (0 = keep all; BAD below the longest
+      feature need, 120 at the defaults: ESM's 4 x 30); `cap_repo.purge`
+      deletes fact copies below each dbid's first kept snapshot (orphans
+      too) and old log rows in one transaction, refuses a knob that is not
+      OK; `cap_repo.ping` probes a link as the owner, so doctor section 11
+      can report link, collect state, staleness, gaps and days against each
+      feature's need per target. suite_version 24. On dbmint: purge(8)
+      deleted 262k rows in 3.3 s, every fact copy cut exactly at its dbid's
+      boundary, dimensions kept; the collect job ran as the owner (FAILED
+      on the synthetic target, as it should); doctor's local output
+      unchanged.
 - [ ] **M24.8 Profiles and docs.** `profiles/standalone.env` (today's
       production), `target.env`, `repository.env`; docs "Measure one
       database" and "Measure a fleet" as equal paths; CLAUDE.md layout and

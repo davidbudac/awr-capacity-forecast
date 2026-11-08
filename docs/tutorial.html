@@ -434,7 +434,8 @@ SEV  KIND             DB/PDB               MESSAGE
 
       <h3>Let the scheduler do it</h3>
       <p><span class="inline">install_jobs.sql</span> creates three DBMS_SCHEDULER jobs in the suite's
-        schema, all disabled:</p>
+        schema, all disabled (in repository mode also <span class="inline">CAP_COLLECT_JOB</span> and
+        <span class="inline">CAP_PURGE_JOB</span>; see <a href="reference.html#jobs">Scheduler jobs</a>):</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">SQL*Plus · suite owner</span><span class="term__tag in">optional</span></div>

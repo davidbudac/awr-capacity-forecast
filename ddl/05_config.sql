@@ -119,7 +119,7 @@ USING (
     UNION ALL SELECT 'cpu_quality_gate',        1,        'CAPF_CPU_TREND quality gate: 1 = OK when |slope| > slope CI (slope significance), 0 = legacy R2 >= r2_gate.' FROM dual
     UNION ALL SELECT 'cpu_deseason',            1,        'CAPF_CPU_TREND: 1 = subtract the weekday / weekend mean (and add back the window mean) before the fit, 0 = fit the raw daily values.' FROM dual
     UNION ALL SELECT 'stale_days',              3,        'A CAPF_* series whose last_day is more than this many days before the newest day of its daily source (same dbid) reads is_current = N: dropped tablespace, retired DBID, stopped collection.' FROM dual
-    UNION ALL SELECT 'suite_version',          22,        'Suite release that built these objects (latest PLAN.md milestone). Set by every install; not a tuning knob.' FROM dual
+    UNION ALL SELECT 'suite_version',          24,        'Suite release that built these objects (latest PLAN.md milestone). Set by every install; not a tuning knob.' FROM dual
     UNION ALL SELECT 'cpu_min_mad_pct_hour',    5,        'M15: cpu_min_mad_pct for HOUR-grain CPU (HOUR_OF_WEEK): hourly values are noisier than daily averages.' FROM dual
     UNION ALL SELECT 'hour_gap_ratio',        1.5,        'M15: an interval <= 0 h or longer than LEAST(cpu_gap_hours, this x the instance''s median interval) is a gap at HOUR grain.' FROM dual
     UNION ALL SELECT 'series_floor_count',     10,        'M15: anomaly threshold floor for COUNT series (PROCESSES/SESSIONS), in sessions/processes.' FROM dual
@@ -134,6 +134,7 @@ USING (
     UNION ALL SELECT 'digest_days',             7,        'Results layer: CAPR_WEEKLY_DIGEST compares the latest run with the latest run whose as_of_day is at least this many days earlier.' FROM dual
     UNION ALL SELECT 'seg_window_days',        28,        'CAPR_SEGMENT_GROWTH: trailing days (up to the dbid''s newest snapshot) over which segment growth is summed for the "who is filling it" ranking.' FROM dual
     UNION ALL SELECT 'anomaly_hour_grain',      1,        'CAPA_OBS: 1 = score CPU per hour too (HOUR_OF_WEEK), 0 = day grain only: no HOUR rows, so no hourly anomalies, alerts or ring tooltips (cheaper on long hourly AWR).' FROM dual
+    UNION ALL SELECT 'repo_retention_days',   400,        'Repository mode: cap_repo.purge deletes the CAP_H_* copies of snapshots that ended more than this many days ago, and older CAP_COLLECT_LOG rows. 0 = keep everything.' FROM dual
 ) s
 ON (c.cfg_name = s.cfg_name)
 WHEN MATCHED THEN
@@ -213,7 +214,8 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'refresh_stale_hours'    THEN cfg_value END) AS refresh_stale_hours,
        MAX(CASE WHEN cfg_name = 'digest_days'            THEN cfg_value END) AS digest_days,
        MAX(CASE WHEN cfg_name = 'seg_window_days'        THEN cfg_value END) AS seg_window_days,
-       MAX(CASE WHEN cfg_name = 'anomaly_hour_grain'     THEN cfg_value END) AS anomaly_hour_grain
+       MAX(CASE WHEN cfg_name = 'anomaly_hour_grain'     THEN cfg_value END) AS anomaly_hour_grain,
+       MAX(CASE WHEN cfg_name = 'repo_retention_days'    THEN cfg_value END) AS repo_retention_days
 FROM   cap_config;
 
 COMMENT ON TABLE cap_cfg IS 'One row, one NUMBER column per CAP_CONFIG knob (column name = knob name). NULL = the knob row is missing.';
@@ -222,6 +224,9 @@ COMMENT ON TABLE cap_cfg IS 'One row, one NUMBER column per CAP_CONFIG knob (col
 -- CAP_CFG_CHECK -- one row per knob: value, OK / MISSING / BAD, reason.
 -- =====================================================================
 -- A cross-knob rule is reported on the knob named first in it.
+-- longest_need is the longest history a feature reads: doctor.sql section
+-- 7's readiness needs in its order (min_train_days lies inside the backtest
+-- one). Keep the two lists in step.
 CREATE OR REPLACE VIEW cap_cfg_check AS
 WITH u AS (
         SELECT CAST(LOWER(knob) AS VARCHAR2(40)) AS knob, value
@@ -242,7 +247,8 @@ WITH u AS (
                series_floor_count, series_floor_gib, alert_modes_tbspc,
                alert_modes_cpu, alert_modes_series, stale_hours,
                data_stale_max_days, resolve_grace_runs, refresh_stale_hours,
-               digest_days, seg_window_days, anomaly_hour_grain))
+               digest_days, seg_window_days, anomaly_hour_grain,
+               repo_retention_days))
      ),
      r AS (
         SELECT u.knob, u.value,
@@ -302,10 +308,20 @@ WITH u AS (
                         THEN 'must be 0 (R2 gate) or 1 (slope significance)'
                    WHEN u.knob = 'cpu_deseason'        AND u.value NOT IN (0, 1)
                         THEN 'must be 0 (off) or 1 (weekday / weekend demeaning)'
-                   WHEN u.knob = 'suite_version'       AND u.value < 22
-                        THEN 'older than this release (22): re-run install.sql'
+                   WHEN u.knob = 'repo_retention_days' AND (u.value <> TRUNC(u.value)
+                                                             OR (u.value <> 0 AND u.value < c.longest_need))
+                        THEN 'must be 0 (keep everything) or a whole number >= ' || c.longest_need
+                             || ': the longest history a feature reads (doctor.sql section 7)'
+                   WHEN u.knob = 'suite_version'       AND u.value < 24
+                        THEN 'older than this release (24): re-run install.sql'
                END AS reason
-        FROM   u CROSS JOIN cap_cfg c
+        FROM   u
+        CROSS  JOIN (SELECT g.*,
+                            GREATEST(g.train_days, g.dow_weeks * 7,
+                                     g.shift_days + g.shift_baseline_days,
+                                     g.backtest_holdout_days + g.min_train_days,
+                                     4 * LEAST(30, g.esm_prediction_step)) AS longest_need
+                     FROM   cap_cfg g) c
      )
 SELECT knob,
        value,

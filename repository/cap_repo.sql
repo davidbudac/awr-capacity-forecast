@@ -5,8 +5,10 @@
 -- copy tables and CAP_REPO_SOURCE exist and before the seam views, because
 -- CAPV_TARGET reads the registry tables below. A repository database registers
 -- each target once (cap_repo.add_target) and copies the target's AWR into
--- CAP_H_* over a DB link (cap_repo.collect, hourly from a job). Nothing is
--- ever written on a target: every statement there is a SELECT.
+-- CAP_H_* over a DB link (cap_repo.collect, hourly from CAP_COLLECT_JOB),
+-- and cap_repo.purge (daily, CAP_PURGE_JOB) deletes copies older than
+-- repo_retention_days. Nothing is ever written on a target: every statement
+-- there is a SELECT.
 --
 -- Persisted, created idempotently, never dropped by ddl/00_drop (only by
 -- uninstall.sql, which also drops the links add_target made):
@@ -16,7 +18,8 @@
 --                    belongs to one target; a second target that shows the
 --                    same DBID (a clone restored without NID) is refused.
 --   CAP_COLLECT_LOG  one row per collect of a DBID (OK, NOTHING, SKIPPED),
---                    and every GAP, BEHIND, COLLISION, ERROR or REMOVED.
+--                    and every GAP, BEHIND, COLLISION, ERROR, REMOVED or
+--                    PURGED.
 --
 -- Collection is per DBID, in chunks of p_chunk_snaps snap_ids. A chunk copies
 -- every source in CAP_REPO_SOURCE (facts appended for the snap_id window,
@@ -123,6 +126,18 @@ CREATE OR REPLACE PACKAGE cap_repo AUTHID DEFINER AS
     -- The reader's password changed on the target (rotation, expiry):
     -- recreate the link add_target made; the copies stay.
     PROCEDURE set_link_password(p_name IN VARCHAR2, p_password IN VARCHAR2);
+
+    -- Delete the fact copies of snapshots that ended more than p_days
+    -- (default the repo_retention_days knob; 0 = keep everything) days ago,
+    -- per DBID, and older CAP_COLLECT_LOG rows, in one transaction. The
+    -- dimension copies stay. A knob that CAP_CFG_CHECK reports BAD is
+    -- refused; p_days overrides it.
+    PROCEDURE purge(p_days IN NUMBER DEFAULT NULL);
+
+    -- NULL when the target's link answers and its reader can read every
+    -- copied view, else the error text. Never raises; rolls back the
+    -- caller's transaction (the remote SELECT opens a distributed one).
+    FUNCTION ping(p_name IN VARCHAR2) RETURN VARCHAR2;
 END cap_repo;
 /
 
@@ -517,6 +532,90 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         close_link(t.db_link);
         say('link ' || t.db_link || ' of target ' || t.target_name || ' recreated, probe OK');
     END set_link_password;
+
+    -- No lock against collect: collect only inserts above each DBID's
+    -- high-water mark and never reads the copies.
+    PROCEDURE purge(p_days IN NUMBER DEFAULT NULL) IS
+        v_days   NUMBER := p_days;
+        v_status VARCHAR2(10);
+        v_reason VARCHAR2(4000);
+        v_cut    DATE;
+        v_rows   NUMBER;
+        v_total  NUMBER := 0;
+        v_t0     PLS_INTEGER := DBMS_UTILITY.GET_TIME;
+        -- Per DBID, the first snap_id to keep: the oldest snapshot that ended
+        -- at or after the cut, or past the newest when none did. Fact rows
+        -- below it go, also those of snapshots AWR purged unevenly.
+        v_where  CONSTANT VARCHAR2(400) :=
+            ' t WHERE t.snap_id < (SELECT c.cut_snap FROM (SELECT dbid,'
+            || ' NVL(MIN(CASE WHEN end_interval_time >= :cut THEN snap_id END),'
+            || ' MAX(snap_id) + 1) AS cut_snap FROM cap_h_snapshot GROUP BY dbid) c'
+            || ' WHERE c.dbid = t.dbid)';
+    BEGIN
+        IF p_days IS NULL THEN
+            SELECT MAX(value), MAX(status), MAX(reason)
+            INTO   v_days, v_status, v_reason
+            FROM   cap_cfg_check
+            WHERE  knob = 'repo_retention_days';
+            IF NVL(v_status, 'MISSING') <> 'OK' THEN
+                RAISE_APPLICATION_ERROR(-20071, 'repo_retention_days is '
+                    || NVL(v_status, 'MISSING') || ': ' || NVL(v_reason, 're-run ddl/05_config.sql')
+                    || ' (or pass p_days)');
+            END IF;
+        ELSIF p_days < 0 OR p_days <> TRUNC(p_days) THEN
+            RAISE_APPLICATION_ERROR(-20071, 'p_days must be 0 (keep everything) or a whole'
+                                            || ' number of days, not ' || p_days);
+        END IF;
+        IF v_days = 0 THEN
+            say('repo_retention_days 0: nothing purged');
+            RETURN;
+        END IF;
+        v_cut := SYSDATE - v_days;
+
+        -- The snapshot copy goes last: every other DELETE reads it.
+        FOR s IN (SELECT copy_table FROM cap_repo_source WHERE kind = 'F'
+                  ORDER  BY CASE WHEN copy_table = 'CAP_H_SNAPSHOT' THEN 1 ELSE 0 END, seq) LOOP
+            EXECUTE IMMEDIATE 'DELETE FROM ' || s.copy_table || v_where USING v_cut;
+            v_rows  := SQL%ROWCOUNT;
+            v_total := v_total + v_rows;
+            say(RPAD(LOWER(s.copy_table), 26) || ' ' || v_rows || ' rows deleted');
+        END LOOP;
+        DELETE FROM cap_collect_log WHERE logged_at < v_cut;
+        v_rows  := SQL%ROWCOUNT;
+        v_total := v_total + v_rows;
+        say(RPAD('cap_collect_log', 26) || ' ' || v_rows || ' rows deleted');
+        COMMIT;
+        log_event(NULL, NULL, 'PURGED', p_rows => v_total,
+                  p_secs => ROUND((DBMS_UTILITY.GET_TIME - v_t0) / 100, 1),
+                  p_msg  => 'snapshots that ended before ' || TO_CHAR(v_cut, 'YYYY-MM-DD HH24:MI')
+                            || ' (' || CASE WHEN p_days IS NULL THEN 'repo_retention_days'
+                                            ELSE 'p_days' END || ' ' || v_days || ')');
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            log_event(NULL, NULL, 'ERROR', p_msg => 'purge: ' || SQLERRM);
+            RAISE;
+    END purge;
+
+    -- doctor.sql runs as SYSDBA under CURRENT_SCHEMA, and a private DB link
+    -- resolves for the session user, so only this owner's definer's-rights
+    -- code can use it.
+    FUNCTION ping(p_name IN VARCHAR2) RETURN VARCHAR2 IS
+        t     cap_target%ROWTYPE;
+        v_err VARCHAR2(4000);
+    BEGIN
+        BEGIN
+            t := get_target(p_name);
+            probe(t.db_link);
+        EXCEPTION
+            WHEN OTHERS THEN v_err := SQLERRM;
+        END;
+        ROLLBACK;
+        IF t.db_link IS NOT NULL THEN
+            close_link(t.db_link);
+        END IF;
+        RETURN v_err;
+    END ping;
 
 END cap_repo;
 /

@@ -14,6 +14,13 @@
 -- own CAP_CONFIG / CAPV_ / CAPF_ views) and prints a PASS/WARN/FAIL checklist
 -- through DBMS_OUTPUT.
 --
+-- In repository mode section 10 also checks CAP_COLLECT_JOB and
+-- CAP_PURGE_JOB, and section 11 checks every registered target: its link,
+-- its collect health (state, freshness, gaps) and the days copied against
+-- section 7's needs. The link is probed through cap_repo.ping, which only
+-- SELECTs over it: a private DB link resolves for the session user, so only
+-- the owner's definer's-rights code can use it when doctor runs as SYSDBA.
+--
 -- It leaves one SQL*Plus variable behind for callers: cap_doctor_fail, the
 -- number of FAIL lines ("1" if the block did not finish). quickstart.sql stops
 -- before install when it is not 0.
@@ -119,6 +126,14 @@ DECLARE
         'CREATE TYPE',
         'CREATE MINING MODEL',
         'CREATE JOB');
+
+    -- Days of history each feature needs (section 7), also checked per
+    -- target in section 11. The label's text before " (" is its short name.
+    -- CAP_CFG_CHECK's repo_retention_days rule (ddl/05) takes the longest of
+    -- the same windows: keep the two in step.
+    TYPE t_need IS RECORD (label VARCHAR2(60), days NUMBER);
+    TYPE t_needs IS TABLE OF t_need INDEX BY PLS_INTEGER;
+    v_needs t_needs;
 
     PROCEDURE hdr(p_text IN VARCHAR2) IS
     BEGIN
@@ -257,6 +272,48 @@ DECLARE
         WHEN OTHERS THEN RETURN NULL;
     END direct_sys_priv;
 
+    PROCEDURE add_need(p_label IN VARCHAR2, p_days IN NUMBER) IS
+        i PLS_INTEGER := v_needs.COUNT + 1;
+    BEGIN
+        v_needs(i).label := p_label;
+        v_needs(i).days  := p_days;
+    END add_need;
+
+    -- A scheduler job of the suite: enabled or not, and its last run.
+    -- p_hint says where it comes from when it is missing.
+    PROCEDURE job_check(p_job IN VARCHAR2, p_hint IN VARCHAR2) IS
+        v_on  VARCHAR2(5);
+        v_st  VARCHAR2(30);
+        v_at  VARCHAR2(20);
+        v_txt VARCHAR2(400);
+    BEGIN
+        EXECUTE IMMEDIATE
+            'SELECT enabled, state FROM all_scheduler_jobs WHERE owner = :o AND job_name = :j'
+            INTO v_on, v_st USING v_schema, p_job;
+        emit(CASE WHEN v_on = 'TRUE' THEN 'PASS' ELSE 'INFO' END, p_job,
+             CASE WHEN v_on = 'TRUE' THEN 'enabled' ELSE 'disabled (install_jobs.sql creates it disabled)' END
+             || ', state ' || v_st);
+        BEGIN
+            EXECUTE IMMEDIATE
+                'SELECT status, TO_CHAR(actual_start_date, ''YYYY-MM-DD HH24:MI''),'
+                || ' SUBSTR(errors, 1, 120) FROM ('
+                || ' SELECT status, actual_start_date, errors FROM all_scheduler_job_run_details'
+                || ' WHERE owner = :o AND job_name = :j'
+                || ' ORDER BY log_date DESC) WHERE ROWNUM = 1'
+                INTO v_st, v_at, v_txt USING v_schema, p_job;
+            emit(CASE WHEN v_st = 'SUCCEEDED' THEN 'PASS' ELSE 'WARN' END, p_job || ' last run',
+                 v_st || ' at ' || v_at || CASE WHEN v_txt IS NOT NULL THEN ': ' || v_txt END);
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN emit('INFO', p_job || ' last run', 'never ran');
+            WHEN OTHERS THEN emit('INFO', p_job || ' last run', 'cannot read job history: ' || err);
+        END;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            emit('INFO', p_job, 'not created (' || p_hint || ')');
+        WHEN OTHERS THEN
+            emit('INFO', p_job, 'cannot read ALL_SCHEDULER_JOBS: ' || err);
+    END job_check;
+
 BEGIN
     DBMS_OUTPUT.PUT_LINE(RPAD('=', 74, '='));
     DBMS_OUTPUT.PUT_LINE(' AWR Capacity Forecast -- doctor.sql preflight');
@@ -311,6 +368,13 @@ BEGIN
         v_intended := NULL;
     END IF;
     v_hist_applies := COALESCE(v_intended, v_deploy_mode, 'local') = 'local';
+    add_need('trend fit (min_train_days)',                       v_min_train);
+    add_need('full training window (train_days)',                v_train);
+    add_need('CPU weekday baseline (dow_weeks*7)',               v_dow_weeks * 7);
+    add_need('CPU level shift (shift_days+shift_baseline_days)', v_shift_days + v_shift_base);
+    add_need('backtest (backtest_holdout_days+min_train_days)',  v_holdout + v_min_train);
+    add_need('ESM +' || LEAST(30, v_esm_step) || ' horizon (4 x step, 19c cap 30)',
+             4 * LEAST(30, v_esm_step));
 
     -- =================================================================
     -- 1. Target schema
@@ -665,7 +729,6 @@ BEGIN
         v_avail NUMBER;
         v_src   VARCHAR2(60);
         v_e     VARCHAR2(200);
-        v_esm   NUMBER := 4 * LEAST(30, v_esm_step);
 
         PROCEDURE ready(p_label IN VARCHAR2, p_need IN NUMBER) IS
             v_st VARCHAR2(4);
@@ -693,12 +756,9 @@ BEGIN
             || '; knobs from ' || v_knob_src || ')');
         DBMS_OUTPUT.PUT_LINE('  ' || RPAD('feature', 48) || LPAD('need', 6)
                              || LPAD('have', 7) || '   status');
-        ready('trend fit (min_train_days)',                         v_min_train);
-        ready('full training window (train_days)',                  v_train);
-        ready('CPU weekday baseline (dow_weeks*7)',                 v_dow_weeks * 7);
-        ready('CPU level shift (shift_days+shift_baseline_days)',   v_shift_days + v_shift_base);
-        ready('backtest (backtest_holdout_days+min_train_days)',    v_holdout + v_min_train);
-        ready('ESM +' || LEAST(30, v_esm_step) || ' horizon (4 x step, 19c cap 30)', v_esm);
+        FOR i IN 1 .. v_needs.COUNT LOOP
+            ready(v_needs(i).label, v_needs(i).days);
+        END LOOP;
         IF v_avail IS NULL THEN
             note('No history could be counted (' || NVL(v_e, 'no snapshot rows') || ').');
         END IF;
@@ -913,35 +973,13 @@ BEGIN
             EXCEPTION
                 WHEN OTHERS THEN emit('WARN', 'stuck RUNNING runs', 'cannot read CAPR_RUNS: ' || err);
             END;
-            -- the refresh job and its last scheduler run
-            BEGIN
-                EXECUTE IMMEDIATE
-                    'SELECT enabled, state FROM all_scheduler_jobs'
-                    || ' WHERE owner = :o AND job_name = ''CAP_REFRESH_JOB'''
-                    INTO v_txt, v_txt2 USING v_schema;
-                emit(CASE WHEN v_txt = 'TRUE' THEN 'PASS' ELSE 'INFO' END, 'CAP_REFRESH_JOB',
-                     CASE WHEN v_txt = 'TRUE' THEN 'enabled' ELSE 'disabled (install_jobs.sql creates it disabled)' END
-                     || ', state ' || v_txt2);
-                BEGIN
-                    EXECUTE IMMEDIATE
-                        'SELECT status, TO_CHAR(actual_start_date, ''YYYY-MM-DD HH24:MI''),'
-                        || ' SUBSTR(errors, 1, 120) FROM ('
-                        || ' SELECT status, actual_start_date, errors FROM all_scheduler_job_run_details'
-                        || ' WHERE owner = :o AND job_name = ''CAP_REFRESH_JOB'''
-                        || ' ORDER BY log_date DESC) WHERE ROWNUM = 1'
-                        INTO v_st, v_txt2, v_txt USING v_schema;
-                    emit(CASE WHEN v_st = 'SUCCEEDED' THEN 'PASS' ELSE 'WARN' END, 'CAP_REFRESH_JOB last run',
-                         v_st || ' at ' || v_txt2 || CASE WHEN v_txt IS NOT NULL THEN ': ' || v_txt END);
-                EXCEPTION
-                    WHEN NO_DATA_FOUND THEN emit('INFO', 'CAP_REFRESH_JOB last run', 'never ran');
-                    WHEN OTHERS THEN emit('INFO', 'CAP_REFRESH_JOB last run', 'cannot read job history: ' || err);
-                END;
-            EXCEPTION
-                WHEN NO_DATA_FOUND THEN
-                    emit('INFO', 'CAP_REFRESH_JOB', 'not created (install_jobs.sql)');
-                WHEN OTHERS THEN
-                    emit('INFO', 'CAP_REFRESH_JOB', 'cannot read ALL_SCHEDULER_JOBS: ' || err);
-            END;
+            -- the jobs and their last scheduler run
+            job_check('CAP_REFRESH_JOB', 'install_jobs.sql');
+            IF COALESCE(v_intended, v_deploy_mode) = 'repository' THEN
+                job_check('CAP_COLLECT_JOB', 'install_jobs.sql; until then nothing is copied'
+                                             || ' unless you EXEC cap_repo.collect');
+                job_check('CAP_PURGE_JOB', 'install_jobs.sql; until then the copies keep every snapshot');
+            END IF;
             -- alert states: open, acknowledged
             BEGIN
                 EXECUTE IMMEDIATE
@@ -1000,6 +1038,132 @@ BEGIN
     END IF;
 
     -- =================================================================
+    -- 11. Repository targets (installed, repository mode): per target the
+    -- link, the collect health and the days copied per DBID.
+    -- =================================================================
+    IF v_installed AND COALESCE(v_intended, v_deploy_mode) = 'repository' THEN
+        hdr('11. Repository targets (CAPR_TARGETS; links probed by cap_repo.ping)');
+        DECLARE
+            c_max     CONSTANT PLS_INTEGER := 50;
+            v_cur     SYS_REFCURSOR;
+            v_name    VARCHAR2(30);
+            v_dbid    NUMBER;
+            v_link    VARCHAR2(128);
+            v_on      VARCHAR2(1);
+            v_age     NUMBER;
+            v_stale   VARCHAR2(1);
+            v_hwm     NUMBER;
+            v_ok_at   DATE;
+            v_err_at  DATE;
+            v_err     VARCHAR2(4000);
+            v_gaps    NUMBER;
+            v_state   VARCHAR2(10);
+            v_n_dbid  NUMBER;
+            v_prev    VARCHAR2(30);
+            v_tag     VARCHAR2(60);
+            v_ping    VARCHAR2(4000);
+            v_days    NUMBER;
+            v_short   VARCHAR2(1000);
+            v_targets PLS_INTEGER := 0;
+            v_stale_h NUMBER := knob('stale_hours', 36);
+
+            FUNCTION line1(p_txt IN VARCHAR2) RETURN VARCHAR2 IS
+            BEGIN
+                RETURN SUBSTR(REGEXP_SUBSTR(p_txt, '[^' || CHR(10) || ']+'), 1, 120);
+            END line1;
+        BEGIN
+            OPEN v_cur FOR
+                'SELECT target_name, dbid, db_link, enabled, age_hours, is_stale,'
+                || ' collected_snap_id, last_ok_at, last_error_at, last_error, n_gaps,'
+                || ' collect_state, COUNT(*) OVER (PARTITION BY target_name)'
+                || ' FROM capr_targets ORDER BY target_name, dbid';
+            LOOP
+                FETCH v_cur INTO v_name, v_dbid, v_link, v_on, v_age, v_stale, v_hwm,
+                                 v_ok_at, v_err_at, v_err, v_gaps, v_state, v_n_dbid;
+                EXIT WHEN v_cur%NOTFOUND;
+                IF v_prev IS NULL OR v_name <> v_prev THEN
+                    v_prev    := v_name;
+                    v_targets := v_targets + 1;
+                    IF v_targets <= c_max AND v_on = 'N' THEN
+                        emit('INFO', 'target ' || v_name, 'disabled (cap_repo.set_enabled); not checked');
+                    ELSIF v_targets <= c_max THEN
+                        BEGIN
+                            EXECUTE IMMEDIATE 'BEGIN :r := cap_repo.ping(:n); END;'
+                                USING OUT v_ping, IN v_name;
+                            IF v_ping IS NULL THEN
+                                emit('PASS', 'link ' || v_name, v_link || ' answers; every copied view readable');
+                            ELSE
+                                emit('WARN', 'link ' || v_name, v_link || ': ' || line1(v_ping));
+                            END IF;
+                        EXCEPTION
+                            WHEN OTHERS THEN emit('WARN', 'link ' || v_name, 'cannot run cap_repo.ping: ' || err);
+                        END;
+                    END IF;
+                END IF;
+                CONTINUE WHEN v_targets > c_max OR v_on = 'N';
+                IF v_dbid IS NULL THEN
+                    emit('WARN', 'target ' || v_name, 'no DBID found yet: is AWR taking snapshots on the target?');
+                    CONTINUE;
+                END IF;
+                v_tag := v_name || CASE WHEN v_n_dbid > 1 THEN ' ' || v_dbid END;
+
+                IF v_state = 'OK' THEN
+                    emit('PASS', 'collect ' || v_tag, 'OK, newest copy '
+                         || NVL(TO_CHAR(v_age, 'FM9999990.0'), '?') || ' h old, hwm ' || v_hwm
+                         || ', last OK ' || TO_CHAR(v_ok_at, 'YYYY-MM-DD HH24:MI'));
+                ELSIF v_state = 'FAILING' THEN
+                    emit('WARN', 'collect ' || v_tag, 'FAILING, last error at '
+                         || TO_CHAR(v_err_at, 'YYYY-MM-DD HH24:MI') || ': ' || line1(v_err));
+                ELSIF v_state = 'NEVER' THEN
+                    emit('WARN', 'collect ' || v_tag, 'never collected: EXEC cap_repo.collect('''
+                         || v_name || ''')');
+                ELSE
+                    emit('INFO', 'collect ' || v_tag, 'collect_state ' || NVL(v_state, 'NULL'));
+                END IF;
+                IF v_stale = 'Y' THEN
+                    emit('WARN', 'collect ' || v_tag, 'newest copy ' || TO_CHAR(v_age, 'FM9999990.0')
+                         || ' h old (stale_hours ' || v_stale_h || ')');
+                END IF;
+                IF v_gaps > 0 THEN
+                    emit('WARN', 'collect ' || v_tag, v_gaps || ' gap(s): snapshots the target purged'
+                         || ' before they were copied; collect more often or raise its AWR retention');
+                END IF;
+
+                BEGIN
+                    EXECUTE IMMEDIATE 'SELECT COUNT(DISTINCT TRUNC(end_interval_time))'
+                                      || ' FROM capv_snapshot WHERE dbid = :d'
+                        INTO v_days USING v_dbid;
+                    v_short := NULL;
+                    FOR i IN 1 .. v_needs.COUNT LOOP
+                        IF v_days < v_needs(i).days THEN
+                            v_short := v_short || CASE WHEN v_short IS NOT NULL THEN ', ' END
+                                       || SUBSTR(v_needs(i).label, 1, INSTR(v_needs(i).label, ' (') - 1)
+                                       || ' (' || v_needs(i).days || ')';
+                        END IF;
+                    END LOOP;
+                    IF v_short IS NULL THEN
+                        emit('PASS', 'history ' || v_tag, v_days || ' days: every feature ready');
+                    ELSE
+                        emit('INFO', 'history ' || v_tag, v_days || ' days; not yet: ' || v_short);
+                    END IF;
+                EXCEPTION
+                    WHEN OTHERS THEN emit('WARN', 'history ' || v_tag, 'cannot read CAPV_SNAPSHOT: ' || err);
+                END;
+            END LOOP;
+            CLOSE v_cur;
+            IF v_targets = 0 THEN
+                emit('WARN', 'targets', 'none registered: EXEC cap_repo.add_target');
+            ELSIF v_targets > c_max THEN
+                note((v_targets - c_max) || ' more target(s) not checked here (CAPR_TARGETS).');
+            END IF;
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF v_cur%ISOPEN THEN CLOSE v_cur; END IF;
+                emit('WARN', 'CAPR_TARGETS', 'cannot read: ' || err);
+        END;
+    END IF;
+
+    -- =================================================================
     -- Summary
     -- =================================================================
     hdr(' Summary');
@@ -1022,6 +1186,9 @@ BEGIN
                      WHEN 'warehouse' THEN 'the AWRV_* views.'
                      WHEN 'repository' THEN 'the CAP_H_* copies (cap_repo.collect).'
                      ELSE 'CAP_FIXTURE_* tables.' END);
+        IF v_installed AND COALESCE(v_intended, v_deploy_mode) = 'repository' THEN
+            note('Check 11 covers what feeds them: each target''s link, collect and days copied.');
+        END IF;
     ELSIF NOT v_installed AND v_intended IS NULL THEN
         note('Not installed here, so checks 3, 5 and 6 assume local mode. Fixture and');
         note('warehouse installs do not read DBA_HIST_*.');
