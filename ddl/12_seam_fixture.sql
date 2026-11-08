@@ -15,39 +15,47 @@
 -- The fixture tables already store the post-mapping CAPV columns (bytes stay
 -- blocks, counters stay cumulative, etc.), so these views are thin
 -- pass-throughs -- keeping the fixture data honest to the same contract the
--- local seam presents.
+-- local seam presents. Each keeps only the scoped dbid (the CAP_SCOPE
+-- expression of ddl/05, inline), as every ddl/10 source read does.
 --
 SET DEFINE OFF
 
 CREATE OR REPLACE VIEW capv_snapshot AS
 SELECT dbid, con_dbid, instance_number, snap_id,
        begin_interval_time, end_interval_time, startup_time
-FROM   cap_fixture_snapshot;
+FROM   cap_fixture_snapshot
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_tbspc_usage AS
 SELECT dbid, con_dbid, snap_id, tablespace_id,
        tablespace_size, tablespace_maxsize, tablespace_usedsize
-FROM   cap_fixture_tbspc_usage;
+FROM   cap_fixture_tbspc_usage
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_tablespace AS
 SELECT dbid, con_dbid, tablespace_id, tablespace_name, contents, block_size
-FROM   cap_fixture_tablespace;
+FROM   cap_fixture_tablespace
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_datafile AS
 SELECT dbid, con_dbid, tablespace_id, block_size
-FROM   cap_fixture_datafile;
+FROM   cap_fixture_datafile
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_osstat AS
 SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
-FROM   cap_fixture_osstat;
+FROM   cap_fixture_osstat
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_time_model AS
 SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
-FROM   cap_fixture_time_model;
+FROM   cap_fixture_time_model
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_container AS
 SELECT dbid, con_dbid, db_name, con_name
-FROM   cap_fixture_container;
+FROM   cap_fixture_container
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 -- One target per fixture dbid, named by its db_name, fed FIXTURE; the
 -- fixture has no host name and nothing is collected. SUBSTR: db_name is a
@@ -66,6 +74,7 @@ SELECT CAST(SUBSTR(MAX(db_name), 1, 30) AS VARCHAR2(30)) AS target_name,
        CAST(NULL AS VARCHAR2(4000))             AS last_error,
        CAST(NULL AS NUMBER)                     AS n_gaps
 FROM   cap_fixture_container
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
 GROUP  BY dbid;
 
 -- M11 sources. CAP_FIXTURE_RESOURCE_LIMIT stores limit_value ALREADY as a
@@ -76,11 +85,13 @@ GROUP  BY dbid;
 CREATE OR REPLACE VIEW capv_resource_limit AS
 SELECT dbid, con_dbid, instance_number, snap_id, resource_name,
        current_utilization, max_utilization, limit_value
-FROM   cap_fixture_resource_limit;
+FROM   cap_fixture_resource_limit
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_sysstat AS
 SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
-FROM   cap_fixture_sysstat;
+FROM   cap_fixture_sysstat
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 -- CAPV_PARAMETER / CAPV_ASM_DISKGROUP / CAPV_SEG_STAT over CAP_FIXTURE_PARAMETER /
 -- CAP_FIXTURE_ASM_DISKGROUP / CAP_FIXTURE_SEG_STAT (value_num already a NUMBER,
@@ -106,7 +117,8 @@ BEGIN
     mk('CAP_FIXTURE_PARAMETER',
        q'[CREATE OR REPLACE VIEW capv_parameter AS
           SELECT dbid, con_dbid, instance_number, snap_id, parameter_name, value_num
-          FROM   cap_fixture_parameter]',
+          FROM   cap_fixture_parameter
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
        q'[CREATE OR REPLACE VIEW capv_parameter AS
           SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
                  CAST('-' AS VARCHAR2(64)) AS parameter_name, 0 AS value_num
@@ -114,7 +126,8 @@ BEGIN
     mk('CAP_FIXTURE_ASM_DISKGROUP',
        q'[CREATE OR REPLACE VIEW capv_asm_diskgroup AS
           SELECT dbid, con_dbid, snap_id, group_name, total_mb, free_mb, usable_file_mb
-          FROM   cap_fixture_asm_diskgroup]',
+          FROM   cap_fixture_asm_diskgroup
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
        q'[CREATE OR REPLACE VIEW capv_asm_diskgroup AS
           SELECT 0 AS dbid, 0 AS con_dbid, 0 AS snap_id,
                  CAST('-' AS VARCHAR2(128)) AS group_name,
@@ -125,7 +138,8 @@ BEGIN
           SELECT dbid, con_dbid, instance_number, snap_id, tablespace_id, tablespace_name,
                  owner, object_name, subobject_name, object_type,
                  space_used_delta, space_allocated_delta
-          FROM   cap_fixture_seg_stat]',
+          FROM   cap_fixture_seg_stat
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
        q'[CREATE OR REPLACE VIEW capv_seg_stat AS
           SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
                  0 AS tablespace_id, CAST('-' AS VARCHAR2(30)) AS tablespace_name,

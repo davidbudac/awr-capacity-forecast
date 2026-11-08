@@ -308,7 +308,7 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
           <thead><tr><th scope="col">Database</th><th scope="col">Gets</th><th scope="col">Writes</th></tr></thead>
           <tbody>
             <tr><td><b>Target</b>, each measured database</td><td class="def">A read-only common user <span class="inline">C##AWRRDR</span>: <code>CREATE SESSION</code>, direct <code>SELECT</code> on the seventeen <span class="inline">DBA_HIST_*</span> views the suite reads, and <code>CONTAINER_DATA = ALL</code> so it sees every PDB. No suite objects.</td><td class="def">Nothing. Every statement the repository runs there is a <code>SELECT</code>.</td></tr>
-            <tr><td><b>Repository</b>, any 19c database or PDB that can reach each target's listener</td><td class="def">The whole suite in <span class="inline">deploy_mode = repository</span>, the target registry, one copy table per AWR view, and the collect and purge jobs. It reads no AWR of its own.</td><td class="def">Its own <span class="inline">CAP_*</span> tables only.</td></tr>
+            <tr><td><b>Repository</b>, any 19c database or PDB that can reach each target's listener</td><td class="def">The whole suite in <span class="inline">deploy_mode = repository</span>, the target registry, one copy table per AWR view, the hourly collect job and the nightly job, which also purges old copies. It reads no AWR of its own.</td><td class="def">Its own <span class="inline">CAP_*</span> tables only.</td></tr>
           </tbody>
         </table>
       </div>
@@ -358,7 +358,7 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
             <p>On the repository database, as SYSDBA. The profile creates the owner
               <span class="inline">C##AWRCAP</span> with <code>CREATE DATABASE LINK</code> instead of
               AWR grants, runs the preflight, installs <span class="inline">deploy_mode = repository</span>
-              and creates the five scheduler jobs, disabled. Add
+              and creates the two scheduler jobs, disabled. Add
               <span class="inline">--set CONTAINER=&lt;PDB&gt;</span> to install into a PDB, where the
               owner is <span class="inline">AWRCAP</span>.</p>
             <div class="term in">
@@ -403,15 +403,15 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
           <div class="step__body">
             <h4>Turn on the jobs</h4>
             <p><span class="inline">CAP_COLLECT_JOB</span> copies new snapshots from every enabled
-              target hourly. <span class="inline">CAP_PURGE_JOB</span> deletes copies older than
-              <span class="inline">repo_retention_days</span> daily. The refresh and retrain jobs
-              work as on a single database (<a href="usage.html#jobs">Scheduler jobs</a>).</p>
+              target hourly. <span class="inline">CAP_NIGHTLY_JOB</span> runs once a night. It
+              first deletes copies older than <span class="inline">repo_retention_days</span>, then
+              retrains, refreshes and writes the alert file as on a single database
+              (<a href="usage.html#jobs">Scheduler jobs</a>).</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · repository</span><span class="term__tag in">you run</span></div>
 <pre><span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('C##AWRCAP.CAP_COLLECT_JOB')
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('C##AWRCAP.CAP_PURGE_JOB')
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('C##AWRCAP.CAP_REFRESH_JOB')</pre>
+<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('C##AWRCAP.CAP_NIGHTLY_JOB')</pre>
             </div>
           </div>
         </div>

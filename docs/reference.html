@@ -165,7 +165,7 @@
             <tr><td><span class="k">backtest_holdout_days</span></td><td class="num">28</td><td class="def">Holdout window (days) <code>CAPF_BACKTEST</code> fits before and scores against. Keep it &le; 30 so ESM can cover it on 19c.</td></tr>
             <tr><td><span class="k">esm_max_age_days</span></td><td class="num">7</td><td class="def">Tier 2: an ESM model trained more than this many days before its series' last day is stale; <code>CAPF_COMPARE</code> drops it.</td></tr>
             <tr><td><span class="k">esm_auto_tie_pct</span></td><td class="num">0.25</td><td class="def">Tier 2 AUTO: candidate MAPEs closer than this many percentage points tie and <code>EXSM_HOLT</code> is kept (<code>chosen_by = AUTO_TIE</code>).</td></tr>
-            <tr><td><span class="k">repo_retention_days</span></td><td class="num">400</td><td class="def">Repository mode: <span class="inline">cap_repo.purge</span> (daily, <span class="inline">CAP_PURGE_JOB</span>) deletes the <code>CAP_H_*</code> fact copies of snapshots that ended more than this many days ago, per DBID, and older <code>CAP_COLLECT_LOG</code> rows. <span class="num">0</span> keeps everything. Otherwise a whole number at least as long as the longest window a feature reads (120 days with the shipped knobs: the ESM horizon), or <code>CAP_CFG_CHECK</code> reports it <code>BAD</code> and <code>purge</code> refuses to run.</td></tr>
+            <tr><td><span class="k">repo_retention_days</span></td><td class="num">400</td><td class="def">Repository mode: <span class="inline">cap_repo.purge</span> (nightly, the <code>PURGE</code> step of <span class="inline">CAP_NIGHTLY_JOB</span>) deletes the <code>CAP_H_*</code> fact copies of snapshots that ended more than this many days ago, per DBID, and older <code>CAP_COLLECT_LOG</code> rows. <span class="num">0</span> keeps everything. Otherwise a whole number at least as long as the longest window a feature reads (120 days with the shipped knobs: the ESM horizon), or <code>CAP_CFG_CHECK</code> reports it <code>BAD</code> and <code>purge</code> refuses to run.</td></tr>
             <tr><td><span class="k">suite_version</span></td><td class="num">24</td><td class="def">Not a tuning knob: the suite release that built the objects (24 = after milestone M24 in <span class="inline">PLAN.md</span>). Every install overwrites it; <span class="inline">doctor.sql</span> prints it; no analytic view reads it; <span class="inline">CAP_CFG_CHECK</span> reports it <code>BAD</code> below 24.</td></tr>
           </tbody>
         </table>
@@ -267,6 +267,7 @@
             <tr><th scope="row"><span class="kt">CAP_CONFIG</span></th><td class="def">table</td><td class="def">Tuning knobs (name/value), MERGE-seeded; <code>cfg_default</code> holds the shipped value</td></tr>
             <tr><th scope="row"><code>CAP_CFG</code></th><td class="def">view (ddl/05)</td><td class="def">The one config access path: one row, one NUMBER column per knob, named like the knob, no defaults inlined. Every analytic view, report driver and drill script reads it (<code>CROSS JOIN cap_cfg cfg</code>)</td></tr>
             <tr><th scope="row"><code>CAP_CFG_CHECK</code></th><td class="def">view (ddl/05)</td><td class="def">One row per knob: <code>OK</code> / <code>MISSING</code> / <code>BAD</code> with a reason (the range rules in <a href="#config">Configuration knobs</a>). doctor.sql prints it</td></tr>
+            <tr><th scope="row"><code>CAP_SCOPE</code></th><td class="def">view (ddl/05)</td><td class="def"><strong>M24.11</strong>: one row, <code>scope_dbid</code>, the database this session reads, from its CLIENT_INFO <code>AWRCAP dbid=&lt;n&gt;</code> (NULL for any other value: every database). Every source read of the seam keeps only that dbid, so a report scoped to one target computes nothing else. <a href="#drivers">Report drivers</a> set it</td></tr>
             <tr><th scope="row"><span class="kt">CAP_TBSPC_OVERRIDE</span></th><td class="def">table</td><td class="def">Operator-set tablespace ceilings (<code>limit_bytes</code>), exclusions (<code>exclude_flag</code>) and per-tablespace alert thresholds (<code>dtf_warn</code>, <code>dtf_crit</code>, <code>nearfull_warn_pct</code>, <code>nearfull_crit_pct</code>; NULL = the knob); <code>dbid</code>/<code>con_dbid</code> <code>0</code> = any</td></tr>
             <tr><th scope="row"><span class="kt">CAP_ML_MODEL</span></th><td class="def">table</td><td class="def">Tier 2 OML model registry</td></tr>
             <tr><th scope="row"><span class="kt">CAP_ML_INPUT</span></th><td class="def">table</td><td class="def">Global temporary table (per session, not persisted): the training rows of the OML model being built. <code>cap_forecast_ml</code> copies each series here and builds the model from it, because OML runs a data query inside its own <code>INSERT /*+ append */</code>, where the deep view stack got a plan that grew with the fleet (M24.10)</td></tr>
@@ -339,9 +340,9 @@
           <thead><tr><th scope="col">Profile</th><th scope="col">Role</th><th scope="col">What it does</th></tr></thead>
           <tbody>
             <tr><td><span class="inline">--profile quickstart</span></td><td class="def">standalone</td><td class="def">SYSDBA in <span class="inline">CDB$ROOT</span>, into SYS, local AWR, the preflight and one text report. The same as <span class="inline">quickstart.sh</span>.</td></tr>
-            <tr><td><span class="inline">--profile standalone</span></td><td class="def">standalone</td><td class="def">The lasting single-database install: a dedicated owner (<span class="inline">C##AWRCAP</span>, or <span class="inline">AWRCAP</span> in a PDB), the preflight as a gate, the Tier 2 models, the three scheduler jobs created disabled, a text report and the briefing.</td></tr>
+            <tr><td><span class="inline">--profile standalone</span></td><td class="def">standalone</td><td class="def">The lasting single-database install: a dedicated owner (<span class="inline">C##AWRCAP</span>, or <span class="inline">AWRCAP</span> in a PDB), the preflight as a gate, the Tier 2 models, the nightly scheduler job created disabled, a text report and the briefing.</td></tr>
             <tr><td><span class="inline">--profile target</span></td><td class="def">target</td><td class="def">No suite. Creates the read-only reader <span class="inline">C##AWRRDR</span> with <span class="inline">target/prepare.sql</span> and checks it with <span class="inline">target/check.sql</span>. The password comes from <span class="inline">CAP_READER_PW</span>.</td></tr>
-            <tr><td><span class="inline">--profile repository</span></td><td class="def">repository</td><td class="def">A dedicated owner with <code>CREATE DATABASE LINK</code>, the preflight, <span class="inline">deploy_mode = repository</span> and the five scheduler jobs created disabled. No models and no report yet: those need targets registered and collected (<a href="#repository">Repository mode</a>).</td></tr>
+            <tr><td><span class="inline">--profile repository</span></td><td class="def">repository</td><td class="def">A dedicated owner with <code>CREATE DATABASE LINK</code>, the preflight, <span class="inline">deploy_mode = repository</span> and the two scheduler jobs created disabled. No models and no report yet: those need targets registered and collected (<a href="#repository">Repository mode</a>).</td></tr>
             <tr><td><span class="inline">--profile fixture-test</span></td><td class="def">fixture</td><td class="def">The assertion harness: fixture data in schema <span class="inline">CAPTEST</span> of <span class="inline">PDB1</span>, install, Tier 2, then <span class="inline">test/run_test.sql</span> and <span class="inline">test/run_test_ml.sql</span>.</td></tr>
             <tr><td><span class="inline">--profile demo</span></td><td class="def">fixture</td><td class="def">The 150-day ECOMPRD demo story in a throwaway PDB schema, Tier 2 and every report kind.</td></tr>
           </tbody>
@@ -438,7 +439,7 @@
             <tr><td><span class="k">CREATE TABLE</span></td><td class="def">The <a href="#tables">persisted tables</a>: <span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>, <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span>; in repository mode also the target registry and the <span class="inline">CAP_H_*</span> copies.</td></tr>
             <tr><td><span class="k">CREATE VIEW</span></td><td class="def">Every <span class="k">CAPV_</span> / <span class="k">CAPD_</span> / <span class="k">CAPF_</span> / <span class="k">CAPA_</span> / <span class="k">CAPR_</span> object.</td></tr>
             <tr><td><span class="k">CREATE TYPE</span></td><td class="def"><span class="inline">CAP_ESM_ROW</span> / <span class="inline">CAP_ESM_TAB</span>, the pipelined-function types behind <span class="inline">CAPF_ESM_FORECAST</span>.</td></tr>
-            <tr><td><span class="k">CREATE PROCEDURE</span></td><td class="def">The <span class="inline">cap_forecast_ml</span> package (and <span class="inline">cap_report_spool</span>, if you add the jobs).</td></tr>
+            <tr><td><span class="k">CREATE PROCEDURE</span></td><td class="def">The <span class="inline">cap_forecast_ml</span> package (and <span class="inline">cap_nightly</span> and <span class="inline">cap_report_spool</span>, if you add the jobs).</td></tr>
             <tr><td><span class="k">CREATE MINING MODEL</span></td><td class="def">Optional, Tier 2 only; everything else installs without it. Must be granted <b>directly</b> to the owner: <span class="inline">cap_forecast_ml</span> is definer's rights and creates models with the owner's own privileges.</td></tr>
             <tr><td><span class="k">CREATE JOB</span></td><td class="def">Optional, <span class="inline">install_jobs.sql</span> only.</td></tr>
             <tr><td><span class="k">CREATE DATABASE LINK</span></td><td class="def">Repository mode only, granted directly: <span class="inline">cap_repo.add_target</span> creates the link to each target.</td></tr>
@@ -528,13 +529,14 @@
         <span class="inline">run_test.sql</span> run writes about 2.2&nbsp;GB to TEMP in small one-pass
         sorts. A target of 1&nbsp;GB or more keeps them in memory.</p>
 
-      <p><strong>Scheduler jobs.</strong> <span class="inline">install_jobs.sql</span> starts its
-        three jobs at 01:30, 02:00 and 03:00. On one database each runs in minutes, so they need one
-        suite session's PGA at a time; on a repository each grows with the number of targets
-        (<a href="#fleet-size">How many targets</a>). A report you run by hand while a job runs needs a second
-        session's worth. The repository jobs (<span class="inline">CAP_COLLECT_JOB</span> hourly,
-        <span class="inline">CAP_PURGE_JOB</span> at 01:00) copy and delete rows without reading the
-        view stack; their PGA has not been measured.</p>
+      <p><strong>Scheduler jobs.</strong> <span class="inline">install_jobs.sql</span> runs the
+        night's work as one job, <span class="inline">CAP_NIGHTLY_JOB</span> at 01:00. Its steps run
+        one after the other in one session, so the night never needs two suite sessions' PGA at once,
+        however long a step takes. On a repository each step grows with the number of targets
+        (<a href="#fleet-size">How many targets</a>). A report you run by hand while the job runs needs
+        a second session's worth. <span class="inline">CAP_COLLECT_JOB</span> (repository mode,
+        hourly) runs beside the nightly job. It copies rows without reading the view stack, and its PGA
+        has not been measured.</p>
 
       <p><strong>Measure your own.</strong> At the end of any SQL*Plus session that did the work, run
         <span class="inline">@test/pga_probe.sql</span>. It is read-only and needs SELECT on the
@@ -617,7 +619,7 @@
             <tr><td class="num">7</td><td><b>Readiness per feature</b></td><td class="def">One line per feature with days needed, days available and PASS/WARN: trend fit (<span class="inline">min_train_days</span>), full training window (<span class="inline">train_days</span>), CPU weekday baseline (<span class="inline">dow_weeks</span>&times;7), CPU level shift (<span class="inline">shift_days</span>+<span class="inline">shift_baseline_days</span>), backtest (<span class="inline">backtest_holdout_days</span>+<span class="inline">min_train_days</span>) and the ESM +30 horizon (120 daily rows). Knobs come from <span class="inline">CAP_CONFIG</span> when installed, else the shipped defaults.</td></tr>
             <tr><td class="num">8</td><td><b>Install state</b></td><td class="def">Whether <span class="inline">CAP_CONFIG</span> exists, the <span class="inline">suite_version</span> that built the objects, any <code>INVALID</code> <span class="inline">CAP*</span> object, the deploy mode (inferred from what <span class="inline">CAPV_SNAPSHOT</span> depends on), and how the tablespace and CPU fits came out by quality.</td></tr>
             <tr><td class="num">9</td><td><b>Config sanity</b></td><td class="def">Installed only: reads <a href="#config"><span class="inline">CAP_CFG_CHECK</span></a>. PASS when every knob is <code>OK</code>, else one WARN per <code>MISSING</code> or <code>BAD</code> knob with its reason.</td></tr>
-            <tr><td class="num">10</td><td><b>Results layer and seam coverage</b></td><td class="def">Installed only, every probe in its own exception handler: the last <span class="inline">CAPR_RUNS</span> row (run id, status, as-of day, age) and <code>stale_run</code>; FAILED runs of the last 7 days with the first line of the error; RUNNING runs older than an hour; whether <span class="inline">CAP_REFRESH_JOB</span> (in repository mode also <span class="inline">CAP_COLLECT_JOB</span> and <span class="inline">CAP_PURGE_JOB</span>) exists and is enabled, and its last scheduler run (<span class="inline">ALL_SCHEDULER_JOB_RUN_DETAILS</span>); OPEN versus acknowledged alert states; retired dbids from <span class="inline">CAPR_COVERAGE</span>; every <span class="inline">CAPV_CONTRACT</span> row, WARN when a per-container source shows one <code>con_dbid</code> on a CDB.</td></tr>
+            <tr><td class="num">10</td><td><b>Results layer and seam coverage</b></td><td class="def">Installed only, every probe in its own exception handler: the last <span class="inline">CAPR_RUNS</span> row (run id, status, as-of day, age) and <code>stale_run</code>; FAILED runs of the last 7 days with the first line of the error; RUNNING runs older than an hour; whether <span class="inline">CAP_NIGHTLY_JOB</span> (in repository mode also <span class="inline">CAP_COLLECT_JOB</span>) exists and is enabled, and its last scheduler run (<span class="inline">ALL_SCHEDULER_JOB_RUN_DETAILS</span>); a WARN per step the last nightly run failed, from that run's <code>OUTPUT</code>; OPEN versus acknowledged alert states; retired dbids from <span class="inline">CAPR_COVERAGE</span>; every <span class="inline">CAPV_CONTRACT</span> row, WARN when a per-container source shows one <code>con_dbid</code> on a CDB.</td></tr>
             <tr><td class="num">11</td><td><b>Repository targets</b></td><td class="def">Repository mode, installed only: per <span class="inline">CAPR_TARGETS</span> target (up to 50) whether its link answers and its reader sees every copied view (<span class="inline">cap_repo.ping</span>, as the owner's private link is not usable by a SYSDBA session), then per DBID the <code>collect_state</code> (OK with the newest copy's age and high-water mark; FAILING with the last error; NEVER), a WARN when the copy is stale or snapshots aged out on the target before they were copied (gaps), and the days copied against the needs of check&nbsp;7. A disabled target is listed and skipped.</td></tr>
           </tbody>
         </table>
@@ -691,7 +693,7 @@
       </div>
       <p>The installer prints the target schema, runs the DDL steps in load order, recompiles
         any <span class="inline">CAP*</span> object of that schema a re-install left invalid (e.g.
-        <span class="inline">cap_report_spool</span> from <span class="inline">install_jobs.sql</span>),
+        <span class="inline">cap_nightly</span> or <span class="inline">cap_report_spool</span> from <span class="inline">install_jobs.sql</span>),
         and ends with a validity check on <span class="inline">ALL_OBJECTS</span> for that schema. If any
         <span class="inline">CAP*</span> object is still invalid it prints a hint for the deploy mode and
         sqlplus exits non-zero.</p>
@@ -747,7 +749,7 @@
 <span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CURRENT_SCHEMA = C##AWRCAP;
 <span class="c-prompt">SQL&gt;</span> DEFINE deploy_mode = 'repository'
 <span class="c-prompt">SQL&gt;</span> @install.sql
-<span class="c-prompt">SQL&gt;</span> @install_jobs.sql                  <span class="c-cmt">-- adds CAP_COLLECT_JOB and CAP_PURGE_JOB here</span></pre>
+<span class="c-prompt">SQL&gt;</span> @install_jobs.sql                  <span class="c-cmt">-- adds CAP_COLLECT_JOB and the PURGE step here</span></pre>
       </div>
       <p><b>How a collect copies.</b> <span class="inline">cap_repo.collect</span> works per DBID, in
         chunks of 500 snapshots. A chunk appends the fact views' rows above the DBID's high-water mark,
@@ -843,7 +845,7 @@
             <tr><td>Pause or resume</td><td><code>cap_repo.set_enabled('CDB1', 'N')</code></td><td class="def">The copies stay. A disabled target raises no <code>DATA_STALE</code>.</td></tr>
             <tr><td>Follow a password change</td><td><code>cap_repo.set_link_password('CDB1', '&lt;new pw&gt;')</code></td><td class="def">Recreates the link after the reader's password changed on the target. The copies stay.</td></tr>
             <tr><td>Forget a target</td><td><code>cap_repo.remove_target('CDB1')</code></td><td class="def">Deletes its copies and registry rows and drops the link <span class="inline">add_target</span> made. <span class="inline">CAP_COLLECT_LOG</span> keeps its history.</td></tr>
-            <tr><td>Trim old copies</td><td><code>cap_repo.purge</code></td><td class="def">Deletes the fact copies of snapshots older than <span class="inline">repo_retention_days</span> (400; 0 keeps everything), per DBID, in one transaction. Refuses a value <span class="inline">CAP_CFG_CHECK</span> calls <code>BAD</code>. <span class="inline">CAP_PURGE_JOB</span> runs it daily at 01:00.</td></tr>
+            <tr><td>Trim old copies</td><td><code>cap_repo.purge</code></td><td class="def">Deletes the fact copies of snapshots older than <span class="inline">repo_retention_days</span> (400; 0 keeps everything), per DBID, in one transaction. Refuses a value <span class="inline">CAP_CFG_CHECK</span> calls <code>BAD</code>. The <code>PURGE</code> step of <span class="inline">CAP_NIGHTLY_JOB</span> runs it first each night, at 01:00 by default.</td></tr>
             <tr><td>Test a link</td><td><code>EXEC DBMS_OUTPUT.PUT_LINE(NVL(cap_repo.ping('CDB1'), 'OK'))</code></td><td class="def">NULL when the link answers and the reader can read every copied view, else the error text.</td></tr>
           </tbody>
         </table>
@@ -876,7 +878,7 @@
         running. Each target is a copy of the test CDB's AWR under its own DBID, repeated back to
         144 days of 15-minute snapshots: 4,880 snapshots, three containers and about 32&nbsp;MB of
         copies, roughly the rows a year of hourly snapshots holds. Every step is one SQL*Plus
-        session over the whole fleet.</p>
+        session, over the whole fleet unless the row names one target.</p>
 
       <div class="tablewrap">
         <table>
@@ -885,11 +887,13 @@
           <tbody>
             <tr><td><span class="inline">EXEC cap_forecast_ml.train_all</span></td><td class="def">43 s</td><td class="def">86 s</td><td class="def">191 s</td><td class="def">24 s</td></tr>
             <tr><td><span class="inline">EXEC cap_results.refresh</span></td><td class="def">62 s</td><td class="def">279 s</td><td class="def">558 s</td><td class="def">70 s</td></tr>
-            <tr><td><span class="inline">report/report.sql</span></td><td class="def">179 s</td><td class="def">741 s</td><td class="def">1587 s</td><td class="def">200 s</td></tr>
-            <tr><td><span class="inline">report/report_html.sql</span></td><td class="def">122 s</td><td class="def">542 s</td><td class="def">1188 s</td><td class="def">150 s</td></tr>
+            <tr><td><span class="inline">report/report.sql</span></td><td class="def">179 s</td><td class="def">741 s</td><td class="def">1602 s</td><td class="def">200 s</td></tr>
+            <tr><td><span class="inline">report/report_html.sql</span></td><td class="def">122 s</td><td class="def">542 s</td><td class="def">1204 s</td><td class="def">150 s</td></tr>
             <tr><td><span class="inline">report/report.sql</span>, <code>SNAPSHOT</code></td><td class="def">&nbsp;</td><td class="def">452 s</td><td class="def">993 s</td><td class="def">124 s</td></tr>
             <tr><td><span class="inline">report/report_html.sql</span>, <code>SNAPSHOT</code></td><td class="def">&nbsp;</td><td class="def">318 s</td><td class="def">656 s</td><td class="def">82 s</td></tr>
-            <tr><td><span class="inline">report/report.sql</span> for one target</td><td class="def">152 s</td><td class="def">723 s</td><td class="def">&nbsp;</td><td class="def">as the fleet</td></tr>
+            <tr><td><span class="inline">report/report.sql</span> for one target</td><td class="def">152 s</td><td class="def">&nbsp;</td><td class="def">159 s</td><td class="def">one target</td></tr>
+            <tr><td><span class="inline">report/report_html.sql</span> for one target</td><td class="def">121 s</td><td class="def">&nbsp;</td><td class="def">134 s</td><td class="def">one target</td></tr>
+            <tr><td><span class="inline">CAP_NIGHTLY_JOB</span>: purge, retrain, refresh</td><td class="def">&nbsp;</td><td class="def">&nbsp;</td><td class="def">808 s</td><td class="def">101 s</td></tr>
           </tbody>
         </table>
       </div>
@@ -902,19 +906,23 @@
         <li><strong>PGA does not grow with the fleet.</strong> Every step peaked between 490 and
           640&nbsp;MB at one, four and eight targets, so the <a href="#memory">sizing rule</a> holds
           per session whatever the fleet size.</li>
-        <li><strong>A report for one target costs as much as the fleet report.</strong>
-          <span class="inline">--target</span> narrows what is printed, but the report views rank
-          tablespaces, shifts and series across every target, so Oracle computes the whole fleet
-          before it filters. Run one fleet report a night; a report per target costs one fleet
-          report each.</li>
+        <li><strong>A report for one target costs one target.</strong>
+          <span class="inline">--target</span> (or a dbid argument) scopes the session, so the seam
+          returns that database's rows only and every view above it works on one target: 159&nbsp;s
+          at eight targets against 152&nbsp;s with one. Before the scope it cost a fleet report
+          (723&nbsp;s at four targets), because the report views rank across every target and no
+          filter on top reaches the copies.</li>
         <li><strong><code>SNAPSHOT</code> mode saves about 40%.</strong>
           <span class="inline">run_report.sh --snapshot</span> reads the alert list and the fits
           from the last <span class="inline">cap_results.refresh</span> instead of computing them
           again.</li>
-        <li><strong>Space the jobs past about 25 targets.</strong> The refresh job starts at 01:30
-          and the retrain at 02:00. Once the refresh takes longer than that half hour, both run at
-          once and need two sessions' PGA; move <span class="inline">CAP_ML_RETRAIN</span> and
-          <span class="inline">CAP_REPORT_SPOOL_JOB</span> later with
+        <li><strong>The nightly steps never overlap.</strong>
+          <span class="inline">CAP_NIGHTLY_JOB</span> runs the purge, the retrain, the refresh and
+          the alert spool one after another in one session, so a fleet of any size needs one
+          session's PGA: 808&nbsp;s at eight targets (purge 1&nbsp;s, retrain 199&nbsp;s, refresh
+          607&nbsp;s), about 100&nbsp;s per target. From 01:00, twenty targets finish by about
+          01:35. Change the start with <span class="inline">install.sh</span>'s
+          <span class="inline">NIGHTLY_INTERVAL</span> or
           <span class="inline">DBMS_SCHEDULER.SET_ATTRIBUTE</span>.</li>
       </ul>
       <p>Because the work grows in proportion to the fleet and in fixed memory, the views stay live:
@@ -1216,17 +1224,20 @@
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">sqlplus · the schema that owns the suite</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-prompt">SQL&gt;</span> DEFINE report_dir = 'MY_DIR'   <span class="c-cmt">-- optional; default CAP_REPORTS</span>
+<pre><span class="c-prompt">SQL&gt;</span> DEFINE report_dir = 'MY_DIR'                      <span class="c-cmt">-- optional; default CAP_REPORTS</span>
+<span class="c-prompt">SQL&gt;</span> DEFINE nightly_interval = 'FREQ=DAILY;BYHOUR=22'  <span class="c-cmt">-- optional; default daily 01:00</span>
+<span class="c-prompt">SQL&gt;</span> DEFINE nightly_steps = 'REFRESH SPOOL'           <span class="c-cmt">-- optional; default below</span>
 <span class="c-prompt">SQL&gt;</span> @install_jobs.sql
 
 <span class="c-cmt">-- enable the ones you want</span>
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_REFRESH_JOB')
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_ML_RETRAIN')
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_REPORT_SPOOL_JOB')
+<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_NIGHTLY_JOB')
 <span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_COLLECT_JOB')   <span class="c-cmt">-- repository mode only</span>
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_PURGE_JOB')     <span class="c-cmt">-- repository mode only</span>
 
-<span class="c-prompt">SQL&gt;</span> @uninstall_jobs.sql             <span class="c-cmt">-- drops the jobs + the procedure</span></pre>
+<span class="c-cmt">-- run the night once, now, in this session</span>
+<span class="c-prompt">SQL&gt;</span> SET SERVEROUTPUT ON
+<span class="c-prompt">SQL&gt;</span> EXEC cap_nightly('RETRAIN REFRESH SPOOL', 'CAP_REPORTS')
+
+<span class="c-prompt">SQL&gt;</span> @uninstall_jobs.sql             <span class="c-cmt">-- drops the jobs + both procedures</span></pre>
       </div>
 
       <div class="tablewrap">
@@ -1235,34 +1246,53 @@
           <thead><tr><th scope="col">Object</th><th scope="col">Schedule</th><th scope="col">Does</th></tr></thead>
           <tbody>
             <tr>
-              <td><span class="inline">CAP_REFRESH_JOB</span><br><span class="small">job</span></td>
-              <td class="def"><code>FREQ=DAILY</code>, 01:30 (<code>DEFINE refresh_interval</code>)</td>
-              <td class="def">Calls <span class="inline">cap_results.refresh</span>: one run in <span class="inline">CAP_RUN</span>, the fits in <span class="inline">CAP_FIT_HIST</span>, alert state and events. A failed refresh ends FAILED in the scheduler log and in <span class="inline">CAP_RUN</span>; <span class="inline">CAPR_RUNS.stale_run</span> shows a job that stopped.</td>
+              <td><span class="inline">CAP_NIGHTLY_JOB</span><br><span class="small">job</span></td>
+              <td class="def"><code>FREQ=DAILY</code>, 01:00 (<code>DEFINE nightly_interval</code>)</td>
+              <td class="def">Calls <span class="inline">cap_nightly</span> with the steps of <code>DEFINE nightly_steps</code> and your <span class="inline">report_dir</span>. The default steps are all four, <code>PURGE</code> only where package <span class="inline">CAP_REPO</span> exists and <code>SPOOL</code> only when the directory object exists at install time. Jobs and procedures share one namespace, so a job named <span class="inline">CAP_NIGHTLY</span> beside the procedure would fail with ORA-27477; hence <span class="inline">_JOB</span>.</td>
             </tr>
             <tr>
-              <td><span class="inline">CAP_ML_RETRAIN</span><br><span class="small">job</span></td>
-              <td class="def"><code>FREQ=DAILY</code>, 02:00 (<code>DEFINE retrain_interval</code>)</td>
-              <td class="def">Calls <span class="inline">cap_forecast_ml.train_all</span> to retrain the Tier 2 OML ESM models. Daily because a model counts only while it is at most <span class="inline">esm_max_age_days</span> (7) old. A failed build raises ORA-20060 after the batch, so the run reads FAILED. Needs <span class="k">CREATE MINING MODEL</span>.</td>
+              <td><span class="inline">cap_nightly</span><br><span class="small">procedure</span></td>
+              <td class="def">on demand, and from <span class="inline">CAP_NIGHTLY_JOB</span></td>
+              <td class="def"><code>cap_nightly(p_steps, p_dir)</code>, defaults <code>'RETRAIN REFRESH SPOOL'</code> and <code>'CAP_REPORTS'</code>. Runs the named steps (blank-separated) one after the other in one session, always in the order of the table below. A failed step is rolled back and the later steps still run. At the end ORA-20080 names every failed step, so the scheduler run reads FAILED. Each step writes one line with its outcome and seconds to <span class="inline">DBMS_OUTPUT</span>, which the scheduler keeps as the run's <code>OUTPUT</code> in <span class="inline">ALL_SCHEDULER_JOB_RUN_DETAILS</span>. An unknown step name raises ORA-20081 before any step runs.</td>
             </tr>
             <tr>
               <td><span class="inline">cap_report_spool</span><br><span class="small">procedure</span></td>
-              <td class="def">on demand</td>
-              <td class="def">Writes <span class="inline">&lt;dir&gt;/cap_alerts.txt</span> through <span class="inline">UTL_FILE</span>: a header (timestamp, the measured targets of <span class="inline">CAPR_TARGETS</span>, the schema and database the suite runs in, one "data through" line per target and dbid with its newest snapshot and age, its collect state when not OK, CRIT/WARN/INFO counts) then one pipe-delimited line per <span class="inline">CAPR_ALERTS</span> row, <code>DATA_STALE</code> rows first. Once an OK refresh run exists it lists the OPEN, not acked rows of <span class="inline">CAPR_ALERTS_LATEST</span> instead, names the run (id, as-of day, status, age, STALE REFRESH when the job stopped) and appends the run's events as <code>#event|</code> lines. Callable by hand: <span class="inline">EXEC cap_report_spool('CAP_REPORTS')</span>.</td>
-            </tr>
-            <tr>
-              <td><span class="inline">CAP_REPORT_SPOOL_JOB</span><br><span class="small">job</span></td>
-              <td class="def"><code>FREQ=DAILY</code>, 03:00</td>
-              <td class="def">Calls that procedure with your <span class="inline">report_dir</span>. Jobs and procedures share one namespace, so a job named <span class="inline">CAP_REPORT_SPOOL</span> beside the procedure fails with ORA-27477; hence <span class="inline">_JOB</span>.</td>
+              <td class="def">on demand, and the <code>SPOOL</code> step</td>
+              <td class="def">Writes <span class="inline">&lt;dir&gt;/cap_alerts.txt</span> through <span class="inline">UTL_FILE</span>: a header (timestamp, the measured targets of <span class="inline">CAPR_TARGETS</span>, the schema and database the suite runs in, one "data through" line per target and dbid with its newest snapshot and age, its collect state when not OK, CRIT/WARN/INFO counts) then one pipe-delimited line per <span class="inline">CAPR_ALERTS</span> row, <code>DATA_STALE</code> rows first. Once an OK refresh run exists it lists the OPEN, not acked rows of <span class="inline">CAPR_ALERTS_LATEST</span> instead, names the run (id, as-of day, status, age, STALE REFRESH when the refresh stopped) and appends the run's events as <code>#event|</code> lines. Callable by hand: <span class="inline">EXEC cap_report_spool('CAP_REPORTS')</span>.</td>
             </tr>
             <tr>
               <td><span class="inline">CAP_COLLECT_JOB</span><br><span class="small">job, repository mode</span></td>
               <td class="def"><code>FREQ=HOURLY</code>, at :05 (<code>DEFINE collect_interval</code>)</td>
-              <td class="def">Calls <span class="inline">cap_repo.collect</span>: copies every enabled target's new snapshots. A failing target is logged in <span class="inline">CAP_COLLECT_LOG</span> and the run ends FAILED (ORA-20070) after the others are copied. Created only where package <span class="inline">CAP_REPO</span> exists.</td>
+              <td class="def">Calls <span class="inline">cap_repo.collect</span>: copies every enabled target's new snapshots. A failing target is logged in <span class="inline">CAP_COLLECT_LOG</span> and the run ends FAILED (ORA-20070) after the others are copied. Created only where package <span class="inline">CAP_REPO</span> exists. It runs beside the nightly job, because it only inserts above the high-water mark, which no nightly step reads past.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <caption>The steps of cap_nightly, in the order they run</caption>
+          <thead><tr><th scope="col">Step</th><th scope="col">Calls</th><th scope="col">Does</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>PURGE</code></td>
+              <td><span class="inline">cap_repo.purge</span></td>
+              <td class="def">Repository mode only. Deletes the copies older than <span class="inline">repo_retention_days</span> (<a href="#repository">Repository mode</a>) and logs <code>PURGED</code> in <span class="inline">CAP_COLLECT_LOG</span>.</td>
             </tr>
             <tr>
-              <td><span class="inline">CAP_PURGE_JOB</span><br><span class="small">job, repository mode</span></td>
-              <td class="def"><code>FREQ=DAILY</code>, 01:00</td>
-              <td class="def">Calls <span class="inline">cap_repo.purge</span>: deletes the copies older than <span class="inline">repo_retention_days</span> before the 01:30 refresh. Created only where package <span class="inline">CAP_REPO</span> exists.</td>
+              <td><code>RETRAIN</code></td>
+              <td><span class="inline">cap_forecast_ml.train_all</span></td>
+              <td class="def">Retrains the Tier 2 OML ESM models. Nightly because a model counts only while it is at most <span class="inline">esm_max_age_days</span> (7) old. A failed build raises ORA-20060 after the batch, so the step fails; <span class="inline">CAPF_ESM_HEALTH.last_error</span> says why. Needs <span class="k">CREATE MINING MODEL</span>.</td>
+            </tr>
+            <tr>
+              <td><code>REFRESH</code></td>
+              <td><span class="inline">cap_results.refresh</span></td>
+              <td class="def">One run in <span class="inline">CAP_RUN</span>, the fits in <span class="inline">CAP_FIT_HIST</span>, alert state and events. It runs after <code>RETRAIN</code>, so it records tonight's models. A failed refresh is FAILED in <span class="inline">CAP_RUN</span> too; <span class="inline">CAPR_RUNS.stale_run</span> shows a refresh that stopped.</td>
+            </tr>
+            <tr>
+              <td><code>SPOOL</code></td>
+              <td><span class="inline">cap_report_spool(p_dir)</span></td>
+              <td class="def">Writes the alert snapshot <span class="inline">cap_alerts.txt</span> (table above).</td>
             </tr>
           </tbody>
         </table>
@@ -1277,15 +1307,24 @@
         missing, prints the DDL:
         <code>CREATE OR REPLACE DIRECTORY … AS '…'</code> plus
         <code>GRANT READ, WRITE ON DIRECTORY … TO &lt;schema&gt;</code>. Without it
-        <span class="inline">CAP_REPORT_SPOOL</span> fails with ORA-29280.</p>
+        <span class="inline">CAP_REPORT_SPOOL</span> fails with ORA-29280 and the default steps leave
+        <code>SPOOL</code> out. Re-run <span class="inline">install_jobs.sql</span> once the directory
+        exists.</p>
       </div>
 
       <div class="callout">
         <span class="ico">i</span>
-        <p><strong>The spool job writes an alert snapshot, not the report.</strong> A scheduler job
+        <p><strong>The SPOOL step writes an alert snapshot, not the report.</strong> A scheduler job
         has no SQL*Plus to spool with. For the full report run
         <span class="inline">report/run_report.sh</span> from cron (next section).
         Re-running <span class="inline">install_jobs.sql</span> drops and recreates the jobs, disabled.</p>
+        <p><strong>One job, in order (M24.12).</strong> The steps used to be four jobs at fixed times:
+        <span class="inline">CAP_PURGE_JOB</span> 01:00, <span class="inline">CAP_REFRESH_JOB</span> 01:30,
+        <span class="inline">CAP_ML_RETRAIN</span> 02:00 and <span class="inline">CAP_REPORT_SPOOL_JOB</span>
+        03:00. On a large fleet the refresh still ran when the retrain started, and both held a
+        session's PGA at once (<a href="#fleet-size">How many targets</a>). One job cannot overlap
+        itself. Re-running <span class="inline">install_jobs.sql</span> on an older install drops the
+        four old jobs.</p>
       </div>
 
       <!-- ===================== SESSION LABELS ===================== -->
@@ -1303,8 +1342,8 @@
           <tbody>
             <tr><td>A SQL*Plus script (install, doctor, reports, export, target, tests)</td><td class="def"><code>AWRCAP/&lt;script path&gt;</code>, e.g. <code>AWRCAP/report/report.sql</code></td><td class="def"><span class="inline">install.sql</span>: the DDL file; <span class="inline">report.sql</span>: the section; <span class="inline">report_csv.sql</span>: the view</td><td class="def">untouched</td></tr>
             <tr><td><span class="inline">install.sh</span></td><td class="def"><code>AWRCAP/install.sh</code>, then each script it runs</td><td class="def">as the script</td><td class="def">untouched</td></tr>
-            <tr><td>A suite procedure (<span class="inline">cap_results</span>, <span class="inline">cap_forecast_ml</span>, <span class="inline">cap_repo</span>, <span class="inline">cap_report_spool</span>)</td><td class="def"><code>AWRCAP/&lt;package&gt;.&lt;procedure&gt;</code>, e.g. <code>AWRCAP/cap_results.refresh</code></td><td class="def">the step: <code>fit snapshot</code>, <code>merge alerts</code>; the OML model being built; the target and DBID being copied</td><td class="def">untouched</td></tr>
-            <tr><td>A scheduler job</td><td class="def">as the procedure it calls</td><td class="def">as the procedure</td><td class="def">the job name, e.g. <code>CAP_REFRESH_JOB</code></td></tr>
+            <tr><td>A suite procedure (<span class="inline">cap_results</span>, <span class="inline">cap_forecast_ml</span>, <span class="inline">cap_repo</span>, <span class="inline">cap_nightly</span>, <span class="inline">cap_report_spool</span>)</td><td class="def"><code>AWRCAP/&lt;package&gt;.&lt;procedure&gt;</code>, e.g. <code>AWRCAP/cap_results.refresh</code>, or <code>AWRCAP/&lt;procedure&gt;</code>, e.g. <code>AWRCAP/cap_nightly</code></td><td class="def">the step: <code>fit snapshot</code>, <code>merge alerts</code>; the OML model being built; the target and DBID being copied; the nightly step (<code>PURGE</code>, <code>RETRAIN</code>, <code>REFRESH</code>, <code>SPOOL</code>)</td><td class="def">untouched</td></tr>
+            <tr><td>A scheduler job</td><td class="def">as the procedure it calls; inside <span class="inline">cap_nightly</span>, as the procedure of the running step</td><td class="def">as the procedure</td><td class="def">the job name, <code>CAP_NIGHTLY_JOB</code> or <code>CAP_COLLECT_JOB</code></td></tr>
             <tr><td>The target's session behind a repository link</td><td class="def">the repository session's MODULE</td><td class="def"><code>from &lt;owner&gt;@&lt;container&gt;</code> of the repository</td><td class="def">untouched</td></tr>
           </tbody>
         </table>
@@ -1322,7 +1361,7 @@ GROUP  BY module, action, client_id
 ORDER  BY samples DESC;
 
 <span class="c-cmt">-- trace the next run of one job</span>
-EXEC DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_REFRESH_JOB')</pre>
+EXEC DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_NIGHTLY_JOB')</pre>
       </div>
 
       <div class="callout">
@@ -1333,6 +1372,10 @@ EXEC DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_REFRESH_JOB')</pre>
         Scripts run <code>SET APPINFO OFF</code> first, so a <span class="inline">glogin.sql</span> with
         <code>SET APPINFO ON</code> cannot replace the label with each nested script's name.
         The scheduler clears the job's CLIENT_IDENTIFIER between runs.</p>
+        <p><strong>CLIENT_INFO carries a report's scope.</strong> A report driver run for one dbid or
+        target sets <code>AWRCAP dbid=&lt;n&gt;</code> for the length of the run, so
+        <span class="inline">V$SESSION.CLIENT_INFO</span> shows which database a running report reads
+        (<a href="#drivers">Report drivers</a>). The suite sets it nowhere else.</p>
         <p><strong>On a target</strong> the label goes over the link through
         <span class="inline">DBMS_APPLICATION_INFO</span>, which the reader can execute through the stock
         PUBLIC grant. A target that revoked that grant shows the session unlabelled; collection is not affected.
@@ -1366,7 +1409,7 @@ EXEC DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_REFRESH_JOB')</pre>
             <tr>
               <td><span class="inline">report/report.sql</span><br><span class="inline">report/report_html.sql</span><br><span class="inline">report/report_brief.sql</span></td>
               <td class="def"><code>[top_n] [anomaly_days] [show_esm] [dbid] [con_dbid] [source]</code></td>
-              <td class="def">The text and HTML reports, and the one-page briefing (<span class="inline">reports/cap_brief_&lt;db&gt;_&lt;ts&gt;.html</span>: the headline, the 12-month runway, the actions by worst-case date, their evidence charts and the tablespace fill bars, from <code>CAPR_FIT</code> / <code>CAPR_FIT_HISTORY</code> and the alert list). With <code>dbid</code> / <code>con_dbid</code> every section shows only that database or container, the header prints the scope, and <code>top_n</code> counts inside the scope: the views' fleet-wide <code>rank_*</code> columns are re-numbered with <code>ROW_NUMBER() OVER (ORDER BY rank_*)</code> over the scoped rows. <code>dbid</code> may also be a target name (<code>CAPR_TARGETS.target_name</code>, any case): it resolves to that target's dbid with the newest snapshot, and an unknown name raises <code>ORA-20003</code> and reports nothing. The Database and Host header lines (and the file name) name the targets in scope, from <code>CAPV_TARGET</code>, not the session's database: in repository mode that is the repository. All four drivers resolve scope and identity in <span class="inline">report/scope.sql</span>. <code>source</code> = <code>LIVE</code> (default) or <code>SNAPSHOT</code>: the alert list from <code>CAPR_ALERTS_LATEST</code>, the section 1 and 7 tables from <code>CAPR_FIT_HISTORY</code> of the newest OK refresh run, the coverage line from the <code>CAPR_COVERAGE</code> roll-up that run kept (<code>CAP_RUN.cov_summary</code>); the header names the run. <code>DEFINE timing = Y</code> before the text report prints the wall seconds per section (a SQL*Plus <code>TIMING START</code> / <code>STOP</code> pair around the header and each section). The HTML report has one section per metric and a card per series; past <code>top_n</code> series in one metric the rest are compact rows. It reads each point-feed view once (<code>CAPR_FIT</code> or, under SNAPSHOT, <code>CAPR_FIT_HISTORY</code>; <code>CAPR_SERIES_POINTS</code>, <code>CAPR_FORECAST_POINTS</code>, <code>CAPR_ANOMALIES</code>, the alert list, <code>CAPR_HOURLY_POINTS</code>) into a JSON block, each read in its own exception handler: a failing view leaves its block empty and the page names it. The block's <code>seconds</code> entry holds the wall time of each read.</td>
+              <td class="def">The text and HTML reports, and the one-page briefing (<span class="inline">reports/cap_brief_&lt;db&gt;_&lt;ts&gt;.html</span>: the headline, the 12-month runway, the actions by worst-case date, their evidence charts and the tablespace fill bars, from <code>CAPR_FIT</code> / <code>CAPR_FIT_HISTORY</code> and the alert list). With <code>dbid</code> / <code>con_dbid</code> every section shows only that database or container, the header prints the scope, and <code>top_n</code> counts inside the scope: the views' fleet-wide <code>rank_*</code> columns are re-numbered with <code>ROW_NUMBER() OVER (ORDER BY rank_*)</code> over the scoped rows. A <code>dbid</code> also scopes the session: the driver sets its CLIENT_INFO to <code>AWRCAP dbid=&lt;n&gt;</code> (<code>CAP_SCOPE</code>) for the run, the seam returns only that database's rows, and the run costs one target however large the fleet (<a href="#fleet-size">How many targets</a>). A run that is interrupted leaves the scope on its session until the next report run or <code>EXEC DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL)</code>; <span class="inline">cap_results.refresh</span> and the <span class="inline">cap_forecast_ml</span> trainers clear it first, because they always read every database. A <code>con_dbid</code> alone filters the sections and does not scope the session. <code>dbid</code> may also be a target name (<code>CAPR_TARGETS.target_name</code>, any case): it resolves to that target's dbid with the newest snapshot, and an unknown name raises <code>ORA-20003</code> and reports nothing. The Database and Host header lines (and the file name) name the targets in scope, from <code>CAPV_TARGET</code>, not the session's database: in repository mode that is the repository. All four drivers resolve scope and identity in <span class="inline">report/scope.sql</span>. <code>source</code> = <code>LIVE</code> (default) or <code>SNAPSHOT</code>: the alert list from <code>CAPR_ALERTS_LATEST</code>, the section 1 and 7 tables from <code>CAPR_FIT_HISTORY</code> of the newest OK refresh run, the coverage line from the <code>CAPR_COVERAGE</code> roll-up that run kept (<code>CAP_RUN.cov_summary</code>); the header names the run. <code>DEFINE timing = Y</code> before the text report prints the wall seconds per section (a SQL*Plus <code>TIMING START</code> / <code>STOP</code> pair around the header and each section). The HTML report has one section per metric and a card per series; past <code>top_n</code> series in one metric the rest are compact rows. It reads each point-feed view once (<code>CAPR_FIT</code> or, under SNAPSHOT, <code>CAPR_FIT_HISTORY</code>; <code>CAPR_SERIES_POINTS</code>, <code>CAPR_FORECAST_POINTS</code>, <code>CAPR_ANOMALIES</code>, the alert list, <code>CAPR_HOURLY_POINTS</code>) into a JSON block, each read in its own exception handler: a failing view leaves its block empty and the page names it. The block's <code>seconds</code> entry holds the wall time of each read.</td>
             </tr>
             <tr>
               <td><span class="inline">report/report_csv.sql</span></td>

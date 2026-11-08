@@ -2176,6 +2176,58 @@ BEGIN
             fail('seam/daily contract block raised ' || SQLERRM);
     END;
 
+    -- M24.11: CLIENT_INFO 'AWRCAP dbid=<n>' (report/scope.sql) cuts every
+    -- seam read to that dbid, so a scoped report computes nothing else.
+    BEGIN
+        DBMS_OUTPUT.PUT_LINE('=== CAP_SCOPE (M24.11) ===');
+        SELECT SUM(n_rows) INTO v_num FROM capv_contract;
+        DBMS_APPLICATION_INFO.SET_CLIENT_INFO('AWRCAP dbid=' || v_dbid);
+        SELECT scope_dbid INTO v_num2 FROM cap_scope;
+        chk_int('CAP_SCOPE reads the dbid of CLIENT_INFO', v_num2, v_dbid);
+        SELECT SUM(n_rows) INTO v_n FROM capv_contract;
+        chk_int('scoped to the fixture dbid: every seam row stays', v_n, v_num);
+        DBMS_APPLICATION_INFO.SET_CLIENT_INFO('AWRCAP dbid=-1');
+        SELECT SUM(n_rows) INTO v_n FROM capv_contract;
+        chk_int('scoped to dbid -1: no seam source returns a row', v_n, 0);
+        SELECT (SELECT COUNT(*) FROM capv_container) + (SELECT COUNT(*) FROM capv_target)
+          INTO v_n FROM dual;
+        chk_int('scoped to dbid -1: no container, no target', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM capr_fit;
+        chk_int('scoped to dbid -1: CAPR_FIT has no row', v_n, 0);
+        DBMS_APPLICATION_INFO.SET_CLIENT_INFO('another tool''s label');
+        SELECT scope_dbid INTO v_num2 FROM cap_scope;
+        chk_true('any other CLIENT_INFO is no scope', v_num2 IS NULL);
+        DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL);
+        SELECT SUM(n_rows) INTO v_n FROM capv_contract;
+        chk_int('unscoped again: every seam row is back', v_n, v_num);
+        -- The plan of every CAPV view: each fixture-table read carries the
+        -- CAP_SCOPE lookup (test/scope_plan.sql does this for every view).
+        DELETE FROM plan_table WHERE statement_id = 'CAPSCOPE';
+        -- ALL_OBJECTS, not ALL_VIEWS: ALL_VIEWS WHERE owner = SYS_CONTEXT(...)
+        -- returns no row as SYSDBA under CURRENT_SCHEMA in a PDB (19.27).
+        FOR w IN (SELECT object_name FROM all_objects
+                  WHERE  owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+                    AND  object_type = 'VIEW'
+                    AND  object_name LIKE 'CAPV\_%' ESCAPE '\') LOOP
+            EXECUTE IMMEDIATE 'EXPLAIN PLAN SET STATEMENT_ID = ''CAPSCOPE'' FOR SELECT * FROM '
+                              || w.object_name;
+        END LOOP;
+        SELECT COUNT(*),
+               COUNT(CASE WHEN NVL(access_predicates, ' ') || NVL(filter_predicates, ' ')
+                               NOT LIKE '%CLIENT_INFO%' THEN 1 END)
+          INTO v_n, v_num
+          FROM plan_table
+         WHERE statement_id = 'CAPSCOPE'
+           AND object_name LIKE 'CAP\_FIXTURE\_%' ESCAPE '\';
+        DELETE FROM plan_table WHERE statement_id = 'CAPSCOPE';
+        chk_true('the CAPV plans read the fixture tables', v_n > 0);
+        chk_int('every seam read carries the CAP_SCOPE filter', v_num, 0);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL);
+            fail('CAP_SCOPE block raised ' || SQLERRM);
+    END;
+
     BEGIN
         DBMS_OUTPUT.PUT_LINE('=== CAPR point feeds (grafana/API.md, elk/) ===');
         SELECT COUNT(*) INTO v_n   FROM capr_series_points WHERE kind = 'TBSPC';
@@ -3625,8 +3677,14 @@ BEGIN
         SELECT COUNT(*) INTO n_fit FROM capr_fit;
         cap_results.refresh;
         run_1 := last_run;
+        -- A scope an aborted report left behind: the refresh drops it.
+        DBMS_APPLICATION_INFO.SET_CLIENT_INFO('AWRCAP dbid=-1');
         cap_results.refresh;
         run_2 := last_run;
+        SELECT scope_dbid INTO v_a FROM cap_scope;
+        chk_true('cap_results.refresh clears a scope it finds', v_a IS NULL);
+        SELECT COUNT(*) INTO v_a FROM cap_fit_hist WHERE run_id = run_2;
+        chk_int('the refresh after it kept every fit', v_a, n_fit);
 
         SELECT COUNT(*), COUNT(CASE WHEN status = 'OK' THEN 1 END), COUNT(CASE WHEN backdated = 'Y' THEN 1 END)
           INTO v_n, v_a, v_b FROM cap_run;

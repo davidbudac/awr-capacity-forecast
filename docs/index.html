@@ -226,7 +226,7 @@
             <tr><td>PL/SQL packages</td><td>2</td><td><span class="inline">CAP_FORECAST_ML</span> (Tier 2 training), <span class="inline">CAP_RESULTS</span> (results layer). Definer's rights.</td></tr>
             <tr><td>Object types</td><td>2</td><td><span class="inline">CAP_ESM_ROW</span>, <span class="inline">CAP_ESM_TAB</span></td></tr>
             <tr><td>OML models (Tier 2, optional)</td><td>one per series: top 20 tablespaces by default, CPU series, backtest twins (27 in the demo)</td><td>Created only by <code>cap_forecast_ml.train_*</code>. Oracle adds 2 <code>DM$</code> tables and 4 <code>DM$</code> views per model.</td></tr>
-            <tr><td>Scheduler jobs (optional)</td><td>3 (5 in repository mode)</td><td><span class="inline">install_jobs.sql</span> only, created disabled: <span class="inline">CAP_REFRESH_JOB</span> 01:30, <span class="inline">CAP_ML_RETRAIN</span> 02:00, <span class="inline">CAP_REPORT_SPOOL_JOB</span> 03:00, plus procedure <span class="inline">CAP_REPORT_SPOOL</span>. In repository mode also <span class="inline">CAP_COLLECT_JOB</span> (hourly) and <span class="inline">CAP_PURGE_JOB</span> 01:00.</td></tr>
+            <tr><td>Scheduler jobs (optional)</td><td>1 (2 in repository mode)</td><td><span class="inline">install_jobs.sql</span> only, created disabled: <span class="inline">CAP_NIGHTLY_JOB</span> 01:00, which retrains, refreshes and writes the alert file one step after the other, plus procedures <span class="inline">CAP_NIGHTLY</span> and <span class="inline">CAP_REPORT_SPOOL</span>. In repository mode the nightly job purges old copies first, and <span class="inline">CAP_COLLECT_JOB</span> runs hourly.</td></tr>
           </tbody>
         </table>
       </div>
@@ -266,8 +266,9 @@
         </table>
       </div>
       <p>In CDB$ROOT the grants are <code>CONTAINER=ALL</code>. No <code>ANY</code> privileges, no
-        DBA role, no <code>ALTER SYSTEM</code>. <span class="inline">CAP_REPORT_SPOOL_JOB</span>
-        needs a directory object, which a DBA creates separately.</p>
+        DBA role, no <code>ALTER SYSTEM</code>. The alert file step of
+        <span class="inline">CAP_NIGHTLY_JOB</span> needs a directory object, which a DBA creates
+        separately.</p>
 
       <h3>Reads, writes and load</h3>
       <ul>

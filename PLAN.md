@@ -783,20 +783,46 @@ Decided 2026-11-07:
       `build_model` now stages each series in the GTT `CAP_ML_INPUT`. And
       `add_by_day` overflowed the DATE range (ORA-01841, failing
       `cap_results.refresh`) on a near-zero slope; every `days_to_*` now reads
-      NULL past 9999-12-31. Found, not fixed: target-scoped reports and job
-      spacing (M24.11, M24.12). Docs:
+      NULL past 9999-12-31. Found here, fixed in M24.11 and M24.12:
+      target-scoped reports and job spacing. Docs:
       reference.html#fleet-size.
-- [ ] **M24.11 A target's report at a target's cost.** `--target` costs a
-      whole fleet report (152 s at one target, 723 s at four) because
-      `CAPR_TBSPC_DAYS_TO_FULL`, the shift and series section views rank
-      with `ROW_NUMBER() OVER (ORDER BY ...)` across every target, which no
-      dbid predicate passes. Rank per dbid, or filter before ranking, then
-      check the plan pushes `dbid` down to the seam.
-- [ ] **M24.12 Job spacing for a fleet.** `install_jobs.sql` starts the
-      refresh at 01:30 and the retrain at 02:00; past ~25 targets on two
-      vCPUs the refresh outlasts the half hour and the two run at once
-      (two sessions' PGA). Chain them (a scheduler chain or one job that
-      runs the steps in order) instead of fixed start times.
+- [x] **M24.11 A target's report at a target's cost.** `--target` cost a
+      whole fleet report (152 s at one target, 723 s at four). Ranking per
+      dbid would not have fixed it: on 19.27 plans 35 of 64 views read the
+      copies unscoped under `WHERE dbid =`, because no predicate above the
+      seam passes the fleet-wide ROW_NUMBERs, the `kind_last_day` windows and
+      the materialized CTEs. Done: the scope lives at the seam.
+      `report/scope.sql` sets CLIENT_INFO `AWRCAP dbid=<n>`, the one-row view
+      `CAP_SCOPE` (ddl/05) parses it, and every seam source read (ddl/10,
+      ddl/12, the generated ddl/13 and the CAPV_TARGET override) filters
+      `dbid = NVL(<that expression>, dbid)`: both join sides, each UNION
+      branch, each NOT EXISTS. The expression is inline, not `(SELECT
+      scope_dbid FROM cap_scope)`, whose FAST DUAL subplans added 16% plan
+      lines and 20 MB parse PGA. Each driver clears the scope at its end;
+      `cap_results.refresh` and the `cap_forecast_ml` trainers clear one
+      they find (a writer reads every database). At 8 targets: report.sql
+      for one target 159 s, report_html.sql 134 s (152 / 121 with one
+      target); the unscoped fleet reports stay at 1602 / 1204 s (1587 /
+      1188 before). `test/scope_plan.sql` EXPLAINs every view (66, no unscoped
+      seam read); run_test.sql asserts the scope, its clearing and the
+      EXPLAIN check over the CAPV views. Docs: reference.html#fleet-size,
+      #labels.
+- [x] **M24.12 Job spacing for a fleet.** The refresh at 01:30 and the
+      retrain at 02:00 ran at once past ~25 targets (two sessions' PGA).
+      Done: one job. `CAP_NIGHTLY_JOB` (daily 01:00, created disabled) runs
+      procedure `cap_nightly(p_steps, p_dir)`, the steps PURGE (repository)
+      → RETRAIN → REFRESH → SPOOL in one session. A failed step is rolled
+      back and logged to DBMS_OUTPUT (the run's OUTPUT), the later steps
+      still run, and ORA-20080 at the end names the failed ones (ORA-20081:
+      an unknown step). doctor section 10 WARNs per FAILED step of the last
+      run. Re-running install_jobs.sql drops the four jobs it replaced;
+      `CAP_COLLECT_JOB` stays hourly. install.sh's `NIGHTLY_INTERVAL`
+      replaces REFRESH_INTERVAL / RETRAIN_INTERVAL. Rejected: job
+      incompatibilities (they keep jobs apart but start the waiting ones in
+      no fixed order, and resolve unqualified names in the session user's
+      schema, 19.27) and chains (Rules Engine privileges). At 8 targets:
+      PURGE 1 s, RETRAIN 199 s, REFRESH 607 s, 808 s in all, peak PGA
+      638 MB. Docs: reference.html#fleet-size, design.md.
 
 ## v2 (unchanged)
 

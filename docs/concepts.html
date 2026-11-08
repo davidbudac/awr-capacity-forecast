@@ -879,7 +879,7 @@
       <h3>Results layer</h3>
       <p><span class="inline">CAPR_ALERTS</span> is evaluated live and has no history. The optional
         results layer adds it. <span class="inline">cap_results.refresh</span> (by hand or via the
-        disabled-by-default <span class="inline">CAP_REFRESH_JOB</span>) records a run in
+        disabled-by-default <span class="inline">CAP_NIGHTLY_JOB</span>) records a run in
         <span class="inline">CAP_RUN</span>, copies <span class="inline">CAPR_FIT</span> into
         <span class="inline">CAP_FIT_HIST</span>, and merges <span class="inline">CAPR_ALERTS</span> by
         <span class="inline">state_key</span> into <span class="inline">CAP_ALERT_STATE</span>, writing
@@ -954,8 +954,8 @@
         <span class="inline">CAPF_COMPARE</span> puts the model's furthest step
         (<code>esm_horizon_days</code>) in the +30 bucket and drops it once the model is older than
         <span class="inline">esm_max_age_days</span> (7); +90/+180/+365 are Tier 1 only. A failed
-        build keeps the previous model and is reported (<code>MODEL_HEALTH</code>); the retrain job
-        runs daily.</p>
+        build keeps the previous model and is reported (<code>MODEL_HEALTH</code>). The optional
+        nightly job retrains every night, before its refresh.</p>
       </div>
       <p>A model is built only for series graded <span class="pill ok">OK</span> or
         <span class="pill warn">LOW_CONFIDENCE</span>, so a flat or static tablespace gets none.</p>

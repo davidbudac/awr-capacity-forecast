@@ -23,12 +23,20 @@
 --   cap_gen              the generation time
 --   cap_stem             a file-name stem: the target, 'fleet' for several,
 --                        the session's DB_NAME for none
+-- And it scopes the session (M24.11): CLIENT_INFO 'AWRCAP dbid=<cap_sdbid>',
+-- which CAP_SCOPE reads, so the seam returns only that database's rows and
+-- every view above it costs one target, not the fleet. Cleared first, so a
+-- scope left by an aborted run cannot hide a target from the lookups here,
+-- and NULL for every database. The including driver clears it at its end
+-- (DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL)). A con_dbid alone does not
+-- scope the session: the sections filter it.
 -- Runs and leaves TERMOUT OFF (the drivers' setting here); only the ORA-20003
 -- check runs with it ON, so the error reaches the terminal. Leaves DEFINE '&'.
 -- Every alias below is cleared at the end: COLUMN settings last the session.
 --
 SET DEFINE '&'
 SET TERMOUT OFF
+EXEC DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL)
 
 -- cap_starget is the one result that may be empty: UNDEFINE + a zero-row
 -- NEW_VALUE query defines it empty, so a name left by an earlier run in the
@@ -139,6 +147,13 @@ BEGIN
 END;
 /
 SET TERMOUT OFF
+
+-- An unknown name (-1) scopes to no database: the run reads nothing.
+BEGIN
+    DBMS_APPLICATION_INFO.SET_CLIENT_INFO(CASE WHEN &cap_sdbid IS NOT NULL
+                                               THEN 'AWRCAP dbid=' || &cap_sdbid END);
+END;
+/
 
 COLUMN sc_starget CLEAR
 COLUMN sc_sdbid   CLEAR

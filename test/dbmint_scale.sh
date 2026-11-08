@@ -20,11 +20,13 @@
 #   --no-ml     skip cap_forecast_ml.train_all
 #   --steps L   run only these steps (comma list of the labels below)
 #
-# Steps in nightly order (install_jobs.sql: retrain, refresh, reports):
+# Steps in nightly order (CAP_NIGHTLY_JOB: retrain, refresh; then reports):
 # train_all, refresh (cap_results.refresh), report_fleet / report_one
 # (report.sql for the fleet and for SCALE01), html_fleet / html_one
 # (report_html.sql the same), report_snap / html_snap (the fleet reports in
-# SNAPSHOT mode: alerts and fits from the refresh just run). Appends one line per step to
+# SNAPSHOT mode: alerts and fits from the refresh just run), and, only when
+# named in --steps, nightly (install_jobs.sql, then cap_nightly's PURGE
+# RETRAIN REFRESH in that one session: the job's work and its PGA). Appends one line per step to
 # /tmp/dbmint_scale_<SCHEMA>.tsv (utc, K, days, step, seconds, peak PGA MB);
 # the full output is in /tmp/dbmint_scale_<SCHEMA>.log.
 set -u
@@ -124,6 +126,10 @@ STEPS+=("refresh|EXEC cap_results.refresh"
         "html_one|@report/report_html.sql - - - SCALE01"
         "report_snap|@report/report.sql - - - - - SNAPSHOT"
         "html_snap|@report/report_html.sql - - - - - SNAPSHOT")
+[[ $ONLY == *",nightly,"* ]] && STEPS+=("nightly|@install_jobs.sql
+WHENEVER SQLERROR EXIT FAILURE
+SET SERVEROUTPUT ON SIZE UNLIMITED
+EXEC cap_nightly('PURGE RETRAIN REFRESH')")
 for s in "${STEPS[@]}"; do
   label=${s%%|*}
   [ -n "$ONLY" ] && [[ $ONLY != *",$label,"* ]] && continue

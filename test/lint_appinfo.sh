@@ -8,7 +8,8 @@
 #     SET APPINFO "AWRCAP/<its own path>";
 #   * every procedure in the specs of CAP_RESULTS, CAP_FORECAST_ML and
 #     CAP_REPO (build_model aside: it labels only ACTION, inside the train_*
-#     MODULE) and CAP_REPORT_SPOOL sets MODULE 'AWRCAP/<package>.<procedure>';
+#     MODULE) sets MODULE 'AWRCAP/<package>.<procedure>', and every procedure
+#     install_jobs.sql creates (CAP_NIGHTLY, CAP_REPORT_SPOOL) 'AWRCAP/<name>';
 #   * every scheduler job_action in install_jobs.sql sets CLIENT_IDENTIFIER
 #     to its own job name.
 # Exit 1 and list the offenders on a violation.
@@ -47,8 +48,12 @@ check_pkg() {   # <spec file> <body file> <package>
 check_pkg ddl/60_results.sql        ddl/60_results.sql        cap_results
 check_pkg ml/cap_forecast_ml.pks    ml/cap_forecast_ml.pkb    cap_forecast_ml
 check_pkg repository/cap_repo.sql   repository/cap_repo.sql   cap_repo
-grep -qF "SET_MODULE('AWRCAP/cap_report_spool'" install_jobs.sql \
-  || fail "install_jobs.sql: cap_report_spool does not set MODULE 'AWRCAP/cap_report_spool'"
+procs=$(sed -n 's/^CREATE OR REPLACE PROCEDURE \([a-z_]*\).*/\1/p' install_jobs.sql)
+[ -n "$procs" ] || fail "install_jobs.sql creates no procedure?"
+for p in $procs; do
+  grep -qF "SET_MODULE('AWRCAP/$p'" install_jobs.sql \
+    || fail "install_jobs.sql: $p does not set MODULE 'AWRCAP/$p'"
+done
 
 awk '
   /DBMS_SCHEDULER\.CREATE_JOB\(/ { name = ""; n++ }

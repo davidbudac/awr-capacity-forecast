@@ -6,9 +6,9 @@
 -- CAPV_TARGET reads the registry tables below. A repository database registers
 -- each target once (cap_repo.add_target) and copies the target's AWR into
 -- CAP_H_* over a DB link (cap_repo.collect, hourly from CAP_COLLECT_JOB),
--- and cap_repo.purge (daily, CAP_PURGE_JOB) deletes copies older than
--- repo_retention_days. Nothing is ever written on a target: every statement
--- there is a SELECT.
+-- and cap_repo.purge (nightly, the PURGE step of CAP_NIGHTLY_JOB) deletes
+-- copies older than repo_retention_days. Nothing is ever written on a
+-- target: every statement there is a SELECT.
 --
 -- Persisted, created idempotently, never dropped by ddl/00_drop (only by
 -- uninstall.sql, which also drops the links add_target made):

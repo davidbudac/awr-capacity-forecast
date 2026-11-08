@@ -290,6 +290,8 @@ def filter_drift():
     appear in the manifest filter of each filtered source the view reads, or
     the repository would copy fewer rows than local mode reads."""
     sql = "\n".join(l.split("--")[0] for l in LOCAL_SEAM.read_text().splitlines())
+    # The session scope (CAP_SCOPE, M24.11) is no row filter of a source.
+    sql = re.sub(r"SYS_CONTEXT\('USERENV', *'CLIENT_INFO'\)", "", sql, flags=re.I)
     by_name = {s.name: s for s in SOURCES}
     out = []
     for stmt in re.split(r"CREATE OR REPLACE VIEW", sql, flags=re.I)[1:]:

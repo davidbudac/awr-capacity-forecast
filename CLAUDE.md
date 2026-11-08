@@ -22,6 +22,21 @@ for making changes safely.
   target's link: the pull statements `repository/build.py` generates into
   `CAP_REPO_SOURCE` and `cap_repo`'s probe / DBID discovery. That is what
   keeps local / repository / fixture modes byte-identical downstream.
+- **Every seam source read carries the session scope (M24.11).** Each
+  `FROM dba_hist_x` / `cap_fixture_x` in ddl/10 and ddl/12 (and ddl/13,
+  generated) keeps `dbid = NVL((SELECT scope_dbid FROM cap_scope), dbid)`:
+  both sides of a join, each UNION branch, each NOT EXISTS subquery (an
+  anti-join scans its table whole otherwise). `CAP_SCOPE` (ddl/05, one row)
+  parses CLIENT_INFO `AWRCAP dbid=<n>`, which `report/scope.sql` sets and
+  each report driver clears at its end; `cap_results.refresh` and the
+  `cap_forecast_ml` trainers clear one they find (a writer reads every
+  database). No predicate placed above the seam survives the fleet-wide
+  ROW_NUMBERs, `kind_last_day` windows and materialized CTEs downstream
+  (19.27 plans: 35 of 64 views read copies unscoped under `WHERE dbid =`),
+  so the scope lives at the bottom. `test/scope_plan.sql` EXPLAINs every view
+  and counts seam reads without the CLIENT_INFO lookup (must be 0);
+  run_test.sql asserts it for the CAPV views. The optimizer estimates the
+  filter at 1/NDV(dbid) scoped or not.
 - **Config, not constants.** Thresholds live in `CAP_CONFIG`, read only through
   the one-row view `CAP_CFG` (`CROSS JOIN cap_cfg cfg`, one column per knob,
   no defaults inlined). Views never read `cap_config` directly.
@@ -77,7 +92,7 @@ for making changes safely.
 ## Layout / load order
 
 `install.sql` includes, in order: `ddl/00_drop` → `05_config` (CAP_CONFIG,
-CAP_CFG, CAP_CFG_CHECK, CAP_TBSPC_OVERRIDE) → the seam (`10`/`13`/`12` for
+CAP_CFG, CAP_CFG_CHECK, CAP_SCOPE, CAP_TBSPC_OVERRIDE) → the seam (`10`/`13`/`12` for
 `deploy_mode` local / repository / fixture: thirteen CAPV_* views +
 CAPV_CONTRACT; `13` also creates the copies and pulls `repository/cap_repo.sql`) → `20_daily` →
 `25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `35_series_forecast`
@@ -121,9 +136,11 @@ grants on every DBA_HIST_* view ddl/10 reads; views and the definer's-rights
 packages ignore role grants), `quickstart.sql` / `quickstart.sh` (doctor →
 install local → report/report.sql, in one run; the docs' "Getting started"
 path), `doctor.sql` (preflight), `install_jobs.sql` / `uninstall_jobs.sql`
-(DBMS_SCHEDULER, all created disabled: CAP_REFRESH_JOB 01:30,
-CAP_ML_RETRAIN daily 02:00, CAP_REPORT_SPOOL_JOB 03:00; where package
-CAP_REPO exists also CAP_COLLECT_JOB hourly :05 and CAP_PURGE_JOB 01:00),
+(DBMS_SCHEDULER, all created disabled: CAP_NIGHTLY_JOB daily 01:00 runs
+procedure `cap_nightly`, the steps PURGE (repository) → RETRAIN → REFRESH →
+SPOOL one after the other in one session, a failed step logged and skipped
+past, ORA-20080 at the end; where package CAP_REPO exists also
+CAP_COLLECT_JOB hourly :05),
 `report/report_csv.sql` (one CSV per CAPR section view), `report/report_brief.sql`
 (one-page "Runway" briefing from CAPR_FIT[_HISTORY] + the alert list; demo
 `docs/demo/cap_brief_demo.html`), `report/run_report.sh`
@@ -208,6 +225,10 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   `CURRENT_SCHEMA`.** When testing as SYSDBA with `ALTER SESSION SET
   CURRENT_SCHEMA = CAPTEST`, query `ALL_*` filtered on
   `owner = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')` (doctor.sql does).
+  Except `ALL_VIEWS`: with that predicate it returns NO row in a PDB
+  (19.27; ALL_OBJECTS / ALL_TABLES / ALL_TAB_COLUMNS are fine). Read views
+  from `ALL_OBJECTS` (`object_type = 'VIEW'`) or bind the owner to a
+  PL/SQL variable first (test/scope_plan.sql).
 - **Positional args:** `COLUMN 1 NEW_VALUE 1` + a zero-row SELECT defines an
   unpassed `&1` as empty and leaves a passed one intact (verified 19c);
   scripts `UNDEFINE 1 2 3` at the end so a later script doesn't inherit them.
@@ -239,8 +260,14 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   DBMS_SCHEDULER resolves them in `CURRENT_SCHEMA`, so a SYSDBA +
   `CURRENT_SCHEMA` run creates them in the target schema, and the script lists
   them from `ALL_SCHEDULER_JOBS` on that owner. Jobs share the procedure
-  namespace, hence `CAP_REPORT_SPOOL_JOB` beside procedure `CAP_REPORT_SPOOL`
+  namespace, hence `CAP_NIGHTLY_JOB` beside procedure `CAP_NIGHTLY`
   (ORA-27477 otherwise). `uninstall.sql` runs `uninstall_jobs.sql` first.
+  One nightly job, not one per step at fixed times (M24.12): a fleet's
+  refresh outgrew its half hour and ran beside the retrain. Job
+  incompatibilities (`DBMS_SCHEDULER.CREATE_INCOMPATIBILITY`) keep jobs
+  apart but start the waiting ones in no fixed order (19.27), and resolve
+  unqualified names in the SESSION user's schema; chains need Rules Engine
+  privileges. Re-running install_jobs.sql drops the four jobs it replaced.
 
 ## Non-obvious correctness facts (verified on Oracle 19c)
 
@@ -515,8 +542,9 @@ there for local mode).
   doctor section 7 need). No lock against collect, which only inserts above
   the high-water mark. `cap_repo.ping(name)` returns NULL or the probe's
   error: doctor runs as SYSDBA, and a private link resolves only for its
-  owner. `install_jobs.sql` adds `CAP_COLLECT_JOB` / `CAP_PURGE_JOB` only
-  where package `CAP_REPO` exists; doctor section 10 checks them and section
+  owner. `install_jobs.sql` adds `CAP_COLLECT_JOB` and the nightly PURGE
+  step only where package `CAP_REPO` exists; doctor section 10 checks the
+  jobs (and each FAILED step of the last nightly run) and section
   11 checks each target (link, collect state, staleness, gaps, days per
   DBID vs section 7's needs, which `CAP_CFG_CHECK` mirrors).
 - **Scale (M24.10).** `test/repo_synth_target.sql NAME DBID SHIFT [DAYS]
@@ -526,11 +554,9 @@ there for local mode).
   refresh and the reports (live, one target, SNAPSHOT) with `pga_probe.sql`,
   appending to `/tmp/dbmint_scale_<SCHEMA>.tsv`. Measured: linear, ~7 min of
   nightly work per 144-day target on 2 vCPU, PGA flat at 490-640 MB
-  (reference.html#fleet-size). A `--target` report costs a fleet report:
-  the section views rank across all targets (PLAN.md M24.11).
-- **Not yet built:** PLAN.md M24.11 (a target's report at a target's cost)
-  and M24.12 (chain the jobs for a fleet).
-  RAC: one high-water mark per DBID, so a snapshot that completes on one
+  (reference.html#fleet-size). A report scoped to one target (`--target`)
+  costs one target at any fleet size (M24.11, the seam scope above).
+- **RAC** is untested: one high-water mark per DBID, so a snapshot that completes on one
   instance before another could be copied half; untested.
 
 ## Not yet built (see PLAN.md milestones)

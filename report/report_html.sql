@@ -523,6 +523,9 @@ SPOOL OFF
 SET DEFINE '&'
 SET TERMOUT ON
 
+-- The run's scope (report/scope.sql) ends with it.
+EXEC DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL)
+
 -- Positional arguments stay DEFINEd for the rest of the session; drop them
 -- so a following report run without arguments does not inherit this one's.
 UNDEFINE 1

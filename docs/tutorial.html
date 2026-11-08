@@ -438,19 +438,24 @@ SEV  KIND             DB/PDB               MESSAGE
       <p>An escalation or a reopen clears the ack.</p>
 
       <h3>Let the scheduler do it</h3>
-      <p><span class="inline">install_jobs.sql</span> creates three DBMS_SCHEDULER jobs in the suite's
-        schema, all disabled (in repository mode also <span class="inline">CAP_COLLECT_JOB</span> and
-        <span class="inline">CAP_PURGE_JOB</span>; see <a href="reference.html#jobs">Scheduler jobs</a>):</p>
+      <p><span class="inline">install_jobs.sql</span> creates one DBMS_SCHEDULER job in the suite's
+        schema, disabled. <span class="inline">CAP_NIGHTLY_JOB</span> runs daily at 01:00 and does the
+        night's work one step after the other: the Tier 2 retrain, then
+        <span class="inline">cap_results.refresh</span>, then the alert snapshot file. In repository
+        mode it purges old copies first, and the script also creates
+        <span class="inline">CAP_COLLECT_JOB</span> (see <a href="reference.html#jobs">Scheduler jobs</a>):</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">SQL*Plus · suite owner</span><span class="term__tag in">optional</span></div>
 <pre><span class="c-prompt">SQL&gt;</span> @install_jobs.sql
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_REFRESH_JOB')       <span class="c-cmt">-- daily 01:30, cap_results.refresh</span>
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_ML_RETRAIN')        <span class="c-cmt">-- daily 02:00, Tier 2 models</span>
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_REPORT_SPOOL_JOB')  <span class="c-cmt">-- daily 03:00, alert snapshot file</span></pre>
+<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_NIGHTLY_JOB')   <span class="c-cmt">-- daily 01:00: retrain, refresh, alert snapshot file</span></pre>
       </div>
 
-      <p><span class="inline">CAP_ML_RETRAIN</span> is for Tier 2 only. Train once by hand with
+      <p>The retrain step is for Tier 2 only. Without Tier 2, name the steps you want before
+        <span class="inline">@install_jobs.sql</span>:
+        <span class="inline">DEFINE nightly_steps = 'REFRESH SPOOL'</span>, or
+        <span class="inline">'REFRESH'</span> when there is no directory object for the alert file.
+        Train once by hand with
         <span class="inline">EXEC cap_forecast_ml.train_all</span> (needs
         <span class="inline">CREATE MINING MODEL</span>); section 6 of the report then fills in.</p>
 

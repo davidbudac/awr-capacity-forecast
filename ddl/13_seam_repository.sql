@@ -236,7 +236,8 @@ SELECT dbid                     AS dbid,
        begin_interval_time      AS begin_interval_time,
        end_interval_time        AS end_interval_time,
        startup_time             AS startup_time
-FROM   cap_h_snapshot;
+FROM   cap_h_snapshot
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_tbspc_usage AS
 SELECT dbid                     AS dbid,
@@ -246,7 +247,8 @@ SELECT dbid                     AS dbid,
        tablespace_size          AS tablespace_size,      -- blocks
        tablespace_maxsize       AS tablespace_maxsize,   -- blocks; 0 = no autoextend
        tablespace_usedsize      AS tablespace_usedsize   -- blocks
-FROM   cap_h_tbspc_space_usage;
+FROM   cap_h_tbspc_space_usage
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_tablespace AS
 SELECT dbid                     AS dbid,
@@ -255,7 +257,8 @@ SELECT dbid                     AS dbid,
        tsname                   AS tablespace_name,
        contents                 AS contents,            -- PERMANENT / UNDO / TEMPORARY
        block_size               AS block_size           -- bytes/block
-FROM   cap_h_tablespace;
+FROM   cap_h_tablespace
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_datafile AS
 SELECT dbid                     AS dbid,
@@ -263,6 +266,7 @@ SELECT dbid                     AS dbid,
        ts#                      AS tablespace_id,
        MAX(block_size)          AS block_size           -- bytes/block
 FROM   cap_h_datafile
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
 GROUP BY dbid, con_dbid, ts#;
 
 CREATE OR REPLACE VIEW capv_osstat AS
@@ -274,7 +278,8 @@ SELECT dbid                     AS dbid,
        value                    AS value
 FROM   cap_h_osstat
 WHERE  stat_name IN ('BUSY_TIME','IDLE_TIME','IOWAIT_TIME',
-                     'NUM_CPUS','NUM_CPU_CORES','PHYSICAL_MEMORY_BYTES');
+                     'NUM_CPUS','NUM_CPU_CORES','PHYSICAL_MEMORY_BYTES')
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_time_model AS
 SELECT c.dbid                   AS dbid,
@@ -286,13 +291,16 @@ SELECT c.dbid                   AS dbid,
 FROM   cap_h_con_sys_time_model c
 WHERE  c.stat_name IN ('DB CPU','DB time','background cpu time')
   AND  NVL(c.con_id, 0) <> 2
+  AND  c.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), c.dbid)
 UNION ALL
 SELECT s.dbid, s.con_dbid, s.instance_number, s.snap_id, s.stat_name, s.value
 FROM   cap_h_sys_time_model s
 WHERE  s.stat_name IN ('DB CPU','DB time','background cpu time')
+  AND  s.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), s.dbid)
   AND  NOT EXISTS (SELECT 1
                    FROM   cap_h_con_sys_time_model c
                    WHERE  c.dbid = s.dbid AND c.snap_id = s.snap_id
+                     AND  c.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), c.dbid)
                      AND  c.instance_number = s.instance_number
                      AND  c.stat_name = s.stat_name);
 
@@ -303,15 +311,19 @@ SELECT k.dbid,
        p.con_name
 FROM  (
         SELECT dbid, con_dbid FROM cap_h_pdb_instance
+        WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
         UNION
         SELECT dbid, dbid FROM cap_h_database_instance
+        WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
       ) k
 LEFT  JOIN (SELECT dbid, MAX(db_name) AS db_name
             FROM   cap_h_database_instance
+            WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
             GROUP  BY dbid) d
   ON  d.dbid = k.dbid
 LEFT  JOIN (SELECT dbid, con_dbid, MAX(pdb_name) AS con_name
             FROM   cap_h_pdb_instance
+            WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
             GROUP  BY dbid, con_dbid) p
   ON  p.dbid = k.dbid AND p.con_dbid = k.con_dbid;
 
@@ -344,8 +356,11 @@ LEFT   JOIN cap_target_dbid d
 LEFT   JOIN (SELECT dbid,
                     MAX(host_name) KEEP (DENSE_RANK LAST ORDER BY startup_time NULLS FIRST) AS host_name
              FROM   cap_h_database_instance
+             WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
              GROUP  BY dbid) h
-  ON   h.dbid = d.dbid;
+  ON   h.dbid = d.dbid
+WHERE  TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)) IS NULL
+   OR  d.dbid = TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1));
 
 CREATE OR REPLACE VIEW capv_resource_limit AS
 SELECT dbid                     AS dbid,
@@ -359,7 +374,8 @@ SELECT dbid                     AS dbid,
             THEN TO_NUMBER(TRIM(limit_value))
        END                      AS limit_value
 FROM   cap_h_resource_limit
-WHERE  resource_name IN ('processes','sessions');
+WHERE  resource_name IN ('processes','sessions')
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_sysstat AS
 SELECT c.dbid                   AS dbid,
@@ -371,13 +387,16 @@ SELECT c.dbid                   AS dbid,
 FROM   cap_h_con_sysstat c
 WHERE  c.stat_name = 'redo size'
   AND  NVL(c.con_id, 0) <> 2
+  AND  c.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), c.dbid)
 UNION ALL
 SELECT s.dbid, s.con_dbid, s.instance_number, s.snap_id, s.stat_name, s.value
 FROM   cap_h_sysstat s
 WHERE  s.stat_name = 'redo size'
+  AND  s.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), s.dbid)
   AND  NOT EXISTS (SELECT 1
                    FROM   cap_h_con_sysstat c
                    WHERE  c.dbid = s.dbid AND c.snap_id = s.snap_id
+                     AND  c.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), c.dbid)
                      AND  c.instance_number = s.instance_number
                      AND  c.stat_name = s.stat_name);
 
@@ -396,7 +415,8 @@ WHERE  parameter_name IN ('cpu_count','processes','sessions',
                           'sga_target','sga_max_size',
                           'pga_aggregate_target','pga_aggregate_limit',
                           'memory_target')
-  AND  NVL(con_dbid, dbid) = dbid;
+  AND  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_asm_diskgroup AS
 SELECT s.dbid                   AS dbid,
@@ -409,7 +429,9 @@ SELECT s.dbid                   AS dbid,
 FROM   cap_h_asm_diskgroup_stat s
 JOIN   cap_h_asm_diskgroup g
   ON   g.dbid = s.dbid AND g.group_number = s.group_number
- AND   g.con_dbid = s.con_dbid;
+ AND   g.con_dbid = s.con_dbid
+WHERE  s.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), s.dbid)
+  AND  g.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), g.dbid);
 
 CREATE OR REPLACE VIEW capv_seg_stat AS
 SELECT s.dbid                   AS dbid,
@@ -427,7 +449,9 @@ SELECT s.dbid                   AS dbid,
 FROM   cap_h_seg_stat s
 JOIN   cap_h_seg_stat_obj o
   ON   o.dbid = s.dbid AND o.con_dbid = s.con_dbid
- AND   o.ts# = s.ts# AND o.obj# = s.obj# AND o.dataobj# = s.dataobj#;
+ AND   o.ts# = s.ts# AND o.obj# = s.obj# AND o.dataobj# = s.dataobj#
+WHERE  s.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), s.dbid)
+  AND  o.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), o.dbid);
 
 CREATE OR REPLACE VIEW capv_contract AS
 WITH src AS (
