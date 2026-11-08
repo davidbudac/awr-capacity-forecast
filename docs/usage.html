@@ -543,6 +543,90 @@
       <p>A script on the database host writes NDJSON, Filebeat tails it, Logstash indexes it. Nothing
         on the database host talks to Elasticsearch, and nothing writes to Oracle.</p>
 
+      <figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 316" role="img" aria-labelledby="dd-dash-title dd-dash-desc">
+<title id="dd-dash-title">Three dashboard paths over the CAPR_ views</title>
+<desc id="dd-dash-desc">All three optional dashboards read the same CAPR_ views: the ELK path exports NDJSON on the database host for Filebeat, Logstash, Elasticsearch and Kibana; the Grafana path queries the views live through an ORDS module; the APEX application runs inside the database.</desc>
+<defs><marker id="dd-dash-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-dash-mk-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-link" points="0 0, 8 3, 0 6"/></marker></defs>
+<rect class="paper" width="760" height="316"/>
+<!-- zones -->
+<rect class="zone" x="12" y="12" width="404" height="252" rx="8"/>
+<rect class="paper" x="20" y="8" width="92" height="10"/>
+<text class="eb" x="24" y="15">DATABASE HOST</text>
+<rect class="zone" x="428" y="20" width="320" height="88" rx="8"/>
+<rect class="paper" x="436" y="16" width="92" height="10"/>
+<text class="eb" x="440" y="23">ELASTIC STACK</text>
+<!-- connectors -->
+<path class="e" d="M148 72 L188 72" marker-end="url(#dd-dash-mk)"/>
+<path class="e" d="M288 72 L312 72" marker-end="url(#dd-dash-mk)"/>
+<path class="e-link" d="M400 72 L444 72" marker-end="url(#dd-dash-mk-link)"/>
+<rect class="paper" x="406" y="52" width="32" height="12" rx="2"/>
+<text class="al-link" x="422" y="61" text-anchor="middle">BEATS</text>
+<path class="e" d="M524 72 L544 72" marker-end="url(#dd-dash-mk)"/>
+<path class="e" d="M652 72 L672 72" marker-end="url(#dd-dash-mk)"/>
+<path class="e-link" d="M148 148 L444 148" marker-end="url(#dd-dash-mk-link)"/>
+<rect class="paper" x="288" y="128" width="24" height="12" rx="2"/>
+<text class="al-link" x="300" y="137" text-anchor="middle">SQL</text>
+<path class="e-link" d="M556 148 L596 148" marker-end="url(#dd-dash-mk-link)"/>
+<rect class="paper" x="562" y="128" width="28" height="12" rx="2"/>
+<text class="al-link" x="576" y="137" text-anchor="middle">JSON</text>
+<path class="e" d="M148 224 L188 224" marker-end="url(#dd-dash-mk)"/>
+<!-- nodes -->
+<rect class="paper" x="28" y="44" width="120" height="200" rx="6"/>
+<rect class="n-focal" x="28" y="44" width="120" height="200" rx="6"/>
+<rect class="tag-acc" x="36" y="50" width="36" height="12" rx="2"/>
+<text class="eb-acc" x="54" y="59" text-anchor="middle" style="letter-spacing:.08em">VIEWS</text>
+<text class="nm-acc" x="88" y="136" text-anchor="middle">CAPR_ views</text>
+<text class="sub" x="88" y="152" text-anchor="middle">the point feeds</text>
+<text class="sub" x="88" y="164" text-anchor="middle">and CAPR_ALERTS</text>
+<rect class="paper" x="188" y="52" width="100" height="40" rx="6"/>
+<rect class="n" x="188" y="52" width="100" height="40" rx="6"/>
+<text class="nm" x="238" y="69" text-anchor="middle">export.sh</text>
+<text class="sub" x="238" y="83" text-anchor="middle">NDJSON, daily</text>
+<rect class="paper" x="312" y="52" width="88" height="40" rx="6"/>
+<rect class="n" x="312" y="52" width="88" height="40" rx="6"/>
+<text class="nm" x="356" y="69" text-anchor="middle">Filebeat</text>
+<text class="sub" x="356" y="83" text-anchor="middle">awrcap.yml</text>
+<rect class="paper" x="444" y="52" width="80" height="40" rx="6"/>
+<rect class="n" x="444" y="52" width="80" height="40" rx="6"/>
+<text class="nm" x="484" y="69" text-anchor="middle">Logstash</text>
+<text class="sub" x="484" y="83" text-anchor="middle">pipeline</text>
+<rect class="paper" x="544" y="52" width="108" height="40" rx="6"/>
+<rect class="n-store" x="544" y="52" width="108" height="40" rx="6"/>
+<text class="nm" x="598" y="69" text-anchor="middle">Elasticsearch</text>
+<text class="sub" x="598" y="83" text-anchor="middle">awrcap-capacity</text>
+<rect class="paper" x="672" y="52" width="68" height="40" rx="6"/>
+<rect class="n" x="672" y="52" width="68" height="40" rx="6"/>
+<text class="nm" x="706" y="69" text-anchor="middle">Kibana</text>
+<text class="sub" x="706" y="83" text-anchor="middle">3 boards</text>
+<rect class="paper" x="444" y="128" width="112" height="40" rx="6"/>
+<rect class="n" x="444" y="128" width="112" height="40" rx="6"/>
+<text class="nm" x="500" y="145" text-anchor="middle">ORDS</text>
+<text class="sub" x="500" y="159" text-anchor="middle">awrcap module</text>
+<rect class="paper" x="596" y="128" width="144" height="40" rx="6"/>
+<rect class="n" x="596" y="128" width="144" height="40" rx="6"/>
+<text class="nm" x="668" y="145" text-anchor="middle">Grafana</text>
+<text class="sub" x="668" y="159" text-anchor="middle">Infinity, 3 boards</text>
+<rect class="paper" x="188" y="204" width="212" height="40" rx="6"/>
+<rect class="n" x="188" y="204" width="212" height="40" rx="6"/>
+<text class="nm" x="294" y="221" text-anchor="middle">APEX application</text>
+<text class="sub" x="294" y="235" text-anchor="middle">one collection per view</text>
+<text class="co" x="436" y="229">APEX: nothing leaves the database.</text>
+<!-- legend -->
+<line class="rule" x1="12" y1="284" x2="748" y2="284"/>
+<text class="lg" x="12" y="306">LEGEND</text>
+<rect class="n-focal" x="84" y="297" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="307">the one contract every path reads</text>
+<line class="e-link" x1="300" y1="303" x2="328" y2="303"/>
+<text class="lgt" x="336" y="307">crosses to another host</text>
+<line class="e" x1="476" y1="303" x2="504" y2="303"/>
+<text class="lgt" x="512" y="307">same host</text>
+</svg>
+</div>
+      </figure>
+
       <div class="tablewrap">
         <table>
           <caption>Record types</caption>
@@ -747,6 +831,81 @@
           </tbody>
         </table>
       </div>
+      <figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 300" role="img" aria-labelledby="dd-limit-title dd-limit-desc">
+<title id="dd-limit-title">How limit_source is chosen</title>
+<desc id="dd-limit-desc">For each tablespace and day: UNDO, TEMPORARY and excluded tablespaces are not a series; otherwise an override row's limit_bytes wins (OVERRIDE), then a datafile maxsize above zero (AUTOEXTEND), else the allocated size (ALLOCATED).</desc>
+<defs><marker id="dd-limit-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-limit-mk-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-acc" points="0 0, 8 3, 0 6"/></marker></defs>
+<rect class="paper" width="760" height="300"/>
+<!-- connectors -->
+<path class="e" d="M104 56 L104 80" marker-end="url(#dd-limit-mk)"/>
+<path class="e" d="M104 152 L104 196" marker-end="url(#dd-limit-mk)"/>
+<rect class="paper" x="110" y="168" width="24" height="12" rx="2"/>
+<text class="al" x="114" y="177">YES</text>
+<path class="e" d="M180 116 L240 116" marker-end="url(#dd-limit-mk)"/>
+<rect class="paper" x="198" y="96" width="24" height="12" rx="2"/>
+<text class="al" x="210" y="105" text-anchor="middle">NO</text>
+<path class="e-acc" d="M316 152 L316 196" marker-end="url(#dd-limit-mk-acc)"/>
+<rect class="paper" x="322" y="168" width="24" height="12" rx="2"/>
+<text class="al-acc" x="326" y="177">YES</text>
+<path class="e" d="M392 116 L452 116" marker-end="url(#dd-limit-mk)"/>
+<rect class="paper" x="410" y="96" width="24" height="12" rx="2"/>
+<text class="al" x="422" y="105" text-anchor="middle">NO</text>
+<path class="e" d="M528 152 L528 196" marker-end="url(#dd-limit-mk)"/>
+<rect class="paper" x="534" y="168" width="24" height="12" rx="2"/>
+<text class="al" x="538" y="177">YES</text>
+<path class="e" d="M604 116 L640 116" marker-end="url(#dd-limit-mk)"/>
+<rect class="paper" x="610" y="96" width="24" height="12" rx="2"/>
+<text class="al" x="622" y="105" text-anchor="middle">NO</text>
+<!-- start -->
+<rect class="paper" x="40" y="16" width="128" height="40" rx="20"/>
+<rect class="n" x="40" y="16" width="128" height="40" rx="20"/>
+<text class="nm" x="104" y="33" text-anchor="middle">Each tablespace</text>
+<text class="sub" x="104" y="46" text-anchor="middle">last snapshot of day</text>
+<!-- decisions -->
+<polygon class="n" points="104,80 180,116 104,152 28,116"/>
+<text class="nm" x="104" y="112" text-anchor="middle">Excluded?</text>
+<text class="sub" x="104" y="125" text-anchor="middle">UNDO/TEMP, flag Y</text>
+<polygon class="n" points="316,80 392,116 316,152 240,116"/>
+<text class="nm" x="316" y="112" text-anchor="middle">Override?</text>
+<text class="sub" x="316" y="125" text-anchor="middle">limit_bytes set</text>
+<polygon class="n" points="528,80 604,116 528,152 452,116"/>
+<text class="nm" x="528" y="112" text-anchor="middle">Autoextend?</text>
+<text class="sub" x="528" y="125" text-anchor="middle">maxsize &gt; 0</text>
+<!-- outcomes -->
+<rect class="paper" x="640" y="92" width="108" height="48" rx="6"/>
+<rect class="n" x="640" y="92" width="108" height="48" rx="6"/>
+<text class="nm" x="694" y="112" text-anchor="middle">ALLOCATED</text>
+<text class="sub" x="694" y="127" text-anchor="middle">allocated size</text>
+<rect class="paper" x="30" y="196" width="148" height="40" rx="20"/>
+<rect class="n-opt" x="30" y="196" width="148" height="40" rx="20"/>
+<text class="nm" x="104" y="213" text-anchor="middle">Not a series</text>
+<text class="sub" x="104" y="226" text-anchor="middle">UNDO, TEMP or excluded</text>
+<rect class="paper" x="228" y="196" width="176" height="48" rx="6"/>
+<rect class="n-focal" x="228" y="196" width="176" height="48" rx="6"/>
+<text class="nm-acc" x="316" y="216" text-anchor="middle">OVERRIDE</text>
+<text class="sub" x="316" y="231" text-anchor="middle">the row's limit_bytes</text>
+<rect class="paper" x="440" y="196" width="176" height="48" rx="6"/>
+<rect class="n" x="440" y="196" width="176" height="48" rx="6"/>
+<text class="nm" x="528" y="216" text-anchor="middle">AUTOEXTEND</text>
+<text class="sub" x="528" y="231" text-anchor="middle">summed datafile maxsize</text>
+<text class="co" x="628" y="214">may exceed the</text>
+<text class="co" x="628" y="230">storage below it</text>
+<!-- legend -->
+<line class="rule" x1="12" y1="264" x2="748" y2="264"/>
+<text class="lg" x="12" y="286">LEGEND</text>
+<polygon class="n" points="92,277 100,283 92,289 84,283"/>
+<text class="lgt" x="108" y="287">decision</text>
+<rect class="n" x="172" y="277" width="16" height="12" rx="3"/>
+<text class="lgt" x="196" y="287">limit_source value</text>
+<rect class="n-focal" x="316" y="277" width="16" height="12" rx="3"/>
+<text class="lgt" x="340" y="287">set by a CAP_TBSPC_OVERRIDE row; the most specific match wins</text>
+</svg>
+</div>
+      </figure>
+
       <div class="callout warn">
         <span class="ico">!</span>
         <p><strong><code>AUTOEXTEND</code> can exceed the storage.</strong> A 32 GiB datafile maxsize on
@@ -983,6 +1142,69 @@ COMMIT;</pre>
           <a href="reference.html#jobs">Advanced install</a>.</p>
       </div>
 
+      <figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 24 760 292" role="img" aria-labelledby="dd-jobs-title dd-jobs-desc">
+<title id="dd-jobs-title">One night of scheduler jobs</title>
+<desc id="dd-jobs-desc">Default schedule: every install runs the refresh at 01:30, the Tier 2 retrain at 02:00 and the alert file at 03:00; a repository also purges old copies at 01:00 and collects every hour at five past.</desc>
+<rect class="paper" width="760" height="316"/>
+<!-- lanes -->
+<text class="nm" x="12" y="86">Every install</text>
+<text class="sub" x="12" y="100">any deploy_mode</text>
+<line class="rule-solid" x1="160" y1="88" x2="736" y2="88"/>
+<text class="nm" x="12" y="182">Repository only</text>
+<text class="sub" x="12" y="196">package CAP_REPO</text>
+<line class="rule-solid" x1="160" y1="184" x2="736" y2="184"/>
+<!-- axis -->
+<line class="rule-solid" x1="160" y1="248" x2="736" y2="248"/>
+<line class="rule-solid" x1="160" y1="248" x2="160" y2="254"/>
+<line class="rule-solid" x1="304" y1="248" x2="304" y2="254"/>
+<line class="rule-solid" x1="448" y1="248" x2="448" y2="254"/>
+<line class="rule-solid" x1="592" y1="248" x2="592" y2="254"/>
+<line class="rule-solid" x1="736" y1="248" x2="736" y2="254"/>
+<text class="al" x="160" y="266" text-anchor="middle">00:00</text>
+<text class="al" x="304" y="266" text-anchor="middle">01:00</text>
+<text class="al" x="448" y="266" text-anchor="middle">02:00</text>
+<text class="al" x="592" y="266" text-anchor="middle">03:00</text>
+<text class="al" x="736" y="266" text-anchor="middle">04:00</text>
+<!-- lane 1 events -->
+<line class="rule" x1="376" y1="68" x2="376" y2="80"/>
+<circle class="dot-acc" cx="376" cy="88" r="6"/>
+<text class="nm-acc" x="376" y="50" text-anchor="middle">Refresh</text>
+<text class="sub" x="376" y="63" text-anchor="middle">CAP_REFRESH_JOB</text>
+<line class="rule" x1="448" y1="94" x2="448" y2="106"/>
+<circle class="dot" cx="448" cy="88" r="4"/>
+<text class="nm" x="448" y="120" text-anchor="middle">Tier 2 retrain</text>
+<text class="sub" x="448" y="133" text-anchor="middle">CAP_ML_RETRAIN</text>
+<line class="rule" x1="592" y1="68" x2="592" y2="82"/>
+<circle class="dot" cx="592" cy="88" r="4"/>
+<text class="nm" x="592" y="50" text-anchor="middle">Alert file</text>
+<text class="sub" x="592" y="63" text-anchor="middle">CAP_REPORT_SPOOL_JOB</text>
+<!-- lane 2 events -->
+<line class="rule" x1="304" y1="164" x2="304" y2="178"/>
+<circle class="dot" cx="304" cy="184" r="4"/>
+<text class="nm" x="304" y="146" text-anchor="middle">Purge copies</text>
+<text class="sub" x="304" y="159" text-anchor="middle">CAP_PURGE_JOB</text>
+<circle class="mk" cx="172" cy="184" r="3"/>
+<circle class="mk" cx="316" cy="184" r="3"/>
+<circle class="mk" cx="460" cy="184" r="3"/>
+<circle class="mk" cx="604" cy="184" r="3"/>
+<line class="rule" x1="460" y1="190" x2="460" y2="202"/>
+<text class="nm" x="460" y="216" text-anchor="middle">Collect, hourly at :05</text>
+<text class="sub" x="460" y="229" text-anchor="middle">CAP_COLLECT_JOB</text>
+<!-- legend -->
+<line class="rule" x1="12" y1="284" x2="748" y2="284"/>
+<text class="lg" x="12" y="306">LEGEND</text>
+<circle class="dot-acc" cx="92" cy="303" r="5"/>
+<text class="lgt" x="104" y="307">writes the results layer</text>
+<circle class="dot" cx="268" cy="303" r="4"/>
+<text class="lgt" x="280" y="307">daily run</text>
+<circle class="mk" cx="364" cy="303" r="3"/>
+<text class="lgt" x="376" y="307">hourly run (default intervals; every job arrives disabled)</text>
+</svg>
+</div>
+      </figure>
+
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
@@ -1022,6 +1244,63 @@ COMMIT;</pre>
         <span class="inline">report/run_report.sh</span> (<a href="#run">CSV and cron</a>).
         <span class="inline">@uninstall_jobs.sql</span> removes the jobs and the procedure and leaves
         the rest of the suite.</p>
+      </div>
+
+      <h3>Tracking each job</h3>
+      <p>The scheduler records whether a job ran. Each job also leaves its own record of what it did:</p>
+
+      <div class="tablewrap">
+        <table>
+          <caption>Where each job's record lives</caption>
+          <thead><tr><th scope="col">Job</th><th scope="col">Look in</th><th scope="col">Grain and what it holds</th></tr></thead>
+          <tbody>
+            <tr><td>Any of them</td><td><span class="inline">USER_SCHEDULER_JOB_RUN_DETAILS</span></td><td class="def">One row per job run: status, <code>error#</code>, start, duration, <code>additional_info</code> (the error text). As SYSDBA with <code>CURRENT_SCHEMA</code>, read <span class="inline">ALL_SCHEDULER_JOB_RUN_DETAILS</span> on <code>owner</code>.</td></tr>
+            <tr><td><span class="inline">CAP_REFRESH_JOB</span></td><td><span class="inline">CAPR_RUNS</span></td><td class="def">One row per <span class="inline">cap_results.refresh</span>: start, end, <code>duration_sec</code>, status, fit / alert / anomaly / event counts, <code>error_text</code>, <code>stale_run</code>.</td></tr>
+            <tr><td><span class="inline">CAP_COLLECT_JOB</span>, <span class="inline">CAP_PURGE_JOB</span></td><td><span class="inline">CAP_COLLECT_LOG</span></td><td class="def">One row per target and DBID per collect (<code>OK</code> / <code>NOTHING</code> / <code>SKIPPED</code>), and per <code>GAP</code>, <code>BEHIND</code>, <code>COLLISION</code>, <code>ERROR</code>, <code>REMOVED</code> or <code>PURGED</code>: the snap_id window, rows copied, seconds, and the message (an error carries its backtrace).</td></tr>
+            <tr><td></td><td><span class="inline">CAPR_TARGETS</span></td><td class="def">The same log summed up per target: last OK, last error, gaps, <code>collect_state</code> (<code>OK</code> / <code>FAILING</code> / <code>NEVER</code> / <code>DISABLED</code>), data freshness.</td></tr>
+            <tr><td><span class="inline">CAP_ML_RETRAIN</span></td><td><span class="inline">CAPF_ESM_HEALTH</span></td><td class="def">One row per model: status, <code>trained_at</code>, age, <code>stale_flag</code>, <code>last_error</code>, <code>failed_at</code>.</td></tr>
+            <tr><td><span class="inline">CAP_REPORT_SPOOL_JOB</span></td><td>the scheduler only</td><td class="def">The timestamp in the header of <span class="inline">cap_alerts.txt</span> shows the last write.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
+<pre><span class="c-cmt">-- every run of every suite job</span>
+<span class="c-prompt">SQL&gt;</span> SELECT job_name, status, error#, actual_start_date, run_duration, additional_info
+  2    FROM user_scheduler_job_run_details WHERE job_name LIKE 'CAP%' ORDER BY log_date DESC;
+
+<span class="c-cmt">-- the calculation: each refresh</span>
+<span class="c-prompt">SQL&gt;</span> SELECT run_id, started_at, duration_sec, status, n_fit, n_alert, error_text, stale_run
+  2    FROM capr_runs ORDER BY run_id DESC;
+
+<span class="c-cmt">-- repository mode: each collect, newest first</span>
+<span class="c-prompt">SQL&gt;</span> SELECT logged_at, target_name, dbid, status, snap_from, snap_to, n_rows, elapsed_s, message
+  2    FROM cap_collect_log ORDER BY log_id DESC FETCH FIRST 50 ROWS ONLY;
+
+<span class="c-cmt">-- repository mode: one line per target</span>
+<span class="c-prompt">SQL&gt;</span> SELECT target_name, dbid, collect_state, last_ok_at, last_error_at, n_gaps, age_hours
+  2    FROM capr_targets;
+
+<span class="c-cmt">-- the Tier 2 retrain: failed or stale models</span>
+<span class="c-prompt">SQL&gt;</span> SELECT model_name, status, trained_at, model_age_days, stale_flag, last_error
+  2    FROM capf_esm_health WHERE NVL(status, 'NONE') &lt;&gt; 'OK' OR stale_flag = 'Y';</pre>
+      </div>
+
+      <p><span class="inline">@doctor.sql</span> sections 10 and 11 run these checks for you
+        (<a href="reference.html#doctor">Doctor</a>). The column details are in the
+        <a href="reference.html#objects">object index</a> and under
+        <a href="reference.html#tables">Persisted tables</a>.</p>
+
+      <div class="callout">
+        <span class="ico">i</span>
+        <p><strong>What is not recorded.</strong> A collect logs one row count and one duration per
+        target and DBID, not per copied view. <span class="inline">CAP_ML_RETRAIN</span> keeps
+        per-model state but no record of the batch as a whole.
+        <span class="inline">CAP_REPORT_SPOOL_JOB</span> has no log of its own. No shared id links a
+        scheduler run to its <span class="inline">CAPR_RUNS</span> or
+        <span class="inline">CAP_COLLECT_LOG</span> rows, so match them by time.</p>
       </div>
 
       <p>AWR retention, the flat-series <code>REGR_R2</code> quirk, block-size sourcing, the ESM cap

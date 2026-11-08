@@ -414,3 +414,49 @@ hr.soft{border:none;border-top:1px solid var(--border);margin:40px 0}
 .dg-row .dg{margin:0;max-width:190px}
 .dg-row figcaption,.dg-fig figcaption{font-size:13px;color:var(--muted);margin-top:4px}
 .dg-fig{margin:0}
+
+/* ---- diagram-design figures (profile awrcap-docs, docs/diagrams/style-guide.md) ----
+   Inline <svg class="dd"> (viewBox 760 wide) in a .dd-scroll wrapper; min-width 620 (not the viewBox width, which would scroll in the 670-720px content column), so only phones scroll.
+   Roles: paper=--bg, ink=--text, muted=--muted, soft=--dd-soft, accent=--accent, link=--ok. */
+.dd-fig{margin:20px 0 22px}
+.dd-scroll{overflow-x:auto}
+.dd{display:block;width:100%;height:auto;min-width:620px;--dd-soft:#6b7280}
+.dd-fig figcaption{font-size:13px;color:var(--muted);margin-top:6px}
+.dd .paper{fill:var(--bg)}
+.dd .zone{fill:color-mix(in srgb,var(--text) 2%,transparent);stroke:var(--border-strong);stroke-width:1;stroke-dasharray:4 4}
+.dd .zone-solid{fill:color-mix(in srgb,var(--text) 2%,transparent);stroke:var(--border-strong);stroke-width:1}
+.dd .n{fill:var(--surface);stroke:var(--text);stroke-width:1}
+.dd .n-focal{fill:color-mix(in srgb,var(--accent) 8%,var(--bg));stroke:var(--accent);stroke-width:1.2}
+.dd .n-store{fill:color-mix(in srgb,var(--text) 5%,var(--bg));stroke:var(--muted);stroke-width:1}
+.dd .n-ext{fill:color-mix(in srgb,var(--text) 3%,var(--bg));stroke:color-mix(in srgb,var(--text) 30%,var(--bg));stroke-width:1}
+.dd .n-in{fill:color-mix(in srgb,var(--muted) 10%,var(--bg));stroke:var(--dd-soft);stroke-width:1}
+.dd .n-opt{fill:color-mix(in srgb,var(--text) 2%,var(--bg));stroke:color-mix(in srgb,var(--text) 20%,var(--bg));stroke-width:1;stroke-dasharray:4 3}
+.dd .n-sec{fill:color-mix(in srgb,var(--accent) 5%,var(--bg));stroke:color-mix(in srgb,var(--accent) 50%,var(--bg));stroke-width:1;stroke-dasharray:4 4}
+.dd .tag{fill:none;stroke:color-mix(in srgb,var(--text) 40%,var(--bg));stroke-width:.8}
+.dd .tag-acc{fill:none;stroke:color-mix(in srgb,var(--accent) 60%,var(--bg));stroke-width:.8}
+.dd .e{fill:none;stroke:var(--muted);stroke-width:1.2}
+.dd .e-acc{fill:none;stroke:var(--accent);stroke-width:1.4}
+.dd .e-link{fill:none;stroke:var(--ok);stroke-width:1.2}
+.dd .dash{stroke-dasharray:5 4}
+.dd .rule{stroke:color-mix(in srgb,var(--text) 12%,transparent);stroke-width:.8;fill:none}
+.dd .rule-solid{stroke:var(--border-strong);stroke-width:1;fill:none}
+.dd .mk{fill:var(--muted)}
+.dd .mk-acc{fill:var(--accent)}
+.dd .mk-link{fill:var(--ok)}
+.dd .dot{fill:var(--text)}
+.dd .dot-acc{fill:var(--accent)}
+.dd text{font-family:var(--sans);fill:var(--muted)}
+.dd .nm{font-family:var(--sans);font-size:12px;font-weight:600;fill:var(--text)}
+.dd .nm-acc{font-family:var(--sans);font-size:12px;font-weight:600;fill:var(--accent-text)}
+.dd .sub{font-family:var(--mono);font-size:9px;fill:var(--muted)}
+.dd .eb{font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.18em;fill:var(--dd-soft)}
+.dd .eb-acc{font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.18em;fill:var(--accent-text)}
+.dd .al{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--dd-soft)}
+.dd .al-acc{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--accent-text)}
+.dd .al-link{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--ok)}
+.dd .co{font-family:var(--sans);font-style:italic;font-size:13px;fill:var(--muted)}
+.dd .lg{font-family:var(--mono);font-size:8px;letter-spacing:.14em;fill:var(--muted)}
+.dd .lgt{font-family:var(--sans);font-size:10px;fill:var(--muted)}
+:root[data-theme="dark"] .dd{--dd-soft:#8a93a1}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .dd{--dd-soft:#8a93a1}}
+@media print{.dd{min-width:0!important}.dd-scroll{overflow:visible}}

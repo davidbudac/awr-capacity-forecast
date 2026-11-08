@@ -172,6 +172,74 @@
           against 18:00 of the day before and spans <b>36&nbsp;h</b>.</li>
       </ul>
 
+      <figure class="dd-fig">
+        <div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 268" role="img" aria-labelledby="dd-spine-title dd-spine-desc">
+<title id="dd-spine-title">Fixture snapshot intervals, a normal day and the holes</title>
+<desc id="dd-spine-desc">A normal fixture day has two 12-hour intervals, overnight ending 06:00 and daytime ending 18:00. The partial day drops its daytime interval because the instance restarts at noon; the restart day has no 06:00 snapshot, so its one interval spans the restart and is dropped; the CPU gap Sunday keeps both snapshots without CPU rows; and the Monday after starts with a 36-hour interval from Saturday 18:00, which flags the day gap_flag = Y.</desc>
+<defs><marker id="dd-spine-mk-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-acc" points="0 0, 8 3, 0 6"/></marker></defs>
+<rect class="paper" width="760" height="268"/>
+<!-- axis -->
+<text class="eb" x="12" y="27">FIXTURE DAY</text>
+<text class="al" x="232" y="27" text-anchor="middle">18:00</text>
+<text class="al" x="352" y="27" text-anchor="middle">00:00</text>
+<text class="al" x="472" y="27" text-anchor="middle">06:00</text>
+<text class="al" x="592" y="27" text-anchor="middle">12:00</text>
+<text class="al" x="712" y="27" text-anchor="middle">18:00</text>
+<line class="rule-solid" x1="12" y1="36" x2="748" y2="36"/>
+<line class="rule" x1="232" y1="40" x2="232" y2="220"/>
+<line class="rule" x1="352" y1="40" x2="352" y2="220"/>
+<line class="rule" x1="472" y1="40" x2="472" y2="220"/>
+<line class="rule" x1="592" y1="40" x2="592" y2="220"/>
+<line class="rule" x1="712" y1="40" x2="712" y2="220"/>
+<!-- connector: the 36 h interval continues left, to Saturday 18:00 -->
+<path class="e-acc dash" d="M234 206 L204 206" marker-end="url(#dd-spine-mk-acc)"/>
+<!-- row 0: normal day -->
+<text class="nm" x="12" y="60">Normal day</text>
+<text class="sub" x="12" y="72">i = 0..120</text>
+<rect class="n" x="234" y="52" width="236" height="20" rx="4"/>
+<text class="sub" x="352" y="65" text-anchor="middle">2000+2i · overnight</text>
+<rect class="n" x="474" y="52" width="236" height="20" rx="4"/>
+<text class="sub" x="592" y="65" text-anchor="middle">2001+2i · day, peak window</text>
+<!-- row 1: partial day -->
+<text class="nm" x="12" y="96">Partial day</text>
+<text class="sub" x="12" y="108">a weekday in 14..20</text>
+<rect class="n" x="234" y="88" width="236" height="20" rx="4"/>
+<text class="sub" x="352" y="101" text-anchor="middle">2000+2i · kept, 12 h</text>
+<rect class="n-opt" x="474" y="88" width="236" height="20" rx="4"/>
+<text class="sub" x="592" y="101" text-anchor="middle">restart at 12:00 · dropped</text>
+<!-- row 2: restart day -->
+<text class="nm" x="12" y="132">Restart day</text>
+<text class="sub" x="12" y="144">i = 60</text>
+<rect class="n-opt" x="234" y="124" width="476" height="20" rx="4"/>
+<text class="sub" x="472" y="137" text-anchor="middle">no 06:00 snapshot · 2001+2i spans the restart · dropped</text>
+<!-- row 3: CPU gap Sunday -->
+<text class="nm" x="12" y="168">CPU gap Sunday</text>
+<text class="sub" x="12" y="180">latest Sunday in 70..80</text>
+<rect class="n-opt" x="234" y="160" width="236" height="20" rx="4"/>
+<text class="sub" x="352" y="173" text-anchor="middle">no CPU rows</text>
+<rect class="n-opt" x="474" y="160" width="236" height="20" rx="4"/>
+<text class="sub" x="592" y="173" text-anchor="middle">no CPU rows</text>
+<!-- row 4: the Monday after -->
+<text class="nm" x="12" y="204">The Monday after</text>
+<text class="sub" x="12" y="216">gap_flag = Y</text>
+<rect class="n-focal" x="234" y="196" width="236" height="20" rx="4"/>
+<text class="al-acc" x="352" y="209" text-anchor="middle">36 H, FROM SAT 18:00</text>
+<rect class="n" x="474" y="196" width="236" height="20" rx="4"/>
+<text class="sub" x="592" y="209" text-anchor="middle">2001+2i · day</text>
+<!-- legend -->
+<line class="rule" x1="12" y1="236" x2="748" y2="236"/>
+<text class="lg" x="12" y="258">LEGEND</text>
+<rect class="n" x="84" y="249" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="259">interval used</text>
+<rect class="n-opt" x="200" y="249" width="16" height="12" rx="3"/>
+<text class="lgt" x="224" y="259">dropped, or no CPU rows</text>
+<rect class="n-focal" x="372" y="249" width="16" height="12" rx="3"/>
+<text class="lgt" x="396" y="259">longer than cpu_gap_hours (12): the day is a gap day</text>
+</svg>
+        </div>
+      </figure>
+
       <div class="callout">
         <span class="ico">i</span>
         <p><strong>Peak-window membership is by the interval's end hour</strong>, in
@@ -260,6 +328,50 @@
       <p>Host OSSTAT records under the CDB's <span class="inline">con_dbid</span> in real AWR;
         PDB OSSTAT rows would double <span class="inline">host_busy_sec</span> and break
         <span class="inline">host_share_pct</span>, so the PDBs have time model only.</p>
+
+      <figure class="dd-fig">
+        <div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 260" role="img" aria-labelledby="dd-fixcpu-title dd-fixcpu-desc">
+<title id="dd-fixcpu-title">The CPU fixture's three containers</title>
+<desc id="dd-fixcpu-desc">One host with 8 logical CPUs and 4 cores runs the CDB FIXCDB; host OSSTAT rows are recorded once, under CDB$ROOT (con_dbid 42424242), while FIXPDB1 (42424243) and FIXPDB2 (42424244) carry time-model rows only.</desc>
+<rect class="paper" width="760" height="260"/>
+<!-- rings -->
+<rect class="zone" x="12" y="12" width="736" height="200" rx="8"/>
+<rect class="paper" x="20" y="8" width="216" height="10"/>
+<text class="eb" x="24" y="15">HOST · NUM_CPUS 8 · NUM_CPU_CORES 4</text>
+<rect class="zone-solid" x="36" y="44" width="688" height="132" rx="8"/>
+<rect class="paper" x="44" y="40" width="160" height="10"/>
+<text class="eb" x="48" y="47">CDB FIXCDB · DBID 42424242</text>
+<!-- containers -->
+<rect class="paper" x="60" y="72" width="200" height="84" rx="6"/>
+<rect class="n-focal" x="60" y="72" width="200" height="84" rx="6"/>
+<text class="nm-acc" x="160" y="96" text-anchor="middle">CDB$ROOT</text>
+<text class="sub" x="160" y="110" text-anchor="middle">con_dbid 42424242</text>
+<text class="sub" x="160" y="130" text-anchor="middle">OSSTAT + time model</text>
+<text class="sub" x="160" y="144" text-anchor="middle">busy 20/60 % weekday</text>
+<rect class="paper" x="280" y="72" width="200" height="84" rx="6"/>
+<rect class="n" x="280" y="72" width="200" height="84" rx="6"/>
+<text class="nm" x="380" y="96" text-anchor="middle">FIXPDB1</text>
+<text class="sub" x="380" y="110" text-anchor="middle">con_dbid 42424243</text>
+<text class="sub" x="380" y="130" text-anchor="middle">time model only</text>
+<text class="sub" x="380" y="144" text-anchor="middle">sawtooth, +18 last 7 days</text>
+<rect class="paper" x="500" y="72" width="200" height="84" rx="6"/>
+<rect class="n" x="500" y="72" width="200" height="84" rx="6"/>
+<text class="nm" x="600" y="96" text-anchor="middle">FIXPDB2</text>
+<text class="sub" x="600" y="110" text-anchor="middle">con_dbid 42424244</text>
+<text class="sub" x="600" y="130" text-anchor="middle">time model only</text>
+<text class="sub" x="600" y="144" text-anchor="middle">60 / 20 % + ramp</text>
+<text class="co" x="36" y="198">OSSTAT describes the host, so it is recorded once, under CDB$ROOT; PDB rows would double host_busy_sec.</text>
+<!-- legend -->
+<line class="rule" x1="12" y1="228" x2="748" y2="228"/>
+<text class="lg" x="12" y="250">LEGEND</text>
+<rect class="n-focal" x="84" y="241" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="251">carries host OSSTAT (busy %, CPU counts)</text>
+<rect class="n" x="340" y="241" width="16" height="12" rx="3"/>
+<text class="lgt" x="364" y="251">DB time model only (db_cpu_pct, host_share_pct)</text>
+</svg>
+        </div>
+      </figure>
 
       <div class="tablewrap">
         <table>
@@ -433,6 +545,94 @@
         <span class="eyebrow">Track A</span>
         <h2>Fixture self-check</h2>
       </div>
+
+      <figure class="dd-fig">
+        <div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 324" role="img" aria-labelledby="dd-harness-title dd-harness-desc">
+<title id="dd-harness-title">What test/dbmint_harness.sh runs</title>
+<desc id="dd-harness-desc">The harness runs four offline checks on the workstation and stops with exit 4 if one fails, rsyncs the checkout to dbmint (exit 3 on failure), then runs the fixture load, the fixture-mode install, the Tier 1 self-check and, with --ml, the Tier 2 self-check as SYSDBA with CURRENT_SCHEMA set in PDB1, each in its own SQL*Plus session that stops the run on a non-zero exit, and finally prints the RESULT, FAIL and ORA- lines of its log.</desc>
+<defs><marker id="dd-harness-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker></defs>
+<rect class="paper" width="760" height="324"/>
+<!-- zones -->
+<rect class="zone" x="12" y="12" width="736" height="100" rx="8"/>
+<rect class="paper" x="20" y="8" width="80" height="10"/>
+<text class="eb" x="24" y="15">WORKSTATION</text>
+<rect class="zone" x="12" y="140" width="736" height="136" rx="8"/>
+<rect class="paper" x="120" y="136" width="236" height="10"/>
+<text class="eb" x="124" y="143">DBMINT · PDB1 · SYSDBA + CURRENT_SCHEMA</text>
+<!-- connectors -->
+<path class="e" d="M212 62 L260 62" marker-end="url(#dd-harness-mk)"/>
+<path class="e" d="M344 92 L344 118 A8 8 0 0 1 336 126 L114 126 A8 8 0 0 0 106 134 L106 168" marker-end="url(#dd-harness-mk)"/>
+<path class="e" d="M184 202 L212 202" marker-end="url(#dd-harness-mk)"/>
+<path class="e" d="M368 202 L396 202" marker-end="url(#dd-harness-mk)"/>
+<path class="e dash" d="M552 202 L580 202" marker-end="url(#dd-harness-mk)"/>
+<path class="e" d="M658 168 L658 92" marker-end="url(#dd-harness-mk)"/>
+<!-- workstation nodes -->
+<rect class="paper" x="28" y="32" width="184" height="60" rx="6"/>
+<rect class="n" x="28" y="32" width="184" height="60" rx="6"/>
+<rect class="tag" x="36" y="38" width="28" height="12" rx="2"/>
+<text class="eb" x="50" y="47" text-anchor="middle" style="letter-spacing:.08em">SH</text>
+<text class="eb" x="204" y="47" text-anchor="end">EXIT 4</text>
+<text class="nm" x="120" y="66" text-anchor="middle">Local checks</text>
+<text class="sub" x="120" y="80" text-anchor="middle">build.py --check + 3 tests</text>
+<rect class="paper" x="260" y="32" width="168" height="60" rx="6"/>
+<rect class="n" x="260" y="32" width="168" height="60" rx="6"/>
+<rect class="tag" x="268" y="38" width="28" height="12" rx="2"/>
+<text class="eb" x="282" y="47" text-anchor="middle" style="letter-spacing:.08em">SH</text>
+<text class="eb" x="420" y="47" text-anchor="end">EXIT 3</text>
+<text class="nm" x="344" y="66" text-anchor="middle">rsync to dbmint</text>
+<text class="sub" x="344" y="80" text-anchor="middle">~/awr_cap_&lt;schema&gt;/</text>
+<rect class="paper" x="564" y="32" width="168" height="60" rx="6"/>
+<rect class="n" x="564" y="32" width="168" height="60" rx="6"/>
+<rect class="tag" x="572" y="38" width="28" height="12" rx="2"/>
+<text class="eb" x="586" y="47" text-anchor="middle" style="letter-spacing:.08em">LOG</text>
+<text class="nm" x="648" y="66" text-anchor="middle">Summary</text>
+<text class="sub" x="648" y="80" text-anchor="middle">RESULT, FAIL, ORA- lines</text>
+<!-- dbmint nodes -->
+<rect class="paper" x="28" y="168" width="156" height="68" rx="6"/>
+<rect class="n-opt" x="28" y="168" width="156" height="68" rx="6"/>
+<rect class="tag" x="36" y="174" width="28" height="12" rx="2"/>
+<text class="eb" x="50" y="183" text-anchor="middle" style="letter-spacing:.08em">SQL</text>
+<text class="nm" x="106" y="202" text-anchor="middle">Load fixtures</text>
+<text class="sub" x="106" y="216" text-anchor="middle">fixture_install.sql</text>
+<text class="sub" x="106" y="228" text-anchor="middle">skipped by --no-fixture</text>
+<rect class="paper" x="212" y="168" width="156" height="68" rx="6"/>
+<rect class="n" x="212" y="168" width="156" height="68" rx="6"/>
+<rect class="tag" x="220" y="174" width="28" height="12" rx="2"/>
+<text class="eb" x="234" y="183" text-anchor="middle" style="letter-spacing:.08em">SQL</text>
+<text class="nm" x="290" y="202" text-anchor="middle">Install the suite</text>
+<text class="sub" x="290" y="216" text-anchor="middle">install.sql</text>
+<text class="sub" x="290" y="228" text-anchor="middle">deploy_mode = fixture</text>
+<rect class="paper" x="396" y="168" width="156" height="68" rx="6"/>
+<rect class="n-focal" x="396" y="168" width="156" height="68" rx="6"/>
+<rect class="tag-acc" x="404" y="174" width="28" height="12" rx="2"/>
+<text class="eb-acc" x="418" y="183" text-anchor="middle" style="letter-spacing:.08em">SQL</text>
+<text class="nm-acc" x="474" y="202" text-anchor="middle">Tier 1 self-check</text>
+<text class="sub" x="474" y="216" text-anchor="middle">run_test.sql</text>
+<text class="sub" x="474" y="228" text-anchor="middle">prints RESULT:</text>
+<rect class="paper" x="580" y="168" width="156" height="68" rx="6"/>
+<rect class="n-opt" x="580" y="168" width="156" height="68" rx="6"/>
+<rect class="tag" x="588" y="174" width="28" height="12" rx="2"/>
+<text class="eb" x="602" y="183" text-anchor="middle" style="letter-spacing:.08em">SQL</text>
+<text class="nm" x="658" y="202" text-anchor="middle">Tier 2 self-check</text>
+<text class="sub" x="658" y="216" text-anchor="middle">train_all + run_test_ml</text>
+<text class="sub" x="658" y="228" text-anchor="middle">only with --ml</text>
+<text class="lgt" x="28" y="260">Each step is one SQL*Plus session (WHENEVER SQLERROR EXIT FAILURE); a non-zero exit stops the run with that status.</text>
+<!-- legend -->
+<line class="rule" x1="12" y1="292" x2="748" y2="292"/>
+<text class="lg" x="12" y="314">LEGEND</text>
+<rect class="n-focal" x="84" y="305" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="315">the test run</text>
+<rect class="n" x="208" y="305" width="16" height="12" rx="3"/>
+<text class="lgt" x="232" y="315">always runs</text>
+<rect class="n-opt" x="320" y="305" width="16" height="12" rx="3"/>
+<text class="lgt" x="344" y="315">a flag skips or adds it</text>
+<text class="eb" x="480" y="314">EXIT n</text>
+<text class="lgt" x="524" y="315">harness exit status when that step fails</text>
+</svg>
+        </div>
+        <figcaption>Steps 1 to 6 below in one script, <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga]</span>. Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>.</figcaption>
+      </figure>
 
       <div class="steps">
 

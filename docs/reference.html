@@ -755,6 +755,81 @@
         collects never copy the same window twice. A failing target is logged and the others go on;
         the call then raises ORA-20070 with the number that failed. The first collect of a DBID copies
         every snapshot the target still holds.</p>
+      <!-- dd:collect -->
+      <figure class="dd-fig">
+      <div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 440" role="img" aria-labelledby="dd-collect-title dd-collect-desc">
+<title id="dd-collect-title">One cap_repo.collect cycle</title>
+<desc id="dd-collect-desc">For each DBID of a target, collect reads the target's snapshot range over the database link, then loops in chunks of 500 snapshots: it locks the DBID's high-water mark, copies the fact rows above it plus the dimension rows into the CAP_H_ copies, moves the mark and commits; it logs OK or ERROR to CAP_COLLECT_LOG, and GAP when snapshots aged out on the target before they were copied.</desc>
+<defs><marker id="dd-collect-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-collect-mk-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-acc" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-collect-mk-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-link" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-collect-mk-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline class="e" points="0 0, 8 3, 0 6"/></marker></defs>
+<rect class="paper" width="760" height="440"/>
+<line class="rule-solid" x1="80" y1="64" x2="80" y2="392" style="stroke-dasharray:3 3"/>
+<line class="rule-solid" x1="232" y1="64" x2="232" y2="392" style="stroke-dasharray:3 3"/>
+<line class="rule-solid" x1="384" y1="64" x2="384" y2="392" style="stroke-dasharray:3 3"/>
+<line class="rule-solid" x1="536" y1="64" x2="536" y2="392" style="stroke-dasharray:3 3"/>
+<line class="rule-solid" x1="688" y1="64" x2="688" y2="392" style="stroke-dasharray:3 3"/>
+<rect class="zone-solid" x="28" y="128" width="544" height="196" rx="4"/>
+<rect class="paper" x="28" y="128" width="40" height="16" rx="2" style="stroke:var(--border-strong)"/>
+<text class="eb" x="48" y="139" text-anchor="middle" style="letter-spacing:.12em">LOOP</text>
+<text class="al" x="96" y="140">[per DBID, 500 snaps]</text>
+<path class="e-link" d="M84 104 L384 104" marker-end="url(#dd-collect-mk-link)"/>
+<rect class="paper" x="274" y="86" width="68" height="12" rx="2"/>
+<text class="al-link" x="308" y="95" text-anchor="middle">SNAP RANGE</text>
+<path class="e" d="M84 184 L228 184" marker-end="url(#dd-collect-mk)"/>
+<rect class="paper" x="120" y="166" width="72" height="12" rx="2"/>
+<text class="al" x="156" y="175" text-anchor="middle">LOCK NOWAIT</text>
+<path class="e dash" d="M228 212 L84 212" marker-end="url(#dd-collect-mk)"/>
+<rect class="paper" x="116" y="194" width="80" height="12" rx="2"/>
+<text class="al" x="156" y="203" text-anchor="middle">LAST_SNAP_ID</text>
+<path class="e-link" d="M384 252 L536 252" marker-end="url(#dd-collect-mk-link)"/>
+<rect class="paper" x="414" y="234" width="92" height="12" rx="2"/>
+<text class="al-link" x="460" y="243" text-anchor="middle">F · D · S ROWS</text>
+<rect class="paper" x="426" y="258" width="68" height="12" rx="2"/>
+<text class="al" x="460" y="267" text-anchor="middle">(HWM, END]</text>
+<path class="e-acc" d="M84 292 L228 292" marker-end="url(#dd-collect-mk-acc)"/>
+<rect class="paper" x="122" y="274" width="68" height="12" rx="2"/>
+<text class="al-acc" x="156" y="283" text-anchor="middle">MARK = END</text>
+<text class="co" x="378" y="316" text-anchor="end">one commit per chunk</text>
+<path class="e dash" d="M84 352 L688 352" marker-end="url(#dd-collect-mk-open)"/>
+<rect class="paper" x="562" y="334" width="100" height="12" rx="2"/>
+<text class="al" x="612" y="343" text-anchor="middle">OK · GAP · ERROR</text>
+<rect class="n-store" x="76" y="88" width="8" height="280" style="stroke-width:.8"/>
+<rect class="n-focal" x="228" y="176" width="8" height="124" style="stroke-width:.8"/>
+<rect class="paper" x="16" y="16" width="128" height="48" rx="6"/>
+<rect class="n" x="16" y="16" width="128" height="48" rx="6"/>
+<text class="nm" x="80" y="37" text-anchor="middle">Collector</text>
+<text class="sub" x="80" y="52" text-anchor="middle">cap_repo.collect</text>
+<rect class="paper" x="168" y="16" width="128" height="48" rx="6"/>
+<rect class="n-focal" x="168" y="16" width="128" height="48" rx="6"/>
+<text class="nm-acc" x="232" y="37" text-anchor="middle">High-water mark</text>
+<text class="sub" x="232" y="52" text-anchor="middle">CAP_TARGET_DBID</text>
+<rect class="paper" x="320" y="16" width="128" height="48" rx="6"/>
+<rect class="n-ext" x="320" y="16" width="128" height="48" rx="6"/>
+<text class="nm" x="384" y="37" text-anchor="middle">Target AWR</text>
+<text class="sub" x="384" y="52" text-anchor="middle">DBA_HIST_*@link</text>
+<rect class="paper" x="472" y="16" width="128" height="48" rx="6"/>
+<rect class="n-store" x="472" y="16" width="128" height="48" rx="6"/>
+<text class="nm" x="536" y="37" text-anchor="middle">AWR copies</text>
+<text class="sub" x="536" y="52" text-anchor="middle">CAP_H_*</text>
+<rect class="paper" x="624" y="16" width="128" height="48" rx="6"/>
+<rect class="n-store" x="624" y="16" width="128" height="48" rx="6"/>
+<text class="nm" x="688" y="37" text-anchor="middle">Collect log</text>
+<text class="sub" x="688" y="52" text-anchor="middle">CAP_COLLECT_LOG</text>
+<line class="rule" x1="12" y1="404" x2="748" y2="404"/>
+<text class="lg" x="12" y="426">LEGEND</text>
+<line class="e-link" x1="84" y1="422" x2="112" y2="422"/>
+<text class="lgt" x="120" y="426">through the database link</text>
+<line class="e-acc" x1="276" y1="422" x2="304" y2="422"/>
+<text class="lgt" x="312" y="426">moves the high-water mark</text>
+<line class="e dash" x1="464" y1="422" x2="492" y2="422"/>
+<text class="lgt" x="500" y="426">a reply, or a row in the log</text>
+</svg>
+      </div>
+      </figure>
+      <!-- /dd:collect -->
       <div class="tablewrap">
         <table>
           <caption>Operating the fleet: cap_repo calls, as the owner</caption>
@@ -799,6 +874,60 @@
         <h2>The load order</h2>
         <p>Each step depends only on the ones above it.</p>
       </div>
+      <!-- dd:load -->
+      <figure class="dd-fig">
+      <div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 412" role="img" aria-labelledby="dd-load-title dd-load-desc">
+<title id="dd-load-title">install.sql load order</title>
+<desc id="dd-load-desc">install.sql loads six layers bottom to top: configuration, the seam file chosen by deploy_mode, daily series, forecasts and anomalies, report views with Tier 2, and the results layer; the persisted tables live in the configuration, seam (repository mode), Tier 2 and results steps, and 00_drop runs first without touching them.</desc>
+<defs><marker id="dd-load-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker></defs>
+<rect class="paper" width="760" height="412"/>
+<path class="e" d="M32 328 L32 36" marker-end="url(#dd-load-mk)"/>
+<text class="eb" x="32" y="26" text-anchor="middle">LAST</text>
+<text class="eb" x="32" y="344" text-anchor="middle">FIRST</text>
+<rect x="64" y="24" width="684" height="312" rx="6" style="fill:none;stroke:var(--muted);stroke-width:1"/>
+<text class="eb" x="80" y="54">60</text>
+<text class="nm" x="156" y="48">Results</text>
+<text class="sub" x="156" y="63">cap_results · 7 CAPR_ views</text>
+<rect class="n-store" x="396" y="40" width="340" height="20" rx="4"/>
+<text class="sub" x="728" y="53" text-anchor="end" style="fill:var(--text)">CAP_RUN · CAP_FIT_HIST · CAP_ALERT_STATE · CAP_ALERT_EVENT</text>
+<line class="rule" x1="64" y1="76" x2="748" y2="76"/>
+<text class="eb" x="80" y="106">45 50 55</text>
+<text class="nm" x="156" y="100">Report views and Tier 2</text>
+<text class="sub" x="156" y="115">CAPR_ (45, 55) · Tier 2 ESM (50)</text>
+<rect class="n-store" x="652" y="92" width="84" height="20" rx="4"/>
+<text class="sub" x="728" y="105" text-anchor="end" style="fill:var(--text)">CAP_ML_MODEL</text>
+<line class="rule" x1="64" y1="128" x2="748" y2="128"/>
+<text class="eb" x="80" y="158">30 35 40</text>
+<text class="nm" x="156" y="152">Forecasts and anomalies</text>
+<text class="sub" x="156" y="167">CAPF_ · CAPA_</text>
+<line class="rule" x1="64" y1="180" x2="748" y2="180"/>
+<text class="eb" x="80" y="210">20 25</text>
+<text class="nm" x="156" y="204">Daily series</text>
+<text class="sub" x="156" y="219">CAPD_ · overrides applied here</text>
+<rect class="n-focal" x="64" y="232" width="684" height="52"/>
+<text class="eb-acc" x="80" y="262">10 13 12</text>
+<text class="nm-acc" x="156" y="256">Seam, one file per deploy_mode</text>
+<text class="sub" x="156" y="271">CAPV_ · local | repository | fixture</text>
+<rect class="n-store" x="400" y="248" width="336" height="20" rx="4"/>
+<text class="sub" x="728" y="261" text-anchor="end" style="fill:var(--text)">repository: CAP_TARGET[_DBID] · CAP_COLLECT_LOG · CAP_H_*</text>
+<line class="rule" x1="64" y1="284" x2="748" y2="284"/>
+<text class="eb" x="80" y="314">05</text>
+<text class="nm" x="156" y="308">Configuration</text>
+<text class="sub" x="156" y="323">CAP_CFG · CAP_CFG_CHECK</text>
+<rect class="n-store" x="544" y="300" width="192" height="20" rx="4"/>
+<text class="sub" x="728" y="313" text-anchor="end" style="fill:var(--text)">CAP_CONFIG · CAP_TBSPC_OVERRIDE</text>
+<text class="sub" x="64" y="360">00_drop.sql runs before 05: it drops every view and keeps every table in a chip.</text>
+<line class="rule" x1="12" y1="376" x2="748" y2="376"/>
+<text class="lg" x="12" y="398">LEGEND</text>
+<rect class="n-store" x="84" y="389" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="399">persisted table: survives a re-install</text>
+<rect class="n-focal" x="336" y="389" width="16" height="12" rx="3"/>
+<text class="lgt" x="360" y="399">the one step deploy_mode chooses</text>
+</svg>
+      </div>
+      </figure>
+      <!-- /dd:load -->
       <div class="tablewrap">
         <table>
           <caption>install.sql — the twelve steps</caption>
@@ -886,6 +1015,139 @@
           </tbody>
         </table>
       </div>
+      <!-- dd:tables -->
+      <figure class="dd-fig">
+      <div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 424" role="img" aria-labelledby="dd-tables-title dd-tables-desc">
+<title id="dd-tables-title">Persisted tables and their keys</title>
+<desc id="dd-tables-desc">The results layer: every refresh run in CAP_RUN snapshots its fits into CAP_FIT_HIST and logs alert events in CAP_ALERT_EVENT, each event belonging to one CAP_ALERT_STATE row. The repository registry: CAP_TARGET owns its DBIDs in CAP_TARGET_DBID (the one declared foreign key), each DBID's high-water mark bounds its CAP_H_ copies, and CAP_COLLECT_LOG refers to targets by name.</desc>
+<defs></defs>
+<rect class="paper" width="760" height="424"/>
+<text class="eb" x="16" y="20">RESULTS LAYER · DDL/60_RESULTS.SQL · WRITTEN BY CAP_RESULTS</text>
+<path class="e dash" d="M168 46 L208 46"/>
+<rect class="paper" x="173" y="28" width="10" height="12" rx="2"/>
+<text class="al" x="178" y="37" text-anchor="middle">N</text>
+<rect class="paper" x="193" y="28" width="10" height="12" rx="2"/>
+<text class="al" x="198" y="37" text-anchor="middle">1</text>
+<path class="e dash" d="M360 46 L400 46"/>
+<rect class="paper" x="365" y="28" width="10" height="12" rx="2"/>
+<text class="al" x="370" y="37" text-anchor="middle">1</text>
+<rect class="paper" x="385" y="28" width="10" height="12" rx="2"/>
+<text class="al" x="390" y="37" text-anchor="middle">N</text>
+<path class="e dash" d="M552 46 L592 46"/>
+<rect class="paper" x="557" y="28" width="10" height="12" rx="2"/>
+<text class="al" x="562" y="37" text-anchor="middle">N</text>
+<rect class="paper" x="577" y="28" width="10" height="12" rx="2"/>
+<text class="al" x="582" y="37" text-anchor="middle">1</text>
+<rect class="paper" x="16" y="32" width="152" height="150" rx="6"/>
+<rect class="n" x="16" y="32" width="152" height="150" rx="6"/>
+<text class="nm" x="92" y="50" text-anchor="middle">CAP_FIT_HIST</text>
+<line class="rule" x1="16" y1="60" x2="168" y2="60"/>
+<text class="sub" x="28" y="76" style="fill:var(--text)"># → run_id</text>
+<text class="sub" x="28" y="90" style="fill:var(--text)"># kind</text>
+<text class="sub" x="28" y="104" style="fill:var(--text)"># dbid</text>
+<text class="sub" x="28" y="118" style="fill:var(--text)"># con_dbid</text>
+<text class="sub" x="28" y="132" style="fill:var(--text)"># series</text>
+<text class="sub" x="28" y="146">days_to_full</text>
+<text class="sub" x="28" y="160">quality</text>
+<text class="sub" x="28" y="174">sev</text>
+<rect class="paper" x="208" y="32" width="152" height="122" rx="6"/>
+<rect class="n-focal" x="208" y="32" width="152" height="122" rx="6"/>
+<text class="nm-acc" x="284" y="50" text-anchor="middle">CAP_RUN</text>
+<line class="rule" x1="208" y1="60" x2="360" y2="60"/>
+<text class="sub" x="220" y="76" style="fill:var(--text)"># run_id</text>
+<text class="sub" x="220" y="90">as_of_day</text>
+<text class="sub" x="220" y="104">status</text>
+<text class="sub" x="220" y="118">n_fit</text>
+<text class="sub" x="220" y="132">n_alert</text>
+<text class="sub" x="220" y="146">n_event</text>
+<rect class="paper" x="400" y="32" width="152" height="122" rx="6"/>
+<rect class="n" x="400" y="32" width="152" height="122" rx="6"/>
+<text class="nm" x="476" y="50" text-anchor="middle">CAP_ALERT_EVENT</text>
+<line class="rule" x1="400" y1="60" x2="552" y2="60"/>
+<text class="sub" x="412" y="76" style="fill:var(--text)"># event_id</text>
+<text class="sub" x="412" y="90">→ run_id</text>
+<text class="sub" x="412" y="104">→ state_key</text>
+<text class="sub" x="412" y="118">alert_key</text>
+<text class="sub" x="412" y="132">event</text>
+<text class="sub" x="412" y="146">severity</text>
+<rect class="paper" x="592" y="32" width="152" height="122" rx="6"/>
+<rect class="n" x="592" y="32" width="152" height="122" rx="6"/>
+<text class="nm" x="668" y="50" text-anchor="middle">CAP_ALERT_STATE</text>
+<line class="rule" x1="592" y1="60" x2="744" y2="60"/>
+<text class="sub" x="604" y="76" style="fill:var(--text)"># state_key</text>
+<text class="sub" x="604" y="90">state</text>
+<text class="sub" x="604" y="104">cur_severity</text>
+<text class="sub" x="604" y="118">max_severity</text>
+<text class="sub" x="604" y="132">last_run_id</text>
+<text class="sub" x="604" y="146">ack_until</text>
+<text class="eb" x="16" y="212">REPOSITORY MODE · REPOSITORY/CAP_REPO.SQL · WRITTEN BY CAP_REPO</text>
+<path class="e dash" d="M168 238 L208 238"/>
+<rect class="paper" x="173" y="220" width="10" height="12" rx="2"/>
+<text class="al" x="178" y="229" text-anchor="middle">N</text>
+<rect class="paper" x="193" y="220" width="10" height="12" rx="2"/>
+<text class="al" x="198" y="229" text-anchor="middle">1</text>
+<path class="e" d="M360 238 L400 238"/>
+<rect class="paper" x="365" y="220" width="10" height="12" rx="2"/>
+<text class="al" x="370" y="229" text-anchor="middle">1</text>
+<rect class="paper" x="385" y="220" width="10" height="12" rx="2"/>
+<text class="al" x="390" y="229" text-anchor="middle">N</text>
+<path class="e dash" d="M552 238 L592 238"/>
+<rect class="paper" x="557" y="220" width="10" height="12" rx="2"/>
+<text class="al" x="562" y="229" text-anchor="middle">1</text>
+<rect class="paper" x="577" y="220" width="10" height="12" rx="2"/>
+<text class="al" x="582" y="229" text-anchor="middle">N</text>
+<rect class="paper" x="16" y="224" width="152" height="150" rx="6"/>
+<rect class="n" x="16" y="224" width="152" height="150" rx="6"/>
+<text class="nm" x="92" y="242" text-anchor="middle">CAP_COLLECT_LOG</text>
+<line class="rule" x1="16" y1="252" x2="168" y2="252"/>
+<text class="sub" x="28" y="268" style="fill:var(--text)"># log_id</text>
+<text class="sub" x="28" y="282">logged_at</text>
+<text class="sub" x="28" y="296">→ target_name</text>
+<text class="sub" x="28" y="310">dbid</text>
+<text class="sub" x="28" y="324">status</text>
+<text class="sub" x="28" y="338">snap_from</text>
+<text class="sub" x="28" y="352">snap_to</text>
+<text class="sub" x="28" y="366">n_rows</text>
+<rect class="paper" x="208" y="224" width="152" height="122" rx="6"/>
+<rect class="n" x="208" y="224" width="152" height="122" rx="6"/>
+<text class="nm" x="284" y="242" text-anchor="middle">CAP_TARGET</text>
+<line class="rule" x1="208" y1="252" x2="360" y2="252"/>
+<text class="sub" x="220" y="268" style="fill:var(--text)"># target_id</text>
+<text class="sub" x="220" y="282">target_name</text>
+<text class="sub" x="220" y="296">db_link</text>
+<text class="sub" x="220" y="310">link_owned</text>
+<text class="sub" x="220" y="324">enabled</text>
+<text class="sub" x="220" y="338">added_at</text>
+<rect class="paper" x="400" y="224" width="152" height="108" rx="6"/>
+<rect class="n-focal" x="400" y="224" width="152" height="108" rx="6"/>
+<text class="nm-acc" x="476" y="242" text-anchor="middle">CAP_TARGET_DBID</text>
+<line class="rule" x1="400" y1="252" x2="552" y2="252"/>
+<text class="sub" x="412" y="268" style="fill:var(--text)"># dbid</text>
+<text class="sub" x="412" y="282">→ target_id</text>
+<text class="sub" x="412" y="296">last_snap_id (HWM)</text>
+<text class="sub" x="412" y="310">first_seen</text>
+<text class="sub" x="412" y="324">last_collect</text>
+<rect class="paper" x="592" y="224" width="152" height="80" rx="6"/>
+<rect class="n" x="592" y="224" width="152" height="80" rx="6"/>
+<text class="nm" x="668" y="242" text-anchor="middle">CAP_H_*</text>
+<line class="rule" x1="592" y1="252" x2="744" y2="252"/>
+<text class="sub" x="604" y="268">→ dbid</text>
+<text class="sub" x="604" y="282">snap_id</text>
+<text class="sub" x="604" y="296">the view's columns</text>
+<line class="rule" x1="12" y1="392" x2="748" y2="392"/>
+<text class="lg" x="12" y="414">LEGEND</text>
+<text class="sub" x="84" y="414" style="fill:var(--text)"># key</text>
+<text class="sub" x="132" y="414">→ refers to</text>
+<line class="e" x1="216" y1="410" x2="244" y2="410"/>
+<text class="lgt" x="252" y="414">foreign key constraint</text>
+<line class="e dash" x1="392" y1="410" x2="420" y2="410"/>
+<text class="lgt" x="428" y="414">logical key, no constraint</text>
+<text class="lgt" x="584" y="414">1 / N: cardinality</text>
+</svg>
+      </div>
+      </figure>
+      <!-- /dd:tables -->
       <p>Writing <span class="inline">CAP_TBSPC_OVERRIDE</span> rows: <a href="usage.html#override">Usage</a>.</p>
 
       <!-- ===================== JOBS ===================== -->
