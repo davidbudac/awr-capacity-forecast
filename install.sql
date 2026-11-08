@@ -35,6 +35,8 @@
 -- CAP_ALERT_EVENT) all survive a re-install: ddl/00_drop drops views only.
 -- No AWR object is modified.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/install.sql"
 SET DEFINE '&'
 SET VERIFY   OFF
 SET FEEDBACK OFF
@@ -92,31 +94,43 @@ END;
 -- Layered DDL, in dependency order. @@ resolves relative to this file's dir.
 -- --------------------------------------------------------------------
 PROMPT -- [00] drop any prior install ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/00_drop')
 @@ddl/00_drop.sql
 PROMPT -- [05] CAP_CONFIG + seed ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/05_config')
 @@ddl/05_config.sql
 -- The included DDL files each SET DEFINE OFF (so literal text is never treated
 -- as a substitution). Restore '&' here so &seam_script resolves for the @@ include.
 SET DEFINE '&'
 PROMPT -- [seam] &seam_script ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('seam')
 @@&seam_script
 PROMPT -- [20] daily series (CAPD_*) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/20_daily_views')
 @@ddl/20_daily_views.sql
 PROMPT -- [25] fixed-ceiling series (CAPD_SERIES_DAILY: processes/sessions, redo, DB size) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/25_series_daily')
 @@ddl/25_series_daily.sql
 PROMPT -- [30] Tier 1 forecasts (CAPF_*) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/30_forecast_views')
 @@ddl/30_forecast_views.sql
 PROMPT -- [35] fixed-ceiling series forecast (CAPF_SERIES_FORECAST) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/35_series_forecast')
 @@ddl/35_series_forecast.sql
 PROMPT -- [40] anomalies (CAPA_*) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/40_anomaly_views')
 @@ddl/40_anomaly_views.sql
 PROMPT -- [45] integration/report layer (CAPR_CONTAINER, CAPR_ANOMALIES, CAPR_SEVERITY, CAPR_FIT, sections) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/45_report_views')
 @@ddl/45_report_views.sql
 PROMPT -- [50] Tier 2 OML ESM (CAP_ML_MODEL + package + CAPF_ESM/COMPARE) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/50_ml')
 @@ddl/50_ml.sql
 PROMPT -- [55] report views that need Tier 2 (CAPR_TBSPC_FORECAST/ESM_COMPARE/BACKTEST/FORECAST_POINTS + CAPR_ALERTS) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/55_report_views_ml')
 @@ddl/55_report_views_ml.sql
 PROMPT -- [60] results layer (CAP_RUN/FIT_HIST/ALERT_STATE/ALERT_EVENT + CAP_RESULTS + CAPR_ALERTS_LATEST etc) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/60_results')
 @@ddl/60_results.sql
 
 -- --------------------------------------------------------------------

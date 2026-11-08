@@ -30,6 +30,8 @@
 -- Each data block is read inside its own exception handler: a failing view
 -- leaves its block empty, and the page names the failed block.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/report/report_html.sql"
 SET DEFINE '&'
 SET VERIFY     OFF
 SET FEEDBACK   OFF

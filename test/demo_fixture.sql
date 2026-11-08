@@ -50,6 +50,8 @@
 --   SQL> @report/report.sql
 --   SQL> @report/report_html.sql
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/test/demo_fixture.sql"
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED
 WHENEVER SQLERROR EXIT FAILURE

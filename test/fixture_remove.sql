@@ -5,6 +5,8 @@
 -- created over them (fixture mode) are left as-is; re-install in local mode
 -- (or run uninstall.sql) to fully clean up.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/test/fixture_remove.sql"
 SET DEFINE OFF
 DECLARE
     TYPE nl IS TABLE OF VARCHAR2(30);

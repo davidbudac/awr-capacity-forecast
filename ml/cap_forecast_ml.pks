@@ -107,5 +107,10 @@ CREATE OR REPLACE PACKAGE cap_forecast_ml AS
     -- lateral-joins this over CAP_ML_MODEL.
     FUNCTION get_forecast(p_model IN VARCHAR2) RETURN cap_esm_tab PIPELINED;
 
+    -- Every train_* procedure and drop_all labels its session MODULE
+    -- 'AWRCAP/cap_forecast_ml.<name>', ACTION the phase (tablespaces, cpu,
+    -- backtest ...) and, while build_model runs, the model name; the caller's
+    -- MODULE / ACTION come back when it returns or raises.
+
 END cap_forecast_ml;
 /

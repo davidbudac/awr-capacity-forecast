@@ -11,6 +11,8 @@
 -- CAP_FIXTURE_* test tables are not the suite's; test/fixture_remove.sql
 -- drops them. The closing count lists them separately.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/uninstall.sql"
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED FORMAT WRAPPED
 SET FEEDBACK OFF

@@ -50,6 +50,8 @@
 -- tablespace untouched; the quota and grants are re-applied. Exits non-zero if
 -- any statement failed.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/create_owner.sql"
 SET DEFINE '&'
 SET VERIFY   OFF
 SET FEEDBACK OFF

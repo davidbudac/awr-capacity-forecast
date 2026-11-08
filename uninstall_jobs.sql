@@ -7,6 +7,8 @@
 -- nothing else -- the suite's views, tables and OML models are untouched
 -- (use uninstall.sql for those).
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/uninstall_jobs.sql"
 SET DEFINE OFF
 SET VERIFY   OFF
 SET FEEDBACK OFF

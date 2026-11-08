@@ -1232,6 +1232,57 @@
         Re-running <span class="inline">install_jobs.sql</span> drops and recreates the jobs, disabled.</p>
       </div>
 
+      <!-- ===================== SESSION LABELS ===================== -->
+      <div class="section-head" id="labels">
+        <span class="eyebrow">Operations</span>
+        <h2>Session labels</h2>
+        <p>Every session the suite runs sets <span class="inline">MODULE</span> to <code>AWRCAP/…</code>,
+          so <span class="inline">V$SESSION</span>, ASH and the AWR SQL statistics show what the suite is doing and which step.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <caption>MODULE, ACTION and CLIENT_IDENTIFIER by caller</caption>
+          <thead><tr><th scope="col">Caller</th><th scope="col">MODULE</th><th scope="col">ACTION</th><th scope="col">CLIENT_IDENTIFIER</th></tr></thead>
+          <tbody>
+            <tr><td>A SQL*Plus script (install, doctor, reports, export, target, tests)</td><td class="def"><code>AWRCAP/&lt;script path&gt;</code>, e.g. <code>AWRCAP/report/report.sql</code></td><td class="def"><span class="inline">install.sql</span>: the DDL file; <span class="inline">report.sql</span>: the section; <span class="inline">report_csv.sql</span>: the view</td><td class="def">untouched</td></tr>
+            <tr><td><span class="inline">install.sh</span></td><td class="def"><code>AWRCAP/install.sh</code>, then each script it runs</td><td class="def">as the script</td><td class="def">untouched</td></tr>
+            <tr><td>A suite procedure (<span class="inline">cap_results</span>, <span class="inline">cap_forecast_ml</span>, <span class="inline">cap_repo</span>, <span class="inline">cap_report_spool</span>)</td><td class="def"><code>AWRCAP/&lt;package&gt;.&lt;procedure&gt;</code>, e.g. <code>AWRCAP/cap_results.refresh</code></td><td class="def">the step: <code>fit snapshot</code>, <code>merge alerts</code>; the OML model being built; the target and DBID being copied</td><td class="def">untouched</td></tr>
+            <tr><td>A scheduler job</td><td class="def">as the procedure it calls</td><td class="def">as the procedure</td><td class="def">the job name, e.g. <code>CAP_REFRESH_JOB</code></td></tr>
+            <tr><td>The target's session behind a repository link</td><td class="def">the repository session's MODULE</td><td class="def"><code>from &lt;owner&gt;@&lt;container&gt;</code> of the repository</td><td class="def">untouched</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">sqlplus · where the suite runs</span><span class="term__tag in">you run</span></div>
+<pre><span class="c-cmt">-- the suite's last hour, by step</span>
+SELECT module, action, client_id, COUNT(*) AS samples
+FROM   v$active_session_history
+WHERE  sample_time &gt; SYSTIMESTAMP - INTERVAL '1' HOUR
+  AND  module LIKE 'AWRCAP/%'
+GROUP  BY module, action, client_id
+ORDER  BY samples DESC;
+
+<span class="c-cmt">-- trace the next run of one job</span>
+EXEC DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_REFRESH_JOB')</pre>
+      </div>
+
+      <div class="callout">
+        <span class="ico">i</span>
+        <p><strong>The caller's labels come back.</strong> A suite procedure puts the caller's
+        MODULE and ACTION back when it returns or raises, so calling one from your own session or
+        application does not relabel it. A SQL*Plus script leaves its own label on the session.
+        Scripts run <code>SET APPINFO OFF</code> first, so a <span class="inline">glogin.sql</span> with
+        <code>SET APPINFO ON</code> cannot replace the label with each nested script's name.
+        The scheduler clears the job's CLIENT_IDENTIFIER between runs.</p>
+        <p><strong>On a target</strong> the label goes over the link through
+        <span class="inline">DBMS_APPLICATION_INFO</span>, which the reader can execute through the stock
+        PUBLIC grant. A target that revoked that grant shows the session unlabelled; collection is not affected.
+        APEX labels its own sessions (<code>APEX:APP …</code>). The ORDS handlers are not labelled by the suite.</p>
+      </div>
+
       <!-- ===================== DRIVERS ===================== -->
       <div class="section-head" id="drivers">
         <span class="eyebrow">Consumers</span>

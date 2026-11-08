@@ -22,6 +22,8 @@
 -- skipped, and so are the three clock columns (SYSDATE minus a stored time:
 -- AGE_HOURS, AGE_DAYS, LAST_OK_AGE_HOURS), which differ between any two runs.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/test/parity_fingerprint.sql"
 SET DEFINE '&'
 SET VERIFY OFF
 SET FEEDBACK OFF

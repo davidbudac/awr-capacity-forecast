@@ -25,6 +25,8 @@
 -- The Diagnostics Pack is still required on the target: the repository reads
 -- its AWR.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/target/prepare.sql"
 SET DEFINE '&'
 SET VERIFY   OFF
 SET FEEDBACK OFF

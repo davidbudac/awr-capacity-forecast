@@ -12,6 +12,8 @@
 -- A blank password leaves an existing account untouched, so re-running
 -- against a configured workspace changes nothing; a missing account is only
 -- created when it gets a password.
+set appinfo off
+set appinfo "AWRCAP/apex/workspace.sql"
 set define '&' verify off feedback off serveroutput on
 whenever sqlerror exit sql.sqlcode rollback
 column 1 new_value 1 noprint

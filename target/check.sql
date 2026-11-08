@@ -13,6 +13,8 @@
 -- The proof that the repository can read through its link is
 -- cap_repo.add_target, which probes every view over the link.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/target/check.sql"
 SET DEFINE '&'
 SET VERIFY   OFF
 SET FEEDBACK OFF

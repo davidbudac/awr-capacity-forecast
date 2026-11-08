@@ -37,6 +37,12 @@
 --   CAP_PURGE_JOB     daily (01:00) cap_repo.purge -- delete the copies older
 --                     than repo_retention_days, before the 01:30 refresh.
 --
+-- Session labels. The procedure a job calls sets MODULE 'AWRCAP/<procedure>'
+-- and ACTION its step. Each job_action first sets CLIENT_IDENTIFIER to the
+-- job name (the scheduler resets it between runs, verified 19c). So
+-- V$SESSION and ASH (CLIENT_ID) show which job is running what, and
+-- DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_REFRESH_JOB') traces that job.
+--
 -- Why the "_JOB" suffix: DBMS_SCHEDULER jobs live in the SAME schema
 -- namespace as procedures, so a job called CAP_REPORT_SPOOL beside a
 -- procedure of that name fails with ORA-27477 "already exists" (verified on
@@ -77,6 +83,8 @@
 --
 -- Remove everything with @uninstall_jobs.sql.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/install_jobs.sql"
 SET DEFINE '&'
 SET VERIFY   OFF
 SET FEEDBACK OFF
@@ -182,6 +190,8 @@ AS
     l_tot   PLS_INTEGER := 0;
     l_run   NUMBER;
     l_targets VARCHAR2(4000);
+    l_mod   VARCHAR2(64);
+    l_act   VARCHAR2(64);
 
     PROCEDURE alert_line(p_sev VARCHAR2, p_kind VARCHAR2, p_db VARCHAR2, p_key VARCHAR2,
                          p_day DATE, p_val NUMBER, p_thr NUMBER, p_unit VARCHAR2, p_msg VARCHAR2) IS
@@ -198,6 +208,8 @@ AS
             NVL(p_msg, '-'));
     END alert_line;
 BEGIN
+    DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+    DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_report_spool', 'count alerts');
     SELECT MAX(run_id) INTO l_run FROM cap_run WHERE status = 'OK' AND backdated = 'N';
     IF l_run IS NOT NULL THEN
         SELECT COUNT(CASE WHEN severity = 'CRIT' THEN 1 END),
@@ -215,6 +227,7 @@ BEGIN
         FROM   capr_alerts;
     END IF;
 
+    DBMS_APPLICATION_INFO.SET_ACTION('write file');
     l_f := UTL_FILE.FOPEN(UPPER(p_dir), c_file, 'w', 32767);
 
     UTL_FILE.PUT_LINE(l_f, '# AWR Capacity Forecast -- alert snapshot');
@@ -300,11 +313,13 @@ BEGIN
     END IF;
 
     UTL_FILE.FCLOSE(l_f);
+    DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
 EXCEPTION
     WHEN OTHERS THEN
         IF UTL_FILE.IS_OPEN(l_f) THEN
             UTL_FILE.FCLOSE(l_f);
         END IF;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
         RAISE;
 END cap_report_spool;
 /
@@ -366,7 +381,7 @@ BEGIN
     DBMS_SCHEDULER.CREATE_JOB(
         job_name        => 'CAP_REFRESH_JOB',
         job_type        => 'PLSQL_BLOCK',
-        job_action      => 'BEGIN cap_results.refresh; END;',
+        job_action      => 'BEGIN DBMS_SESSION.SET_IDENTIFIER(''CAP_REFRESH_JOB''); cap_results.refresh; END;',
         start_date      => SYSTIMESTAMP,
         repeat_interval => '&refresh_interval',
         enabled         => FALSE,
@@ -383,7 +398,7 @@ BEGIN
     DBMS_SCHEDULER.CREATE_JOB(
         job_name        => 'CAP_ML_RETRAIN',
         job_type        => 'PLSQL_BLOCK',
-        job_action      => 'BEGIN cap_forecast_ml.train_all; END;',
+        job_action      => 'BEGIN DBMS_SESSION.SET_IDENTIFIER(''CAP_ML_RETRAIN''); cap_forecast_ml.train_all; END;',
         start_date      => SYSTIMESTAMP,
         repeat_interval => '&retrain_interval',
         enabled         => FALSE,
@@ -398,7 +413,7 @@ BEGIN
     DBMS_SCHEDULER.CREATE_JOB(
         job_name        => 'CAP_REPORT_SPOOL_JOB',
         job_type        => 'PLSQL_BLOCK',
-        job_action      => 'BEGIN cap_report_spool(''&report_dir''); END;',
+        job_action      => 'BEGIN DBMS_SESSION.SET_IDENTIFIER(''CAP_REPORT_SPOOL_JOB''); cap_report_spool(''&report_dir''); END;',
         start_date      => SYSTIMESTAMP,
         repeat_interval => 'FREQ=DAILY;BYHOUR=3;BYMINUTE=0;BYSECOND=0',
         enabled         => FALSE,
@@ -417,7 +432,7 @@ BEGIN
     DBMS_SCHEDULER.CREATE_JOB(
         job_name        => 'CAP_COLLECT_JOB',
         job_type        => 'PLSQL_BLOCK',
-        job_action      => 'BEGIN cap_repo.collect; END;',
+        job_action      => 'BEGIN DBMS_SESSION.SET_IDENTIFIER(''CAP_COLLECT_JOB''); cap_repo.collect; END;',
         start_date      => SYSTIMESTAMP,
         repeat_interval => '&collect_interval',
         enabled         => FALSE,
@@ -427,7 +442,7 @@ BEGIN
     DBMS_SCHEDULER.CREATE_JOB(
         job_name        => 'CAP_PURGE_JOB',
         job_type        => 'PLSQL_BLOCK',
-        job_action      => 'BEGIN cap_repo.purge; END;',
+        job_action      => 'BEGIN DBMS_SESSION.SET_IDENTIFIER(''CAP_PURGE_JOB''); cap_repo.purge; END;',
         start_date      => SYSTIMESTAMP,
         repeat_interval => 'FREQ=DAILY;BYHOUR=1;BYMINUTE=0;BYSECOND=0',
         enabled         => FALSE,

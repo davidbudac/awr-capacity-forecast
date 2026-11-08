@@ -12,6 +12,8 @@
 -- Read-only: SELECTs only. Every document carries "id" (MD5 of its natural
 -- key), which ship.sh moves into _id so re-exports overwrite in place.
 --
+SET APPINFO OFF
+SET APPINFO "AWRCAP/elk/export_capacity.sql"
 SET DEFINE ON
 SET VERIFY OFF
 SET FEEDBACK OFF
