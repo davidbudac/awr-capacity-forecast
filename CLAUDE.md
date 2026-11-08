@@ -30,9 +30,9 @@ for making changes safely.
   parses CLIENT_INFO `AWRCAP dbid=<n>`, which `report/scope.sql` sets and
   each report driver clears at its end; `cap_results.refresh` and the
   `cap_forecast_ml` trainers clear one they find (a writer reads every
-  database). No predicate placed above the seam survives the fleet-wide
-  ROW_NUMBERs, `kind_last_day` windows and materialized CTEs downstream
-  (19.27 plans: 35 of 64 views read copies unscoped under `WHERE dbid =`),
+  database). No predicate placed above the seam survives the materialized
+  CTEs downstream (19.27 plans before M24.13's per-dbid windows: 35 of 64
+  views read copies unscoped under `WHERE dbid =`),
   so the scope lives at the bottom. `test/scope_plan.sql` EXPLAINs every view
   and counts seam reads without the CLIENT_INFO lookup (must be 0);
   run_test.sql asserts it for the CAPV views. The optimizer estimates the
@@ -62,6 +62,12 @@ for making changes safely.
   `nearfull_warn_pct` / `nearfull_crit_pct` (NULL = the knob), applied once in
   `CAPD_TBSPC_DAILY`; `dbid`/`con_dbid` `0` are wildcards and the most
   specific matching row wins.
+- **Per database, never across targets (M24.13).** Every analytic window
+  in ddl/20..ddl/55 partitions by `dbid` (ranks, `kind_last_day`), and a
+  view's per-row anchor (`days_ago`) correlates on the row's dbid. A fleet
+  report lists the top `top_n` of each database, grouped by dbid, and one
+  target's numbers never depend on another's. `test/lint_dbid_windows.sh`
+  enforces the windows (allow list: keys that embed the dbid).
 - **APEX contract.** `apex/build.py` selects `CAPR_SERIES_POINTS`,
   `CAPR_FORECAST_POINTS`, `CAPR_FIT`, `CAPR_ANOMALIES`, `CAPR_ALERTS` and
   `CAPR_CONTAINER` by named column. Only ADD columns to these six views; never
@@ -117,7 +123,7 @@ valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 (read by `CAPR_ALERTS` in ddl/55), `CAPR_SERIES_ANOMALIES`, `CAPR_HOURLY_POINTS`.
 `CAPA_TBSPC_ANOM` / `CAPA_CPU_ANOM` are gone (still in `00_drop` so an upgrade
 removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
-`test/lint_anom_joins.sh` and `test/lint_appinfo.sh`, syncs and runs the whole fixture harness on dbmint.
+`test/lint_anom_joins.sh`, `test/lint_appinfo.sh` and `test/lint_dbid_windows.sh`, syncs and runs the whole fixture harness on dbmint.
 `test/docs_lint.sh` checks the docs against the DDL (knobs, object index,
 alert kinds, no assertion counts, no "generated" claim, every `CREATE TABLE`
 in ddl/ + repository/ plus `CAP_H_*` named in reference.html#tables and in

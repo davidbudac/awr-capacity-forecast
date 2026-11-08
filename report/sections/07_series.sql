@@ -72,7 +72,7 @@ SELECT db_pdb,
 FROM   capr_series
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY rank_series;
+ORDER  BY dbid, rank_series;
 
 PROMPT
 PROMPT == 7b. SERIES ANOMALIES (last &anomaly_days days) ==
@@ -110,4 +110,4 @@ FROM   capr_series_anomalies
 WHERE  days_ago < &anomaly_days
   AND  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY days_ago, con_dbid, series, mode_rank;
+ORDER  BY dbid, days_ago, con_dbid, series, mode_rank;

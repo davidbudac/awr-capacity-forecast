@@ -128,8 +128,9 @@ one DB link per target and runs everything else. The choices, made
   query inside its own INSERT into work that re-read the fleet per series
   (`train_all` quadratic; fixed by staging each series in `CAP_ML_INPUT`),
   and `add_by_day` overflowed the DATE range on a near-zero slope (every
-  `days_to_*` now reads NULL past 9999-12-31). A `--target` report still
-  costs a fleet report, because the section views rank across targets.
+  `days_to_*` now reads NULL past 9999-12-31). M24.11 made a `--target`
+  report cost one target, and M24.13 ranks per database, never across
+  targets.
 
 A warehouse mode, a seam over the `../awr-fleet-warehouse` collector,
 predated M24. M24.9 retired it, so repository mode is the one fleet path;
@@ -1500,10 +1501,12 @@ optional and, like the report drivers, never prompt.
 positional arguments: `[top_n] [anomaly_days] [show_esm] [dbid] [con_dbid]
 [source]`. A `-` skips any of them. With a dbid and/or con_dbid every
 section filters on them and the header prints the scope with the container
-labels. The views' `rank_*` columns are fleet-wide, so the drivers re-number
-them inside the scope with `ROW_NUMBER() OVER (ORDER BY rank_*)`: the same
-order, `top_n` counted inside the scope, identical to `rank_*` when no scope
-is given. Section 6a joins section 2's scoped rank, so both list the same
+labels. The views' `rank_*` columns count per database (M24.13: `PARTITION
+BY dbid`, never across targets), and the drivers re-number them inside the
+scope with `ROW_NUMBER() OVER (PARTITION BY dbid ORDER BY rank_*)`: the same
+order, `top_n` counted per database inside the scope, identical to `rank_*`
+when no container is given. An unscoped fleet report lists the top `top_n`
+of each database, grouped by database. Section 6a joins section 2's scoped rank, so both list the same
 tablespaces. `source` is `LIVE` (default) or `SNAPSHOT`: SNAPSHOT reads the
 alert list from `CAPR_ALERTS_LATEST`, the section 1 and 7 tables from
 `CAPR_FIT_HISTORY` of the newest OK live refresh run, and prints the

@@ -823,6 +823,14 @@ Decided 2026-11-07:
       schema, 19.27) and chains (Rules Engine privileges). At 8 targets:
       PURGE 1 s, RETRAIN 199 s, REFRESH 607 s, 808 s in all, peak PGA
       638 MB. Docs: reference.html#fleet-size, design.md.
+- [ ] **M24.13 Per-target ranks and SNAPSHOT from stored tables.** No
+      report ranks one target against another: every window in ddl/20..55
+      partitions by dbid (`rank_dtf` / `rank_nearfull` / `rank_shift` /
+      `rank_series` / `rank_report` / `rank_chart`, `CAPA_ANOM.kind_last_day`)
+      and `days_ago` counts from the row's own database, so a fleet report
+      lists the top `top_n` of each database, grouped by dbid, and a scoped
+      report equals the unscoped one filtered. `test/lint_dbid_windows.sh`
+      keeps it. Measured: TBD.
 
 ## v2 (unchanged)
 

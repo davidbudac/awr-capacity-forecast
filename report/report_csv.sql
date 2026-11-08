@@ -88,7 +88,7 @@ SELECT *
 FROM   capr_tbspc_days_to_full
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY rank_dtf;
+ORDER  BY dbid, rank_dtf;
 SPOOL OFF
 
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_tbspc_forecast')
@@ -97,7 +97,7 @@ SELECT *
 FROM   capr_tbspc_forecast
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY rank_report;
+ORDER  BY dbid, rank_report;
 SPOOL OFF
 
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_tbspc_anomalies')
@@ -106,7 +106,7 @@ SELECT *
 FROM   capr_tbspc_anomalies
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY days_ago, con_dbid, tablespace_name, mode_rank;
+ORDER  BY dbid, days_ago, con_dbid, tablespace_name, mode_rank;
 SPOOL OFF
 
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_cpu_trend')
@@ -124,7 +124,7 @@ SELECT *
 FROM   capr_cpu_anomalies
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY days_ago, con_dbid, metric, mode_rank, ts;
+ORDER  BY dbid, days_ago, con_dbid, metric, mode_rank, ts;
 SPOOL OFF
 
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_cpu_shifts')
@@ -133,7 +133,7 @@ SELECT *
 FROM   capr_cpu_shifts
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY rank_shift;
+ORDER  BY dbid, rank_shift;
 SPOOL OFF
 
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_series')
@@ -142,7 +142,7 @@ SELECT *
 FROM   capr_series
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY rank_series;
+ORDER  BY dbid, rank_series;
 SPOOL OFF
 
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_fit')

@@ -62,7 +62,8 @@ SET DEFINE OFF
 -- already NEAR-FULL, or simply BIG (>= report_min_gb GiB) -- which leaves out
 -- exactly the small, flat, half-empty tablespaces that turn a 500-tablespace
 -- database into 500 lines of noise. cur_used IS NULL reports as 'Y': the
--- bound must never hide a row we cannot judge.
+-- bound must never hide a row we cannot judge. Both ranks count per
+-- database (PARTITION BY dbid), never across targets.
 --   rank_report  reportable rows first, then growing ones, then the biggest
 --                -- so WHERE is_reportable='Y' AND rank_report <= top_n
 --                keeps the top_n rows that matter and a non-reportable row
@@ -84,11 +85,13 @@ SELECT f.dbid,
        f.con_dbid,
        f.tablespace_name,
        f.is_reportable,
-       ROW_NUMBER() OVER (ORDER BY CASE WHEN f.is_reportable = 'Y' THEN 0 ELSE 1 END,
+       ROW_NUMBER() OVER (PARTITION BY f.dbid
+                          ORDER BY CASE WHEN f.is_reportable = 'Y' THEN 0 ELSE 1 END,
                                    CASE WHEN NVL(f.slope_bpd, 0) > 0 THEN 0 ELSE 1 END,
                                    f.cur_used DESC NULLS LAST,
                                    f.con_dbid, f.tablespace_name)  AS rank_report,
-       ROW_NUMBER() OVER (ORDER BY f.days_to_full NULLS LAST,
+       ROW_NUMBER() OVER (PARTITION BY f.dbid
+                          ORDER BY f.days_to_full NULLS LAST,
                                    f.tablespace_name)  AS rank_chart
 FROM   f;
 

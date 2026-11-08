@@ -44,7 +44,7 @@ WHERE  h.run_id = &cap_snap_run
   AND  h.kind = 'SERIES'
   AND  (&cap_sdbid IS NULL OR h.dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR h.con_dbid = &cap_scon)
-ORDER  BY h.days_to_full NULLS LAST, h.pct DESC NULLS LAST, h.con_dbid, h.series;
+ORDER  BY h.dbid, h.days_to_full NULLS LAST, h.pct DESC NULLS LAST, h.con_dbid, h.series;
 
 PROMPT
 PROMPT == 7b. SERIES ANOMALIES (last &anomaly_days days, live) ==
@@ -66,4 +66,4 @@ FROM   capr_series_anomalies
 WHERE  days_ago < &anomaly_days
   AND  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY days_ago, con_dbid, series, mode_rank;
+ORDER  BY dbid, days_ago, con_dbid, series, mode_rank;

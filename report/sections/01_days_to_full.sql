@@ -7,9 +7,10 @@
 -- CAP_TBSPC_OVERRIDE ones); the &dtf_*/&nf_* substitutions below are only
 -- echoed in the PROMPT headers.
 --
--- Scope: the view's rank_dtf / rank_nearfull are fleet-wide, so the driver
--- re-numbers them inside the scope with ROW_NUMBER() OVER (ORDER BY rank_*):
--- the same order, top_n counted inside the scope. Unscoped, s_rank = rank_*.
+-- Scope: the view's rank_dtf / rank_nearfull count per database; a container
+-- scope re-numbers them with ROW_NUMBER() OVER (PARTITION BY dbid ORDER BY
+-- rank_*), so top_n counts inside the scope. Unscoped, s_rank = rank_* and a
+-- fleet report lists the top_n of each database, grouped by database.
 --
 -- M7.1: the ranking no longer hides non-OK fits -- every computable
 -- days_to_full appears WITH its quality marker (a LOW_CONFIDENCE estimate is
@@ -69,13 +70,13 @@ SELECT db_pdb,
        cycle_peak_pct,
        need_gib_90,
        TO_CHAR(add_by_day, 'YYYY-MM-DD') AS add_by
-FROM  (SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.rank_dtf) AS s_rank
+FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_dtf) AS s_rank
        FROM   capr_tbspc_days_to_full t
        WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)
          AND  (&cap_scon  IS NULL OR t.con_dbid = &cap_scon))
 WHERE  (days_to_full IS NOT NULL OR quality = 'CYCLIC')
   AND  s_rank <= &top_n
-ORDER  BY s_rank;
+ORDER  BY dbid, s_rank;
 
 PROMPT
 PROMPT == 1b. NEAR-FULL NOW (by PCT_USED, independent of fit quality; top &top_n) ==
@@ -90,10 +91,10 @@ SELECT db_pdb,
        days_to_full,
        sev_nearfull AS sev,
        quality
-FROM  (SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.rank_nearfull) AS s_rank
+FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_nearfull) AS s_rank
        FROM   capr_tbspc_days_to_full t
        WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)
          AND  (&cap_scon  IS NULL OR t.con_dbid = &cap_scon))
 WHERE  pct_used IS NOT NULL
   AND  s_rank <= &top_n
-ORDER  BY s_rank;
+ORDER  BY dbid, s_rank;

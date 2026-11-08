@@ -32,7 +32,7 @@ COLUMN need_gib_90     FORMAT 9999990.00    HEADING 'NEED_90_GIB'
 
 SELECT db_pdb, tablespace_name, pct_used, cur_gb, limit_gb, slope_mb,
        days_to_full, dtf_worst, dtf_best, sev, quality, accel, need_gib_90
-FROM  (SELECT h.db                          AS db_pdb,
+FROM  (SELECT h.dbid, h.db                          AS db_pdb,
               h.series                      AS tablespace_name,
               h.pct                         AS pct_used,
               h.value       / 1073741824    AS cur_gb,
@@ -45,7 +45,7 @@ FROM  (SELECT h.db                          AS db_pdb,
               h.quality,
               h.accel,
               h.need_gib_90,
-              ROW_NUMBER() OVER (ORDER BY CASE WHEN h.days_to_full IS NOT NULL THEN 0
+              ROW_NUMBER() OVER (PARTITION BY h.dbid ORDER BY CASE WHEN h.days_to_full IS NOT NULL THEN 0
                                                WHEN h.quality = 'CYCLIC'      THEN 1
                                                ELSE 2 END,
                                           h.days_to_full, h.con_dbid, h.series) AS s_rank
@@ -56,13 +56,13 @@ FROM  (SELECT h.db                          AS db_pdb,
          AND  (&cap_scon  IS NULL OR h.con_dbid = &cap_scon))
 WHERE  (days_to_full IS NOT NULL OR quality = 'CYCLIC')
   AND  s_rank <= &top_n
-ORDER  BY s_rank;
+ORDER  BY dbid, s_rank;
 
 PROMPT
 PROMPT == 1b. NEAR-FULL NOW (by PCT_USED, independent of fit quality; top &top_n; refresh run &cap_snap_run) ==
 
 SELECT db_pdb, tablespace_name, pct_used, cur_gb, limit_gb, days_to_full, sev, quality
-FROM  (SELECT h.db                          AS db_pdb,
+FROM  (SELECT h.dbid, h.db                          AS db_pdb,
               h.series                      AS tablespace_name,
               h.pct                         AS pct_used,
               h.value       / 1073741824    AS cur_gb,
@@ -70,7 +70,7 @@ FROM  (SELECT h.db                          AS db_pdb,
               h.days_to_full,
               h.sev,
               h.quality,
-              ROW_NUMBER() OVER (ORDER BY h.pct DESC NULLS LAST, h.con_dbid, h.series) AS s_rank
+              ROW_NUMBER() OVER (PARTITION BY h.dbid ORDER BY h.pct DESC NULLS LAST, h.con_dbid, h.series) AS s_rank
        FROM   capr_fit_history h
        WHERE  h.run_id = &cap_snap_run
          AND  h.kind = 'TBSPC'
@@ -78,4 +78,4 @@ FROM  (SELECT h.db                          AS db_pdb,
          AND  (&cap_scon  IS NULL OR h.con_dbid = &cap_scon))
 WHERE  pct_used IS NOT NULL
   AND  s_rank <= &top_n
-ORDER  BY s_rank;
+ORDER  BY dbid, s_rank;

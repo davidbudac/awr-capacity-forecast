@@ -176,7 +176,7 @@ JOIN  (SELECT 'TBSPC' AS kind, cfg.alert_modes_tbspc AS alert_modes FROM cap_cfg
 --              gap-weighted mean growth rate), DAY rows only, mode-independent
 --   alerting_mode  'Y' when the family's alert_modes bitmask has this mode
 --   is_headline    1 on the mode CAPA_ANOM_DAY reports for the observation
---   kind_last_day  the newest DAY ts of the kind over every container (NULL
+--   kind_last_day  the newest DAY ts of the kind over the database's containers (NULL
 --              when the kind has no DAY rows): the anchor of the alert
 --              window, so CAPR_ANOMALIES needs no second CAPA_OBS read
 -- CAPA_OBS is read once (obs, referenced four times, so Oracle materializes
@@ -195,7 +195,7 @@ CREATE OR REPLACE VIEW capa_anom AS
 WITH obs AS (
         SELECT o.*,
                ROW_NUMBER() OVER (ORDER BY o.dbid, o.con_dbid, o.kind, o.series, o.grain, o.ts) AS obs_id,
-               MAX(CASE WHEN o.grain = 'DAY' THEN o.ts END) OVER (PARTITION BY o.kind) AS kind_last_day
+               MAX(CASE WHEN o.grain = 'DAY' THEN o.ts END) OVER (PARTITION BY o.dbid, o.kind) AS kind_last_day
         FROM   capa_obs o
      ),
      modes AS (

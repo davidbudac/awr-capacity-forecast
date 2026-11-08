@@ -601,6 +601,7 @@ FROM   gated g;
 -- form, the one section 1a prints). sev_nearfull is
 -- independent of fit quality (M7.1). eff_* are the thresholds applied (the
 -- CAP_TBSPC_OVERRIDE columns where set, else the knobs).
+-- Both ranks count per database (PARTITION BY dbid), never across targets.
 -- rank_dtf: rows with a days_to_full first (soonest first), then the CYCLIC
 -- rows without one, then the rest, so a CYCLIC row still obeys top_n.
 -- GiB / MiB-per-day conversions are numeric columns (not strings) so a
@@ -630,12 +631,14 @@ SELECT f.dbid,
        f.quality,
        f.r2,
        f.accel_ratio                       AS accel,
-       ROW_NUMBER() OVER (ORDER BY CASE WHEN f.days_to_full IS NOT NULL THEN 0
+       ROW_NUMBER() OVER (PARTITION BY f.dbid
+                          ORDER BY CASE WHEN f.days_to_full IS NOT NULL THEN 0
                                         WHEN f.quality = 'CYCLIC'      THEN 1
                                         ELSE 2 END,
                                    f.days_to_full,
                                    f.con_dbid, f.tablespace_name)  AS rank_dtf,
-       ROW_NUMBER() OVER (ORDER BY f.pct_used DESC NULLS LAST,
+       ROW_NUMBER() OVER (PARTITION BY f.dbid
+                          ORDER BY f.pct_used DESC NULLS LAST,
                                    f.con_dbid, f.tablespace_name)  AS rank_nearfull,
        f.limit_below_used,
        f.is_current,
@@ -677,8 +680,8 @@ LEFT   JOIN capr_container c
 -- CAPR_TBSPC_ANOMALIES -- report section 3. Every FLAGGED (day, baseline
 -- mode) of a tablespace (no window applied here); a driver bounds it with
 -- WHERE days_ago < anomaly_days and orders a day's verdicts by mode_rank.
--- days_ago is measured from MAX(day_dt) over ALL of CAPD_TBSPC_DAILY, so
--- "last N days" means the last N collected days.
+-- days_ago is measured from the database's newest CAPD_TBSPC_DAILY day, so
+-- "last N days" means its last N collected days.
 -- day_str is the pre-formatted YYYY-MM-DD the reports print; day_dt stays
 -- a DATE for consumers that want to compare it. thr_mb is the allowed
 -- deviation (mad_k * eff_sigma), z = dev / eff_sigma.
@@ -690,7 +693,7 @@ SELECT a.dbid,
        a.series                                AS tablespace_name,
        a.ts                                    AS day_dt,
        TO_CHAR(a.ts, 'YYYY-MM-DD')             AS day_str,
-       (SELECT MAX(day_dt) FROM capd_tbspc_daily) - a.ts AS days_ago,
+       (SELECT MAX(d.day_dt) FROM capd_tbspc_daily d WHERE d.dbid = a.dbid) - a.ts AS days_ago,
        a.day_gap                               AS gap,
        a.raw_value / 1048576                   AS delta_mb,
        a.value     / 1048576                   AS rate_mb,
@@ -805,7 +808,8 @@ WHERE  a.kind = 'CPU'
 -- only (shift_flag IS NOT NULL), db_pdb resolved, and the window sizes and
 -- both medians carried through so the section can print the whole claim on
 -- one line without re-reading CAP_CONFIG. Ordered by the biggest absolute
--- move first via rank_shift, so a driver bounds it with a plain WHERE.
+-- move first via rank_shift (per database), so a driver bounds it with a
+-- plain WHERE.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_cpu_shifts AS
 SELECT s.dbid,
@@ -827,7 +831,8 @@ SELECT s.dbid,
        s.threshold_pct,
        s.shift_flag,
        CASE WHEN s.shift_flag = 'UP' THEN 'WARN' ELSE 'INFO' END AS sev,
-       ROW_NUMBER() OVER (ORDER BY ABS(s.shift_pct) DESC NULLS LAST,
+       ROW_NUMBER() OVER (PARTITION BY s.dbid
+                          ORDER BY ABS(s.shift_pct) DESC NULLS LAST,
                                    s.con_dbid, s.metric)         AS rank_shift
 FROM   capa_cpu_shift s
 LEFT   JOIN capr_container c
@@ -839,7 +844,7 @@ WHERE  s.shift_flag IS NOT NULL;
 -- (PROCESSES / SESSIONS / REDO_GB_DAY / DB_SIZE_GB / ASM_DG:+<group> /
 -- TEMP_PEAK:<ts> / UNDO_PEAK:<ts>), one row per (container, series). Same contract as the other CAPR_ views: db_pdb is
 -- already resolved, every severity marker is computed here, and rank_series
--- lets a driver bound the list with a plain WHERE.
+-- (per database) lets a driver bound the list with a plain WHERE.
 --   sev is the worse of the series' CAPR_SEVERITY SERIES_LIMIT and
 --   SERIES_NEARLIMIT sev (the two alerts, collapsed into one column for
 --   display); gated_by is the gate that held one of them back.
@@ -876,7 +881,8 @@ SELECT s.dbid,
        NVL(v.sev, 'OK')                    AS sev,
        s.quality,
        -- Most urgent first: soonest days_to_limit, then fullest, then name.
-       ROW_NUMBER() OVER (ORDER BY s.days_to_limit NULLS LAST,
+       ROW_NUMBER() OVER (PARTITION BY s.dbid
+                          ORDER BY s.days_to_limit NULLS LAST,
                                    s.pct_of_limit DESC NULLS LAST,
                                    s.con_dbid, s.series) AS rank_series,
        s.is_current,
@@ -901,8 +907,8 @@ LEFT   JOIN capr_container c
 -- baseline mode) of an M11 series. PROCESSES / SESSIONS / REDO_GB_DAY are
 -- scored on their level, DB_SIZE_GB on its daily growth (value GiB/day,
 -- raw_value the GiB moved since the previous row). unit is CAPA_OBS's
--- (COUNT / GIB_PER_DAY). days_ago is measured from the last collected
--- CAPD_SERIES_DAILY day.
+-- (COUNT / GIB_PER_DAY). days_ago is measured from the database's last
+-- collected CAPD_SERIES_DAILY day.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_series_anomalies AS
 SELECT a.dbid,
@@ -915,7 +921,7 @@ SELECT a.dbid,
        DECODE(a.baseline_mode, 'TRAILING', 1, 2)          AS mode_rank,
        a.ts                                  AS day_dt,
        TO_CHAR(a.ts, 'YYYY-MM-DD')           AS day_str,
-       (SELECT MAX(day_dt) FROM capd_series_daily) - a.ts AS days_ago,
+       (SELECT MAX(d.day_dt) FROM capd_series_daily d WHERE d.dbid = a.dbid) - a.ts AS days_ago,
        a.value,
        a.raw_value,
        a.expected,

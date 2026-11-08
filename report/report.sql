@@ -169,7 +169,7 @@ SELECT TO_CHAR(c.dtf_warn,                                                    'F
        -- is re-numbered inside the scope, as the sections do.
        TO_CHAR((SELECT COUNT(*)
                 FROM  (SELECT is_reportable,
-                              ROW_NUMBER() OVER (ORDER BY rank_report) AS s_rank
+                              ROW_NUMBER() OVER (PARTITION BY dbid ORDER BY rank_report) AS s_rank
                        FROM   capr_tbspc_rank
                        WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
                          AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon))

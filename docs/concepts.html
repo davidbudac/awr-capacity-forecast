@@ -872,7 +872,7 @@
         HTML drivers only format (the HTML driver adds chart geometry). The three Tier-2-dependent
         views load after the ML file, in <span class="inline">ddl/55_report_views_ml.sql</span>.
         Ranking columns (<span class="inline">rank_dtf</span>, <span class="inline">rank_report</span>,
-        <span class="inline">is_reportable</span>) make <span class="inline">top_n</span> and "growing,
+        <span class="inline">is_reportable</span>), counted per database, make <span class="inline">top_n</span> and "growing,
         near-full, or at least <span class="inline">report_min_gb</span> GiB" a plain
         <code>WHERE</code> in both drivers. Columns: <a href="reference.html#objects">object index</a>.</p>
 

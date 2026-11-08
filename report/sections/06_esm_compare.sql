@@ -53,7 +53,7 @@ FROM   capr_esm_compare c
 -- the scoped rank of section 2 (CAPR_TBSPC_RANK, the rank_report of
 -- CAPR_TBSPC_FORECAST), so 6a lists the same tablespaces
 JOIN  (SELECT dbid, con_dbid, tablespace_name,
-              ROW_NUMBER() OVER (ORDER BY rank_report) AS s_rank
+              ROW_NUMBER() OVER (PARTITION BY dbid ORDER BY rank_report) AS s_rank
        FROM   capr_tbspc_rank
        WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
          AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)) r
@@ -61,7 +61,7 @@ JOIN  (SELECT dbid, con_dbid, tablespace_name,
 WHERE  c.series_kind = 'TBSPC'
   AND  c.is_reportable = 'Y'
   AND  r.s_rank <= &top_n
-ORDER  BY r.s_rank, c.horizon_days;
+ORDER  BY c.dbid, r.s_rank, c.horizon_days;
 
 PROMPT
 PROMPT  6b. CPU (busy% / DB CPU sec):
@@ -86,7 +86,7 @@ FROM   capr_esm_compare
 WHERE  series_kind = 'CPU'
   AND  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY con_dbid, series_key, horizon_days;
+ORDER  BY dbid, con_dbid, series_key, horizon_days;
 
 PROMPT
 PROMPT  6c. Backtest -- which engine was right over the held-out window (M9.4):
@@ -121,4 +121,4 @@ SELECT db_pdb,
 FROM   capr_backtest
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY con_dbid, series_kind, series_key;
+ORDER  BY dbid, con_dbid, series_kind, series_key;

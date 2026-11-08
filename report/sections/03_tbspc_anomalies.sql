@@ -2,7 +2,7 @@
 -- 03_tbspc_anomalies.sql -- tablespace growth anomalies, last &anomaly_days days.
 -- FORMAT ONLY (M8.2): CAPR_TBSPC_ANOMALIES holds every flagged row with the
 -- MiB conversions and the DB/PDB label already applied; days_ago (measured
--- from the last collected day) turns the report window into a plain WHERE.
+-- from the database's last collected day) turns the report window into a plain WHERE.
 -- Every row stays hand-auditable: delta vs median vs the k*MAD (floored)
 -- threshold, plus the robust z. One row per (day, baseline mode) that flagged.
 --
@@ -49,4 +49,4 @@ WHERE  days_ago < &anomaly_days
   AND  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 -- days_ago ASC is exactly day_dt DESC (days_ago = last collected day - day_dt)
-ORDER  BY days_ago, con_dbid, tablespace_name, mode_rank;
+ORDER  BY dbid, days_ago, con_dbid, tablespace_name, mode_rank;

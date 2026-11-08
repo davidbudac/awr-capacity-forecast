@@ -805,7 +805,8 @@
           </tbody>
         </table>
       </div>
-      <p>Top-N is <code>WHERE rank_x &lt;= n</code> on the <span class="inline">rank_*</span> columns; a
+      <p>Top-N is <code>WHERE rank_x &lt;= n</code> on the <span class="inline">rank_*</span> columns, which
+        count per database (rank 1 is the top row of each dbid); a
         trailing window is <code>WHERE days_ago &lt;= n</code>. For the raw fit,
         <span class="inline">CAPF_TBSPC_FORECAST</span> carries all four prediction bands
         (<span class="inline">proj_30_lo</span>/<span class="inline">hi</span> through
