@@ -293,7 +293,9 @@
         a database link, for the snapshots taken since the last one. The forecasting, the reports and
         the PGA they need all run on the repository. The repository adds a target registry, a collect
         log and one copy table per view, about 0.25&nbsp;MB of rows a day for a three-container
-        test CDB.</p>
+        test CDB. Its nightly work grows in proportion to the number of targets, about seven
+        minutes per target on a two-vCPU test VM, while each session's PGA stays the same
+        (<a href="reference.html#fleet-size">How many targets</a>).</p>
 
       <!-- ===================== NEXT ===================== -->
       <div class="section-head" id="next">

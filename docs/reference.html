@@ -213,7 +213,7 @@
             <tr><th scope="row"><code>CAPD_CPU_HOURLY</code></th><td class="def">view</td><td class="def"><strong>M15</strong>: host <code>BUSY_PCT</code> (CDB <code>con_dbid</code> only) and per-container <code>DB_CPU_PCT</code> per END-hour bucket, key <code>(dbid, con_dbid, metric, hour_ts)</code>, with <code>day_dt</code> (the day the intervals end on), <code>n_intervals</code>, <code>ivl_hours</code> and <code>gap_flag</code>. The <code>HOUR_OF_WEEK</code> source</td></tr>
 
             <tr><td colspan="3"><b><span class="k">CAPF_</span> — forecast views</b> · Tier 1 REGR fits (+ Tier 2 ESM)</td></tr>
-            <tr><th scope="row"><code>CAPF_TBSPC_FORECAST</code></th><td class="def">view</td><td class="def">Tier 1 fit per tablespace: slope, projections, <code>days_to_full</code>, quality. Projections are anchored at today (<code>proj_h = cur_used + slope_bpd&middot;h</code>, bands <code>proj_h &plusmn;</code> the OLS half-width), and <code>days_to_full</code> / <code>_lo</code> / <code>_hi</code> clamp at 0. M9.2 adds <code>ols_slope_bpd</code>, <code>ts_slope_bpd</code>, <code>ts_icept</code> (NULL unless <code>slope_method = 1</code>) and <code>slope_method</code> (the estimator actually used); M9.3 adds <code>train_start</code> and <code>reset_day</code> (NULL = the window was not restarted by a shrink). <code>limit_below_used</code> = <code>'Y'</code> when <code>limit_bytes &lt; cur_used</code>; <code>newest_day</code> / <code>is_current</code> flag a series that stopped <code>stale_days</code> before the rest of its database. <code>drift_slope_bpd</code> / <code>drift_sd_bpd</code> (the DRIFT estimator's inputs, always computed); <code>cycle_n</code> (shrink cliffs in the window, every row) and, on <code>quality = 'CYCLIC'</code> rows only, <code>cycle_days</code>, <code>cycle_peak_bytes</code>, <code>cycle_peak_pct</code>, <code>peak_slope_bpd</code>. The sizing ask: <code>need_gib_30</code> / <code>_90</code> / <code>_180</code> = <code>GREATEST(0, proj_h_hi &minus; limit_bytes) / 2<sup>30</sup></code> (space to add so the upper 95% band stays under the ceiling through +h; NULL on CYCLIC rows) and <code>add_by_day</code> = <code>last_day + days_to_full_lo</code></td></tr>
+            <tr><th scope="row"><code>CAPF_TBSPC_FORECAST</code></th><td class="def">view</td><td class="def">Tier 1 fit per tablespace: slope, projections, <code>days_to_full</code>, quality. Projections are anchored at today (<code>proj_h = cur_used + slope_bpd&middot;h</code>, bands <code>proj_h &plusmn;</code> the OLS half-width), and <code>days_to_full</code> / <code>_lo</code> / <code>_hi</code> clamp at 0 and read NULL when <code>last_day</code> plus the days would pass 9999-12-31 (a near-zero slope; the CPU <code>days_to_sat</code> and series <code>days_to_limit</code> columns do the same). M9.2 adds <code>ols_slope_bpd</code>, <code>ts_slope_bpd</code>, <code>ts_icept</code> (NULL unless <code>slope_method = 1</code>) and <code>slope_method</code> (the estimator actually used); M9.3 adds <code>train_start</code> and <code>reset_day</code> (NULL = the window was not restarted by a shrink). <code>limit_below_used</code> = <code>'Y'</code> when <code>limit_bytes &lt; cur_used</code>; <code>newest_day</code> / <code>is_current</code> flag a series that stopped <code>stale_days</code> before the rest of its database. <code>drift_slope_bpd</code> / <code>drift_sd_bpd</code> (the DRIFT estimator's inputs, always computed); <code>cycle_n</code> (shrink cliffs in the window, every row) and, on <code>quality = 'CYCLIC'</code> rows only, <code>cycle_days</code>, <code>cycle_peak_bytes</code>, <code>cycle_peak_pct</code>, <code>peak_slope_bpd</code>. The sizing ask: <code>need_gib_30</code> / <code>_90</code> / <code>_180</code> = <code>GREATEST(0, proj_h_hi &minus; limit_bytes) / 2<sup>30</sup></code> (space to add so the upper 95% band stays under the ceiling through +h; NULL on CYCLIC rows) and <code>add_by_day</code> = <code>last_day + days_to_full_lo</code></td></tr>
             <tr><th scope="row"><code>CAPF_CPU_TREND</code></th><td class="def">view</td><td class="def">Tier 1 fit per CPU metric (busy% avg / p95 / peak window, DB CPU seconds and %), with days-to-saturation. Fits complete days only (<code>is_complete = 'Y'</code>), weekday / weekend deseasoned by default (<code>deseasoned</code>), graded on slope significance by default (<code>slope_sig</code>). Projections and <code>days_to_sat</code> start at <code>anchor_value</code> (median of the last <code>shift_days</code> complete days; <code>cur_val</code> stays the raw last day). <code>recent_p95_med</code> / <code>hot_now</code> on <code>BUSY_P95</code> and <code>DB_CPU_P95</code>: busy-hour median at or above <code>cpu_sat_pct</code> now. Plus <code>drift_slope_per_day</code> / <code>drift_sd_per_day</code>, <code>newest_day</code> / <code>is_current</code></td></tr>
             <tr><th scope="row"><code>CAPF_SERIES_FORECAST</code></th><td class="def">view</td><td class="def"><strong>M11</strong>: the same REGR fit + M9.1 bands for <code>CAPD_SERIES_DAILY</code>, with <code>pct_of_limit</code>, <code>sat_value</code> and <code>days_to_limit</code> (+ <code>_lo</code>/<code>_hi</code>) against <code>series_sat_pct</code>% of the series' own ceiling. Complete days only, projections anchored at <code>cur_val</code>, plus <code>newest_day</code> / <code>is_current</code>, <code>slope_method</code> (OLS or DRIFT) and <code>drift_slope_per_day</code> / <code>drift_sd_per_day</code>. <code>REDO_GB_DAY</code> rows carry <code>fra_size_gb</code> (<code>db_recovery_file_dest_size</code> / 2<sup>30</sup>) and <code>fra_days_at_cur</code> (FRA size over the dbid's current redo rate, summed over its containers). <code>PROCESSES</code> / <code>SESSIONS</code> rows carry <code>worst_inst_pct</code> / <code>worst_inst</code> (RAC: the last day's worst instance against its own limit, while <code>pct_of_limit</code> stays the summed fleet figure; equal on one instance)</td></tr>
             <tr><th scope="row"><code>CAPF_ESM_FORECAST</code></th><td class="def">view</td><td class="def">Tier 2 ESM predictions and 95% bounds, via the package registry</td></tr>
@@ -269,6 +269,7 @@
             <tr><th scope="row"><code>CAP_CFG_CHECK</code></th><td class="def">view (ddl/05)</td><td class="def">One row per knob: <code>OK</code> / <code>MISSING</code> / <code>BAD</code> with a reason (the range rules in <a href="#config">Configuration knobs</a>). doctor.sql prints it</td></tr>
             <tr><th scope="row"><span class="kt">CAP_TBSPC_OVERRIDE</span></th><td class="def">table</td><td class="def">Operator-set tablespace ceilings (<code>limit_bytes</code>), exclusions (<code>exclude_flag</code>) and per-tablespace alert thresholds (<code>dtf_warn</code>, <code>dtf_crit</code>, <code>nearfull_warn_pct</code>, <code>nearfull_crit_pct</code>; NULL = the knob); <code>dbid</code>/<code>con_dbid</code> <code>0</code> = any</td></tr>
             <tr><th scope="row"><span class="kt">CAP_ML_MODEL</span></th><td class="def">table</td><td class="def">Tier 2 OML model registry</td></tr>
+            <tr><th scope="row"><span class="kt">CAP_ML_INPUT</span></th><td class="def">table</td><td class="def">Global temporary table (per session, not persisted): the training rows of the OML model being built. <code>cap_forecast_ml</code> copies each series here and builds the model from it, because OML runs a data query inside its own <code>INSERT /*+ append */</code>, where the deep view stack got a plan that grew with the fleet (M24.10)</td></tr>
             <tr><th scope="row"><span class="kt">CAP_RUN</span></th><td class="def">table</td><td class="def">Results layer: one row per <code>cap_results.refresh</code> (<code>run_id</code>, <code>as_of_day</code>, <code>deploy_mode</code>, start / end, <code>status</code>, <code>backdated</code>, counts, <code>error_text</code>) and <code>CAPR_COVERAGE</code> at the run: <code>cov_n_dbid</code>, <code>cov_n_current</code> (not retired) and <code>cov_summary</code> (the per-dbid summaries joined with <code>|</code>), which the SNAPSHOT reports print</td></tr>
             <tr><th scope="row"><span class="kt">CAP_FIT_HIST</span></th><td class="def">table</td><td class="def">Results layer: <code>CAPR_FIT</code> per run (<code>run_id</code>, <code>as_of_day</code> + every <code>CAPR_FIT</code> column)</td></tr>
             <tr><th scope="row"><span class="kt">CAP_ALERT_STATE</span></th><td class="def">table</td><td class="def">Results layer: one row per <code>state_key</code>: OPEN / RESOLVED, first / last seen, current and worst severity, <code>reopen_count</code>, <code>missed_runs</code>, the last values, the ack</td></tr>
@@ -528,8 +529,9 @@
         sorts. A target of 1&nbsp;GB or more keeps them in memory.</p>
 
       <p><strong>Scheduler jobs.</strong> <span class="inline">install_jobs.sql</span> starts its
-        three jobs at 01:30, 02:00 and 03:00, and each runs in minutes, so they need one suite
-        session's PGA at a time. A report you run by hand while a job runs needs a second
+        three jobs at 01:30, 02:00 and 03:00. On one database each runs in minutes, so they need one
+        suite session's PGA at a time; on a repository each grows with the number of targets
+        (<a href="#fleet-size">How many targets</a>). A report you run by hand while a job runs needs a second
         session's worth. The repository jobs (<span class="inline">CAP_COLLECT_JOB</span> hourly,
         <span class="inline">CAP_PURGE_JOB</span> at 01:00) copy and delete rows without reading the
         view stack; their PGA has not been measured.</p>
@@ -868,6 +870,60 @@
         statistics. At the default 400 days that is about 100&nbsp;MB of rows per target, before block
         overhead. It grows with snapshots per day, containers and busy segments.</p>
 
+      <h3 id="fleet-size">How many targets</h3>
+      <p>Measured with <span class="inline">test/dbmint_scale.sh</span> on the test VM of
+        <a href="#memory">Memory (PGA)</a>: Oracle 19.27, 2&nbsp;vCPU, 7&nbsp;GB, nothing else
+        running. Each target is a copy of the test CDB's AWR under its own DBID, repeated back to
+        144 days of 15-minute snapshots: 4,880 snapshots, three containers and about 32&nbsp;MB of
+        copies, roughly the rows a year of hourly snapshots holds. Every step is one SQL*Plus
+        session over the whole fleet.</p>
+
+      <div class="tablewrap">
+        <table>
+          <caption>Repository mode: elapsed time by number of targets (peak PGA 490&ndash;640&nbsp;MB in every cell)</caption>
+          <thead><tr><th scope="col">Step</th><th scope="col">1 target</th><th scope="col">4 targets</th><th scope="col">8 targets</th><th scope="col">Per target</th></tr></thead>
+          <tbody>
+            <tr><td><span class="inline">EXEC cap_forecast_ml.train_all</span></td><td class="def">43 s</td><td class="def">86 s</td><td class="def">191 s</td><td class="def">24 s</td></tr>
+            <tr><td><span class="inline">EXEC cap_results.refresh</span></td><td class="def">62 s</td><td class="def">279 s</td><td class="def">558 s</td><td class="def">70 s</td></tr>
+            <tr><td><span class="inline">report/report.sql</span></td><td class="def">179 s</td><td class="def">741 s</td><td class="def">1587 s</td><td class="def">200 s</td></tr>
+            <tr><td><span class="inline">report/report_html.sql</span></td><td class="def">122 s</td><td class="def">542 s</td><td class="def">1188 s</td><td class="def">150 s</td></tr>
+            <tr><td><span class="inline">report/report.sql</span>, <code>SNAPSHOT</code></td><td class="def">&nbsp;</td><td class="def">452 s</td><td class="def">993 s</td><td class="def">124 s</td></tr>
+            <tr><td><span class="inline">report/report_html.sql</span>, <code>SNAPSHOT</code></td><td class="def">&nbsp;</td><td class="def">318 s</td><td class="def">656 s</td><td class="def">82 s</td></tr>
+            <tr><td><span class="inline">report/report.sql</span> for one target</td><td class="def">152 s</td><td class="def">723 s</td><td class="def">&nbsp;</td><td class="def">as the fleet</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <ul>
+        <li><strong>Plan on about seven minutes of nightly work per target</strong> on two vCPUs:
+          the refresh, a text report and an HTML report, live. With <code>SNAPSHOT</code> reports it
+          is about four and a half. Twenty targets: a 25-minute refresh and an hour for each live
+          fleet report.</li>
+        <li><strong>PGA does not grow with the fleet.</strong> Every step peaked between 490 and
+          640&nbsp;MB at one, four and eight targets, so the <a href="#memory">sizing rule</a> holds
+          per session whatever the fleet size.</li>
+        <li><strong>A report for one target costs as much as the fleet report.</strong>
+          <span class="inline">--target</span> narrows what is printed, but the report views rank
+          tablespaces, shifts and series across every target, so Oracle computes the whole fleet
+          before it filters. Run one fleet report a night; a report per target costs one fleet
+          report each.</li>
+        <li><strong><code>SNAPSHOT</code> mode saves about 40%.</strong>
+          <span class="inline">run_report.sh --snapshot</span> reads the alert list and the fits
+          from the last <span class="inline">cap_results.refresh</span> instead of computing them
+          again.</li>
+        <li><strong>Space the jobs past about 25 targets.</strong> The refresh job starts at 01:30
+          and the retrain at 02:00. Once the refresh takes longer than that half hour, both run at
+          once and need two sessions' PGA; move <span class="inline">CAP_ML_RETRAIN</span> and
+          <span class="inline">CAP_REPORT_SPOOL_JOB</span> later with
+          <span class="inline">DBMS_SCHEDULER.SET_ATTRIBUTE</span>.</li>
+      </ul>
+      <p>Because the work grows in proportion to the fleet and in fixed memory, the views stay live:
+        there is no per-run results table beyond the <a href="usage.html#results">results layer</a> the
+        <code>SNAPSHOT</code> reports already read. The 1-target <span class="inline">train_all</span>
+        was measured before a fix this test led to: OML used to read each series straight from the
+        views and took 2116&nbsp;s at four targets (see <span class="inline">CAP_ML_INPUT</span> in
+        the <a href="#objects">object index</a>).</p>
+
       <!-- ===================== LOAD ORDER ===================== -->
       <div class="section-head" id="layers">
         <span class="eyebrow">What runs, in what order</span>
@@ -942,7 +998,7 @@
             <tr><td><span class="k">35</span></td><td class="def"><span class="inline">ddl/35_series_forecast.sql</span></td><td class="def"><span class="obj">CAPF_SERIES_FORECAST</span>, the same fit machinery applied to the fixed-ceiling series, with <span class="inline">days_to_limit</span>.</td></tr>
             <tr><td><span class="k">40</span></td><td class="def"><span class="inline">ddl/40_anomaly_views.sql</span></td><td class="def"><span class="obj">CAPA_OBS</span> <span class="obj">CAPA_ANOM</span> <span class="obj">CAPA_ANOM_DAY</span> <span class="obj">CAPA_CPU_SHIFT</span>.</td></tr>
             <tr><td><span class="k">45</span></td><td class="def"><span class="inline">ddl/45_report_views.sql</span></td><td class="def">The integration layer: <span class="obj">CAPR_CONTAINER</span> <span class="obj">CAPR_ANOMALIES</span> <span class="obj">CAPR_FRESHNESS</span> <span class="obj">CAPR_TARGETS</span> <span class="obj">CAPR_SEVERITY</span> plus the per-section views <span class="obj">CAPR_TBSPC_DAYS_TO_FULL</span> <span class="obj">CAPR_TBSPC_ANOMALIES</span> <span class="obj">CAPR_CPU_TREND</span> <span class="obj">CAPR_CPU_ANOMALIES</span> <span class="obj">CAPR_CPU_SHIFTS</span> <span class="obj">CAPR_SERIES</span> <span class="obj">CAPR_SERIES_ANOMALIES</span>, and the point feeds <span class="obj">CAPR_SERIES_POINTS</span> <span class="obj">CAPR_HOURLY_POINTS</span> <span class="obj">CAPR_FIT</span>.</td></tr>
-            <tr><td><span class="k">50</span></td><td class="def"><span class="inline">ddl/50_ml.sql</span></td><td class="def">Tier 2: <span class="inline">CAP_ML_MODEL</span>, the types <span class="inline">CAP_ESM_ROW</span>/<span class="inline">CAP_ESM_TAB</span>, the <span class="inline">cap_forecast_ml</span> package, and <span class="obj">CAPF_ESM_FORECAST</span> <span class="obj">CAPF_ESM_BACKTEST</span> <span class="obj">CAPF_ESM_CANDIDATE</span> <span class="obj">CAPF_COMPARE</span> <span class="obj">CAPF_BACKTEST</span> <span class="obj">CAPF_ESM_HEALTH</span> <span class="obj">CAPF_ESM_HEALTH_SUMMARY</span>.</td></tr>
+            <tr><td><span class="k">50</span></td><td class="def"><span class="inline">ddl/50_ml.sql</span></td><td class="def">Tier 2: <span class="inline">CAP_ML_MODEL</span>, the temporary <span class="inline">CAP_ML_INPUT</span>, the types <span class="inline">CAP_ESM_ROW</span>/<span class="inline">CAP_ESM_TAB</span>, the <span class="inline">cap_forecast_ml</span> package, and <span class="obj">CAPF_ESM_FORECAST</span> <span class="obj">CAPF_ESM_BACKTEST</span> <span class="obj">CAPF_ESM_CANDIDATE</span> <span class="obj">CAPF_COMPARE</span> <span class="obj">CAPF_BACKTEST</span> <span class="obj">CAPF_ESM_HEALTH</span> <span class="obj">CAPF_ESM_HEALTH_SUMMARY</span>.</td></tr>
             <tr><td><span class="k">55</span></td><td class="def"><span class="inline">ddl/55_report_views_ml.sql</span></td><td class="def">The report views that need Tier 2 to exist: <span class="obj">CAPR_TBSPC_RANK</span> <span class="obj">CAPR_TBSPC_FORECAST</span> <span class="obj">CAPR_ESM_COMPARE</span> <span class="obj">CAPR_BACKTEST</span> <span class="obj">CAPR_FORECAST_POINTS</span> <span class="obj">CAPR_ALERTS</span> (its <code>MODEL_HEALTH</code> kind reads <span class="inline">CAPF_ESM_HEALTH_SUMMARY</span>; its anomaly rows come from <span class="inline">CAPR_ANOMALIES</span>). Split out of step 45 to keep the load order acyclic.</td></tr>
             <tr><td><span class="k">60</span></td><td class="def"><span class="inline">ddl/60_results.sql</span></td><td class="def">The results layer: the tables <span class="inline">CAP_RUN</span> <span class="inline">CAP_FIT_HIST</span> <span class="inline">CAP_ALERT_STATE</span> <span class="inline">CAP_ALERT_EVENT</span> (idempotent, preserved by step 00), the <span class="inline">cap_results</span> package, and <span class="obj">CAPR_ALERTS_LATEST</span> <span class="obj">CAPR_ALERT_EVENTS</span> <span class="obj">CAPR_RUNS</span> <span class="obj">CAPR_COVERAGE</span> <span class="obj">CAPR_FIT_HISTORY</span> <span class="obj">CAPR_WEEKLY_DIGEST</span> <span class="obj">CAPR_FORECAST_ACCURACY</span>. Every view works on empty tables.</td></tr>
           </tbody>

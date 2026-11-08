@@ -393,7 +393,7 @@ z-score and flag rule are shared.
       apart from rows the legacy views omitted (`n_hist` 0) and `robust_z` on
       flat tablespace baselines (finite now).
 - [ ] **M15.7 Follow-ups.** Hourly observation docs are not exported to ELK
-      (`CAPR_HOURLY_POINTS` is ORDS-only). Warehouse mode has no per-source
+      (`CAPR_HOURLY_POINTS` is ORDS-only). Repository mode has no per-target
       timezone, so a fleet spanning timezones compares wall clocks. Done
       since: shift suppression and episode collapsing in `CAPR_ALERTS`
       (M19.3), `docs/demo/` regenerated (M21.4).
@@ -760,10 +760,43 @@ Decided 2026-11-07:
       to HEAD; on dbmint install.sh re-installed CAPX2 (repository) and
       C##CAPLOC (local) with 0 INVALID, doctor 0 FAIL, and the fixture
       harness on CAPX1 passed with 0 failed.
-- [ ] **M24.10 Scale.** Load K synthetic DBIDs into the copies (the demo
+- [x] **M24.10 Scale.** Load K synthetic DBIDs into the copies (the demo
       fixture, shifted), time `cap_results.refresh`, both reports and the ML
       retrain, and record peak PGA. Persist per-run results for the site
       only if the views are too slow.
+      Done 2026-11-08 with real AWR instead of the demo fixture:
+      `test/repo_synth_target.sql` takes DAYS and a source schema and stacks
+      a collected target's copies back in 37-day blocks (snap_ids 100000
+      apart, each boundary a restart), and `test/dbmint_scale.sh SCHEMA K`
+      grows or shrinks the fleet to K targets and times each nightly step in
+      its own session with `pga_probe.sql`. Targets of 144 days, 4,880
+      snapshots, three containers, ~32 MB of copies each (CAPX3, cloned from
+      CAPX2, which now holds cdb1's full 35 days). 2-vCPU VM, seconds at
+      1 / 4 / 8 targets: refresh 62 / 279 / 558, report.sql 179 / 741 /
+      1587, report_html.sql 122 / 542 / 1188, SNAPSHOT 452 / 993 and 318 /
+      656 at 4 / 8, train_all 86 / 191 at 4 / 8. Linear, ~7 min of nightly
+      work per target, and peak PGA 490-640 MB at every K, so the views stay
+      live and no results table is added. Found and fixed on the way:
+      `train_all` was quadratic (2116 s at 4 targets): OML runs its data
+      query inside its own INSERT, where `CAPD_DBTIME_DAILY` got a plan that
+      re-read the fleet per series (114 s, 33M gets, against 0.66 s alone).
+      `build_model` now stages each series in the GTT `CAP_ML_INPUT`. And
+      `add_by_day` overflowed the DATE range (ORA-01841, failing
+      `cap_results.refresh`) on a near-zero slope; every `days_to_*` now reads
+      NULL past 9999-12-31. Found, not fixed: target-scoped reports and job
+      spacing (M24.11, M24.12). Docs:
+      reference.html#fleet-size.
+- [ ] **M24.11 A target's report at a target's cost.** `--target` costs a
+      whole fleet report (152 s at one target, 723 s at four) because
+      `CAPR_TBSPC_DAYS_TO_FULL`, the shift and series section views rank
+      with `ROW_NUMBER() OVER (ORDER BY ...)` across every target, which no
+      dbid predicate passes. Rank per dbid, or filter before ranking, then
+      check the plan pushes `dbid` down to the seam.
+- [ ] **M24.12 Job spacing for a fleet.** `install_jobs.sql` starts the
+      refresh at 01:30 and the retrain at 02:00; past ~25 targets on two
+      vCPUs the refresh outlasts the half hour and the two run at once
+      (two sessions' PGA). Chain them (a scheduler chain or one job that
+      runs the steps in order) instead of fixed start times.
 
 ## v2 (unchanged)
 

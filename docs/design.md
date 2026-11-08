@@ -118,6 +118,19 @@ one DB link per target and runs everything else. The choices, made
   horizon) is `BAD` in `CAP_CFG_CHECK`, and `purge` refuses to run on it,
   because a purge cannot be undone.
 
+- **The views stay live at fleet size (M24.10).** Measured at 1, 4 and 8
+  synthetic targets of 144 days each (`test/dbmint_scale.sh`), refresh and
+  both reports grow in proportion to the fleet, about seven minutes of
+  nightly work per target on two vCPUs, and each session's PGA stays at
+  490-640 MB. A per-run results table would not change that shape, so none
+  was added; the SNAPSHOT reports (about 40% faster) already read the M19
+  results layer. Two scale bugs came out of it: OML re-planned the training
+  query inside its own INSERT into work that re-read the fleet per series
+  (`train_all` quadratic; fixed by staging each series in `CAP_ML_INPUT`),
+  and `add_by_day` overflowed the DATE range on a near-zero slope (every
+  `days_to_*` now reads NULL past 9999-12-31). A `--target` report still
+  costs a fleet report, because the section views rank across targets.
+
 A warehouse mode, a seam over the `../awr-fleet-warehouse` collector,
 predated M24. M24.9 retired it, so repository mode is the one fleet path;
 `../awr-fleet-warehouse` stays its own product.

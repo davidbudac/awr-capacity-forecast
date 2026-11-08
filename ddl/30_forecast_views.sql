@@ -611,14 +611,17 @@ SELECT f.dbid,
        -- CYCLIC: days until the peak line (anchored at the last cycle peak,
        -- growing peak_slope_bpd a day) reaches the limit, counted from
        -- last_day. Otherwise from cur_used along the chosen slope.
-       CASE WHEN f.is_cyclic = 1 THEN
+       -- NULLIF(LEAST(.., last DATE - last_day)): NULL when last_day + days would
+       -- pass 9999-12-31 (a near-zero slope), so last_day + days is always a day.
+       NULLIF(LEAST(CASE WHEN f.is_cyclic = 1 THEN
                  CASE WHEN p.pk_n >= 3 AND p.pk_slope > 0
                       THEN GREATEST(0, FLOOR((c.limit_bytes - p.last_pk_val) / p.pk_slope
                                              - (f.last_day_n - p.last_pk_day_n)))
                  END
             WHEN f.use_slope > 0
             THEN GREATEST(0, FLOOR((c.limit_bytes - c.cur_used) / f.use_slope))
-       END                                                AS days_to_full,
+       END, DATE '9999-12-31' - f.last_day), DATE '9999-12-31' - f.last_day)
+                                               AS days_to_full,
        -- ... and a range on days_to_full from the slope's 95% CI (OLS for
        -- OLS / THEILSEN, DRIFT's own for DRIFT, none for CYCLIC).
        -- lo = WORST case (fastest plausible growth, fills soonest).
@@ -627,13 +630,15 @@ SELECT f.dbid,
        -- All three clamp at 0 when the limit is already below cur_used.
        -- NB: no trailing semicolon in these comments -- SQL*Plus would
        -- treat it as the statement terminator mid-view.
-       CASE WHEN f.is_cyclic = 0 AND f.ci_slope > 0 AND f.use_ci IS NOT NULL
+       NULLIF(LEAST(CASE WHEN f.is_cyclic = 0 AND f.ci_slope > 0 AND f.use_ci IS NOT NULL
             THEN GREATEST(0, FLOOR((c.limit_bytes - c.cur_used) / (f.ci_slope + f.use_ci)))
-       END                                                AS days_to_full_lo,
-       CASE WHEN f.is_cyclic = 0 AND f.ci_slope > 0 AND f.use_ci IS NOT NULL
+       END, DATE '9999-12-31' - f.last_day), DATE '9999-12-31' - f.last_day)
+                                               AS days_to_full_lo,
+       NULLIF(LEAST(CASE WHEN f.is_cyclic = 0 AND f.ci_slope > 0 AND f.use_ci IS NOT NULL
                  AND f.ci_slope - f.use_ci > 0
             THEN GREATEST(0, FLOOR((c.limit_bytes - c.cur_used) / (f.ci_slope - f.use_ci)))
-       END                                                AS days_to_full_hi,
+       END, DATE '9999-12-31' - f.last_day), DATE '9999-12-31' - f.last_day)
+                                               AS days_to_full_hi,
        f.recent_use                                       AS recent_slope_bpd,
        -- M7.7: only meaningful when the baseline slope is real growth. Below
        -- accel_slope_floor_bpd (default 1 MiB/day) a near-flat series divides
@@ -681,9 +686,10 @@ SELECT f.dbid,
             THEN GREATEST(0, c.cur_used + f.use_slope * 180 + f.use_h180 - c.limit_bytes) / 1073741824
        END                                                AS need_gib_180,
        f.last_day
-         + CASE WHEN f.is_cyclic = 0 AND f.ci_slope > 0 AND f.use_ci IS NOT NULL
+         + NULLIF(LEAST(CASE WHEN f.is_cyclic = 0 AND f.ci_slope > 0 AND f.use_ci IS NOT NULL
                 THEN GREATEST(0, FLOOR((c.limit_bytes - c.cur_used) / (f.ci_slope + f.use_ci)))
-           END                                            AS add_by_day,
+           END, DATE '9999-12-31' - f.last_day), DATE '9999-12-31' - f.last_day)
+                                                          AS add_by_day,
        -- CAP_TBSPC_OVERRIDE alert thresholds, NULL = the global knob.
        c.ovr_dtf_warn,
        c.ovr_dtf_crit,
@@ -963,16 +969,21 @@ SELECT f.dbid,
        f.use_ci                                     AS slope_ci_per_day,
        -- GREATEST(0,...): a level already above the saturation threshold
        -- reads 0 (saturated now) rather than a negative "days".
-       CASE WHEN f.metric <> 'DB_CPU_SEC' AND f.use_slope > 0
+       -- NULLIF(LEAST(.., last DATE - last_day)): NULL when last_day + days would
+       -- pass 9999-12-31 (a near-zero slope), so last_day + days is always a day.
+       NULLIF(LEAST(CASE WHEN f.metric <> 'DB_CPU_SEC' AND f.use_slope > 0
             THEN GREATEST(0, FLOOR((cfg.cpu_sat_pct - a.anchor_value) / f.use_slope))
-       END                                          AS days_to_sat,
-       CASE WHEN f.metric <> 'DB_CPU_SEC' AND f.ci_slope > 0 AND f.use_ci IS NOT NULL
+       END, DATE '9999-12-31' - f.last_day), DATE '9999-12-31' - f.last_day)
+                                               AS days_to_sat,
+       NULLIF(LEAST(CASE WHEN f.metric <> 'DB_CPU_SEC' AND f.ci_slope > 0 AND f.use_ci IS NOT NULL
             THEN GREATEST(0, FLOOR((cfg.cpu_sat_pct - a.anchor_value) / (f.ci_slope + f.use_ci)))
-       END                                          AS days_to_sat_lo,
-       CASE WHEN f.metric <> 'DB_CPU_SEC' AND f.ci_slope > 0 AND f.use_ci IS NOT NULL
+       END, DATE '9999-12-31' - f.last_day), DATE '9999-12-31' - f.last_day)
+                                               AS days_to_sat_lo,
+       NULLIF(LEAST(CASE WHEN f.metric <> 'DB_CPU_SEC' AND f.ci_slope > 0 AND f.use_ci IS NOT NULL
                  AND f.ci_slope - f.use_ci > 0
             THEN GREATEST(0, FLOOR((cfg.cpu_sat_pct - a.anchor_value) / (f.ci_slope - f.use_ci)))
-       END                                          AS days_to_sat_hi,
+       END, DATE '9999-12-31' - f.last_day), DATE '9999-12-31' - f.last_day)
+                                               AS days_to_sat_hi,
        CASE WHEN f.n  < cfg.min_train_days THEN 'INSUFFICIENT_HISTORY'
             WHEN f.use_slope = 0
               OR (f.slope_method <> 'DRIFT' AND f.r2 IS NULL) THEN 'FLAT'

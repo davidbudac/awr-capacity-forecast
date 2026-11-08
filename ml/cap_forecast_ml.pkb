@@ -201,7 +201,13 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
         -- that at any series length). Also keep it <= FLOOR(rows/4) as a
         -- conservative floor for short series. Never exceeds g_step_max, so ESM
         -- forecasts only ever reach +30 days; +90/180/365 stay REGR-only.
-        EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM (' || p_data_query || ')' INTO l_rows;
+        -- The rows go through cap_ml_input, not straight to CREATE_MODEL2 (see
+        -- ddl/50). Committed: OML reads them in its own transaction.
+        DELETE FROM cap_ml_input;
+        EXECUTE IMMEDIATE 'INSERT INTO cap_ml_input (case_id, val) SELECT day_dt, '
+                          || p_target_col || ' FROM (' || p_data_query || ')';
+        l_rows := SQL%ROWCOUNT;
+        COMMIT;
         -- CREATE_MODEL2 accepts an empty query and yields a model with no
         -- forecast (verified 19c), which would pass as OK.
         IF l_rows = 0 THEN
@@ -227,7 +233,8 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
         DBMS_DATA_MINING.CREATE_MODEL2(
             model_name          => l_tmp,
             mining_function     => 'TIME_SERIES',
-            data_query          => p_data_query,
+            data_query          => 'SELECT case_id AS day_dt, val AS ' || p_target_col
+                                   || ' FROM cap_ml_input',
             set_list            => l_set,
             case_id_column_name => 'DAY_DT',
             target_column_name  => p_target_col);

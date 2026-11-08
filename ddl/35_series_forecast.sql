@@ -247,18 +247,23 @@ SELECT f.dbid,
        CASE WHEN c.cur_limit > 0
             THEN c.cur_limit * cfg.series_sat_pct / 100
        END                                          AS sat_value,
-       CASE WHEN c.cur_limit > 0 AND f.use_slope > 0
+       -- NULLIF(LEAST(.., last DATE - last_day)): NULL when last_day + days would
+       -- pass 9999-12-31 (a near-zero slope), so last_day + days is always a day.
+       NULLIF(LEAST(CASE WHEN c.cur_limit > 0 AND f.use_slope > 0
             THEN GREATEST(0, FLOOR((c.cur_limit * cfg.series_sat_pct / 100 - c.cur_val) / f.use_slope))
-       END                                          AS days_to_limit,
-       CASE WHEN c.cur_limit > 0 AND f.use_slope > 0 AND f.use_ci IS NOT NULL
+       END, DATE '9999-12-31' - f.last_day), DATE '9999-12-31' - f.last_day)
+                                               AS days_to_limit,
+       NULLIF(LEAST(CASE WHEN c.cur_limit > 0 AND f.use_slope > 0 AND f.use_ci IS NOT NULL
             THEN GREATEST(0, FLOOR((c.cur_limit * cfg.series_sat_pct / 100 - c.cur_val)
                                    / (f.use_slope + f.use_ci)))
-       END                                          AS days_to_limit_lo,
-       CASE WHEN c.cur_limit > 0 AND f.use_slope > 0 AND f.use_ci IS NOT NULL
+       END, DATE '9999-12-31' - f.last_day), DATE '9999-12-31' - f.last_day)
+                                               AS days_to_limit_lo,
+       NULLIF(LEAST(CASE WHEN c.cur_limit > 0 AND f.use_slope > 0 AND f.use_ci IS NOT NULL
                  AND f.use_slope - f.use_ci > 0
             THEN GREATEST(0, FLOOR((c.cur_limit * cfg.series_sat_pct / 100 - c.cur_val)
                                    / (f.use_slope - f.use_ci)))
-       END                                          AS days_to_limit_hi,
+       END, DATE '9999-12-31' - f.last_day), DATE '9999-12-31' - f.last_day)
+                                               AS days_to_limit_hi,
        CASE WHEN f.n  < cfg.min_train_days     THEN 'INSUFFICIENT_HISTORY'
             WHEN f.use_slope = 0
               OR (f.slope_method <> 'DRIFT' AND f.r2 IS NULL) THEN 'FLAT'

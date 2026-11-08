@@ -100,6 +100,7 @@ BEGIN
     drop_it('DROP TABLE cap_fit_hist PURGE',       -942);
     drop_it('DROP TABLE cap_run PURGE',            -942);
     drop_it('DROP TABLE cap_ml_model PURGE',       -942);
+    drop_it('DROP TABLE cap_ml_input',             -942);
     drop_it('DROP TABLE cap_tbspc_override PURGE', -942);
     drop_it('DROP TABLE cap_config PURGE',         -942);
     drop_it('DROP TYPE cap_esm_tab',               -4043);

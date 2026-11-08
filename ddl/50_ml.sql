@@ -128,6 +128,26 @@ END;
 COMMENT ON TABLE cap_ml_model IS 'Registry of OML exponential-smoothing models built by cap_forecast_ml (one per series).';
 
 -- --------------------------------------------------------------------
+-- The training rows of the model being built, per session. build_model
+-- copies a series here with a plain INSERT and gives CREATE_MODEL2 this
+-- table, because OML runs its data query inside its own INSERT /*+ append */,
+-- where the optimizer planned CAPD_DBTIME_DAILY into work that grew with the
+-- whole fleet (19.27, four targets: 114 s and 33M buffer gets for one series
+-- that the plain query reads in 0.66 s). PRESERVE ROWS: the build commits.
+-- --------------------------------------------------------------------
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE GLOBAL TEMPORARY TABLE cap_ml_input (
+        case_id  DATE,
+        val      NUMBER) ON COMMIT PRESERVE ROWS';
+EXCEPTION
+    WHEN OTHERS THEN
+        IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+COMMENT ON TABLE cap_ml_input IS 'Training rows of the OML model being built (cap_forecast_ml.build_model), per session.';
+
+-- --------------------------------------------------------------------
 -- SQL types for the pipelined forecast reader (must be schema-level types so
 -- they are usable in SQL TABLE(...) from CAPF_ESM_FORECAST).
 -- --------------------------------------------------------------------

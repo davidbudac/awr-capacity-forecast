@@ -84,7 +84,7 @@ CAPV_CONTRACT; `13` also creates the copies and pulls `repository/cap_repo.sql`)
 (CAPF_SERIES_FORECAST) → `40_anomaly` → `45_report_views` (CAPR_CONTAINER,
 CAPR_ANOMALIES, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
 CAPR_SEGMENT_GROWTH, the point feeds CAPR_SERIES_POINTS / CAPR_HOURLY_POINTS,
-CAPR_FIT) → `50_ml` (CAP_ML_MODEL, pulls `ml/cap_forecast_ml.pks/.pkb`, the
+CAPR_FIT) → `50_ml` (CAP_ML_MODEL, the temporary CAP_ML_INPUT, pulls `ml/cap_forecast_ml.pks/.pkb`, the
 ESM views, CAPF_COMPARE, CAPF_BACKTEST, CAPF_ESM_HEALTH[_SUMMARY]) →
 `55_report_views_ml` (the Tier-2-dependent CAPR_* section views,
 CAPR_FORECAST_POINTS and CAPR_ALERTS, which reads the Tier 2 health views for
@@ -256,6 +256,17 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   esm_max_age_days`. A failed build keeps the previous model (built under a
   temp name, swapped in with `RENAME_MODEL`), records status FAILED with
   `last_error`, and the public `train_*` raise ORA-20060 after the batch.
+- **OML trains from `CAP_ML_INPUT`, never from the views.** `CREATE_MODEL2`
+  runs its data query inside `INSERT /*+ append */ INTO SYS.MODELGTTRAW$`,
+  where the optimizer planned `CAPD_DBTIME_DAILY` into work that grew with
+  the fleet (19.27, four targets: 114 s and 33M buffer gets per series, 0.66 s
+  for the same query alone; `train_all` 2116 s, 86 s once staged).
+  `build_model` copies each series into the global temporary table
+  `CAP_ML_INPUT` (ddl/50, ON COMMIT PRESERVE ROWS, committed before the build
+  because OML reads it in its own transaction) and gives OML `SELECT case_id
+  AS day_dt, val AS <target> FROM cap_ml_input`. Every data query must start
+  `SELECT day_dt, <target>`. One that starts with `WITH` builds an EMPTY
+  model, no error (verified 19.27).
 - `DM$VP<model>` result view columns: `PARTITION_NAME, CASE_ID, VALUE,
   PREDICTION, LOWER, UPPER`. `get_forecast` reads the last five.
 - **In CDB$ROOT the SYS_ time model and sysstat are CDB-wide.**
@@ -342,7 +353,11 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   (CPU: `anchor_value`, the median of the last `shift_days` complete days),
   bands = the OLS half-widths around that anchor, so +30 and days_to_full
   agree. TBSPC days_to_full / _lo / _hi clamp at 0 and `limit_below_used`
-  flags a ceiling under usage. Every CAPF view carries `newest_day` /
+  flags a ceiling under usage. Every `days_to_full` / `days_to_sat` /
+  `days_to_limit` (and `_lo` / `_hi`, and `add_by_day`) reads NULL when
+  `last_day + days` would pass 9999-12-31: a near-zero slope under a large
+  headroom made `add_by_day` raise ORA-01841 and fail `cap_results.refresh`
+  (found by the M24.10 scale data). Every CAPF view carries `newest_day` /
   `is_current` (`stale_days` 3); forecast alert kinds and `CPU_SHIFT` need `is_current = 'Y'` (`CAPA_CPU_SHIFT` carries `newest_day` / `is_current` per dbid and reads complete, non-gap days only).
 - **CYCLIC:** `cyclic_min_cliffs` (2) or more M9.3 shrink cliffs in the
   training window grade a tablespace CYCLIC instead of resetting; it is judged
@@ -423,6 +438,9 @@ there for local mode).
   repository's high-water mark, then every `CAPD/CAPF/CAPA/CAPR` view in two
   parallel sessions (exit 5 = a snapshot landed mid-run, rerun). Logs
   `/tmp/dbmint_parity.*` locally.
+- **Scale lever (M24.10):** `test/dbmint_scale.sh CAPX3 <K>`, see
+  "Repository mode" below. CAPX3 holds the synthetic targets; CAPX2 must
+  have collected cdb1 first (it is the clone source).
 - **PGA is the resource that bites.** One suite session peaks at ~1.1-1.3 GB of
   PGA (a report driver, `cap_results.refresh`; `run_test.sql` 1.8 GB), and
   almost none of it is sort/hash work area (largest < 8 MB): it is
@@ -501,7 +519,17 @@ there for local mode).
   where package `CAP_REPO` exists; doctor section 10 checks them and section
   11 checks each target (link, collect state, staleness, gaps, days per
   DBID vs section 7's needs, which `CAP_CFG_CHECK` mirrors).
-- **Not yet built:** see PLAN.md M24.10 (scale).
+- **Scale (M24.10).** `test/repo_synth_target.sql NAME DBID SHIFT [DAYS]
+  [SOURCE_SCHEMA]` stacks a collected target's copies back to DAYS (37-day
+  blocks, snap_ids 100000 apart); `test/dbmint_scale.sh <SCHEMA> <K>
+  [--steps ...]` grows CAPX3 to K such targets and times train_all,
+  refresh and the reports (live, one target, SNAPSHOT) with `pga_probe.sql`,
+  appending to `/tmp/dbmint_scale_<SCHEMA>.tsv`. Measured: linear, ~7 min of
+  nightly work per 144-day target on 2 vCPU, PGA flat at 490-640 MB
+  (reference.html#fleet-size). A `--target` report costs a fleet report:
+  the section views rank across all targets (PLAN.md M24.11).
+- **Not yet built:** PLAN.md M24.11 (a target's report at a target's cost)
+  and M24.12 (chain the jobs for a fleet).
   RAC: one high-water mark per DBID, so a snapshot that completes on one
   instance before another could be copied half; untested.
 
