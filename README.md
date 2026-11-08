@@ -58,7 +58,7 @@ Two forecasting engines run side by side:
 ## Architecture — layered views over a portable seam
 
 ```
-CAPV_*  seam        DBA_HIST-shaped views  (local | warehouse | fixture source)
+CAPV_*  seam        DBA_HIST-shaped views  (local | repository | warehouse | fixture)
   |                 incl. CAPV_CONTAINER: (dbid, con_dbid) -> DB / PDB names;
   |                 per-container time model and redo from the DBA_HIST_CON_ views;
   |                 CAPV_CONTRACT says which sources carry rows
@@ -88,18 +88,35 @@ report/             read-only SQL*Plus text report (sections 0-7) + HTML report
                     + CSV export + run_report.sh (cron) + two drill scripts
 ```
 
-Seven tables are persisted and survive a re-install: `CAP_CONFIG` (tuning
+Seven tables (ten and the copies in repository mode) are persisted and survive a re-install: `CAP_CONFIG` (tuning
 knobs, MERGE-seeded), `CAP_TBSPC_OVERRIDE` (limit overrides, exclusions,
 per-tablespace thresholds), `CAP_ML_MODEL` (Tier 2 registry) and the results
 layer `CAP_RUN`, `CAP_FIT_HIST`, `CAP_ALERT_STATE`, `CAP_ALERT_EVENT`. OML
-models themselves are schema objects.
+models themselves are schema objects. A repository also persists its target
+registry (`CAP_TARGET`, `CAP_TARGET_DBID`), `CAP_COLLECT_LOG` and the
+`CAP_H_*` copies of each target's AWR, which cannot be pulled again once the
+target's AWR has aged out.
 
 The **seam** is the portability trick: all analytics are written once against
 the thin `CAPV_*` views, so the identical SQL runs against local `DBA_HIST_*`,
-the `awr-fleet-warehouse` `AWRV_*` views, or the test fixtures — you just swap
-which seam file `install.sql` loads.
+a repository's copies of other databases' `DBA_HIST_*`, the
+`awr-fleet-warehouse` `AWRV_*` views, or the test fixtures. `install.sql`
+loads one seam file per mode.
 
-## Quickstart
+## Two ways to deploy
+
+- **Measure one database.** The suite runs on the measured database and
+  reads its own AWR (`deploy_mode=local`).
+- **Measure a fleet.** Each measured database (a *target*) gets only a
+  read-only user. One *repository* database copies every target's AWR over a
+  DB link, keeps it for `repo_retention_days` (400), and runs the whole suite,
+  reports and jobs over all of them (`deploy_mode=repository`). Nothing is
+  written on a target.
+
+Both give the same reports, alerts and dashboards. Step by step:
+[Getting started](https://davidbudac.github.io/awr-capacity-forecast/start.html).
+
+## Quickstart: measure one database
 
 On the database host (or anywhere `sqlplus` can reach `CDB$ROOT` as sysdba):
 
@@ -122,6 +139,52 @@ it installs into SYS, and `install.sql` prints a warning saying so. For a
 lasting install, create a dedicated owner once with `@create_owner.sql` (as
 SYSDBA: `C##AWRCAP` in CDB$ROOT, `AWRCAP` in a PDB, with direct grants on
 every DBA_HIST_* view the seam reads) and install as that user.
+`./install.sh --profile standalone` does all of that in one run: the owner,
+the preflight gate, the install, the Tier 2 models and the scheduler jobs
+(created disabled). `./install.sh` alone walks a wizard, and
+`./install.sh --list-profiles` shows the other shipped profiles.
+
+## Measure a fleet
+
+1. **Each target**, as SYSDBA in `CDB$ROOT` (or a non-CDB), from a clone of
+   this repository: create the read-only reader `C##AWRRDR` (CREATE SESSION,
+   direct SELECT on the seventeen `DBA_HIST_*` views, `CONTAINER_DATA = ALL`)
+   and check it. It ends by printing the `add_target` line for step 3.
+
+   ```bash
+   export CAP_READER_PW='<reader password>'
+   ./install.sh --profile target       # = @target/prepare.sql + @target/check.sql
+   ```
+
+2. **The repository**, any 19c database or PDB that can reach each target's
+   listener: an owner with CREATE DATABASE LINK instead of AWR grants, the
+   suite in `deploy_mode=repository`, and five scheduler jobs, disabled.
+
+   ```bash
+   ./install.sh --profile repository   # --set CONTAINER=<PDB> for an owner in a PDB
+   ```
+
+3. **Register and copy** each target, in the owner's schema. `add_target`
+   probes every copied view over the new link; the first `collect` copies
+   all the AWR the target still holds.
+
+   ```sql
+   SQL> ALTER SESSION SET CURRENT_SCHEMA = C##AWRCAP;
+   SQL> EXEC cap_repo.add_target('CDB1', '//db1.example.com:1521/cdb1', 'C##AWRRDR', '<reader password>')
+   SQL> EXEC cap_repo.collect('CDB1')
+   ```
+
+4. **Turn on the jobs**: `CAP_COLLECT_JOB` (hourly copy), `CAP_PURGE_JOB`
+   (daily retention purge) and the usual refresh / retrain jobs
+   (`EXEC DBMS_SCHEDULER.ENABLE('C##AWRCAP.CAP_COLLECT_JOB')`, ...).
+
+5. **Report** on every target, or one:
+   `report/run_report.sh "/ as sysdba" --schema C##AWRCAP --html [--target CDB1]`.
+
+The forecasts fill in as the repository's history grows; the targets keep
+their stock AWR retention. `CAPR_TARGETS` and `doctor.sql` section 11 show
+each target's collect health. Pausing, password rotation, removal and
+retention: [Repository mode](https://davidbudac.github.io/awr-capacity-forecast/reference.html#repository).
 
 **New here?** The fifteen-minute
 [tutorial](https://davidbudac.github.io/awr-capacity-forecast/tutorial.html)
@@ -134,7 +197,7 @@ examples from the sample report.
 
 ```sql
 sqlplus / as sysdba           -- install where DBA_HIST_* is visible: CDB$ROOT
-SQL> DEFINE deploy_mode = 'local'   -- local | warehouse | fixture
+SQL> DEFINE deploy_mode = 'local'   -- local | repository | warehouse | fixture
 SQL> @install.sql
 ```
 
@@ -148,6 +211,7 @@ Modes:
 | deploy_mode | source | notes |
 |-----------|--------|-------|
 | `local` (default) | `DBA_HIST_*` | needs Diagnostics Pack + **direct** SELECT grants on the DBA_HIST views (not via a role). Install in `CDB$ROOT`. |
+| `repository` | `CAP_H_*`, copies of registered targets' `DBA_HIST_*` | install as an owner made with `DEFINE owner_mode = repository` + `@create_owner.sql` (CREATE DATABASE LINK, no AWR grants), on any 19c database or PDB; register targets with `cap_repo.add_target` and copy with `cap_repo.collect` (see [Measure a fleet](#measure-a-fleet)). `ddl/13_seam_repository.sql` is generated from ddl/10 by `repository/build.py`. |
 | `warehouse` | `awrv_*` seam views | the [awr-fleet-warehouse](../awr-fleet-warehouse) collector gathers tablespace/OSSTAT/time-model history from the fleet; install this suite as the warehouse owner (or a schema with SELECT on the `AWRV_*` views). Presents every collected database keyed on `(dbid, con_dbid)`. The warehouse has no resource-limit, parameter, ASM or segment facts yet, so `CAPV_RESOURCE_LIMIT`, `CAPV_PARAMETER`, `CAPV_ASM_DISKGROUP` and `CAPV_SEG_STAT` are zero-row stubs there (the `PROCESSES` / `SESSIONS` / `ASM_DG` series are simply empty), and its time model is the CDB-wide one. |
 | `fixture` | `CAP_FIXTURE_*` | test hook; run `test/fixture_install.sql` (or `test/demo_fixture.sql`) first. |
 
@@ -752,7 +816,7 @@ suite depends on it.
 - **Re-install preserves your tuning, overrides and models.** `CAP_CONFIG`
   knobs, `CAP_TBSPC_OVERRIDE` rows and the `CAP_ML_MODEL` registry (and its OML
   models) survive `@install.sql`, and so do the results-layer tables
-  (`00_drop` never drops the seven persisted tables). The seed MERGE inserts
+  (`00_drop` never drops a persisted table). The seed MERGE inserts
   missing keys and refreshes `cfg_default` / `cfg_desc` but never your
   `cfg_value`; only `suite_version` is overwritten. Use `@uninstall.sql` for a
   full teardown.

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # test/docs_lint.sh -- catch documentation drift against the DDL.
-# Bash + grep/awk only. Five checks, each prints one OK / FAIL summary line:
+# Bash + grep/awk only. Seven checks, each prints one OK / FAIL summary line
+# (6 and 7 one per document they read):
 #   1. every knob the ddl/05 seed MERGE inserts is named in docs/reference.html;
 #   2. every view / table / package / procedure that ddl/, ml/ and repository/ create is
 #      named in the object index of docs/reference.html (id="objects" up to
@@ -10,7 +11,13 @@
 #   4. no document claims the site is generated (it is maintained by hand);
 #   5. every alert kind CAPR_ALERTS can emit is named in docs/reference.html.
 #      The kinds come from CAPR_SEVERITY (ddl/45), the alert_kind column of
-#      CAPA_OBS (ddl/40) and the extra branches of CAPR_ALERTS (ddl/55).
+#      CAPA_OBS (ddl/40) and the extra branches of CAPR_ALERTS (ddl/55);
+#   6. every table a CREATE TABLE in ddl/ or repository/ makes, plus CAP_H_* for
+#      the ddl/13 copies, is named in the persisted-tables section of
+#      docs/reference.html (id="tables" up to the next section head) and in the
+#      CLAUDE.md "Persisted tables survive a re-install" bullet, case-insensitive;
+#   7. every profiles/*.env is named in docs/reference.html as --profile NAME or
+#      NAME.env, and in the --profile help of install.sh.
 # Exit 1 when any check fails.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -80,5 +87,45 @@ for k in $kinds; do
   grep -qE "(^|[^A-Z0-9_])${k}([^A-Z0-9_]|$)" "$REF" || miss="$miss$k"$'\n'
 done
 report "alert kinds ($(echo $kinds | tr ' ' ',')) named in $REF" "$(echo "$kinds" | grep -c .)" "$miss"
+
+# ---- 6. persisted tables ---------------------------------------------------------
+# Every table is persisted: ddl/00_drop drops views only. ddl/13 creates the
+# copies under a computed name, so they count as the one entry CAP_H_*.
+tables=$(cat ddl/*.sql repository/*.sql 2>/dev/null \
+  | grep -v -E '^\s*--' \
+  | grep -oiE "CREATE TABLE +[a-z][a-z0-9_\$#]*" \
+  | awk '{print toupper($NF)}' | sort -u)
+grep -q "ensure('cap_h_" ddl/13_seam_repository.sql && tables="$tables"$'\n''CAP_H_*'
+tables_ref=$(awk '/id="tables"/{on=1; next} on && /class="section-head"/{exit} on' "$REF" \
+             | sed 's/<[^>]*>/ /g' | tr 'a-z' 'A-Z')
+tables_claude=$(awk '/^- \*\*Persisted tables survive a re-install:\*\*/{on=1; print; next}
+                     on && /^- \*\*/{exit} on' CLAUDE.md | tr 'a-z' 'A-Z')
+miss_ref=""; miss_claude=""
+for t in $tables; do
+  re="(^|[^A-Z0-9_\$])$(printf '%s' "$t" | sed 's/[$*]/\\&/g')([^A-Z0-9_\$]|$)"
+  printf '%s' "$tables_ref"    | grep -qE "$re" || miss_ref="$miss_ref$t"$'\n'
+  printf '%s' "$tables_claude" | grep -qE "$re" || miss_claude="$miss_claude$t"$'\n'
+done
+n_tables=$(echo "$tables" | grep -c .)
+report "persisted tables named in $REF#tables" "$n_tables" "$miss_ref"
+report "persisted tables named in the CLAUDE.md 'Persisted tables' bullet" "$n_tables" "$miss_claude"
+
+# ---- 7. profiles -------------------------------------------------------------------
+# reference.html must show a profile as --profile NAME or NAME.env, so the
+# English word "target" alone does not count. The install.sh help block is a
+# plain list of names.
+profiles=$(ls profiles/*.env 2>/dev/null | sed -E 's|.*/||; s|\.env$||')
+ref_txt=$(sed 's/<[^>]*>/ /g' "$REF")
+help_txt=$(awk '/^#   --profile P/{on=1; print; next} on && /^#   --/{exit} on' install.sh)
+miss_ref=""; miss_help=""
+for p in $profiles; do
+  printf '%s' "$ref_txt" | grep -qE "(--profile +${p}|(^|[^A-Za-z0-9_.-])${p}\.env)([^A-Za-z0-9_-]|$)" \
+    || miss_ref="$miss_ref$p"$'\n'
+  printf '%s' "$help_txt" | grep -qE "(^|[^A-Za-z0-9_-])${p}([^A-Za-z0-9_-]|$)" \
+    || miss_help="$miss_help$p"$'\n'
+done
+n_profiles=$(echo "$profiles" | grep -c .)
+report "profiles/*.env named in $REF (--profile NAME or NAME.env)" "$n_profiles" "$miss_ref"
+report "profiles/*.env named in the install.sh --profile help" "$n_profiles" "$miss_help"
 
 exit $rc

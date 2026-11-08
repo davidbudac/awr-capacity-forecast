@@ -11,7 +11,8 @@ This document explains *why* each layer is shaped the way it is. For usage see
   anomaly flag exposes the exact arithmetic (value, median, MAD-sigma,
   threshold, robust z) so an operator can reproduce it by hand.
 - **Portable.** Analytics are written once against a thin seam so the same SQL
-  serves local AWR, a fleet warehouse, or test fixtures.
+  serves local AWR, a repository's copies of other databases' AWR, a fleet
+  warehouse, or test fixtures.
 - **Read-only.** Nothing the report touches is ever modified. The suite
   writes only to `CAP_*` tables it owns, never to AWR: the config and
   override tables (operator), the model registry (`cap_forecast_ml`) and the
@@ -23,7 +24,9 @@ This document explains *why* each layer is shaped the way it is. For usage see
   the results layer's `CAP_RUN`, `CAP_FIT_HIST`, `CAP_ALERT_STATE`,
   `CAP_ALERT_EVENT`) all survive `@install.sql`. Operator tables are state
   nobody can recompute; derived tables are a cache the live views never
-  need. Full teardown is `@uninstall.sql`.
+  need. A repository's registry and `CAP_H_*` copies survive too, and they
+  are the one kind of state nothing can rebuild: a target's AWR ages out.
+  Full teardown is `@uninstall.sql`.
 - **One config access path.** Every threshold is a `CAP_CONFIG` row, and views
   read knobs only through the one-row view `CAP_CFG` (one NUMBER column per
   knob, named after it), joined as `CROSS JOIN cap_cfg cfg`. No view pivots
@@ -38,11 +41,92 @@ This document explains *why* each layer is shaped the way it is. For usage see
   `UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = '...'`.
 - **19c floor.** No 21c+ syntax (notably: no standalone `WINDOW` clause).
 
+## Deployment: standalone, or target + repository (M24)
+
+The suite measures one database from inside it (`deploy_mode=local`), or a
+fleet from a repository database (`deploy_mode=repository`). In the fleet
+shape a *target* gets only a read-only common user (`target/prepare.sql`:
+`C##AWRRDR`, `CREATE SESSION`, direct `SELECT` on the seventeen views ddl/10
+reads, `CONTAINER_DATA = ALL`), and the repository copies those views over
+one DB link per target and runs everything else. The choices, made
+2026-11-07:
+
+- **Copy, not federate.** Views over `@link` would cap history at the
+  target's AWR retention (8 days on a stock database) and run the deep view
+  stack, which needs 1.1 to 1.4 GB of PGA per session, across links. Copies
+  let the repository keep `repo_retention_days` (400) of history while the
+  targets keep their default retention, and they move the forecasting load
+  off production.
+- **Pull, not push.** The repository connects to each target's listener and
+  every statement it runs there is a `SELECT`. A target-side exporter would
+  mean installing code on production; it is out of scope.
+- **Copies shaped like `DBA_HIST`, seam generated.** `CAP_H_<view>` keeps
+  the columns ddl/10 reads under their AWR names, keyed with `con_dbid`
+  wherever the source has it (from `CDB$ROOT`, seg_stat, seg_stat_obj,
+  parameter and the `CON_` time model / sysstat span every container; keys
+  without `con_dbid` collided there). `repository/build.py` holds the
+  manifest (each source's columns, kind and row filter) and writes
+  `ddl/13_seam_repository.sql`: the copy tables, `CAP_REPO_SOURCE` (the
+  finished pull statements) and the seam, which is ddl/10 with each
+  `dba_hist_x` renamed `cap_h_x`. One body serves both modes, so a column the
+  copy lacks fails the install compile, and `build.py --check` fails on a
+  stale ddl/13, on a copy filter that drops a literal ddl/10 filters on, and
+  when ddl/10, `target/prepare.sql` or `create_owner.sql` name other views
+  than the manifest. `CAPV_TARGET` is the one view that differs by design
+  (`repository/seam_overrides.sql`): it reads the registry.
+- **Three copy kinds.** Facts (F) are appended per snap_id window above the
+  DBID's high-water mark. Dimensions (D: tablespace, datafile, PDB and
+  database instance, ASM diskgroup) are MERGEd null-safe on their key. One
+  dimension (S: `SEG_STAT_OBJ`) is scoped to the fact chunk that references
+  it, because the full view is large.
+- **The window starts at the high-water mark, not the oldest snapshot.** AWR
+  purges its tables unevenly: `DBA_HIST_CON_SYSSTAT` kept rows of snapshots
+  2657..2695 after they had left `DBA_HIST_SNAPSHOT` (verified 19.27). The
+  first collect starts at 0, so the copies hold exactly what the target's
+  views show, orphans included; `purge` cuts per DBID at the first snap_id
+  that ended inside the retention window, orphans below it too.
+- **A chunk is a transaction.** `cap_repo.collect` copies 500 snap_ids at a
+  time: every source and the high-water mark move together, so a failure
+  repeats only the failed chunk, and a collect killed mid-chunk converges on
+  rerun. The DBID row is locked `FOR UPDATE NOWAIT`, so two collects never
+  copy one window twice. Measured on dbmint: the backfill of 1166 snapshots
+  copied 154k rows in under 2 s; a grant revoked mid-collect rolled back the
+  first chunk whole and the rerun converged to identical fingerprints.
+- **A DBID belongs to one target.** A second target that shows an owned DBID
+  (a clone restored without NID) is refused and logged `COLLISION`, or two
+  databases' histories would merge into one series.
+- **`CONTAINER_DATA` follows the querying session.** A common user without
+  `CONTAINER_DATA = ALL` reading `DBA_HIST_*` in `CDB$ROOT` sees the root's
+  rows only (1 container of 3 on 19.27), while SYS through the same view
+  sees all of them. `target/prepare.sql` sets it for the reader, and
+  `create_owner.sql` for a local-mode owner, whose own jobs would otherwise
+  lose every PDB series.
+- **Links belong to the owner.** `cap_repo` is definer's rights, so
+  `add_target` creates the link in the suite owner's schema even when SYSDBA
+  calls it under `CURRENT_SCHEMA`; `CREATE DATABASE LINK` must be granted
+  directly. A private link resolves only for its owner, so `doctor.sql`
+  (SYSDBA) tests one through `cap_repo.ping`, and `uninstall.sql` drops them
+  through a throwaway definer's-rights procedure in the owner's schema.
+- **Parity is the ship gate.** `test/dbmint_parity.sh` installs local mode
+  and repository mode over the same CDB root, collects to one snap_id and
+  fingerprints every `CAPV_` view at the repository's high-water mark and
+  every `CAPD/CAPF/CAPA/CAPR` view: row count and an order-free hash, zero
+  differences. Only the identity views (`CAPV_TARGET`, `CAPR_TARGETS`) are
+  skipped, because they differ by design.
+- **Retention guards the forecasts.** `repo_retention_days` below the
+  longest window a feature reads (120 days at the shipped knobs: the ESM
+  horizon) is `BAD` in `CAP_CFG_CHECK`, and `purge` refuses to run on it,
+  because a purge cannot be undone.
+
+The warehouse mode below (`ddl/11`, over `../awr-fleet-warehouse`) predates
+this and retires in M24.9.
+
 ## Layer 1 — the seam (`CAPV_*`)
 
 Thirteen views re-present the AWR dictionary in a stable shape. Everything
-downstream depends only on these, so swapping `ddl/10_seam_local.sql` for `11`
-(warehouse) or `12` (fixture) re-points the whole stack. Every view carries
+downstream depends only on these, so swapping `ddl/10_seam_local.sql` for
+`13` (repository, generated from `10`), `11` (warehouse) or `12` (fixture)
+re-points the whole stack. Every view carries
 `(dbid, con_dbid)` but `CAPV_TARGET`, which is per dbid. A fourteenth view,
 `CAPV_CONTRACT`, describes what the other thirteen present (see the last
 bullet).

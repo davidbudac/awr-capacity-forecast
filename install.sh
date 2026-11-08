@@ -3,13 +3,13 @@
 #
 #   ./install.sh                              # wizard: asks what to install and how
 #   ./install.sh --profile target --set CONNECT='/ as sysdba'   # prepare a target
-#   ./install.sh --profile production         # silent: every answer from a profile
-#   ./install.sh --profile production --set OWNER=C##CAPMON --set JOBS_ENABLE=Y
+#   ./install.sh --profile standalone         # silent: every answer from a profile
+#   ./install.sh --profile standalone --set OWNER=C##CAPMON --set JOBS_ENABLE=Y
 #   ./install.sh --profile my.env --dry-run   # print the SQL*Plus driver, run nothing
 #   ./install.sh --list-profiles
 #
 # Options:
-#   --profile P     a name from profiles/ (quickstart, production, target,
+#   --profile P     a name from profiles/ (quickstart, standalone, target,
 #                   repository, warehouse, fixture-test, demo) or a path to a
 #                   KEY=VALUE file. Without --interactive it runs silently.
 #   --set KEY=VAL   override one answer (repeatable; applied after the profile)

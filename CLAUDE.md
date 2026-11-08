@@ -91,7 +91,16 @@ valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
 `test/lint_anom_joins.sh`, syncs and runs the whole fixture harness on dbmint.
 `test/docs_lint.sh` checks the docs against the DDL (knobs, object index,
-alert kinds, no assertion counts, no "generated" claim).
+alert kinds, no assertion counts, no "generated" claim, every `CREATE TABLE`
+in ddl/ + repository/ plus `CAP_H_*` named in reference.html#tables and in
+the "Persisted tables" bullet above, every `profiles/*.env` in
+reference.html#installer and install.sh's `--profile` help).
+`install.sh` is the guided / silent installer for every role (one SQL*Plus
+driver per run, log in `reports/install_<ts>.log`); `profiles/*.env` are its
+answer files: `standalone` (dedicated owner, ML, jobs), `target`,
+`repository`, plus `quickstart`, `demo`, `fixture-test`, `warehouse`.
+`docs/start.html` presents "Measure one database" and "Measure a fleet" as
+equal paths; reference.html `#installer` / `#repository` hold the detail.
 Opt-in extras outside install.sql: `create_owner.sql` (run once as SYSDBA:
 a dedicated owner, `C##AWRCAP` in CDB$ROOT or `AWRCAP` in a PDB, with direct
 grants on every DBA_HIST_* view ddl/10 reads; views and the definer's-rights
@@ -418,7 +427,9 @@ there for local mode).
   else) and the repository runs the suite with `deploy_mode=repository` over
   `CAP_H_*` copies that `cap_repo.collect` pulls over one DB link per target.
   `install.sh` asks the role first (standalone / target / repository /
-  warehouse / fixture); profiles `target.env` and `repository.env`.
+  warehouse / fixture); profiles `standalone.env`, `target.env`,
+  `repository.env`. A repository install's closing banner names
+  `cap_repo.add_target` / `collect` as the next step.
 - **`repository/build.py` owns the copy contract.** Its manifest lists each
   source view's copied columns, kind (F fact appended per snap_id window, D
   dimension MERGEd null-safe on its key, S dimension scoped to a fact's
@@ -476,7 +487,8 @@ there for local mode).
   where package `CAP_REPO` exists; doctor section 10 checks them and section
   11 checks each target (link, collect state, staleness, gaps, days per
   DBID vs section 7's needs, which `CAP_CFG_CHECK` mirrors).
-- **Not yet built:** see PLAN.md M24.8 onwards (profiles, docs).
+- **Not yet built:** see PLAN.md M24.9 (retire warehouse mode) and M24.10
+  (scale).
   RAC: one high-water mark per DBID, so a snapshot that completes on one
   instance before another could be copied half; untested.
 

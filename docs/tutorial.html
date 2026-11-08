@@ -274,6 +274,11 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
       <p>The suite writes only to its own <span class="inline">CAP_*</span> tables.
         <span class="inline">@uninstall.sql</span> removes everything.</p>
 
+      <p>To measure many databases from one place, install the suite on a repository database
+        instead and give each measured database only a read-only user
+        (<a href="start.html#fleet">Measure a fleet</a>). The rest of this tutorial reads the same
+        either way: a fleet report has one row per database and container, as here.</p>
+
       <!-- ===================== 3. FIRST REPORT ===================== -->
       <div class="section-head" id="first-report" data-min="2">
         <span class="eyebrow">Step 3</span>

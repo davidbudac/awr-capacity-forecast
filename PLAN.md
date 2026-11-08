@@ -724,10 +724,24 @@ Decided 2026-11-07:
       boundary, dimensions kept; the collect job ran as the owner (FAILED
       on the synthetic target, as it should); doctor's local output
       unchanged.
-- [ ] **M24.8 Profiles and docs.** `profiles/standalone.env` (today's
+- [x] **M24.8 Profiles and docs.** `profiles/standalone.env` (today's
       production), `target.env`, `repository.env`; docs "Measure one
       database" and "Measure a fleet" as equal paths; CLAUDE.md layout and
       persisted-table list; `test/docs_lint.sh`.
+      Done 2026-11-08: `production.env` renamed `standalone.env` (dry-run
+      drivers identical); Getting started offers both paths side by side
+      (the fleet one in five steps: prepare, install, register + collect,
+      jobs, report); reference.html gained `#installer` (every profile) and
+      `#repository` (install by hand, the `cap_repo` calls by task, fleet
+      health, gaps, space: 0.25 MB of copied rows a day for dbmint's
+      three-container CDB), repository rows in the modes, prerequisites,
+      privileges and persisted-tables tables; README, concepts, index,
+      tutorial and design.md (a deployment section with the M24 rationale)
+      follow. A repository install's closing banner names
+      `cap_repo.add_target` / `collect` as the next step (other modes
+      byte-identical, checked on dbmint). `docs_lint.sh` checks 6 (every
+      persisted table in reference.html#tables and the CLAUDE.md bullet) and
+      7 (every profile in reference.html and the install.sh help).
 - [ ] **M24.9 Retire warehouse mode.** Delete `ddl/11_seam_warehouse.sql`,
       `profiles/warehouse.env`, the warehouse branches of install.sql /
       install.sh / doctor, and the warehouse sections of the docs and

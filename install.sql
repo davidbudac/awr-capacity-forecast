@@ -2,7 +2,7 @@
 -- install.sql -- one-shot installer for the AWR capacity-forecast suite.
 -- =====================================================================
 -- Creates every CAP_* / CAPV_ / CAPD_ / CAPF_ / CAPA_ object into the CURRENT
--- schema, wiring the portable seam to one of three data sources.
+-- schema, wiring the portable seam to one of four data sources.
 --
 -- Usage (the caller MUST DEFINE deploy_mode first; see note below):
 --
@@ -215,11 +215,31 @@ END;
 
 PROMPT
 SET DEFINE '&'
+-- A fresh repository has no target yet, so its first step is registering one.
+-- TERMOUT OFF because a NOPRINT-only SELECT still prints blank lines.
+SET TERMOUT OFF
+COLUMN cap_next1 NEW_VALUE cap_next1 NOPRINT
+COLUMN cap_next2 NEW_VALUE cap_next2 NOPRINT
+COLUMN cap_next3 NEW_VALUE cap_next3 NOPRINT
+SELECT DECODE(m, 'repository',
+              'EXEC cap_repo.add_target(''<NAME>'', ''//<host>:<port>/<service>'', ''C##AWRRDR'', ''<password>'')',
+              'report/report.sql  (text capacity report)') AS cap_next1,
+       DECODE(m, 'repository',
+              'EXEC cap_repo.collect  (copies AWR from every enabled target)',
+              'cap_forecast_ml.train_all  (optional Tier 2 ESM models)') AS cap_next2,
+       DECODE(m, 'repository',
+              'then report/report.sql, cap_forecast_ml.train_all, cap_results.refresh as usual',
+              'cap_results.refresh  (optional run history + alert state)') AS cap_next3
+FROM   (SELECT LOWER('&&deploy_mode') AS m FROM dual);
+COLUMN cap_next1 CLEAR
+COLUMN cap_next2 CLEAR
+COLUMN cap_next3 CLEAR
+SET TERMOUT ON
 PROMPT ============================================================
 PROMPT  Install complete (deploy_mode = &&deploy_mode, schema = &cap_schema).
-PROMPT  Next: report/report.sql  (text capacity report)
-PROMPT        cap_forecast_ml.train_all  (optional Tier 2 ESM models)
-PROMPT        cap_results.refresh  (optional run history + alert state)
+PROMPT  Next: &cap_next1
+PROMPT        &cap_next2
+PROMPT        &cap_next3
 PROMPT ============================================================
 PROMPT
 

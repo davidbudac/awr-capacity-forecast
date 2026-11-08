@@ -176,7 +176,7 @@
         <span class="eyebrow">What it creates</span>
         <h2>Object index</h2>
         <p>Every object <span class="inline">@install.sql</span> creates, by layer. The
-          <span class="inline">CAPV/CAPD/CAPF/CAPA/CAPR</span> views only SELECT; the seven tables are the
+          <span class="inline">CAPV/CAPD/CAPF/CAPA/CAPR</span> views only SELECT; the <a href="#tables">persisted tables</a> are the
           only persisted state. <span class="inline">test/docs_lint.sh</span> fails when an object
           the DDL creates is missing here.</p>
       </div>
@@ -295,7 +295,7 @@
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
 <pre><span class="c-prompt">SQL&gt;</span> @test/fixture_remove.sql   <span class="c-cmt">-- fixture mode only: drop CAP_FIXTURE_* tables</span>
-<span class="c-prompt">SQL&gt;</span> @uninstall.sql             <span class="c-cmt">-- drop all CAP_* / CAPV_ / CAPD_ / CAPF_ / CAPA_ / CAPR_ objects</span>
+<span class="c-prompt">SQL&gt;</span> @uninstall.sql             <span class="c-cmt">-- drop all CAP_* / CAPV_ / CAPD_ / CAPF_ / CAPA_ / CAPR_ objects (and a repository's links)</span>
 <span class="c-prompt">SQL&gt;</span> EXEC cap_forecast_ml.drop_all;  <span class="c-cmt">-- (if trained) remove the OML models</span></pre>
       </div>
 
@@ -303,8 +303,9 @@
       <div class="section-head" id="advanced-install">
         <span class="eyebrow">Beyond the quickstart</span>
         <h2>Advanced install</h2>
-        <p>Prerequisites, privileges, deploy modes, load order, scheduler jobs, report drivers,
-          re-install and AWR retention. <a href="start.html">Getting started</a> has the quickstart.</p>
+        <p>The installer and its profiles, prerequisites, privileges, deploy modes, repository mode,
+          load order, scheduler jobs, report drivers, re-install and AWR retention.
+          <a href="start.html">Getting started</a> has both paths step by step.</p>
       </div>
       <details class="fold" id="advanced-install-fold">
         <summary>Show the full installation reference</summary>
@@ -314,6 +315,47 @@
         <span class="inline">@doctor.sql</span>, then <span class="inline">@install.sql</span>, which builds every
         <span class="inline">CAP*</span> object and checks it compiled. The walkthrough on the 19c test box
         is on <a href="testing.html">Testing</a>.</p>
+
+      <!-- ===================== INSTALLER ===================== -->
+      <div class="section-head" id="installer">
+        <span class="eyebrow">Guided or silent</span>
+        <h2>install.sh and its profiles</h2>
+        <p>One installer for every role. It asks its questions, or takes every answer from a
+          profile, then writes one SQL*Plus driver and runs it.</p>
+      </div>
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">DB host · bash</span><span class="term__tag in">you run</span></div>
+<pre>./install.sh                                  <span class="c-cmt"># the wizard: asks the role first</span>
+./install.sh --profile standalone             <span class="c-cmt"># silent: every answer from profiles/standalone.env</span>
+./install.sh --profile standalone --set OWNER=C##CAPMON --set JOBS_ENABLE=Y
+./install.sh --profile repository --dry-run   <span class="c-cmt"># print the driver, run nothing</span>
+./install.sh --list-profiles</pre>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <caption>The shipped profiles</caption>
+          <thead><tr><th scope="col">Profile</th><th scope="col">Role</th><th scope="col">What it does</th></tr></thead>
+          <tbody>
+            <tr><td><span class="inline">--profile quickstart</span></td><td class="def">standalone</td><td class="def">SYSDBA in <span class="inline">CDB$ROOT</span>, into SYS, local AWR, the preflight and one text report. The same as <span class="inline">quickstart.sh</span>.</td></tr>
+            <tr><td><span class="inline">--profile standalone</span></td><td class="def">standalone</td><td class="def">The lasting single-database install: a dedicated owner (<span class="inline">C##AWRCAP</span>, or <span class="inline">AWRCAP</span> in a PDB), the preflight as a gate, the Tier 2 models, the three scheduler jobs created disabled, a text report and the briefing.</td></tr>
+            <tr><td><span class="inline">--profile target</span></td><td class="def">target</td><td class="def">No suite. Creates the read-only reader <span class="inline">C##AWRRDR</span> with <span class="inline">target/prepare.sql</span> and checks it with <span class="inline">target/check.sql</span>. The password comes from <span class="inline">CAP_READER_PW</span>.</td></tr>
+            <tr><td><span class="inline">--profile repository</span></td><td class="def">repository</td><td class="def">A dedicated owner with <code>CREATE DATABASE LINK</code>, the preflight, <span class="inline">deploy_mode = repository</span> and the five scheduler jobs created disabled. No models and no report yet: those need targets registered and collected (<a href="#repository">Repository mode</a>).</td></tr>
+            <tr><td><span class="inline">--profile fixture-test</span></td><td class="def">fixture</td><td class="def">The assertion harness: fixture data in schema <span class="inline">CAPTEST</span> of <span class="inline">PDB1</span>, install, Tier 2, then <span class="inline">test/run_test.sql</span> and <span class="inline">test/run_test_ml.sql</span>.</td></tr>
+            <tr><td><span class="inline">--profile demo</span></td><td class="def">fixture</td><td class="def">The 150-day ECOMPRD demo story in a throwaway PDB schema, Tier 2 and every report kind.</td></tr>
+            <tr><td><span class="inline">--profile warehouse</span></td><td class="def">warehouse</td><td class="def">The suite over the <span class="inline">awr-fleet-warehouse</span> <span class="kt">AWRV_*</span> views, as the warehouse owner. Retiring: repository mode replaces it.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>A profile is a file of <code>KEY=VALUE</code> answers; <span class="inline">./install.sh --help</span>
+        lists every key. <span class="inline">--set KEY=VALUE</span> overrides one answer and
+        <span class="inline">--save FILE</span> writes the final answers as a new profile. Passwords never
+        live in a profile: they come from <span class="inline">CAP_DB_PW</span>,
+        <span class="inline">CAP_OWNER_PW</span> and <span class="inline">CAP_READER_PW</span>, or from a
+        hidden prompt in the wizard. Without <span class="inline">CAP_OWNER_PW</span> a new owner has no
+        password and you work in it as SYSDBA through <code>ALTER SESSION SET CURRENT_SCHEMA</code>. The
+        session log goes to <span class="inline">reports/install_&lt;timestamp&gt;.log</span>, and the exit
+        status is sqlplus's.</p>
 
       <!-- ===================== PREREQUISITES ===================== -->
       <div class="section-head" id="prerequisites">
@@ -334,18 +376,27 @@
             </tr>
             <tr>
               <td><b>Diagnostics Pack</b></td>
-              <td class="def">local mode</td>
+              <td class="def">local mode; every target in repository mode</td>
               <td class="def"><span class="kt">DBA_HIST_*</span> requires it.
                 <span class="inline">CONTROL_MANAGEMENT_PACK_ACCESS</span> must include
                 <code>DIAGNOSTIC</code>; <span class="inline">doctor.sql</span> check&nbsp;2 tests it.</td>
             </tr>
             <tr>
               <td><b>Direct SELECT on DBA_HIST_*</b></td>
-              <td class="def">local mode</td>
+              <td class="def">local mode; the target's reader in repository mode</td>
               <td class="def">Granted <b>directly</b>, not via a role: view compilation ignores
                 role grants, so the <span class="k">CAPV_</span> views need direct grants on the seventeen
                 <span class="kt">DBA_HIST_*</span> views. <span class="inline">doctor.sql</span> probes each and
-                checks the target schema's grants; <span class="inline">create_owner.sql</span> grants them.</td>
+                checks the target schema's grants; <span class="inline">create_owner.sql</span> grants them
+                (<span class="inline">target/prepare.sql</span> to a target's reader).</td>
+            </tr>
+            <tr>
+              <td><b>CREATE DATABASE LINK, and a route to each target</b></td>
+              <td class="def">repository mode</td>
+              <td class="def">Granted <b>directly</b>: <span class="inline">cap_repo</span> is definer's rights
+                and creates one link per target in the owner's schema.
+                <span class="inline">create_owner.sql</span> with <code>owner_mode = repository</code> grants
+                it. The repository connects to each target's listener; the target connects to nothing.</td>
             </tr>
             <tr>
               <td><b>CREATE MINING MODEL</b></td>
@@ -384,12 +435,13 @@
           <caption>Privileges the installing schema needs</caption>
           <thead><tr><th scope="col">Privilege</th><th scope="col">Why</th></tr></thead>
           <tbody>
-            <tr><td><span class="k">CREATE TABLE</span></td><td class="def">The seven persisted tables: <span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>, <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span>.</td></tr>
+            <tr><td><span class="k">CREATE TABLE</span></td><td class="def">The <a href="#tables">persisted tables</a>: <span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>, <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span>; in repository mode also the target registry and the <span class="inline">CAP_H_*</span> copies.</td></tr>
             <tr><td><span class="k">CREATE VIEW</span></td><td class="def">Every <span class="k">CAPV_</span> / <span class="k">CAPD_</span> / <span class="k">CAPF_</span> / <span class="k">CAPA_</span> / <span class="k">CAPR_</span> object.</td></tr>
             <tr><td><span class="k">CREATE TYPE</span></td><td class="def"><span class="inline">CAP_ESM_ROW</span> / <span class="inline">CAP_ESM_TAB</span>, the pipelined-function types behind <span class="inline">CAPF_ESM_FORECAST</span>.</td></tr>
             <tr><td><span class="k">CREATE PROCEDURE</span></td><td class="def">The <span class="inline">cap_forecast_ml</span> package (and <span class="inline">cap_report_spool</span>, if you add the jobs).</td></tr>
             <tr><td><span class="k">CREATE MINING MODEL</span></td><td class="def">Optional, Tier 2 only; everything else installs without it. Must be granted <b>directly</b> to the owner: <span class="inline">cap_forecast_ml</span> is definer's rights and creates models with the owner's own privileges.</td></tr>
             <tr><td><span class="k">CREATE JOB</span></td><td class="def">Optional, <span class="inline">install_jobs.sql</span> only.</td></tr>
+            <tr><td><span class="k">CREATE DATABASE LINK</span></td><td class="def">Repository mode only, granted directly: <span class="inline">cap_repo.add_target</span> creates the link to each target.</td></tr>
           </tbody>
         </table>
       </div>
@@ -517,6 +569,10 @@
         (<code>NO AUTHENTICATION</code>), so you install as SYSDBA with
         <code>ALTER SESSION SET CURRENT_SCHEMA = C##AWRCAP</code>, or set a password later. Re-running
         keeps an existing user and re-applies the grants. Prints every statement; exits non-zero if one failed.</p>
+      <p>For a repository, <code>DEFINE owner_mode = repository</code> first. The owner then gets
+        <code>CREATE DATABASE LINK</code> instead of the <span class="kt">DBA_HIST_*</span> grants and
+        <code>CONTAINER_DATA</code>: a repository reads the copies it pulls, not its own AWR.
+        <span class="inline">./install.sh --profile repository</span> does this.</p>
 
       <div class="callout">
         <span class="ico">@@</span>
@@ -582,7 +638,7 @@
       <!-- ===================== MODES ===================== -->
       <div class="section-head" id="modes">
         <span class="eyebrow">The seam</span>
-        <h2>Three modes</h2>
+        <h2>Deploy modes</h2>
         <p>All analytics read the <span class="k">CAPV_</span> seam views (plus the
           <span class="inline">CAPV_CONTRACT</span> diagnostic); <span class="inline">deploy_mode</span> chooses their source.</p>
       </div>
@@ -596,6 +652,12 @@
               <td class="def"><span class="kt">DBA_HIST_*</span></td>
               <td class="def">The <span class="inline">create_owner.sql</span> owner in <span class="inline">CDB$ROOT</span> (or sysdba, which installs into SYS)</td>
               <td class="def">Needs the Diagnostics Pack + direct SELECT grants on the DBA_HIST views.</td>
+            </tr>
+            <tr>
+              <td><span class="k">repository</span></td>
+              <td class="def"><span class="kt">CAP_H_*</span>, copies of each registered target's <span class="kt">DBA_HIST_*</span></td>
+              <td class="def">The <span class="inline">create_owner.sql</span> owner made with <code>owner_mode = repository</code>, on any 19c database or PDB</td>
+              <td class="def">Measures every registered target. Targets get only a read-only reader (<a href="#repository">Repository mode</a>).</td>
             </tr>
             <tr>
               <td><span class="k">warehouse</span></td>
@@ -671,6 +733,75 @@
 ============================================================</pre>
       </div>
 
+      <!-- ===================== REPOSITORY ===================== -->
+      <div class="section-head" id="repository">
+        <span class="eyebrow">Install · operate</span>
+        <h2>Repository mode</h2>
+        <p>The seam reads copies of the registered targets' AWR. The five steps from an empty
+          database to a fleet report: <a href="start.html#fleet">Measure a fleet</a>.</p>
+      </div>
+      <p>Each target runs <span class="inline">target/prepare.sql</span> once: a read-only common user
+        <span class="inline">C##AWRRDR</span> with <code>CREATE SESSION</code>, direct
+        <code>SELECT</code> on the seventeen views and <code>CONTAINER_DATA = ALL</code> (without it a
+        common user in <span class="inline">CDB$ROOT</span> sees the root's rows only). The repository
+        is installed like local mode, with another owner mode and deploy mode:</p>
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">sqlplus · repository</span><span class="term__tag in">you run</span></div>
+<pre>sqlplus / as sysdba
+<span class="c-prompt">SQL&gt;</span> DEFINE owner_mode = repository
+<span class="c-prompt">SQL&gt;</span> @create_owner.sql                  <span class="c-cmt">-- C##AWRCAP with CREATE DATABASE LINK</span>
+<span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CURRENT_SCHEMA = C##AWRCAP;
+<span class="c-prompt">SQL&gt;</span> DEFINE deploy_mode = 'repository'
+<span class="c-prompt">SQL&gt;</span> @install.sql
+<span class="c-prompt">SQL&gt;</span> @install_jobs.sql                  <span class="c-cmt">-- adds CAP_COLLECT_JOB and CAP_PURGE_JOB here</span></pre>
+      </div>
+      <p><b>How a collect copies.</b> <span class="inline">cap_repo.collect</span> works per DBID, in
+        chunks of 500 snapshots. A chunk appends the fact views' rows above the DBID's high-water mark,
+        merges the dimension views (tablespaces, datafiles, containers, instances, ASM diskgroups,
+        segment names) and moves the mark, in one transaction. A failure keeps the previous boundary,
+        so the next collect repeats only the failed chunk. The DBID row is locked for the chunk, so two
+        collects never copy the same window twice. A failing target is logged and the others go on;
+        the call then raises ORA-20070 with the number that failed. The first collect of a DBID copies
+        every snapshot the target still holds.</p>
+      <div class="tablewrap">
+        <table>
+          <caption>Operating the fleet: cap_repo calls, as the owner</caption>
+          <thead><tr><th scope="col">To</th><th scope="col">Run</th><th scope="col">Effect</th></tr></thead>
+          <tbody>
+            <tr><td>Register a target</td><td><code>cap_repo.add_target('CDB1', '//host:1521/svc', 'C##AWRRDR', '&lt;pw&gt;')</code></td><td class="def">Creates the link <span class="inline">CAP_CDB1</span>, probes every copied view through it and records the target's DBIDs. Copies nothing yet. A wrong password or a missing grant fails the call and leaves nothing behind. A name is a letter followed by up to 25 letters, digits or <code>_</code>.</td></tr>
+            <tr><td>Register over your own link</td><td><code>cap_repo.add_target('CDB1', p_db_link =&gt; 'MY_LINK')</code></td><td class="def">Uses a link in the owner's schema that a DBA made (a wallet, a proxy user). <span class="inline">remove_target</span> leaves it in place.</td></tr>
+            <tr><td>Copy now</td><td><code>cap_repo.collect</code> or <code>cap_repo.collect('CDB1')</code></td><td class="def">Every enabled target, or one. <span class="inline">CAP_COLLECT_JOB</span> runs it hourly at :05.</td></tr>
+            <tr><td>Pause or resume</td><td><code>cap_repo.set_enabled('CDB1', 'N')</code></td><td class="def">The copies stay. A disabled target raises no <code>DATA_STALE</code>.</td></tr>
+            <tr><td>Follow a password change</td><td><code>cap_repo.set_link_password('CDB1', '&lt;new pw&gt;')</code></td><td class="def">Recreates the link after the reader's password changed on the target. The copies stay.</td></tr>
+            <tr><td>Forget a target</td><td><code>cap_repo.remove_target('CDB1')</code></td><td class="def">Deletes its copies and registry rows and drops the link <span class="inline">add_target</span> made. <span class="inline">CAP_COLLECT_LOG</span> keeps its history.</td></tr>
+            <tr><td>Trim old copies</td><td><code>cap_repo.purge</code></td><td class="def">Deletes the fact copies of snapshots older than <span class="inline">repo_retention_days</span> (400; 0 keeps everything), per DBID, in one transaction. Refuses a value <span class="inline">CAP_CFG_CHECK</span> calls <code>BAD</code>. <span class="inline">CAP_PURGE_JOB</span> runs it daily at 01:00.</td></tr>
+            <tr><td>Test a link</td><td><code>EXEC DBMS_OUTPUT.PUT_LINE(NVL(cap_repo.ping('CDB1'), 'OK'))</code></td><td class="def">NULL when the link answers and the reader can read every copied view, else the error text.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><b>Watching the fleet.</b> <span class="inline">CAPR_TARGETS</span> has one row per target
+        and DBID: its host, link, containers, newest snapshot, age and <code>collect_state</code>
+        (<code>OK</code>, <code>FAILING</code>, <code>NEVER</code> or <code>DISABLED</code>). A target
+        whose copies stop arriving raises <code>DATA_STALE</code>, which names it and quotes its last
+        collect error. <span class="inline">doctor.sql</span> section 11 checks each target's link,
+        collect state, staleness and gaps, and the days collected against what each feature needs.
+        Reports cover every target; <code>--target NAME</code> on <span class="inline">run_report.sh</span>,
+        or the name in place of the dbid argument of a driver, limits them to one
+        (<a href="#drivers">Report drivers</a>).</p>
+      <div class="callout warn">
+        <span class="ico">!</span>
+        <p><strong>Collect before the target forgets.</strong> A target keeps its own AWR retention (8
+        days on a stock database). If the repository stops collecting for longer than that, the
+        snapshots in between are gone: the next collect copies what is left and logs a
+        <code>GAP</code>. A DBID already registered to another target is refused and logged as
+        <code>COLLISION</code>, which happens when a clone was restored without a new DBID.</p>
+      </div>
+      <p><b>Space.</b> On the 19c test CDB (three containers, about 40 snapshots a day) the copies
+        hold 1.9&nbsp;MB of rows for 7.5 days, about 0.25&nbsp;MB a day, most of it segment
+        statistics. At the default 400 days that is about 100&nbsp;MB of rows per target, before block
+        overhead. It grows with snapshots per day, containers and busy segments.</p>
+
       <!-- ===================== LOAD ORDER ===================== -->
       <div class="section-head" id="layers">
         <span class="eyebrow">What runs, in what order</span>
@@ -682,9 +813,9 @@
           <caption>install.sql — the twelve steps</caption>
           <thead><tr><th scope="col">Step</th><th scope="col">File</th><th scope="col">Creates</th></tr></thead>
           <tbody>
-            <tr><td><span class="k">00</span></td><td class="def"><span class="inline">ddl/00_drop.sql</span></td><td class="def">Idempotent teardown of every <span class="inline">CAP*</span> view plus the two ESM types. <b>Leaves the seven persisted tables alone</b>; still drops retired objects such as <span class="inline">CAPA_TBSPC_ANOM</span>, so an upgrade removes them.</td></tr>
+            <tr><td><span class="k">00</span></td><td class="def"><span class="inline">ddl/00_drop.sql</span></td><td class="def">Idempotent teardown of every <span class="inline">CAP*</span> view plus the two ESM types. <b>Leaves the <a href="#tables">persisted tables</a> alone</b>; still drops retired objects such as <span class="inline">CAPA_TBSPC_ANOM</span>, so an upgrade removes them.</td></tr>
             <tr><td><span class="k">05</span></td><td class="def"><span class="inline">ddl/05_config.sql</span></td><td class="def"><span class="inline">CAP_CONFIG</span> (created idempotently, then MERGE-seeded), the config views <span class="obj">CAP_CFG</span> <span class="obj">CAP_CFG_CHECK</span>, and <span class="inline">CAP_TBSPC_OVERRIDE</span>.</td></tr>
-            <tr><td><span class="k">seam</span></td><td class="def"><span class="inline">ddl/10_seam_local.sql</span> · <span class="inline">11_seam_warehouse.sql</span> · <span class="inline">12_seam_fixture.sql</span></td><td class="def">The thirteen <span class="k">CAPV_</span> views, chosen by <span class="inline">deploy_mode</span>: <span class="obj">CAPV_SNAPSHOT</span> <span class="obj">CAPV_TBSPC_USAGE</span> <span class="obj">CAPV_TABLESPACE</span> <span class="obj">CAPV_DATAFILE</span> <span class="obj">CAPV_OSSTAT</span> <span class="obj">CAPV_TIME_MODEL</span> <span class="obj">CAPV_SYSSTAT</span> <span class="obj">CAPV_RESOURCE_LIMIT</span> <span class="obj">CAPV_PARAMETER</span> <span class="obj">CAPV_ASM_DISKGROUP</span> <span class="obj">CAPV_SEG_STAT</span> <span class="obj">CAPV_CONTAINER</span> <span class="obj">CAPV_TARGET</span>, plus the <span class="obj">CAPV_CONTRACT</span> diagnostic</td></tr>
+            <tr><td><span class="k">seam</span></td><td class="def"><span class="inline">ddl/10_seam_local.sql</span> · <span class="inline">13_seam_repository.sql</span> · <span class="inline">11_seam_warehouse.sql</span> · <span class="inline">12_seam_fixture.sql</span></td><td class="def">The thirteen <span class="k">CAPV_</span> views, chosen by <span class="inline">deploy_mode</span>: <span class="obj">CAPV_SNAPSHOT</span> <span class="obj">CAPV_TBSPC_USAGE</span> <span class="obj">CAPV_TABLESPACE</span> <span class="obj">CAPV_DATAFILE</span> <span class="obj">CAPV_OSSTAT</span> <span class="obj">CAPV_TIME_MODEL</span> <span class="obj">CAPV_SYSSTAT</span> <span class="obj">CAPV_RESOURCE_LIMIT</span> <span class="obj">CAPV_PARAMETER</span> <span class="obj">CAPV_ASM_DISKGROUP</span> <span class="obj">CAPV_SEG_STAT</span> <span class="obj">CAPV_CONTAINER</span> <span class="obj">CAPV_TARGET</span>, plus the <span class="obj">CAPV_CONTRACT</span> diagnostic</td></tr>
             <tr><td><span class="k">20</span></td><td class="def"><span class="inline">ddl/20_daily_views.sql</span></td><td class="def">Daily series: <span class="obj">CAPD_TBSPC_DAILY</span> <span class="obj">CAPD_TBSPC_DELTA</span> <span class="obj">CAPD_COUNTER_DELTA</span> <span class="obj">CAPD_CPU_INTERVAL</span> <span class="obj">CAPD_CPU_DAILY</span> <span class="obj">CAPD_DBTIME_INTERVAL</span> <span class="obj">CAPD_DBTIME_DAILY</span> <span class="obj">CAPD_CPU_HOURLY</span>. This is where <span class="inline">CAP_TBSPC_OVERRIDE</span> is applied, once.</td></tr>
             <tr><td><span class="k">25</span></td><td class="def"><span class="inline">ddl/25_series_daily.sql</span></td><td class="def"><span class="obj">CAPD_SERIES_DAILY</span>, the M11 fixed-ceiling series (<code>PROCESSES</code>, <code>SESSIONS</code>, <code>REDO_GB_DAY</code>, <code>DB_SIZE_GB</code>, <code>ASM_DG:+&lt;group&gt;</code>, <code>TEMP_PEAK:&lt;ts&gt;</code>, <code>UNDO_PEAK:&lt;ts&gt;</code>) in one generic view keyed by a <span class="inline">series</span> name, with the gap columns the anomaly layer reads.</td></tr>
             <tr><td><span class="k">30</span></td><td class="def"><span class="inline">ddl/30_forecast_views.sql</span></td><td class="def">Tier 1 fits: <span class="obj">CAPF_TBSPC_FORECAST</span> <span class="obj">CAPF_CPU_TREND</span>.</td></tr>
@@ -711,7 +842,8 @@
         <span class="eyebrow">The only rows it writes</span>
         <h2>Persisted tables</h2>
         <p>Everything else is a view, type or package. The suite writes only to these
-          <code>CAP_*</code> tables, never to AWR. All survive a re-install.</p>
+          <code>CAP_*</code> tables, never to AWR. All survive a re-install; the last four exist in
+          repository mode only.</p>
       </div>
       <div class="tablewrap">
         <table>
@@ -741,6 +873,24 @@
               <td class="def">The results layer: refresh runs, the <code>CAPR_FIT</code> snapshot of each run, alert state (with your acks) and its events. Written only by <span class="inline">cap_results</span>.</td>
               <td class="def"><span class="inline">ddl/60_results.sql</span>: created with their keys, then each other column added one at a time, so a new column reaches an older install.</td>
               <td class="def"><span class="inline">@install.sql</span>. Dropped by <span class="inline">@uninstall.sql</span>; <span class="inline">cap_results.purge</span> trims old runs.</td>
+            </tr>
+            <tr>
+              <td><span class="inline">CAP_TARGET</span>, <span class="inline">CAP_TARGET_DBID</span></td>
+              <td class="def">The target registry: each target's link and <code>enabled</code> flag, and every DBID found through it with its high-water mark (the last snap_id copied).</td>
+              <td class="def"><span class="inline">repository/cap_repo.sql</span>, included by <span class="inline">ddl/13</span>, idempotently. Written by <span class="inline">cap_repo</span>.</td>
+              <td class="def"><span class="inline">@install.sql</span>. Dropped by <span class="inline">@uninstall.sql</span>, after it drops the links <span class="inline">add_target</span> made.</td>
+            </tr>
+            <tr>
+              <td><span class="inline">CAP_COLLECT_LOG</span></td>
+              <td class="def">One row per collect of a DBID, and per gap, collision, error, removal and purge.</td>
+              <td class="def"><span class="inline">repository/cap_repo.sql</span>, idempotently.</td>
+              <td class="def"><span class="inline">@install.sql</span>, and <span class="inline">remove_target</span> keeps a target's history. <span class="inline">cap_repo.purge</span> trims rows older than <span class="inline">repo_retention_days</span>; dropped by <span class="inline">@uninstall.sql</span>.</td>
+            </tr>
+            <tr>
+              <td><span class="inline">CAP_H_*</span></td>
+              <td class="def">The copies: one table per AWR view, with the columns and rows the seam reads. They cannot be pulled again once the target's AWR has aged out.</td>
+              <td class="def"><span class="inline">ddl/13_seam_repository.sql</span> (generated by <span class="inline">repository/build.py</span>): created once, columns only ever added. Written by <span class="inline">cap_repo.collect</span>.</td>
+              <td class="def"><span class="inline">@install.sql</span>. <span class="inline">remove_target</span> deletes a target's rows and <span class="inline">cap_repo.purge</span> old ones; dropped by <span class="inline">@uninstall.sql</span>.</td>
             </tr>
           </tbody>
         </table>
@@ -927,11 +1077,13 @@
         <span class="eyebrow">Re-running it · upgrading</span>
         <h2>Re-install and upgrade</h2>
       </div>
-      <p>Re-running <span class="inline">@install.sql</span> keeps all seven persisted tables:
+      <p>Re-running <span class="inline">@install.sql</span> keeps every persisted table:
         <span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>,
-        <span class="inline">CAP_ML_MODEL</span> (with its OML models) and the results layer
+        <span class="inline">CAP_ML_MODEL</span> (with its OML models), the results layer
         (<span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>,
-        <span class="inline">CAP_ALERT_STATE</span> with acks, <span class="inline">CAP_ALERT_EVENT</span>).
+        <span class="inline">CAP_ALERT_STATE</span> with acks, <span class="inline">CAP_ALERT_EVENT</span>)
+        and, in repository mode, the target registry, the collect log and the
+        <span class="inline">CAP_H_*</span> copies.
         <span class="inline">00_drop</span> skips them; the config <code>MERGE</code> inserts missing keys and
         on existing keys refreshes only <span class="inline">cfg_default</span> and <span class="inline">cfg_desc</span>.
         Exception: <span class="inline">suite_version</span>, overwritten on every install so
@@ -941,7 +1093,7 @@
         created only if absent and new columns are added in place; new knobs are MERGE-seeded with their
         shipped default. Run <span class="inline">@doctor.sql</span> afterwards to confirm nothing is
         <code>INVALID</code>. <span class="inline">@uninstall.sql</span> removes the scheduler jobs, views, types,
-        package, OML models and all seven tables; it prints any error other than "does not exist" and ends
+        package, OML models, a repository's database links and every persisted table; it prints any error other than "does not exist" and ends
         with the number of <span class="inline">CAP%</span> objects left (0 expected).</p>
 
       <!-- ===================== NEW KNOBS ===================== -->
