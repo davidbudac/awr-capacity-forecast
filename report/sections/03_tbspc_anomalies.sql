@@ -44,7 +44,7 @@ SELECT db_pdb,
        pct_vs_med,
        pct_vs_avg,
        anomaly_flag
-FROM   capr_tbspc_anomalies
+FROM   capr_tbspc_anomalies&cap_s
 WHERE  days_ago < &anomaly_days
   AND  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)

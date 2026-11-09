@@ -19,7 +19,11 @@
 --   SQL> @report/report_csv.sql 42424242 42424243     -- one container
 --   SQL> @report/report_csv.sql - 42424243            -- one con_dbid, any dbid
 --   SQL> @report/report_csv.sql CDB1                  -- one target (report/scope.sql)
--- Positional arguments are optional and UNDEFINEd at the end. Dates print as
+--   SQL> @report/report_csv.sql - - SNAPSHOT          -- from the newest refresh run
+-- Arguments: [dbid] [con_dbid] [LIVE|SNAPSHOT], each optional, '-' skips one,
+-- UNDEFINEd at the end. SNAPSHOT writes every file from the <view>_S table of
+-- the view (cap_results.snap_views), the rows of the newest refresh run,
+-- with the same columns as LIVE. Dates print as
 -- YYYY-MM-DD HH24:MI:SS, numbers unformatted (NUMFORMAT TM9).
 --
 SET APPINFO OFF
@@ -50,7 +54,8 @@ ALTER SESSION SET NLS_TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS';
 
 COLUMN 1 NEW_VALUE 1 NOPRINT
 COLUMN 2 NEW_VALUE 2 NOPRINT
-SELECT NULL AS "1", NULL AS "2" FROM dual WHERE 1 = 0;
+COLUMN 3 NEW_VALUE 3 NOPRINT
+SELECT NULL AS "1", NULL AS "2", NULL AS "3" FROM dual WHERE 1 = 0;
 
 -- Scope, as in report/report.sql (report/scope.sql): a number or the
 -- literal NULL. '-' stands for an omitted argument.
@@ -59,12 +64,18 @@ COLUMN cap_a2 NEW_VALUE cap_arg_con NOPRINT
 SELECT NVL(TRIM('&1'), '-') AS cap_a1, NVL(TRIM('&2'), '-') AS cap_a2 FROM dual;
 @@report/scope.sql
 
+-- cap_s: the snapshot suffix (a read written capr_x plus cap_s is CAPR_X_S
+-- under SNAPSHOT).
 COLUMN cap_dir   NEW_VALUE cap_dir   NOPRINT
+COLUMN eff_s     NEW_VALUE cap_s     NOPRINT
 SELECT 'reports/cap_csv_' || '&cap_stem' || '_'
-         || TO_CHAR(SYSDATE,'YYYYMMDDHH24MISS')                AS cap_dir
+         || TO_CHAR(SYSDATE,'YYYYMMDDHH24MISS')                AS cap_dir,
+       CASE WHEN UPPER(TRIM('&3')) = 'SNAPSHOT' THEN '_s' END   AS eff_s
 FROM   dual;
 COLUMN 1 CLEAR
 COLUMN 2 CLEAR
+COLUMN 3 CLEAR
+COLUMN eff_s     CLEAR
 COLUMN cap_a1    CLEAR
 COLUMN cap_a2    CLEAR
 COLUMN cap_dir   CLEAR
@@ -76,7 +87,7 @@ SET MARKUP CSV ON DELIMITER , QUOTE ON
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_alerts')
 SPOOL &cap_dir/capr_alerts.csv
 SELECT *
-FROM   capr_alerts
+FROM   capr_alerts&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY sev_rank, kind, db_pdb, series_key, day_dt;
@@ -85,7 +96,7 @@ SPOOL OFF
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_tbspc_days_to_full')
 SPOOL &cap_dir/capr_tbspc_days_to_full.csv
 SELECT *
-FROM   capr_tbspc_days_to_full
+FROM   capr_tbspc_days_to_full&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, rank_dtf;
@@ -94,7 +105,7 @@ SPOOL OFF
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_tbspc_forecast')
 SPOOL &cap_dir/capr_tbspc_forecast.csv
 SELECT *
-FROM   capr_tbspc_forecast
+FROM   capr_tbspc_forecast&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, rank_report;
@@ -103,7 +114,7 @@ SPOOL OFF
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_tbspc_anomalies')
 SPOOL &cap_dir/capr_tbspc_anomalies.csv
 SELECT *
-FROM   capr_tbspc_anomalies
+FROM   capr_tbspc_anomalies&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, days_ago, con_dbid, tablespace_name, mode_rank;
@@ -112,7 +123,7 @@ SPOOL OFF
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_cpu_trend')
 SPOOL &cap_dir/capr_cpu_trend.csv
 SELECT *
-FROM   capr_cpu_trend
+FROM   capr_cpu_trend&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY con_dbid, metric;
@@ -121,7 +132,7 @@ SPOOL OFF
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_cpu_anomalies')
 SPOOL &cap_dir/capr_cpu_anomalies.csv
 SELECT *
-FROM   capr_cpu_anomalies
+FROM   capr_cpu_anomalies&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, days_ago, con_dbid, metric, mode_rank, ts;
@@ -130,7 +141,7 @@ SPOOL OFF
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_cpu_shifts')
 SPOOL &cap_dir/capr_cpu_shifts.csv
 SELECT *
-FROM   capr_cpu_shifts
+FROM   capr_cpu_shifts&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, rank_shift;
@@ -139,7 +150,7 @@ SPOOL OFF
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_series')
 SPOOL &cap_dir/capr_series.csv
 SELECT *
-FROM   capr_series
+FROM   capr_series&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, rank_series;
@@ -148,7 +159,7 @@ SPOOL OFF
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_fit')
 SPOOL &cap_dir/capr_fit.csv
 SELECT *
-FROM   capr_fit
+FROM   capr_fit&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY sev_rank, days_to_full, db, kind, series;
@@ -157,10 +168,10 @@ SPOOL OFF
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_anomalies')
 SPOOL &cap_dir/capr_anomalies.csv
 SELECT *
-FROM   capr_anomalies
+FROM   capr_anomalies&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY ts, dbid, con_dbid, kind, series;
+ORDER  BY ts, dbid, con_dbid, kind, series, anomaly_kind, baseline_mode;
 SPOOL OFF
 
 SET MARKUP CSV OFF
@@ -169,6 +180,10 @@ SET NUMFORMAT ""
 -- SQL*Plus 19c starts every CSV spool with an empty line (verified with
 -- NEWPAGE NONE / 0 and PAGESIZE 0); drop it so line 1 is the header.
 HOST sed -i '1{/^$/d}' &cap_dir/*.csv
+-- A SNAPSHOT file starts with the table's snap_run_id (CSV markup ignores
+-- COLUMN NOPRINT, 19c): drop that first field, so both sources write the
+-- view's columns. A LIVE header never starts with it, so LIVE files stay.
+HOST sed -i -E '/^"SNAP_RUN_ID",/,$ s/^("SNAP_RUN_ID"|"?[0-9]+"?),//' &cap_dir/*.csv
 SET TERMOUT ON
 SET PAGESIZE 200
 SET NEWPAGE 1
@@ -178,6 +193,7 @@ EXEC DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL)
 
 UNDEFINE 1
 UNDEFINE 2
+UNDEFINE 3
 
 PROMPT
 PROMPT CSV written to: &cap_dir

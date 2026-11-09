@@ -58,7 +58,7 @@ SELECT db_pdb,
        hot_now       AS hot,
        sev,
        gate
-FROM   capr_cpu_trend
+FROM   capr_cpu_trend&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY con_dbid, metric;

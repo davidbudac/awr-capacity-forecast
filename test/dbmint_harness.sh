@@ -2,7 +2,7 @@
 # test/dbmint_harness.sh -- sync this checkout to the dbmint VM and run the
 # fixture harness in a throwaway schema (SYSDBA + CURRENT_SCHEMA, PDB1).
 #
-#   test/dbmint_harness.sh <SCHEMA> [--ml] [--no-fixture] [--sql FILE]...
+#   test/dbmint_harness.sh <SCHEMA> [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]...
 #
 #   <SCHEMA>      target schema in PDB1 (CAPX1 etc.; must already exist with
 #                 CREATE TABLE/VIEW/TYPE/PROCEDURE[/MINING MODEL] + USERS quota)
@@ -12,9 +12,11 @@
 #                 settings (handy for ad-hoc probes against the fixture)
 #   --pga         end every step with test/pga_probe.sql (that session's peak
 #                 PGA, its largest work areas, the instance PGA counters)
+#   --parity      after a passing run, test/snapshot_parity.sh: LIVE and
+#                 SNAPSHOT reports must match (resets the run history)
 #
 # repository/build.py --check, test/lint_anom_joins.sh, test/lint_appinfo.sh,
-# test/lint_dbid_windows.sh,
+# test/lint_dbid_windows.sh, test/lint_snapshot_reads.sh,
 # test/run_report_sh_test.sh and test/report_html_test.sh run first and a failure of any stops the run (exit 4).
 # Exit status is the SQL*Plus exit status of the last failing step; the log is
 # left in /tmp/dbmint_harness_<SCHEMA>.log and the RESULT / FAIL / ORA- lines
@@ -22,12 +24,13 @@
 set -u
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 SCHEMA=${1:?schema}; shift
-ML=0; FIXTURE=1; PGA=0; EXTRA=()
+ML=0; FIXTURE=1; PGA=0; PARITY=0; EXTRA=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --ml) ML=1;;
     --no-fixture) FIXTURE=0;;
     --pga) PGA=1;;
+    --parity) PARITY=1;;
     --sql) shift; EXTRA+=("$1");;
     *) echo "unknown arg $1" >&2; exit 2;;
   esac; shift
@@ -43,6 +46,8 @@ echo "$LINT_OUT"
 LINT_OUT=$("$HERE"/test/lint_appinfo.sh) || { echo "$LINT_OUT"; echo "lint failed: not syncing"; exit 4; }
 echo "$LINT_OUT"
 LINT_OUT=$("$HERE"/test/lint_dbid_windows.sh) || { echo "$LINT_OUT"; echo "lint failed: not syncing"; exit 4; }
+echo "$LINT_OUT"
+LINT_OUT=$("$HERE"/test/lint_snapshot_reads.sh) || { echo "$LINT_OUT"; echo "lint failed: not syncing"; exit 4; }
 echo "$LINT_OUT"
 SH_OUT=$("$HERE"/test/run_report_sh_test.sh) || { echo "$SH_OUT"; echo "run_report.sh test failed: not syncing"; exit 4; }
 echo "$SH_OUT"
@@ -86,4 +91,7 @@ REMOTE_EOF
 done
 grep -E "RESULT:|FAIL|ORA-|PLS-|SP2-|Warning: .* compilation errors|step failed" "$LOG" | grep -v "^  PASS" | head -60
 echo "log: $LOG  (exit $rc)"
+if [ $rc = 0 ] && [ $PARITY = 1 ]; then
+  "$HERE"/test/snapshot_parity.sh "$SCHEMA" --no-sync || rc=$?
+fi
 exit $rc

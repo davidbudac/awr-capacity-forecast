@@ -49,12 +49,12 @@ SELECT db_pdb,
        esm_model,
        esm_at,
        esm_age_days AS esm_age
-FROM   capr_esm_compare c
+FROM   capr_esm_compare&cap_s c
 -- the scoped rank of section 2 (CAPR_TBSPC_RANK, the rank_report of
 -- CAPR_TBSPC_FORECAST), so 6a lists the same tablespaces
 JOIN  (SELECT dbid, con_dbid, tablespace_name,
               ROW_NUMBER() OVER (PARTITION BY dbid ORDER BY rank_report) AS s_rank
-       FROM   capr_tbspc_rank
+       FROM   capr_tbspc_rank&cap_s
        WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
          AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)) r
   ON   r.dbid = c.dbid AND r.con_dbid = c.con_dbid AND r.tablespace_name = c.series_key
@@ -82,7 +82,7 @@ SELECT db_pdb,
        esm_model,
        esm_at,
        esm_age_days AS esm_age
-FROM   capr_esm_compare
+FROM   capr_esm_compare&cap_s
 WHERE  series_kind = 'CPU'
   AND  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
@@ -118,7 +118,7 @@ SELECT db_pdb,
        esm_bias,
        better,
        esm_pick
-FROM   capr_backtest
+FROM   capr_backtest&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, con_dbid, series_kind, series_key;

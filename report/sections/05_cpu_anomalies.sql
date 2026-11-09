@@ -37,7 +37,7 @@ SELECT db_pdb,
        n_hist,
        pct_vs_med,
        anomaly_flag
-FROM   capr_cpu_anomalies
+FROM   capr_cpu_anomalies&cap_s
 WHERE  days_ago < &anomaly_days
   AND  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
@@ -70,7 +70,7 @@ SELECT db_pdb,
        TO_CHAR(GREATEST(n_above, n_below), 'FM990') || '/'
          || TO_CHAR(n_recent, 'FM990')                                     AS conf,
        shift_flag
-FROM   capr_cpu_shifts
+FROM   capr_cpu_shifts&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, rank_shift;

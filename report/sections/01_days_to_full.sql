@@ -71,7 +71,7 @@ SELECT db_pdb,
        need_gib_90,
        TO_CHAR(add_by_day, 'YYYY-MM-DD') AS add_by
 FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_dtf) AS s_rank
-       FROM   capr_tbspc_days_to_full t
+       FROM   capr_tbspc_days_to_full&cap_s t
        WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)
          AND  (&cap_scon  IS NULL OR t.con_dbid = &cap_scon))
 WHERE  (days_to_full IS NOT NULL OR quality = 'CYCLIC')
@@ -92,7 +92,7 @@ SELECT db_pdb,
        sev_nearfull AS sev,
        quality
 FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_nearfull) AS s_rank
-       FROM   capr_tbspc_days_to_full t
+       FROM   capr_tbspc_days_to_full&cap_s t
        WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)
          AND  (&cap_scon  IS NULL OR t.con_dbid = &cap_scon))
 WHERE  pct_used IS NOT NULL

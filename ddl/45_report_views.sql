@@ -1229,6 +1229,30 @@ LEFT   JOIN capr_container c
   ON   c.dbid = h.dbid AND c.con_dbid = h.con_dbid;
 
 -- --------------------------------------------------------------------
+-- CAPR_DATA_WINDOW -- the collected day range per (dbid, con_dbid): the
+-- first and last CAPD_SERIES_DAILY day and the first and last
+-- CAPD_TBSPC_DAILY day. report_html.sql takes its chart window from the
+-- series days in scope, else the tablespace days, so a SNAPSHOT report reads
+-- these four dates instead of the daily views.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_data_window AS
+SELECT dbid,
+       con_dbid,
+       MIN(series_first) AS series_first_day,
+       MAX(series_last)  AS series_last_day,
+       MIN(tbspc_first)  AS tbspc_first_day,
+       MAX(tbspc_last)   AS tbspc_last_day
+FROM  (SELECT dbid, con_dbid, MIN(day_dt) AS series_first, MAX(day_dt) AS series_last,
+              CAST(NULL AS DATE) AS tbspc_first, CAST(NULL AS DATE) AS tbspc_last
+       FROM   capd_series_daily
+       GROUP  BY dbid, con_dbid
+       UNION ALL
+       SELECT dbid, con_dbid, CAST(NULL AS DATE), CAST(NULL AS DATE), MIN(day_dt), MAX(day_dt)
+       FROM   capd_tbspc_daily
+       GROUP  BY dbid, con_dbid)
+GROUP  BY dbid, con_dbid;
+
+-- --------------------------------------------------------------------
 -- CAPR_FIT -- the current fit, one row per (container, kind, series), with
 -- days_to_full meaning days to the series' ceiling (TBSPC full, CPU
 -- saturation, M11 limit). sev is the worst CAPR_SEVERITY sev of the series

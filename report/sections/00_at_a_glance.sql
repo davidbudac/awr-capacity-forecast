@@ -6,11 +6,9 @@
 -- &anomaly_days). The two lines above them come from CAPR_COVERAGE (one per
 -- dbid) and CAPR_RUNS (the results layer, ddl/60).
 -- Scope (&cap_sdbid / &cap_scon) filters every query. Source SNAPSHOT reads
--- the alerts from CAPR_ALERTS_LATEST (the OPEN, unacknowledged states of the
--- last refresh run) and prints the coverage that run kept on CAP_RUN
--- (cov_summary, every dbid; the run summary on a run older than that
--- column). The UNION ALL branches carry a constant predicate, so the
--- optimizer never evaluates the other source.
+-- the alerts from CAPR_ALERTS_LATEST (&cap_alerts: the OPEN, unacknowledged
+-- states of the last refresh run, so acks and the resolve grace show) and
+-- the coverage from CAPR_COVERAGE_S (&cap_s), the refresh run's rows.
 --
 PROMPT
 PROMPT == 0. AT A GLANCE (from CAPR_ALERTS, or CAPR_ALERTS_LATEST when the source is SNAPSHOT) ==
@@ -27,15 +25,10 @@ COLUMN cov_line FORMAT A160 WORD_WRAPPED HEADING 'COVERAGE'
 COLUMN run_line FORMAT A160 WORD_WRAPPED HEADING 'RESULTS LAYER'
 
 SELECT summary AS cov_line
-FROM   capr_coverage
-WHERE  '&cap_src' = 'LIVE'
-  AND  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
-  AND  (&cap_scon  IS NULL OR dbid IN (SELECT dbid FROM capr_container WHERE con_dbid = &cap_scon))
-UNION  ALL
-SELECT NVL(cov_summary, 'coverage as of ' || summary)
-FROM   capr_runs
-WHERE  '&cap_src' = 'SNAPSHOT'
-  AND  run_id = last_ok_run_id;
+FROM   capr_coverage&cap_s
+WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR dbid IN (SELECT dbid FROM capr_container&cap_s WHERE con_dbid = &cap_scon))
+ORDER  BY dbid;
 
 SELECT NVL(MAX(CASE WHEN is_last = 'Y'
                     THEN 'last ' || summary
@@ -55,11 +48,7 @@ COLUMN message  FORMAT A140 WORD_WRAPPED HEADING 'MESSAGE'
 -- counts the scoped rows by severity, the rest is the list.
 WITH a AS (
         SELECT /*+ MATERIALIZE */ severity, sev_rank, kind, db_pdb, series_key, day_dt, message
-        FROM  (SELECT severity, sev_rank, kind, dbid, con_dbid, db_pdb, series_key, day_dt, message
-               FROM   capr_alerts        WHERE '&cap_src' = 'LIVE'
-               UNION ALL
-               SELECT severity, sev_rank, kind, dbid, con_dbid, db_pdb, series_key, day_dt, message
-               FROM   capr_alerts_latest WHERE '&cap_src' = 'SNAPSHOT')
+        FROM   &cap_alerts
         WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
           AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
      )

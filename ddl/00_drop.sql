@@ -1,10 +1,10 @@
 --
 -- ddl/00_drop.sql -- idempotent teardown of all CAP_* / CAPV_ / CAPD_ / CAPF_ / CAPA_ objects.
 -- =====================================================================
--- Drops the views (reverse dependency order) and the two ESM types. The
--- persisted tables stay (see the NOTE below). Every drop is wrapped so a
--- missing object is a no-op: the whole suite re-installs cleanly whether or
--- not a prior install exists.
+-- Drops the views (reverse dependency order), their SNAPSHOT cache tables
+-- (<view>_S) and the two ESM types. The persisted tables stay (see the NOTE
+-- below). Every drop is wrapped so a missing object is a no-op: the whole
+-- suite re-installs cleanly whether or not a prior install exists.
 --
 -- OML mining models (schema objects created by ml/cap_forecast_ml) are NOT
 -- dropped here -- they are owned by the ML package and removed by
@@ -37,6 +37,7 @@ DECLARE
         'CAPR_TBSPC_RANK',
         'CAPR_FIT',
         'CAPR_SEGMENT_GROWTH',
+        'CAPR_DATA_WINDOW',
         'CAPR_HOURLY_POINTS',
         'CAPR_SERIES_POINTS',
         'CAPR_CPU_SHIFTS',
@@ -96,6 +97,9 @@ DECLARE
         'CAP_SCOPE'
     );
 BEGIN
+    -- Each view's SNAPSHOT cache table <view>_S (cap_results.snap_views) goes
+    -- with it; ddl/60 rebuilds them from the new view columns. No persisted
+    -- table is named after a view.
     FOR i IN 1 .. v_views.COUNT LOOP
         BEGIN
             EXECUTE IMMEDIATE 'DROP VIEW ' || v_views(i);
@@ -103,6 +107,12 @@ BEGIN
             WHEN OTHERS THEN
                 -- ORA-00942 (table or view does not exist) is expected on a
                 -- fresh install; re-raise anything else.
+                IF SQLCODE != -942 THEN RAISE; END IF;
+        END;
+        BEGIN
+            EXECUTE IMMEDIATE 'DROP TABLE ' || v_views(i) || '_S PURGE';
+        EXCEPTION
+            WHEN OTHERS THEN
                 IF SQLCODE != -942 THEN RAISE; END IF;
         END;
     END LOOP;

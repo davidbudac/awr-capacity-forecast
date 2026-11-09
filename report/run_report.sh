@@ -26,8 +26,9 @@
 #     --target NAME  only target NAME (CAPR_TARGETS, any case): its dbid with
 #                    the newest snapshot. With --scope only as -:C. An unknown
 #                    name fails the run (ORA-20003).
-#     --snapshot     read the alert list and the section 1 / 7 fits from the
-#                    last refresh run (CAP_RESULTS.refresh) instead of live
+#     --snapshot     every driver reads the newest refresh run
+#                    (CAP_RESULTS.refresh fills the <view>_S tables) instead
+#                    of evaluating the views: seconds, not the live cost
 #     --keep N       after a good run, keep only the newest N reports of each
 #                    kind in reports/ (text, HTML, briefing, CSV directories)
 #     --container P  ALTER SESSION SET CONTAINER = P first (SYSDBA runs)
@@ -146,7 +147,7 @@ SQL
 run_driver "text" "Report written to:" "@report/report.sql - - - $sdbid $scon $source"
 [ $do_html -eq 1 ] && run_driver "html" "Report written to:" "@report/report_html.sql - - - $sdbid $scon $source"
 [ $do_brief -eq 1 ] && run_driver "brief" "Report written to:" "@report/report_brief.sql - - - $sdbid $scon $source"
-[ $do_csv  -eq 1 ] && run_driver "csv"  "CSV written to:"    "@report/report_csv.sql $sdbid $scon"
+[ $do_csv  -eq 1 ] && run_driver "csv"  "CSV written to:"    "@report/report_csv.sql $sdbid $scon $source"
 
 # Rotation only after a clean run, so a failing job never deletes the last
 # good reports.

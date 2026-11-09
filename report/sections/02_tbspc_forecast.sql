@@ -52,7 +52,7 @@ SELECT db_pdb,
        esm30,
        esm_horizon_days - esm_age_days AS esm_h
 FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_report) AS s_rank
-       FROM   capr_tbspc_forecast t
+       FROM   capr_tbspc_forecast&cap_s t
        WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)
          AND  (&cap_scon  IS NULL OR t.con_dbid = &cap_scon))
 WHERE  is_reportable = 'Y'
