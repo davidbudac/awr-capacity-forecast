@@ -51,6 +51,7 @@ PW="P$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')x"
 python3 "$HERE"/repository/build.py --check || exit 4
 "$HERE"/test/lint_anom_joins.sh >/dev/null || { echo "lint_anom_joins failed" >&2; exit 4; }
 "$HERE"/test/lint_appinfo.sh || exit 4
+"$HERE"/test/lint_dbid_windows.sh || exit 4
 
 rsync -az --delete -e 'ssh -p 2200' \
   --exclude .git --exclude .claude --exclude reports --exclude '__pycache__' \

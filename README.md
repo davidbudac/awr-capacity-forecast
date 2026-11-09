@@ -231,14 +231,17 @@ Both drivers take the same **optional positional arguments**
 (`@report/report_html.sql 25 60 Y` too). Any argument you leave off, or pass
 as `-`, falls back to `report/defaults.sql`, which both scripts auto-load, so
 a bare run never prompts. `dbid` / `con_dbid` scope every section to one
-database or container, and `top_n` ranks inside that scope. `source` is
-`LIVE` (default: evaluate the views now) or `SNAPSHOT`: the alert list and the
-section 1 / 7 fits come from the newest OK refresh run of the results layer,
-which is fast, and the header says so.
+database or container, and `top_n` ranks inside that scope (per database:
+a fleet report lists the top `top_n` of each). `source` is `LIVE` (default:
+evaluate the views now) or `SNAPSHOT`: every section from the newest refresh
+run, read from the `<view>_S` tables `cap_results.refresh` fills, and the
+alert list from `CAPR_ALERTS_LATEST` (lifecycle and acks). A SNAPSHOT report
+evaluates no view over the AWR data, so it takes seconds and little PGA, and
+the header names the run.
 
 Read-only: the report only SELECTs; it creates/modifies no database object.
 
-`@report/report_csv.sql [dbid] [con_dbid]` writes one CSV per CAPR section
+`@report/report_csv.sql [dbid] [con_dbid] [source]` writes one CSV per CAPR section
 view (every column, every row in the scope) into
 `reports/cap_csv_<db>_<ts>/`. For cron, `report/run_report.sh [connect]
 [--html] [--csv] [--scope D[:C]] [--target NAME] [--snapshot] [--keep N]
@@ -334,9 +337,9 @@ answer, not the tables: a printable page that leads with one sentence
 ("AUDIT_TRAIL fills on 3 November. Add 54 GiB before then."), a 12-month
 timeline of the date each limit is reached, the actions in date order with
 their worst-case dates, the evidence chart for the first few, and one fill
-bar per tablespace (today and +90 days). It reads `CAPR_FIT` (or
-`CAPR_FIT_HISTORY` under `SNAPSHOT`) and `CAPR_ALERTS` (or
-`CAPR_ALERTS_LATEST`), takes the same arguments, and is just as read-only:
+bar per tablespace (today and +90 days). It reads `CAPR_FIT` and
+`CAPR_ALERTS` (under `SNAPSHOT`, `CAPR_FIT_S` and `CAPR_ALERTS_LATEST`),
+takes the same arguments, and is just as read-only:
 
 ```sql
 SQL> @report/report_brief.sql    -- spools reports/cap_brief_<db>_<ts>.html

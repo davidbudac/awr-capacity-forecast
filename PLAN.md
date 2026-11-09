@@ -823,6 +823,34 @@ Decided 2026-11-07:
       schema, 19.27) and chains (Rules Engine privileges). At 8 targets:
       PURGE 1 s, RETRAIN 199 s, REFRESH 607 s, 808 s in all, peak PGA
       638 MB. Docs: reference.html#fleet-size, design.md.
+- [x] **M24.13 Per-target ranks and SNAPSHOT from stored tables.** No
+      report ranks one target against another: every window in ddl/20..55
+      partitions by dbid (`rank_dtf` / `rank_nearfull` / `rank_shift` /
+      `rank_series` / `rank_report` / `rank_chart`, `CAPA_ANOM.kind_last_day`)
+      and `days_ago` counts from the row's own database, so a fleet report
+      lists the top `top_n` of each database, grouped by dbid, and a scoped
+      report equals the unscoped one filtered. `test/lint_dbid_windows.sh`
+      keeps it. SNAPSHOT: every view the four drivers read is listed once in
+      `cap_results.snap_views` and kept as table `<view>_S` (`snap_run_id`
+      + the view's columns); `refresh` replaces their rows in its
+      transaction and reads them for CAP_FIT_HIST, the alert merge and the
+      coverage, so each view is evaluated once per run. The drivers read
+      `capr_x&cap_s` (`_s` under SNAPSHOT, empty under LIVE; `~cap_s` in the
+      briefing), one query for both sources; the SNAPSHOT alert list stays
+      `CAPR_ALERTS_LATEST`, which gained the episode columns. New
+      `CAPR_DATA_WINDOW` gives the HTML chart window without the daily views.
+      Every install re-creates the tables (`build_snap_tables`), so they are
+      a cache, not persisted. `test/lint_snapshot_reads.sh` keeps the drivers
+      on the registry; `test/snapshot_parity.sh` diffs LIVE and SNAPSHOT
+      output and checks the plans of a SNAPSHOT run. Measured at 8 targets
+      (CAPX3): SNAPSHOT report.sql / report_html.sql 1 s and ~10 MB PGA,
+      fleet or one target (993 / 656 s before); scoped SNAPSHOT equals scoped
+      LIVE line for line. The cost moved into the refresh: 2547 s (558 s
+      before), peak PGA 911 MB. ASH by ACTION: CAPR_FORECAST_POINTS 622 s, then
+      CAPR_COVERAGE, CAPR_FIT and CAPR_ALERTS ~400 s each (evaluated before
+      too), points / trend / forecast views ~300 s each. Next lever: persist
+      the CAPD daily layer once per refresh, which every one of them
+      re-derives from the copies.
 
 ## v2 (unchanged)
 

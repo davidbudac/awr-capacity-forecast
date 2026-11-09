@@ -69,10 +69,10 @@ SELECT db_pdb,
        sev,
        quality,
        fra_days_at_cur AS fra_days
-FROM   capr_series
+FROM   capr_series&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY rank_series;
+ORDER  BY dbid, rank_series;
 
 PROMPT
 PROMPT == 7b. SERIES ANOMALIES (last &anomaly_days days) ==
@@ -106,8 +106,8 @@ SELECT db_pdb,
        n_hist,
        pct_vs_med,
        anomaly_flag
-FROM   capr_series_anomalies
+FROM   capr_series_anomalies&cap_s
 WHERE  days_ago < &anomaly_days
   AND  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY days_ago, con_dbid, series, mode_rank;
+ORDER  BY dbid, days_ago, con_dbid, series, mode_rank;

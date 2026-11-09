@@ -9,8 +9,9 @@
 -- first, growing first, then biggest); this file only applies the WHERE, the
 -- same one report_html.sql applies, so a 500-tablespace database prints
 -- top_n interesting rows instead of 500. CAPR_TBSPC_FORECAST still has them all.
--- Scoped runs re-number rank_report inside the scope (ROW_NUMBER() OVER
--- (ORDER BY rank_report)), as section 1 does.
+-- rank_report counts per database; scoped runs re-number it inside the scope
+-- (ROW_NUMBER() OVER (PARTITION BY dbid ORDER BY rank_report)), as section 1
+-- does, so a fleet report lists the top_n of each database.
 --
 PROMPT
 PROMPT == 2. TABLESPACE FORECAST (GiB): current / +30 / +90 / +180, plus the ESM point ==
@@ -50,10 +51,10 @@ SELECT db_pdb,
        quality,
        esm30,
        esm_horizon_days - esm_age_days AS esm_h
-FROM  (SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.rank_report) AS s_rank
-       FROM   capr_tbspc_forecast t
+FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_report) AS s_rank
+       FROM   capr_tbspc_forecast&cap_s t
        WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)
          AND  (&cap_scon  IS NULL OR t.con_dbid = &cap_scon))
 WHERE  is_reportable = 'Y'
   AND  s_rank <= &top_n
-ORDER  BY s_rank;
+ORDER  BY dbid, s_rank;

@@ -872,7 +872,7 @@
         HTML drivers only format (the HTML driver adds chart geometry). The three Tier-2-dependent
         views load after the ML file, in <span class="inline">ddl/55_report_views_ml.sql</span>.
         Ranking columns (<span class="inline">rank_dtf</span>, <span class="inline">rank_report</span>,
-        <span class="inline">is_reportable</span>) make <span class="inline">top_n</span> and "growing,
+        <span class="inline">is_reportable</span>), counted per database, make <span class="inline">top_n</span> and "growing,
         near-full, or at least <span class="inline">report_min_gb</span> GiB" a plain
         <code>WHERE</code> in both drivers. Columns: <a href="reference.html#objects">object index</a>.</p>
 
@@ -913,8 +913,10 @@
         <span class="inline">CAPR_WEEKLY_DIGEST</span> compares the latest run with the one
         <span class="inline">digest_days</span> (7) earlier: days to full then and now, alerts opened
         or resolved. <span class="inline">CAPR_FORECAST_ACCURACY</span> compares each stored fit's
-        projection with what happened. Both report drivers can read the last run instead of the live
-        views (<code>SNAPSHOT</code> argument).</p>
+        projection with what happened. Every report driver can read the last run instead of the live
+        views (<code>SNAPSHOT</code> argument): <span class="inline">cap_results.refresh</span> keeps each
+        view the drivers read as a <code>&lt;view&gt;_S</code> table, so a SNAPSHOT report evaluates no
+        view over the AWR data.</p>
 
       <!-- ===================== ENGINES ===================== -->
       <div class="section-head" id="engines">

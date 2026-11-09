@@ -21,12 +21,11 @@
 --                      Omit them, or pass '-', for every database. dbid may
 --                      also be a target name (report/scope.sql).
 --   [source]           LIVE (default): evaluate the CAPR views now.
---                      SNAPSHOT: the alert list reads CAPR_ALERTS_LATEST, the
---                      section 1 and 7 tables read CAPR_FIT_HISTORY of the
---                      newest OK refresh run, and the coverage line is the
---                      CAPR_COVERAGE roll-up that run kept on CAP_RUN (fast:
---                      no live CAPR_ALERTS or CAPR_COVERAGE evaluation).
---                      The other sections stay live.
+--                      SNAPSHOT: every section from the newest refresh run,
+--                      read from the <view>_S tables cap_results.refresh
+--                      fills (cap_results.snap_views), and the alert list
+--                      from CAPR_ALERTS_LATEST (lifecycle and acks). No view
+--                      over the AWR data is evaluated: seconds, little PGA.
 --   DEFINE timing = Y  before the run: wall time per section in the spool.
 --
 -- Requires the suite installed (any deploy mode). Tier 2 rows appear only if
@@ -108,9 +107,17 @@ COLUMN cap_a1 CLEAR
 COLUMN cap_a2 CLEAR
 @@report/scope.sql
 
-COLUMN eff_src   NEW_VALUE cap_src   NOPRINT
-SELECT CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END AS eff_src
-FROM   dual;
+-- cap_s is the snapshot suffix: every read of a view in
+-- cap_results.snap_views is written capr_x plus cap_s, so SNAPSHOT reads table
+-- CAPR_X_S and LIVE the view. cap_alerts names the alert list's source.
+COLUMN eff_src    NEW_VALUE cap_src    NOPRINT
+COLUMN eff_s      NEW_VALUE cap_s      NOPRINT
+COLUMN eff_alerts NEW_VALUE cap_alerts NOPRINT
+SELECT src AS eff_src,
+       CASE src WHEN 'SNAPSHOT' THEN '_s' END                                    AS eff_s,
+       CASE src WHEN 'SNAPSHOT' THEN 'capr_alerts_latest' ELSE 'capr_alerts' END AS eff_alerts
+FROM  (SELECT CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END AS src
+       FROM   dual);
 SET TERMOUT ON
 DEFINE cap_tm_lbl = header
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('header')
@@ -136,9 +143,6 @@ COLUMN ts_total NEW_VALUE ts_total NOPRINT
 COLUMN ts_shown NEW_VALUE ts_shown NOPRINT
 COLUMN cap_scope_lbl NEW_VALUE cap_scope_lbl NOPRINT
 COLUMN cap_src_lbl   NEW_VALUE cap_src_lbl   NOPRINT
-COLUMN cap_snap_run  NEW_VALUE cap_snap_run  NOPRINT
-COLUMN sec1_file     NEW_VALUE sec1_file     NOPRINT
-COLUMN sec7_file     NEW_VALUE sec7_file     NOPRINT
 
 SELECT 'reports/cap_report_' || '&cap_stem' || '_'
          || TO_CHAR(SYSDATE,'YYYYMMDDHH24MI') || '.txt'                       AS cap_path
@@ -160,7 +164,7 @@ SELECT TO_CHAR(c.dtf_warn,                                                    'F
        -- report_min_gb may be fractional, so keep the decimals and strip the
        -- trailing point FM leaves behind on a whole number (1. -> 1).
        RTRIM(TO_CHAR(c.report_min_gb, 'FM9999990.999'), '.')                                    AS min_gb,
-       TO_CHAR((SELECT COUNT(*)  FROM capr_tbspc_rank
+       TO_CHAR((SELECT COUNT(*)  FROM capr_tbspc_rank&cap_s
                 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
                   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)),               'FM9999990') AS ts_total,
        -- M7.4: how many of them sections 2 / 6a will actually print, i.e. the
@@ -169,8 +173,8 @@ SELECT TO_CHAR(c.dtf_warn,                                                    'F
        -- is re-numbered inside the scope, as the sections do.
        TO_CHAR((SELECT COUNT(*)
                 FROM  (SELECT is_reportable,
-                              ROW_NUMBER() OVER (ORDER BY rank_report) AS s_rank
-                       FROM   capr_tbspc_rank
+                              ROW_NUMBER() OVER (PARTITION BY dbid ORDER BY rank_report) AS s_rank
+                       FROM   capr_tbspc_rank&cap_s
                        WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
                          AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon))
                 WHERE is_reportable = 'Y' AND s_rank <= &top_n),                    'FM9999990') AS ts_shown,
@@ -179,43 +183,34 @@ SELECT TO_CHAR(c.dtf_warn,                                                    'F
 FROM   cap_cfg c
 CROSS  JOIN (SELECT NVL(SUM(n_ok), 0) AS n_ok, NVL(SUM(n_failed), 0) AS n_failed,
                     NVL(SUM(n_stale), 0) AS n_stale
-             FROM   capf_esm_health_summary) h;
+             FROM   capf_esm_health_summary&cap_s) h;
 
 -- Defaults first, so a failing lookup below (suite not installed) cannot
 -- leave a variable undefined and make SQL*Plus prompt for it.
-DEFINE sec1_file     = 'report/sections/01_days_to_full.sql'
-DEFINE sec7_file     = 'report/sections/07_series.sql'
-DEFINE cap_snap_run  = 0
 DEFINE cap_scope_lbl = 'see the arguments'
 DEFINE cap_src_lbl   = '&cap_src'
 
--- Scope label (CAPR_CONTAINER names the container), source label, and the
--- section 1 / 7 files for the source. The SNAPSHOT run is the newest OK
--- live refresh run (CAPR_RUNS.last_ok_run_id).
+-- Scope label (CAPR_CONTAINER names the container) and source label. The
+-- SNAPSHOT run is the one the snapshot tables hold (MAX(snap_run_id)).
 SELECT CASE WHEN &cap_sdbid IS NULL AND &cap_scon IS NULL THEN 'every database in this schema'
             ELSE CASE WHEN '&cap_starget' IS NOT NULL THEN 'target ' || '&cap_starget' || ': ' END
                  || TRIM(CASE WHEN &cap_sdbid IS NOT NULL THEN 'dbid ' || '&cap_sdbid' END
                       || CASE WHEN &cap_scon IS NOT NULL THEN ' con_dbid ' || '&cap_scon' END)
                  || ' (' || NVL((SELECT LISTAGG(db_pdb, ', ') WITHIN GROUP (ORDER BY db_pdb)
-                                 FROM   capr_container
+                                 FROM   capr_container&cap_s
                                  WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
                                    AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)),
                                 'no such container') || ')'
        END                                                                    AS cap_scope_lbl,
-       NVL((SELECT TO_CHAR(MAX(last_ok_run_id)) FROM capr_runs), '0')         AS cap_snap_run,
        CASE WHEN '&cap_src' = 'SNAPSHOT'
             THEN NVL((SELECT 'SNAPSHOT, from refresh run ' || r.run_id || ' at '
                              || TO_CHAR(r.started_at, 'YYYY-MM-DD HH24:MI')
                              || ' (as of ' || TO_CHAR(r.as_of_day, 'YYYY-MM-DD') || ')'
                       FROM   capr_runs r
-                      WHERE  r.run_id = r.last_ok_run_id),
-                     'SNAPSHOT, but no OK refresh run exists yet: sections 0, 1 and 7 are empty')
+                      WHERE  r.run_id = (SELECT MAX(snap_run_id) FROM capr_container_s)),
+                     'SNAPSHOT: no refresh since install; run cap_results.refresh')
             ELSE 'LIVE (CAPR views evaluated now)'
-       END                                                                    AS cap_src_lbl,
-       CASE WHEN '&cap_src' = 'SNAPSHOT' THEN 'report/sections/01_days_to_full_snap.sql'
-            ELSE 'report/sections/01_days_to_full.sql' END                    AS sec1_file,
-       CASE WHEN '&cap_src' = 'SNAPSHOT' THEN 'report/sections/07_series_snap.sql'
-            ELSE 'report/sections/07_series.sql' END                          AS sec7_file
+       END                                                                    AS cap_src_lbl
 FROM   dual;
 
 -- Section 6 dispatch:
@@ -259,7 +254,7 @@ EXEC DBMS_APPLICATION_INFO.SET_ACTION('s0 at a glance')
 DEFINE cap_tm_lbl = s1
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('s1 days to full')
 @@&cap_tm_start
-@@&sec1_file
+@@report/sections/01_days_to_full.sql
 @@&cap_tm_stop
 DEFINE cap_tm_lbl = s2
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('s2 tbspc forecast')
@@ -289,7 +284,7 @@ EXEC DBMS_APPLICATION_INFO.SET_ACTION('s6 esm compare')
 DEFINE cap_tm_lbl = s7
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('s7 series')
 @@&cap_tm_start
-@@&sec7_file
+@@report/sections/07_series.sql
 @@&cap_tm_stop
 
 PROMPT

@@ -72,7 +72,7 @@
           <div class="meta">
             <span><b>Where:</b> PDB1 · captest/&lt;password&gt;</span>
             <span><b>Proves:</b> forecasts, intervals, robust slope, resets, overrides, CPU peaks/gaps/shifts, fixed-ceiling series, alerts, ESM</span>
-            <span><b>Time:</b> ~20 minutes</span>
+            <span><b>Time:</b> ~30 minutes</span>
           </div>
         </div>
         <div class="track-card b">
@@ -846,8 +846,8 @@ All fixture assertions passed.</pre>
             <div class="callout">
               <span class="ico">i</span>
               <p><strong>Steps 1 to 6 on dbmint in one script.</strong>
-              <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--sql FILE]</span>
-              runs <span class="inline">test/lint_anom_joins.sh</span> and <span class="inline">test/lint_appinfo.sh</span> first and stops on a violation (exit 4),
+              <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>
+              runs <span class="inline">test/lint_anom_joins.sh</span>, <span class="inline">test/lint_appinfo.sh</span>, <span class="inline">test/lint_dbid_windows.sh</span> and <span class="inline">test/lint_snapshot_reads.sh</span> first and stops on a violation (exit 4),
               rsyncs the checkout to <span class="inline">~/awr_cap_&lt;schema&gt;/</span>, runs the fixture
               install, the install, <span class="inline">run_test.sql</span> and, with
               <span class="inline">--ml</span>, the Tier&nbsp;2 steps as SYSDBA with
@@ -888,6 +888,29 @@ All fixture assertions passed.</pre>
               MODULE <code>AWRCAP/&lt;package&gt;.&lt;procedure&gt;</code>, and when a scheduler job does not set
               CLIENT_IDENTIFIER to its own name (<a href="reference.html#labels">Session labels</a>).
               Standalone: <span class="inline">test/lint_appinfo.sh</span> from the repo root.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
+              <p><strong>Per-database window lint.</strong>
+              <span class="inline">test/lint_dbid_windows.sh</span> fails when an analytic window in
+              <span class="inline">ddl/20</span> to <span class="inline">ddl/55</span> does not partition by
+              <code>dbid</code>, so no rank or anchor of one database depends on another target. Its allow
+              list names the windows whose key already carries the dbid. Standalone:
+              <span class="inline">test/lint_dbid_windows.sh</span> from the repo root.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
+              <p><strong>SNAPSHOT reads lint and parity.</strong>
+              <span class="inline">test/lint_snapshot_reads.sh</span> fails when a report driver reads a
+              <code>CAP*</code> view that is not in <span class="inline">cap_results.snap_views</span> (a few
+              table-backed views aside), reads a registry view without the <code>&amp;cap_s</code> suffix, or
+              when a registry view is missing from <span class="inline">ddl/00_drop.sql</span>'s list.
+              <span class="inline">test/snapshot_parity.sh &lt;SCHEMA&gt;</span> (or
+              <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; --parity</span>) resets the schema's
+              run history, refreshes once, runs every driver LIVE and SNAPSHOT, diffs the text and CSV
+              output unscoped and for dbid 42424242, prints the wall time and peak PGA of each run, and
+              fails when a SNAPSHOT run's plans read a fixture table outside the identity lookups of
+              <span class="inline">report/scope.sql</span>.</p>
             </div>
           </div>
         </div>

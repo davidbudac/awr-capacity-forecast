@@ -24,8 +24,9 @@
 -- anomaly_days = the window of the anomaly lists, show_esm AUTO | Y | N =
 -- the Tier 2 ESM point on the charts. [dbid] [con_dbid] scope every block,
 -- and dbid may also be a target name (report/scope.sql).
--- SNAPSHOT reads the fits from CAPR_FIT_HISTORY and the alerts from
--- CAPR_ALERTS_LATEST of the newest OK refresh run.
+-- SNAPSHOT: every block from the newest refresh run, read from the <view>_S
+-- tables cap_results.refresh fills (cap_results.snap_views), the alerts from
+-- CAPR_ALERTS_LATEST; no view over the AWR data is evaluated.
 --
 -- Each data block is read inside its own exception handler: a failing view
 -- leaves its block empty, and the page names the failed block.
@@ -77,9 +78,17 @@ COLUMN cap_a1 CLEAR
 COLUMN cap_a2 CLEAR
 @@report/scope.sql
 
-COLUMN eff_src   NEW_VALUE cap_src   NOPRINT
-SELECT CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END AS eff_src
-FROM   dual;
+-- cap_s: the snapshot suffix (a read written capr_x plus cap_s is CAPR_X_S
+-- under SNAPSHOT), cap_alerts: the alert list's source. Both are substituted
+-- inside the data block too.
+COLUMN eff_src    NEW_VALUE cap_src    NOPRINT
+COLUMN eff_s      NEW_VALUE cap_s      NOPRINT
+COLUMN eff_alerts NEW_VALUE cap_alerts NOPRINT
+SELECT src AS eff_src,
+       CASE src WHEN 'SNAPSHOT' THEN '_s' END                                    AS eff_s,
+       CASE src WHEN 'SNAPSHOT' THEN 'capr_alerts_latest' ELSE 'capr_alerts' END AS eff_alerts
+FROM  (SELECT CASE WHEN UPPER(TRIM('&6')) = 'SNAPSHOT' THEN 'SNAPSHOT' ELSE 'LIVE' END AS src
+       FROM   dual);
 
 COLUMN cap_path NEW_VALUE cap_path NOPRINT
 COLUMN cap_file NEW_VALUE cap_file NOPRINT
@@ -121,8 +130,10 @@ END;
 HOST mkdir -p reports
 SPOOL &cap_path
 
+-- The page skeleton carries & characters: no substitution inside it.
 SET DEFINE OFF
 @@report/html/page_head.sql
+SET DEFINE '&'
 
 DECLARE
   top_n        PLS_INTEGER  := :b_top_n;
@@ -131,7 +142,6 @@ DECLARE
   s_dbid       NUMBER       := :b_sdbid;
   s_con        NUMBER       := :b_scon;
   v_src        VARCHAR2(10) := :b_src;
-  v_snap_run   NUMBER;
   v_last_day   DATE;
   v_first_day  DATE;
   v_esm_ok     NUMBER := 0;
@@ -238,20 +248,21 @@ BEGIN
     v_run_line VARCHAR2(4000);
     v_cov_line VARCHAR2(4000);
     v_src_lbl  VARCHAR2(400);
+    v_tb_first DATE;
+    v_tb_last  DATE;
   BEGIN
-    SELECT MAX(last_ok_run_id) INTO v_snap_run FROM capr_runs;
-    SELECT MIN(day_dt), MAX(day_dt) INTO v_first_day, v_last_day
-      FROM capd_series_daily
+    SELECT MIN(series_first_day), MAX(series_last_day), MIN(tbspc_first_day), MAX(tbspc_last_day)
+      INTO v_first_day, v_last_day, v_tb_first, v_tb_last
+      FROM capr_data_window&cap_s
      WHERE (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con);
     IF v_last_day IS NULL THEN
-      SELECT MIN(day_dt), MAX(day_dt) INTO v_first_day, v_last_day
-        FROM capd_tbspc_daily
-       WHERE (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con);
+      v_first_day := v_tb_first;
+      v_last_day  := v_tb_last;
     END IF;
     BEGIN
       SELECT NVL(SUM(n_ok), 0), NVL(SUM(n_failed), 0), NVL(SUM(n_stale), 0)
         INTO v_esm_ok, v_esm_failed, v_esm_stale
-        FROM capf_esm_health_summary;
+        FROM capf_esm_health_summary&cap_s;
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
     v_do_esm := CASE WHEN show_esm = 'N' THEN 0
@@ -263,20 +274,20 @@ BEGIN
       INTO v_run_line
       FROM capr_runs r;
     IF v_src = 'SNAPSHOT' THEN
-      v_src_lbl := 'SNAPSHOT, no OK refresh run yet';
-      FOR r IN (SELECT run_id, started_at, as_of_day FROM capr_runs WHERE run_id = last_ok_run_id) LOOP
+      v_src_lbl := 'SNAPSHOT: no refresh since install; run cap_results.refresh';
+      FOR r IN (SELECT run_id, started_at, as_of_day FROM capr_runs
+                WHERE run_id = (SELECT MAX(snap_run_id) FROM capr_container_s)) LOOP
         v_src_lbl := 'SNAPSHOT run ' || r.run_id || ', ' || TO_CHAR(r.started_at, 'YYYY-MM-DD HH24:MI')
                      || ', as of ' || TO_CHAR(r.as_of_day, 'YYYY-MM-DD');
       END LOOP;
-      SELECT MAX(cov_summary) INTO v_cov_line FROM capr_runs WHERE run_id = last_ok_run_id;
     ELSE
       v_src_lbl := 'LIVE';
-      SELECT LISTAGG(summary, ' | ' ON OVERFLOW TRUNCATE) WITHIN GROUP (ORDER BY dbid)
-        INTO v_cov_line
-        FROM capr_coverage
-       WHERE (s_dbid IS NULL OR dbid = s_dbid)
-         AND (s_con IS NULL OR dbid IN (SELECT dbid FROM capr_container WHERE con_dbid = s_con));
     END IF;
+    SELECT LISTAGG(summary, ' | ' ON OVERFLOW TRUNCATE) WITHIN GROUP (ORDER BY dbid)
+      INTO v_cov_line
+      FROM capr_coverage&cap_s
+     WHERE (s_dbid IS NULL OR dbid = s_dbid)
+       AND (s_con IS NULL OR dbid IN (SELECT dbid FROM capr_container&cap_s WHERE con_dbid = s_con));
     FOR c IN (SELECT * FROM cap_cfg) LOOP
       p('{"meta":{"db":' || js(:b_cap_db) || ',"host":' || js(:b_cap_host)
         || ',"schema":' || js(:b_cap_user) || ',"generated":' || js(:b_cap_gen)
@@ -309,7 +320,7 @@ BEGIN
     v_sep := NULL;
     w('[');
     FOR r IN (SELECT dbid, con_dbid, NVL(target_name, db_name) AS db_name, con_name, db_pdb
-              FROM capr_container ORDER BY dbid, con_dbid) LOOP
+              FROM capr_container&cap_s ORDER BY dbid, con_dbid) LOOP
       IF in_scope(r.dbid, r.con_dbid) THEN
         w(v_sep || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"db":' || js(r.db_name)
           || ',"pdb":' || js(r.con_name) || ',"label":' || js(r.db_pdb) || '}');
@@ -322,8 +333,7 @@ BEGIN
   END;
 
   ----------------------------------------------------------------------
-  -- fits: one row per (kind, container, series, method). LIVE = CAPR_FIT,
-  -- SNAPSHOT = the CAPR_FIT_HISTORY rows of the newest OK refresh run.
+  -- fits: one row per (kind, container, series, method).
   ----------------------------------------------------------------------
   BEGIN
     v_sep := NULL;
@@ -332,13 +342,7 @@ BEGIN
                      r2, quality, days_to_full, days_to_full_lo, days_to_full_hi, accel, train_n, sev,
                      limit_source, last_day, is_current, limit_below_used, cycle_n, cycle_days,
                      cycle_peak_pct, peak_slope_per_day, slope_sig, hot_now, need_gib_90, add_by_day
-              FROM   capr_fit WHERE v_src = 'LIVE'
-              UNION ALL
-              SELECT kind, dbid, con_dbid, series, unit, method, value, limit_value, pct, slope_per_day,
-                     r2, quality, days_to_full, days_to_full_lo, days_to_full_hi, accel, train_n, sev,
-                     limit_source, last_day, is_current, limit_below_used, cycle_n, cycle_days,
-                     cycle_peak_pct, peak_slope_per_day, slope_sig, hot_now, need_gib_90, add_by_day
-              FROM   capr_fit_history WHERE v_src = 'SNAPSHOT' AND run_id = v_snap_run
+              FROM   capr_fit&cap_s
               ORDER  BY 1, 2, 3, 4, 6) LOOP
       IF in_scope(r.dbid, r.con_dbid) THEN
         w(v_sep || '{"k":' || js(r.kind) || ',"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid)
@@ -372,7 +376,7 @@ BEGIN
     v_sep := NULL;
     w('[');
     FOR r IN (SELECT kind, dbid, con_dbid, series, ts, value, limit_value, anomaly, anomaly_flag, gap
-              FROM   capr_series_points
+              FROM   capr_series_points&cap_s
               WHERE  series <> 'DB_CPU_SEC'
                 AND  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
               ORDER  BY kind, dbid, con_dbid, series, ts) LOOP
@@ -405,7 +409,7 @@ BEGIN
     v_sep := NULL;
     w('[');
     FOR r IN (SELECT kind, dbid, con_dbid, series, method, horizon_days, ts, value, lo, hi
-              FROM   capr_forecast_points
+              FROM   capr_forecast_points&cap_s
               WHERE  (method <> 'ESM' OR v_do_esm = 1)
                 AND  series <> 'DB_CPU_SEC'
                 AND  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
@@ -430,7 +434,7 @@ BEGIN
     FOR r IN (SELECT kind, dbid, con_dbid, series, ts, anomaly_kind, anomaly_flag, value, expected,
                      threshold, z, shift_pct, unit, sev, baseline_mode, grain, n_hist, alerting, raw_value,
                      pct_vs_expected
-              FROM   capr_anomalies
+              FROM   capr_anomalies&cap_s
               WHERE  (ts > v_last_day - anomaly_days OR anomaly_kind = 'CPU_SHIFT')
                 AND  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
               ORDER  BY kind, dbid, con_dbid, series, ts, baseline_mode) LOOP
@@ -456,11 +460,7 @@ BEGIN
     w('[');
     FOR r IN (SELECT severity, sev_rank, kind, dbid, con_dbid, series_key, day_dt, value, threshold, unit,
                      message, baseline_mode, first_day, n_days, max_z
-              FROM   capr_alerts WHERE v_src = 'LIVE'
-              UNION ALL
-              SELECT severity, sev_rank, kind, dbid, con_dbid, series_key, day_dt, value, threshold, unit,
-                     message, baseline_mode, NULL, NULL, NULL
-              FROM   capr_alerts_latest WHERE v_src = 'SNAPSHOT'
+              FROM   &cap_alerts
               ORDER  BY 2, 3, 4, 5, 6, 7) LOOP
       IF in_scope(r.dbid, r.con_dbid) THEN
         w(v_sep || CHR(10) || '{"sev":' || js(r.severity) || ',"kind":' || js(r.kind)
@@ -489,7 +489,7 @@ BEGIN
     v_sep := NULL;
     w('[');
     FOR r IN (SELECT dbid, con_dbid, series, ts, day_dt, value, gap, how_flag
-              FROM   capr_hourly_points
+              FROM   capr_hourly_points&cap_s
               WHERE  day_dt >= TRUNC(v_last_day) - 13
                 AND  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
               ORDER  BY dbid, con_dbid, series, ts) LOOP
@@ -517,6 +517,7 @@ BEGIN
 END;
 /
 
+SET DEFINE OFF
 @@report/html/page_tail.sql
 SPOOL OFF
 

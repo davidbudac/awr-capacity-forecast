@@ -30,9 +30,9 @@ for making changes safely.
   parses CLIENT_INFO `AWRCAP dbid=<n>`, which `report/scope.sql` sets and
   each report driver clears at its end; `cap_results.refresh` and the
   `cap_forecast_ml` trainers clear one they find (a writer reads every
-  database). No predicate placed above the seam survives the fleet-wide
-  ROW_NUMBERs, `kind_last_day` windows and materialized CTEs downstream
-  (19.27 plans: 35 of 64 views read copies unscoped under `WHERE dbid =`),
+  database). No predicate placed above the seam survives the materialized
+  CTEs downstream (19.27 plans before M24.13's per-dbid windows: 35 of 64
+  views read copies unscoped under `WHERE dbid =`),
   so the scope lives at the bottom. `test/scope_plan.sql` EXPLAINs every view
   and counts seam reads without the CLIENT_INFO lookup (must be 0);
   run_test.sql asserts it for the CAPV views. The optimizer estimates the
@@ -62,6 +62,31 @@ for making changes safely.
   `nearfull_warn_pct` / `nearfull_crit_pct` (NULL = the knob), applied once in
   `CAPD_TBSPC_DAILY`; `dbid`/`con_dbid` `0` are wildcards and the most
   specific matching row wins.
+- **SNAPSHOT reads stored tables (M24.13).** `cap_results.snap_views`
+  (ddl/60) is the one list of the views the report drivers read; each is
+  kept as table `<view>_S` (`snap_run_id`, then the view's columns).
+  `refresh` replaces their rows in its transaction (dynamic SQL: the tables
+  are re-created by every install, so a static reference would invalidate
+  the body) and reads them itself (CAP_FIT_HIST from `CAPR_FIT_S`, the
+  alert merge from `CAPR_ALERTS_S`, the coverage from `CAPR_COVERAGE_S`).
+  They are a cache, not persisted: `build_snap_tables` (end of ddl/60) drops
+  and re-creates them; `ddl/00_drop.sql` drops `<each view in its list>_S`.
+  **A new view a driver reads joins the registry (and 00_drop's list) and is
+  read as `capr_x&cap_s`** (`~cap_s` in report_brief.sql's data block, which
+  substitutes with `~` because its HTML entities use `&`); `cap_alerts` names
+  the alert list's source (CAPR_ALERTS / CAPR_ALERTS_LATEST).
+  `test/lint_snapshot_reads.sh` enforces it; the cheap table-backed reads it
+  allows live are CAP_CFG, CAPR_RUNS, CAPR_ALERTS_LATEST and
+  CAPR_FIT_HISTORY. The reports still only SELECT; refresh is the writer.
+  `test/snapshot_parity.sh <SCHEMA>` (or the harness's `--parity`) diffs
+  LIVE and SNAPSHOT reports on the fixture and lists what a SNAPSHOT run's
+  plans read.
+- **Per database, never across targets (M24.13).** Every analytic window
+  in ddl/20..ddl/55 partitions by `dbid` (ranks, `kind_last_day`), and a
+  view's per-row anchor (`days_ago`) correlates on the row's dbid. A fleet
+  report lists the top `top_n` of each database, grouped by dbid, and one
+  target's numbers never depend on another's. `test/lint_dbid_windows.sh`
+  enforces the windows (allow list: keys that embed the dbid).
 - **APEX contract.** `apex/build.py` selects `CAPR_SERIES_POINTS`,
   `CAPR_FORECAST_POINTS`, `CAPR_FIT`, `CAPR_ANOMALIES`, `CAPR_ALERTS` and
   `CAPR_CONTAINER` by named column. Only ADD columns to these six views; never
@@ -105,7 +130,9 @@ ESM views, CAPF_COMPARE, CAPF_BACKTEST, CAPF_ESM_HEALTH[_SUMMARY]) →
 CAPR_FORECAST_POINTS and CAPR_ALERTS, which reads the Tier 2 health views for
 MODEL_HEALTH) → `60_results` (the results tables, package CAP_RESULTS and the
 CAPR_ALERTS_LATEST / CAPR_ALERT_EVENTS / CAPR_RUNS / CAPR_COVERAGE /
-CAPR_FIT_HISTORY / CAPR_WEEKLY_DIGEST / CAPR_FORECAST_ACCURACY views).
+CAPR_FIT_HISTORY / CAPR_WEEKLY_DIGEST / CAPR_FORECAST_ACCURACY views), and
+last `cap_results.build_snap_tables`, which re-creates the SNAPSHOT cache
+`<view>_S` of every view in `cap_results.snap_views` (M24.13).
 `docs/reference.html` "Object index" lists every object (`test/docs_lint.sh`
 checks it).
 M15 objects: ddl/20 `CAPD_CPU_INTERVAL` / `CAPD_DBTIME_INTERVAL` (one row per
@@ -117,7 +144,8 @@ valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 (read by `CAPR_ALERTS` in ddl/55), `CAPR_SERIES_ANOMALIES`, `CAPR_HOURLY_POINTS`.
 `CAPA_TBSPC_ANOM` / `CAPA_CPU_ANOM` are gone (still in `00_drop` so an upgrade
 removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
-`test/lint_anom_joins.sh` and `test/lint_appinfo.sh`, syncs and runs the whole fixture harness on dbmint.
+`test/lint_anom_joins.sh`, `test/lint_appinfo.sh`, `test/lint_dbid_windows.sh`
+and `test/lint_snapshot_reads.sh`, syncs and runs the whole fixture harness on dbmint.
 `test/docs_lint.sh` checks the docs against the DDL (knobs, object index,
 alert kinds, no assertion counts, no "generated" claim, every `CREATE TABLE`
 in ddl/ + repository/ plus `CAP_H_*` named in reference.html#tables and in
@@ -142,7 +170,7 @@ SPOOL one after the other in one session, a failed step logged and skipped
 past, ORA-20080 at the end; where package CAP_REPO exists also
 CAP_COLLECT_JOB hourly :05),
 `report/report_csv.sql` (one CSV per CAPR section view), `report/report_brief.sql`
-(one-page "Runway" briefing from CAPR_FIT[_HISTORY] + the alert list; demo
+(one-page "Runway" briefing from CAPR_FIT + the alert list; demo
 `docs/demo/cap_brief_demo.html`), `report/run_report.sh`
 (cron wrapper: text / --html / --brief / --csv, --scope, --target, --snapshot, non-zero exit on a
 non-zero sqlplus exit or a line starting ORA-/SP2- (an alert message quoting
@@ -157,8 +185,9 @@ renders `docs/demo/cap_report_demo.html` under a stub DOM, no DB needed; the
 demo is `build.py --preview` of a spooled demo-story report with its identity
 strings genericised), `report/drill_tbspc.sql` / `report/drill_cpu.sql`
 (single-series drill-down; drill_tbspc prints "who is filling it" from
-CAPR_SEGMENT_GROWTH). Both report drivers take `[top_n] [anomaly_days]
-[show_esm] [dbid] [con_dbid] [LIVE|SNAPSHOT]`, `-` skips one.
+CAPR_SEGMENT_GROWTH). report.sql / report_html.sql / report_brief.sql take
+`[top_n] [anomaly_days] [show_esm] [dbid] [con_dbid] [LIVE|SNAPSHOT]`,
+report_csv.sql `[dbid] [con_dbid] [LIVE|SNAPSHOT]`, `-` skips one.
 `test/demo_fixture.sql` fills the CAP_FIXTURE_* tables with a designed 150-day
 "ECOMPRD" story (hourly snapshots, two containers, 32 threads / 16 cores; no
 PARAMETER / ASM / SEG_STAT tables, so those seam views fall back to ddl/12's
@@ -447,9 +476,10 @@ there for local mode).
   `@test/run_test_ml.sql`). Both exit non-zero on failure and print their own
   totals (`RESULT:` / "All fixture assertions passed."); docs never quote a
   count. Sync the repo to the DB host first because of the relative `@@`
-  includes. The full fixture run takes about 20 minutes now.
+  includes. The full fixture run takes about 30 minutes now (M24.13: every
+  refresh also fills the snapshot tables, and run_test compares them).
 - **dbmint lever:** `test/dbmint_harness.sh <SCHEMA> [--ml] [--no-fixture]
-  [--pga] [--sql FILE]` lints, rsyncs to `~/awr_cap_<schema>/` and runs the steps as
+  [--pga] [--parity] [--sql FILE]` lints, rsyncs to `~/awr_cap_<schema>/` and runs the steps as
   SYSDBA + `CURRENT_SCHEMA` in PDB1; log `/tmp/dbmint_harness_<SCHEMA>.log`.
   `--pga` ends each step with `test/pga_probe.sql` (the session's peak PGA).
   `CAPX1`..`CAPX3` and `CAPW1`..`CAPW3` in PDB1 are throwaway schemas for
@@ -552,9 +582,10 @@ there for local mode).
   blocks, snap_ids 100000 apart); `test/dbmint_scale.sh <SCHEMA> <K>
   [--steps ...]` grows CAPX3 to K such targets and times train_all,
   refresh and the reports (live, one target, SNAPSHOT) with `pga_probe.sql`,
-  appending to `/tmp/dbmint_scale_<SCHEMA>.tsv`. Measured: linear, ~7 min of
-  nightly work per 144-day target on 2 vCPU, PGA flat at 490-640 MB
-  (reference.html#fleet-size). A report scoped to one target (`--target`)
+  appending to `/tmp/dbmint_scale_<SCHEMA>.tsv`. Measured: linear. Since M24.13 the
+  refresh pays for every report view (318 s per 144-day target on 2 vCPU,
+  peak PGA 911 MB) and a SNAPSHOT report takes ~1 s / 10 MB at any fleet
+  size; other steps PGA flat at 490-640 MB (reference.html#fleet-size). A report scoped to one target (`--target`)
   costs one target at any fleet size (M24.11, the seam scope above).
 - **RAC** is untested: one high-water mark per DBID, so a snapshot that completes on one
   instance before another could be copied half; untested.

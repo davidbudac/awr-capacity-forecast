@@ -17,6 +17,13 @@
 --   CAP_ALERT_EVENT  NEW / ESCALATED / DEESCALATED / RESOLVED / REOPENED, one
 --                    row per state change, event_id = run_id * 100000 + n
 --
+--   <view>_S         one per view in cap_results.snap_views: snap_run_id and
+--                    the view's columns, the newest OK run's rows. A cache,
+--                    not persisted: every install drops and re-creates them
+--                    (cap_results.build_snap_tables, end of this file), so
+--                    they always match the views; the next refresh fills
+--                    them. The SNAPSHOT reports read them.
+--
 -- Only the CAP_RESULTS package (bottom of this file) writes them. The views
 -- over them never break on empty tables, so an install that never ran
 -- refresh still installs and reports.
@@ -155,6 +162,9 @@ BEGIN
     add_col('cap_alert_state', 'last_direction  VARCHAR2(3)');
     add_col('cap_alert_state', 'last_unit       VARCHAR2(8)');
     add_col('cap_alert_state', 'last_message    VARCHAR2(4000)');
+    add_col('cap_alert_state', 'last_first_day  DATE');
+    add_col('cap_alert_state', 'last_n_days     NUMBER');
+    add_col('cap_alert_state', 'last_max_z      NUMBER');
     add_col('cap_alert_state', 'ack_until       DATE');
     add_col('cap_alert_state', 'ack_note        VARCHAR2(400)');
     add_col('cap_alert_state', 'ack_by          VARCHAR2(128)');
@@ -183,7 +193,7 @@ COMMENT ON COLUMN cap_run.as_of_day         IS 'The day the run is as of. Before
 COMMENT ON COLUMN cap_run.backdated         IS 'Y when as_of_day is before the day the run executed.';
 COMMENT ON COLUMN cap_run.cov_n_dbid        IS 'CAPR_COVERAGE rows (dbids) at the run.';
 COMMENT ON COLUMN cap_run.cov_n_current     IS 'CAPR_COVERAGE rows with retired = N at the run.';
-COMMENT ON COLUMN cap_run.cov_summary       IS 'CAPR_COVERAGE summaries at the run, by dbid, joined with '' | ''. The SNAPSHOT reports print it.';
+COMMENT ON COLUMN cap_run.cov_summary       IS 'CAPR_COVERAGE summaries at the run, by dbid, joined with '' | ''. CAPR_RUNS shows it.';
 COMMENT ON COLUMN cap_alert_state.missed_runs IS 'Consecutive live runs the key was missing from CAPR_ALERTS; resolve_grace_runs of them resolve it.';
 COMMENT ON COLUMN cap_alert_state.ack_until IS 'Acknowledged until this time (CAP_RESULTS.ack). 9999-12-31 = until it resolves. CAPR_ALERTS_LATEST hides it until then.';
 
@@ -198,6 +208,9 @@ COMMENT ON COLUMN cap_alert_state.ack_until IS 'Acknowledged until this time (CA
 --   reopen_count  how many times it came back after a RESOLVED
 --   events_since  events of this key since it last opened (its NEW or
 --                 REOPENED included); last_event, last_event_at the newest
+--   first_day, n_days, max_z  CAPR_ALERTS' episode columns as the last run
+--                 saw them (anomaly kinds only), so the SNAPSHOT reports
+--                 print episodes as the live ones do
 -- Reads only CAP_ALERT_STATE and CAP_ALERT_EVENT, so it costs a table scan,
 -- not an evaluation of the view chain.
 -- --------------------------------------------------------------------
@@ -239,7 +252,10 @@ SELECT s.cur_severity                                   AS severity,
        s.last_run_id                                    AS run_id,
        NVL(ev.events_since, 0)                          AS events_since,
        ev.last_event,
-       ev.last_event_at
+       ev.last_event_at,
+       s.last_first_day                                 AS first_day,
+       s.last_n_days                                    AS n_days,
+       s.last_max_z                                     AS max_z
 FROM   cap_alert_state s
 LEFT   JOIN ev ON ev.state_key = s.state_key
 WHERE  s.state = 'OPEN'
@@ -608,7 +624,23 @@ CREATE OR REPLACE PACKAGE cap_results AUTHID DEFINER AS
     --            records a backdated run: the fits as the views show them
     --            now, labelled with that day, and no alert state (the state
     --            machine runs in real time). A day after today fails.
+    --
+    -- Before the fits, every view in snap_views is copied into its table
+    -- <view>_S (DELETE, then INSERT the view's rows under snap_run_id =
+    -- the run), and the fits, the alert merge and the coverage read those
+    -- tables, so each view is evaluated once per run. The tables switch to the
+    -- new run at the COMMIT, backdated runs included (the views do not depend
+    -- on p_as_of); a FAILED run leaves the previous run's rows.
     PROCEDURE refresh(p_as_of IN DATE DEFAULT NULL);
+
+    -- The views the report drivers read, the one list of them. SNAPSHOT
+    -- reports read <view>_S (snap_run_id, then the view's columns) instead.
+    FUNCTION snap_views RETURN SYS.ODCIVARCHAR2LIST;
+
+    -- Drop and re-create every <view>_S, empty, from the view's columns as
+    -- they are now. ddl/60 runs it at the end of every install; the next
+    -- refresh fills them. DDL: it commits.
+    PROCEDURE build_snap_tables;
 
     -- Acknowledge an alert: CAPR_ALERTS_LATEST hides it until p_until
     -- (NULL = until it resolves). p_key is a state_key, or an alert_key the
@@ -664,28 +696,76 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
         RETURN v;
     END deploy_mode;
 
-    -- One read of CAPR_ALERTS, one row per state_key (worst severity, then
-    -- the latest day: an anomaly key can carry several episodes), merged
-    -- into CAP_ALERT_STATE. Event ids are p_run * 100000 + n.
+    FUNCTION snap_views RETURN SYS.ODCIVARCHAR2LIST IS
+    BEGIN
+        RETURN SYS.ODCIVARCHAR2LIST(
+            'CAPR_CONTAINER', 'CAPR_FIT', 'CAPR_ALERTS', 'CAPR_COVERAGE', 'CAPR_DATA_WINDOW',
+            'CAPR_TBSPC_DAYS_TO_FULL', 'CAPR_TBSPC_RANK', 'CAPR_TBSPC_FORECAST',
+            'CAPR_TBSPC_ANOMALIES', 'CAPR_CPU_TREND', 'CAPR_CPU_ANOMALIES', 'CAPR_CPU_SHIFTS',
+            'CAPR_ESM_COMPARE', 'CAPR_BACKTEST', 'CAPF_ESM_HEALTH_SUMMARY', 'CAPR_SERIES',
+            'CAPR_SERIES_ANOMALIES', 'CAPR_ANOMALIES', 'CAPR_SERIES_POINTS',
+            'CAPR_FORECAST_POINTS', 'CAPR_HOURLY_POINTS', 'CAPR_SEGMENT_GROWTH');
+    END snap_views;
+
+    PROCEDURE build_snap_tables IS
+        l_views SYS.ODCIVARCHAR2LIST := snap_views;
+        l_mod   VARCHAR2(64);
+        l_act   VARCHAR2(64);
+    BEGIN
+        DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+        DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_results.build_snap_tables', NULL);
+        FOR i IN 1 .. l_views.COUNT LOOP
+            DBMS_APPLICATION_INFO.SET_ACTION(LOWER(l_views(i)) || '_s');
+            BEGIN
+                EXECUTE IMMEDIATE 'DROP TABLE ' || l_views(i) || '_S PURGE';
+            EXCEPTION
+                WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;
+            END;
+            EXECUTE IMMEDIATE 'CREATE TABLE ' || l_views(i) || '_S AS SELECT CAST(NULL AS NUMBER) AS snap_run_id, v.* FROM '
+                              || l_views(i) || ' v WHERE 1 = 0';
+        END LOOP;
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+            RAISE;
+    END build_snap_tables;
+
+    -- One read of CAPR_ALERTS_S (this run's CAPR_ALERTS), one row per
+    -- state_key (worst severity, then the latest day: an anomaly key can
+    -- carry several episodes), merged into CAP_ALERT_STATE. Event ids are
+    -- p_run * 100000 + n.
     PROCEDURE merge_alerts(p_run   IN  NUMBER,
                            p_now   IN  DATE,
                            o_alert OUT PLS_INTEGER,
                            o_anom  OUT PLS_INTEGER,
                            o_event OUT PLS_INTEGER) IS
-        CURSOR c_cur IS
-            SELECT x.state_key, x.alert_key, x.kind, x.dbid, x.con_dbid, x.db_pdb, x.series_key,
-                   x.baseline_mode, x.severity, x.day_dt, x.value, x.threshold, x.alarm_threshold,
-                   x.direction, x.unit, x.message, x.n_all, x.n_anom
-            FROM  (SELECT a.*,
-                          ROW_NUMBER() OVER (PARTITION BY a.state_key
-                                             ORDER BY a.sev_rank, a.day_dt DESC, a.alert_key) AS rn,
-                          COUNT(*) OVER ()                                                    AS n_all,
-                          COUNT(CASE WHEN a.kind IN ('TBSPC_ANOM', 'CPU_ANOM', 'DBCPU_ANOM', 'SERIES_ANOM')
-                                     THEN 1 END) OVER ()                                      AS n_anom
-                   FROM   capr_alerts a
-                   WHERE  a.is_current = 'Y') x
-            WHERE  x.rn = 1;
-        TYPE cur_tab IS TABLE OF c_cur%ROWTYPE;
+        -- Dynamic SQL: install drops and re-creates CAPR_ALERTS_S, which
+        -- would invalidate this body on every install as a static reference.
+        TYPE cur_rec IS RECORD (
+            state_key       cap_alert_state.state_key%TYPE,
+            alert_key       cap_alert_state.last_alert_key%TYPE,
+            kind            cap_alert_state.kind%TYPE,
+            dbid            cap_alert_state.dbid%TYPE,
+            con_dbid        cap_alert_state.con_dbid%TYPE,
+            db_pdb          cap_alert_state.db_pdb%TYPE,
+            series_key      cap_alert_state.series_key%TYPE,
+            baseline_mode   cap_alert_state.baseline_mode%TYPE,
+            severity        cap_alert_state.cur_severity%TYPE,
+            day_dt          cap_alert_state.last_day%TYPE,
+            value           cap_alert_state.last_value%TYPE,
+            threshold       cap_alert_state.last_threshold%TYPE,
+            alarm_threshold cap_alert_state.last_alarm%TYPE,
+            direction       cap_alert_state.last_direction%TYPE,
+            unit            cap_alert_state.last_unit%TYPE,
+            message         VARCHAR2(4000),
+            first_day       cap_alert_state.last_first_day%TYPE,
+            n_days          cap_alert_state.last_n_days%TYPE,
+            max_z           cap_alert_state.last_max_z%TYPE,
+            n_all           NUMBER,
+            n_anom          NUMBER);
+        TYPE cur_tab IS TABLE OF cur_rec;
+        c_cur   SYS_REFCURSOR;
         l_rows  cur_tab;
         l_grace NUMBER;
         l_n     PLS_INTEGER := 0;
@@ -713,7 +793,19 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
         -- stays safe on its own.
         LOCK TABLE cap_alert_state IN EXCLUSIVE MODE;
 
-        OPEN c_cur;
+        OPEN c_cur FOR
+            'SELECT x.state_key, x.alert_key, x.kind, x.dbid, x.con_dbid, x.db_pdb, x.series_key,
+                    x.baseline_mode, x.severity, x.day_dt, x.value, x.threshold, x.alarm_threshold,
+                    x.direction, x.unit, x.message, x.first_day, x.n_days, x.max_z, x.n_all, x.n_anom
+             FROM  (SELECT a.*,
+                           ROW_NUMBER() OVER (PARTITION BY a.state_key
+                                              ORDER BY a.sev_rank, a.day_dt DESC, a.alert_key) AS rn,
+                           COUNT(*) OVER ()                                                    AS n_all,
+                           COUNT(CASE WHEN a.kind IN (''TBSPC_ANOM'', ''CPU_ANOM'', ''DBCPU_ANOM'', ''SERIES_ANOM'')
+                                      THEN 1 END) OVER ()                                      AS n_anom
+                    FROM   capr_alerts_s a
+                    WHERE  a.is_current = ''Y'') x
+             WHERE  x.rn = 1';
         FETCH c_cur BULK COLLECT INTO l_rows;
         CLOSE c_cur;
         o_alert := 0;
@@ -739,14 +831,16 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
                     state_key, kind, dbid, con_dbid, db_pdb, series_key, baseline_mode, state,
                     first_seen, last_seen, cur_severity, max_severity, resolved_at, reopen_count,
                     missed_runs, last_run_id, last_alert_key, last_day, last_value, last_threshold,
-                    last_alarm, last_direction, last_unit, last_message)
+                    last_alarm, last_direction, last_unit, last_message,
+                    last_first_day, last_n_days, last_max_z)
                 VALUES (
                     l_rows(i).state_key, l_rows(i).kind, l_rows(i).dbid, l_rows(i).con_dbid,
                     l_rows(i).db_pdb, l_rows(i).series_key, l_rows(i).baseline_mode, 'OPEN',
                     p_now, p_now, l_rows(i).severity, l_rows(i).severity, NULL, 0,
                     0, p_run, l_rows(i).alert_key, l_rows(i).day_dt, l_rows(i).value, l_rows(i).threshold,
                     l_rows(i).alarm_threshold, l_rows(i).direction, l_rows(i).unit,
-                    SUBSTR(l_rows(i).message, 1, 4000));
+                    SUBSTR(l_rows(i).message, 1, 4000),
+                    l_rows(i).first_day, l_rows(i).n_days, l_rows(i).max_z);
                 add_event(l_rows(i).state_key, l_rows(i).alert_key, 'NEW',
                           l_rows(i).severity, NULL, l_rows(i).message);
             ELSE
@@ -775,6 +869,9 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
                        last_direction = l_rows(i).direction,
                        last_unit      = l_rows(i).unit,
                        last_message   = SUBSTR(l_rows(i).message, 1, 4000),
+                       last_first_day = l_rows(i).first_day,
+                       last_n_days    = l_rows(i).n_days,
+                       last_max_z     = l_rows(i).max_z,
                        ack_until      = CASE WHEN l_event IN ('REOPENED', 'ESCALATED') THEN NULL ELSE ack_until END,
                        ack_note       = CASE WHEN l_event IN ('REOPENED', 'ESCALATED') THEN NULL ELSE ack_note END,
                        ack_by         = CASE WHEN l_event IN ('REOPENED', 'ESCALATED') THEN NULL ELSE ack_by END,
@@ -835,6 +932,7 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
         l_mod   VARCHAR2(64);
         l_act   VARCHAR2(64);
         l_scope NUMBER;
+        l_views SYS.ODCIVARCHAR2LIST := snap_views;
     BEGIN
         DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
         DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_results.refresh', 'lock');
@@ -861,20 +959,31 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
                     || TO_CHAR(l_asof, 'YYYY-MM-DD') || ' is after today');
             END IF;
 
+            -- The <view>_S tables are re-created by every install, hence
+            -- dynamic SQL wherever this body touches them.
+            FOR i IN 1 .. l_views.COUNT LOOP
+                DBMS_APPLICATION_INFO.SET_ACTION('snapshot ' || LOWER(l_views(i)));
+                EXECUTE IMMEDIATE 'DELETE FROM ' || l_views(i) || '_S';
+                EXECUTE IMMEDIATE 'INSERT INTO ' || l_views(i) || '_S SELECT :r, v.* FROM ' || l_views(i) || ' v'
+                    USING l_run;
+            END LOOP;
+
             DBMS_APPLICATION_INFO.SET_ACTION('fit snapshot');
-            INSERT INTO cap_fit_hist (
-                run_id, as_of_day, dbid, con_dbid, db, db_name, con_name, kind, series, unit, method,
-                value, limit_value, pct, slope_per_day, r2, quality, days_to_full, days_to_full_lo,
-                days_to_full_hi, accel, train_n, sev, sev_rank, limit_source, last_day, is_current,
-                limit_below_used, cycle_n, cycle_days, cycle_peak_pct, peak_slope_per_day, slope_sig,
-                hot_now, need_gib_30, need_gib_90, need_gib_180, add_by_day)
-            SELECT l_run, l_asof, f.dbid, f.con_dbid, f.db, f.db_name, f.con_name, f.kind, f.series,
-                   f.unit, f.method, f.value, f.limit_value, f.pct, f.slope_per_day, f.r2, f.quality,
-                   f.days_to_full, f.days_to_full_lo, f.days_to_full_hi, f.accel, f.train_n, f.sev,
-                   f.sev_rank, f.limit_source, f.last_day, f.is_current, f.limit_below_used,
-                   f.cycle_n, f.cycle_days, f.cycle_peak_pct, f.peak_slope_per_day, f.slope_sig,
-                   f.hot_now, f.need_gib_30, f.need_gib_90, f.need_gib_180, f.add_by_day
-            FROM   capr_fit f;
+            EXECUTE IMMEDIATE
+               'INSERT INTO cap_fit_hist (
+                    run_id, as_of_day, dbid, con_dbid, db, db_name, con_name, kind, series, unit, method,
+                    value, limit_value, pct, slope_per_day, r2, quality, days_to_full, days_to_full_lo,
+                    days_to_full_hi, accel, train_n, sev, sev_rank, limit_source, last_day, is_current,
+                    limit_below_used, cycle_n, cycle_days, cycle_peak_pct, peak_slope_per_day, slope_sig,
+                    hot_now, need_gib_30, need_gib_90, need_gib_180, add_by_day)
+                SELECT :r, :a, f.dbid, f.con_dbid, f.db, f.db_name, f.con_name, f.kind, f.series,
+                       f.unit, f.method, f.value, f.limit_value, f.pct, f.slope_per_day, f.r2, f.quality,
+                       f.days_to_full, f.days_to_full_lo, f.days_to_full_hi, f.accel, f.train_n, f.sev,
+                       f.sev_rank, f.limit_source, f.last_day, f.is_current, f.limit_below_used,
+                       f.cycle_n, f.cycle_days, f.cycle_peak_pct, f.peak_slope_per_day, f.slope_sig,
+                       f.hot_now, f.need_gib_30, f.need_gib_90, f.need_gib_180, f.add_by_day
+                FROM   capr_fit_s f'
+                USING l_run, l_asof;
             l_fit := SQL%ROWCOUNT;
 
             IF l_back = 'N' THEN
@@ -884,10 +993,11 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
 
             -- The same aggregation the HTML report's coverage line makes.
             DBMS_APPLICATION_INFO.SET_ACTION('coverage');
-            SELECT COUNT(*), COUNT(CASE WHEN retired = 'N' THEN 1 END),
-                   LISTAGG(summary, ' | ' ON OVERFLOW TRUNCATE) WITHIN GROUP (ORDER BY dbid)
-            INTO   l_cov_n, l_cov_c, l_cov
-            FROM   capr_coverage;
+            EXECUTE IMMEDIATE
+               'SELECT COUNT(*), COUNT(CASE WHEN retired = ''N'' THEN 1 END),
+                       LISTAGG(summary, '' | '' ON OVERFLOW TRUNCATE) WITHIN GROUP (ORDER BY dbid)
+                FROM   capr_coverage_s'
+                INTO l_cov_n, l_cov_c, l_cov;
 
             UPDATE cap_run
                SET ended_at = SYSTIMESTAMP, status = 'OK', n_fit = l_fit,
@@ -1015,4 +1125,10 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
     END reset;
 
 END cap_results;
+/
+
+-- Every view exists now: re-create the SNAPSHOT cache tables from them.
+BEGIN
+    cap_results.build_snap_tables;
+END;
 /

@@ -12,6 +12,7 @@
 #   8. --target with a bad name, or with --scope 123    -> exit 2, sqlplus never runs
 #   9. an alert message quoting an ORA- inside a line (log and spool) -> OK:
 #      only an ORA- / SP2- at the start of a line is a SQL*Plus error
+#  10. --csv --snapshot                                -> the CSV driver gets SNAPSHOT too
 set -u
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/run_report_test.XXXXXX")
@@ -22,10 +23,18 @@ cp "$HERE/report/run_report.sh" "$T/repo/report/"
 cat > "$T/bin/sqlplus" <<'MOCK'
 #!/usr/bin/env bash
 call=$(cat)
+mkdir -p reports
+case "$call" in
+    *report_csv.sql*)
+        if [ -n "${MOCK_WANT_CSV:-}" ]; then
+            case "$call" in *"$MOCK_WANT_CSV"*) ;; *) echo "ORA-20999: mock wanted '$MOCK_WANT_CSV' in: $call"; exit 1 ;; esac
+        fi
+        mkdir -p reports/cap_csv_mock_20990101000000
+        echo "CSV written to: reports/cap_csv_mock_20990101000000"; exit 0 ;;
+esac
 if [ -n "${MOCK_WANT:-}" ]; then
     case "$call" in *"$MOCK_WANT"*) ;; *) echo "ORA-20999: mock wanted '$MOCK_WANT' in: $call"; exit 1 ;; esac
 fi
-mkdir -p reports
 echo "clean report" > reports/cap_report_mock.txt
 case "$call" in
     *report_brief.sql*)
@@ -48,9 +57,9 @@ MOCK
 chmod +x "$T/bin/sqlplus" "$T/repo/report/run_report.sh"
 
 fails=0
-run_case() {  # <name> <mock mode> <want exit: 0|nz|N> <want text> [extra wrapper args] [text the driver call must hold]
+run_case() {  # <name> <mock mode> <want exit: 0|nz|N> <want text> [extra wrapper args] [text the driver call must hold] [text the CSV call must hold]
     # shellcheck disable=SC2086
-    out=$(cd "$T/repo" && PATH="$T/bin:$PATH" MOCK_MODE="$2" MOCK_WANT="${6:-}" report/run_report.sh "/ as sysdba" --schema NOPE ${5:-} 2>&1)
+    out=$(cd "$T/repo" && PATH="$T/bin:$PATH" MOCK_MODE="$2" MOCK_WANT="${6:-}" MOCK_WANT_CSV="${7:-}" report/run_report.sh "/ as sysdba" --schema NOPE ${5:-} 2>&1)
     rc=$?
     ok=1
     case "$3" in
@@ -81,6 +90,7 @@ run_case "--target, call check bites"   ok nz "FAIL text" "--target cdb1" "@repo
 run_case "--target bad name"            ok 2 "run_report.sh: --target" "--target 1cdb"
 run_case "--target without a name"      ok 2 "run_report.sh: --target" "--target"
 run_case "--target with --scope dbid"   ok 2 "run_report.sh: --target and a --scope dbid" "--target cdb1 --scope 123"
+run_case "--csv --snapshot reaches the CSV driver" ok 0 "OK   csv" "--csv --snapshot" "@report/report.sql - - - - - SNAPSHOT" "@report/report_csv.sql - - SNAPSHOT"
 mkdir -p "$T/repo/reports"
 touch "$T/repo/reports/cap_brief_mock_202001010000.html" "$T/repo/reports/cap_brief_mock_202101010000.html"
 run_case "brief rotation"      ok      0  "OK   brief" "--brief --keep 1"

@@ -123,13 +123,34 @@ one DB link per target and runs everything else. The choices, made
   both reports grow in proportion to the fleet, about seven minutes of
   nightly work per target on two vCPUs, and each session's PGA stays at
   490-640 MB. A per-run results table would not change that shape, so none
-  was added; the SNAPSHOT reports (about 40% faster) already read the M19
-  results layer. Two scale bugs came out of it: OML re-planned the training
+  was added then; the SNAPSHOT reports (about 40% faster) read the M19
+  results layer for the alerts and fits. Two scale bugs came out of it: OML re-planned the training
   query inside its own INSERT into work that re-read the fleet per series
   (`train_all` quadratic; fixed by staging each series in `CAP_ML_INPUT`),
   and `add_by_day` overflowed the DATE range on a near-zero slope (every
-  `days_to_*` now reads NULL past 9999-12-31). A `--target` report still
-  costs a fleet report, because the section views rank across targets.
+  `days_to_*` now reads NULL past 9999-12-31). M24.11 made a `--target`
+  report cost one target, and M24.13 ranks per database, never across
+  targets.
+- **SNAPSHOT reports read stored tables only (M24.13).** Every view a report
+  driver reads is listed once, in `cap_results.snap_views`, and kept as the
+  table `<view>_S` (`snap_run_id`, then the view's columns, created by
+  `CREATE TABLE AS SELECT ... WHERE 1 = 0`). `cap_results.refresh` replaces
+  their rows in its own transaction (DELETE + INSERT per view, so readers
+  switch at the COMMIT) and then reads them itself: `CAP_FIT_HIST` copies
+  `CAPR_FIT_S`, the alert merge reads `CAPR_ALERTS_S`, the coverage columns
+  come from `CAPR_COVERAGE_S`, so each view is evaluated once per run. The
+  drivers write each such read `capr_x&cap_s`, with `cap_s` = `_s` under
+  SNAPSHOT and empty under LIVE (`~cap_s` in the briefing's data block,
+  whose HTML entities use `&`): one query serves both sources, and a
+  SNAPSHOT run parses no view over the AWR data. The alert list stays
+  `CAPR_ALERTS_LATEST` (acks, resolve grace), which now carries the episode
+  columns of the run. The tables are a cache: every install drops and
+  re-creates them (`build_snap_tables`, end of ddl/60), so they match the
+  view columns, and the next refresh fills them. Because the ranks and
+  anchors are per database, a scoped SNAPSHOT report (the unscoped run's rows,
+  filtered) equals a scoped LIVE one (the seam scope). `test/snapshot_parity.sh`
+  diffs the two; `test/lint_snapshot_reads.sh` keeps every driver read on the
+  registry.
 
 A warehouse mode, a seam over the `../awr-fleet-warehouse` collector,
 predated M24. M24.9 retired it, so repository mode is the one fleet path;
@@ -1428,14 +1449,14 @@ Section 0 of the text report and the HTML header print the last run
 (`last refresh run <id> at <time> (<n> alerts, <n> fits)`, or
 `no refresh run yet (live evaluation)`) and the `CAPR_COVERAGE` summary; the
 HTML "All clear" banner needs at least one dbid that is not retired. Both
-reports still evaluate the live views; the snapshot does not replace them.
+reports still evaluated the live views then (M24.13 changed that).
 
 Each refresh also keeps `CAPR_COVERAGE` on its `CAP_RUN` row: `cov_n_dbid`,
 `cov_n_current` (not retired) and `cov_summary`, the per-dbid summaries joined
 with `|` (the HTML header's own aggregation). Columns on `CAP_RUN` rather
-than a table, so uninstall and purge need nothing new. SNAPSHOT reports print
-`cov_summary` (every dbid, not scoped); a run older than these columns falls
-back to its run summary. `CAPR_RUNS` exposes them last.
+than a table, so uninstall and purge need nothing new. `CAPR_RUNS` exposes
+them last; since M24.13 the SNAPSHOT reports print `CAPR_COVERAGE_S`, scoped
+like the live line.
 
 The fixture (`test/run_test.sql`) runs a backdated run with FIX_LINEAR's and
 FIX_ZIGZAG's last 7 days hidden, so the digest and the accuracy view see a
@@ -1500,20 +1521,24 @@ optional and, like the report drivers, never prompt.
 positional arguments: `[top_n] [anomaly_days] [show_esm] [dbid] [con_dbid]
 [source]`. A `-` skips any of them. With a dbid and/or con_dbid every
 section filters on them and the header prints the scope with the container
-labels. The views' `rank_*` columns are fleet-wide, so the drivers re-number
-them inside the scope with `ROW_NUMBER() OVER (ORDER BY rank_*)`: the same
-order, `top_n` counted inside the scope, identical to `rank_*` when no scope
-is given. Section 6a joins section 2's scoped rank, so both list the same
-tablespaces. `source` is `LIVE` (default) or `SNAPSHOT`: SNAPSHOT reads the
+labels. The views' `rank_*` columns count per database (M24.13: `PARTITION
+BY dbid`, never across targets), and the drivers re-number them inside the
+scope with `ROW_NUMBER() OVER (PARTITION BY dbid ORDER BY rank_*)`: the same
+order, `top_n` counted per database inside the scope, identical to `rank_*`
+when no container is given. An unscoped fleet report lists the top `top_n`
+of each database, grouped by database. Section 6a joins section 2's scoped
+rank, so both list the same tablespaces. `source` is `LIVE` (default) or
+`SNAPSHOT` (M24.13: every section from the `<view>_S` tables, above; what
+follows is the M21 design it replaced). SNAPSHOT read the
 alert list from `CAPR_ALERTS_LATEST`, the section 1 and 7 tables from
-`CAPR_FIT_HISTORY` of the newest OK live refresh run, and prints the
+`CAPR_FIT_HISTORY` of the newest OK live refresh run, and printed the
 `CAPR_COVERAGE` roll-up that run kept (`CAP_RUN.cov_summary`) as the coverage
-line; the header says which run. Sections 2 to 6 stay live in SNAPSHOT:
+line. Sections 2 to 6 stayed live in SNAPSHOT:
 `CAP_FIT_HIST` has the fit columns but not what those sections print beside
 them (the +30/+90/+180 projections and bands, the ESM point, the CPU anchor
 and gate, the anomaly rows, the ESM compare and backtest). A section with a constant false predicate on the other
 source never evaluates it, so SNAPSHOT skips the live `CAPR_ALERTS`
-evaluation. `report/report_csv.sql [dbid] [con_dbid]` writes one quoted CSV
+evaluation. `report/report_csv.sql [dbid] [con_dbid] [source]` writes one quoted CSV
 per CAPR section view (`SET MARKUP CSV ON QUOTE ON`, header line, every row
 and column, `NUMFORMAT TM9`) into `reports/cap_csv_<db>_<ts>/`.
 `report/run_report.sh [connect] [--html] [--csv] [--scope D[:C]]
@@ -1537,7 +1562,7 @@ metrics the page covered or how each behaved. It now has one section per
 metric family (tablespaces, database size, host CPU, DB CPU, sessions,
 processes, redo, undo, temp, ASM disk groups) and one card per series, built
 from the point feeds the dashboards read: `CAPR_FIT` (`CAPR_FIT_HISTORY` under
-SNAPSHOT), `CAPR_SERIES_POINTS`, `CAPR_FORECAST_POINTS`, `CAPR_ANOMALIES`,
+SNAPSHOT until M24.13), `CAPR_SERIES_POINTS`, `CAPR_FORECAST_POINTS`, `CAPR_ANOMALIES`,
 `CAPR_ALERTS` (`CAPR_ALERTS_LATEST`), `CAPR_CONTAINER` and the last 14 days of
 `CAPR_HOURLY_POINTS`. A card's status is the worst severity of its alerts and
 its fit; its chart draws the history, the forecast knots and band as the views

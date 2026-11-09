@@ -92,7 +92,7 @@
             <tr><td class="num">3</td><td><span class="k">show_esm</span></td><td class="num">AUTO</td><td class="def"><code>AUTO</code> = section 6 only if OK models exist, else a one-line hint; <code>Y</code> = always; <code>N</code> = skip. Case-insensitive.</td></tr>
             <tr><td class="num">4</td><td><span class="k">dbid</span></td><td class="num">every</td><td class="def">Only this database in every section; <code>top_n</code> ranks inside it.</td></tr>
             <tr><td class="num">5</td><td><span class="k">con_dbid</span></td><td class="num">every</td><td class="def">Only this container (pass <code>-</code> for the dbid to scope on the container alone).</td></tr>
-            <tr><td class="num">6</td><td><span class="k">source</span></td><td class="num">LIVE</td><td class="def"><code>LIVE</code> evaluates the views now. <code>SNAPSHOT</code> reads the alert list (<span class="inline">CAPR_ALERTS_LATEST</span>) and the section 1 and 7 fits (<span class="inline">CAPR_FIT_HISTORY</span>) of the newest OK refresh run of the <a href="#results">results layer</a>; faster, and the header names the run. Other sections stay live.</td></tr>
+            <tr><td class="num">6</td><td><span class="k">source</span></td><td class="num">LIVE</td><td class="def"><code>LIVE</code> evaluates the views now. <code>SNAPSHOT</code>: every section from the newest refresh run of the <a href="#results">results layer</a>, read from the <span class="inline">&lt;view&gt;_S</span> tables <span class="inline">cap_results.refresh</span> fills, and the alert list from <span class="inline">CAPR_ALERTS_LATEST</span> (lifecycle and acks). No view over the AWR data is evaluated: seconds and little PGA. The header names the run; before the first refresh after an install it says so and the sections are empty.</td></tr>
           </tbody>
         </table>
       </div>
@@ -108,7 +108,7 @@
 
       <!-- ===================== HTML REPORT ===================== -->
       <h3>CSV and cron</h3>
-      <p><span class="inline">@report/report_csv.sql [dbid] [con_dbid]</span> writes one CSV per CAPR
+      <p><span class="inline">@report/report_csv.sql [dbid] [con_dbid] [source]</span> writes one CSV per CAPR
         section view (alerts, days to full, forecast, anomalies, CPU trend and shifts, series, fit) into
         <span class="inline">reports/cap_csv_&lt;db&gt;_&lt;ts&gt;/</span>: every column and row in
         scope, a header line, every value quoted.
@@ -521,7 +521,7 @@
           <caption>Views over the results tables (all work on empty tables)</caption>
           <thead><tr><th scope="col">View</th><th scope="col">Answers</th></tr></thead>
           <tbody>
-            <tr><td><span class="inline">CAPR_ALERTS_LATEST</span></td><td class="def">Open, unacked alerts, their age and event count since opening. A table read; the <code>SNAPSHOT</code> report reads it.</td></tr>
+            <tr><td><span class="inline">CAPR_ALERTS_LATEST</span></td><td class="def">Open, unacked alerts, their age and event count since opening. A table read; the <code>SNAPSHOT</code> reports read their alert list from it.</td></tr>
             <tr><td><span class="inline">CAPR_ALERT_EVENTS</span></td><td class="def">Every state change, newest first, with the run's <code>as_of_day</code> and the previous severity. Poll with <code>run_id &gt; :last</code>.</td></tr>
             <tr><td><span class="inline">CAPR_RUNS</span></td><td class="def">Every refresh run, its duration and one-line summary; <code>stale_run = 'Y'</code> when the last OK run is older than <span class="inline">refresh_stale_hours</span> (36).</td></tr>
             <tr><td><span class="inline">CAPR_WEEKLY_DIGEST</span></td><td class="def">The latest run against the latest one at least <span class="inline">digest_days</span> (7) older, per series: days to full, percent used, quality and severity then and now, a change verdict, and the alerts that opened, resolved or reopened in between.</td></tr>
@@ -805,7 +805,8 @@
           </tbody>
         </table>
       </div>
-      <p>Top-N is <code>WHERE rank_x &lt;= n</code> on the <span class="inline">rank_*</span> columns; a
+      <p>Top-N is <code>WHERE rank_x &lt;= n</code> on the <span class="inline">rank_*</span> columns, which
+        count per database (rank 1 is the top row of each dbid); a
         trailing window is <code>WHERE days_ago &lt;= n</code>. For the raw fit,
         <span class="inline">CAPF_TBSPC_FORECAST</span> carries all four prediction bands
         (<span class="inline">proj_30_lo</span>/<span class="inline">hi</span> through

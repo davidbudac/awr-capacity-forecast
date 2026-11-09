@@ -3514,10 +3514,10 @@ BEGIN
 
     -- suite_version: stamped by every install, BAD when older than this release.
     SELECT suite_version INTO v_num FROM cap_cfg;
-    chk_int('suite_version = 24', v_num, 24);
-    UPDATE cap_config SET cfg_value = 23 WHERE cfg_name = 'suite_version';
+    chk_int('suite_version = 24.13', v_num, 24.13);
+    UPDATE cap_config SET cfg_value = 24 WHERE cfg_name = 'suite_version';
     SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'suite_version';
-    chk_str('CAP_CFG_CHECK suite_version=23 < 24', v_str, 'BAD');
+    chk_str('CAP_CFG_CHECK suite_version=24 < 24.13', v_str, 'BAD');
     UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'suite_version';
     COMMIT;
 
@@ -3731,6 +3731,52 @@ BEGIN
         SELECT COUNT(*) INTO v_n FROM capr_runs r JOIN cap_run c ON c.run_id = r.run_id
          WHERE r.cov_summary = c.cov_summary AND r.cov_n_dbid = c.cov_n_dbid AND r.cov_n_current = c.cov_n_current;
         chk_int ('CAPR_RUNS exposes the coverage columns of every run', v_n, 3);
+
+        -- SNAPSHOT tables: each <view>_S holds the newest OK run's rows,
+        -- equal to the view now (both MINUS directions and the row count),
+        -- and build_snap_tables leaves them empty. Dynamic SQL: the tables
+        -- are dropped and re-created inside this block. NUMBER columns are
+        -- compared at 12 decimals: two plans of one view (the INSERT's and
+        -- this SELECT's) can differ in the 38th digit (CAPR_FORECAST_POINTS'
+        -- CPU REGR knots, 19.27).
+        DECLARE
+            l_views SYS.ODCIVARCHAR2LIST := cap_results.snap_views;
+            l_cols  VARCHAR2(32767);
+            l_lo    NUMBER;
+            l_hi    NUMBER;
+            l_nv    NUMBER;
+            l_ns    NUMBER;
+            l_diff  NUMBER;
+            l_left  NUMBER := 0;
+        BEGIN
+            FOR i IN 1 .. l_views.COUNT LOOP
+                SELECT LISTAGG(CASE data_type WHEN 'NUMBER' THEN 'ROUND("' || column_name || '", 12)'
+                                              ELSE '"' || column_name || '"' END, ', ')
+                         WITHIN GROUP (ORDER BY column_id)
+                  INTO l_cols
+                  FROM all_tab_columns
+                 WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND table_name = l_views(i);
+                EXECUTE IMMEDIATE 'SELECT MIN(snap_run_id), MAX(snap_run_id), COUNT(*) FROM ' || l_views(i) || '_S'
+                    INTO l_lo, l_hi, l_ns;
+                EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM ' || l_views(i) INTO l_nv;
+                EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM ((SELECT ' || l_cols || ' FROM ' || l_views(i)
+                                  || ' MINUS SELECT ' || l_cols || ' FROM ' || l_views(i) || '_S) UNION ALL (SELECT '
+                                  || l_cols || ' FROM ' || l_views(i) || '_S MINUS SELECT ' || l_cols || ' FROM '
+                                  || l_views(i) || '))'
+                    INTO l_diff;
+                chk_true(l_views(i) || '_S = the view, all rows from R2 (rows ' || l_ns || ' of ' || l_nv
+                         || ', runs ' || l_lo || '..' || l_hi || ', rows in one MINUS ' || l_diff || ')',
+                         l_ns = l_nv AND l_diff = 0 AND (l_ns = 0 OR (l_lo = run_2 AND l_hi = run_2)));
+            END LOOP;
+            EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM capr_fit_s' INTO v_n;
+            chk_true('the registry carries rows (CAPR_FIT_S not empty)', v_n > 0);
+            cap_results.build_snap_tables;
+            FOR i IN 1 .. l_views.COUNT LOOP
+                EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM ' || l_views(i) || '_S' INTO l_ns;
+                l_left := l_left + l_ns;
+            END LOOP;
+            chk_int('build_snap_tables leaves every <view>_S empty (rows)', l_left, 0);
+        END;
 
         -- The fixture's alerts: TBSPC_FULL 2 (FILLING, OVERRIDE), TBSPC_NEARFULL
         -- 2 (NEARFULL, OVERFULL), SERIES_LIMIT 2 (SESSIONS, ASM_DG:+DATA),
@@ -3959,6 +4005,9 @@ BEGIN
                  v_str = 'FAILED' AND v_msg LIKE '%ORA-20071%' AND v_ts IS NOT NULL);
         SELECT COUNT(*) INTO v_n FROM cap_fit_hist WHERE run_id = run_f;
         chk_int ('the failed run left no fit rows (rolled back)', v_n, 0);
+        EXECUTE IMMEDIATE 'SELECT MIN(snap_run_id), MAX(snap_run_id) FROM capr_container_s' INTO v_a, v_b;
+        chk_true('the failed run left the SNAPSHOT tables on R7 (got ' || v_a || '..' || v_b || ')',
+                 v_a = run_7 AND v_b = run_7);
         SELECT MAX(CASE WHEN is_last = 'Y' THEN summary END), MAX(last_ok_run_id), MAX(stale_run)
           INTO v_msg, v_a, v_c1 FROM capr_runs;
         chk_true('CAPR_RUNS: the newest run reads FAILED, last_ok_run_id = R7, stale_run N (got: ' || v_msg || ')',
