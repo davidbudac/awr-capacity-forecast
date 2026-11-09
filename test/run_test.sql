@@ -3514,10 +3514,10 @@ BEGIN
 
     -- suite_version: stamped by every install, BAD when older than this release.
     SELECT suite_version INTO v_num FROM cap_cfg;
-    chk_int('suite_version = 24.13', v_num, 24.13);
-    UPDATE cap_config SET cfg_value = 24 WHERE cfg_name = 'suite_version';
+    chk_int('suite_version = 25', v_num, 25);
+    UPDATE cap_config SET cfg_value = 24.13 WHERE cfg_name = 'suite_version';
     SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'suite_version';
-    chk_str('CAP_CFG_CHECK suite_version=24 < 24.13', v_str, 'BAD');
+    chk_str('CAP_CFG_CHECK suite_version=24.13 < 25', v_str, 'BAD');
     UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'suite_version';
     COMMIT;
 
@@ -3738,7 +3738,10 @@ BEGIN
         -- are dropped and re-created inside this block. NUMBER columns are
         -- compared at 12 decimals: two plans of one view (the INSERT's and
         -- this SELECT's) can differ in the 38th digit (CAPR_FORECAST_POINTS'
-        -- CPU REGR knots, 19.27).
+        -- CPU REGR knots, 19.27). The clock columns (SYSDATE minus a stored
+        -- time, as test/parity_fingerprint.sql skips them) are left out: the
+        -- refresh stored CAPR_COVERAGE.age_hours minutes before this reads
+        -- the view, and on a busy host that crossed its 0.1 h rounding.
         DECLARE
             l_views SYS.ODCIVARCHAR2LIST := cap_results.snap_views;
             l_cols  VARCHAR2(32767);
@@ -3755,7 +3758,8 @@ BEGIN
                          WITHIN GROUP (ORDER BY column_id)
                   INTO l_cols
                   FROM all_tab_columns
-                 WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND table_name = l_views(i);
+                 WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND table_name = l_views(i)
+                   AND column_name NOT IN ('AGE_HOURS', 'AGE_DAYS', 'LAST_OK_AGE_HOURS');
                 EXECUTE IMMEDIATE 'SELECT MIN(snap_run_id), MAX(snap_run_id), COUNT(*) FROM ' || l_views(i) || '_S'
                     INTO l_lo, l_hi, l_ns;
                 EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM ' || l_views(i) INTO l_nv;

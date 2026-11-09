@@ -1,22 +1,20 @@
 --
--- repository/seam.sql -- CAPV_* portable seam over DBA_HIST_* (LOCAL mode).
+-- repository/seam.sql -- the CAPV_* seam, written over DBA_HIST_*.
 -- =====================================================================
--- These thirteen views (plus the CAPV_CONTRACT diagnostic at the bottom) are the
--- ONLY place the analytics touch Oracle's AWR dictionary. Everything
--- downstream (CAPD_/CAPF_/CAPA_/report) is written once against CAPV_* and
--- runs byte-identically in local, repository, or fixture mode. Swapping this
--- file for ddl/13_seam_repository.sql (generated from it by
--- repository/build.py) or ddl/12_seam_fixture.sql re-points the same column
--- contract at a different source.
+-- Never installed itself. repository/build.py turns it into
+-- ddl/13_seam_repository.sql by renaming every dba_hist_<x> to cap_h_<x>,
+-- the copies a repository pulls from its targets, so these views keep the
+-- AWR names they mean and their notes stay next to them. Up to M25 this file
+-- was ddl/10_seam_local.sql, local mode's seam over the installing
+-- database's own DBA_HIST_* views.
 --
--- LOCAL mode requires the Diagnostics Pack and DIRECT SELECT grants (not via
--- a role) on the DBA_HIST_* views for the installing schema, so the views
--- compile. That includes DBA_HIST_CON_SYS_TIME_MODEL and DBA_HIST_CON_SYSSTAT
--- as well as their SYS_ counterparts. Install where the DBA_HIST rows you
--- want are visible -- for a CDB that is CDB$ROOT (AWR lives at the CDB
--- level).
+-- These thirteen views (plus the CAPV_CONTRACT diagnostic at the bottom) are
+-- the ONLY place the analytics touch AWR data. Everything downstream
+-- (CAPD_/CAPF_/CAPA_/report) is written once against CAPV_* and runs
+-- byte-identically over ddl/13 (repository) or ddl/12_seam_fixture.sql
+-- (fixture), which re-point the same column contract at a different source.
 --
--- Column contract (identical in all three seam files):
+-- Column contract (identical in every seam file):
 --   * every view carries (dbid, con_dbid), but CAPV_TARGET (per dbid).
 --     DBA_HIST_SNAPSHOT has no CON_DBID column, so CAPV_SNAPSHOT sets
 --     con_dbid := dbid. The tablespace/OS/time
@@ -220,12 +218,12 @@ LEFT  JOIN (SELECT dbid, con_dbid, MAX(pdb_name) AS con_name
 
 -- --------------------------------------------------------------------
 -- CAPV_TARGET (M24.6) -- what the suite measures and how it is fed: one row
--- per (target, dbid). Local mode measures this database, so each dbid is a
--- target named by its AWR db_name, fed LOCAL. host_name is the host of the
--- newest instance startup. The collect columns (address .. n_gaps) are
--- repository-only and NULL here. The repository seam does not copy this
--- view: repository/seam_overrides.sql defines it over CAP_TARGET and
--- CAP_COLLECT_LOG instead. Same columns and types in every seam file.
+-- per (target, dbid). This version, over the AWR it reads, names each dbid
+-- by its db_name and the host of its newest startup, fed LOCAL, the collect
+-- columns (address .. n_gaps) NULL. ddl/13 never gets it: build.py puts
+-- repository/seam_overrides.sql's version, over CAP_TARGET and
+-- CAP_COLLECT_LOG, in its place, and --check requires every override to
+-- replace a view defined here. Same columns and types in every seam file.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capv_target AS
 SELECT CAST(MAX(db_name) AS VARCHAR2(30))       AS target_name,

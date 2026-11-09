@@ -22,9 +22,9 @@ which rows are worth copying. From it this script writes, in one file:
 and, as test/repo_copy_check.sql, the check that each copy still equals its
 source over the target's link (test/dbmint_copy_check.sh runs it).
 
---check also proves that the views repository/seam.sql reads, the views
-target/prepare.sql grants and the first seventeen create_owner.sql grants
-are the manifest's, and that ddl/13 defines exactly seam.sql's CAPV_* views.
+--check also proves that the views repository/seam.sql reads and the views
+target/prepare.sql grants are the manifest's, and that ddl/13 defines
+exactly seam.sql's CAPV_* views.
 """
 import re
 import sys
@@ -37,7 +37,6 @@ OVERRIDES = ROOT / "repository" / "seam_overrides.sql"
 OUT = ROOT / "ddl" / "13_seam_repository.sql"
 COPY_CHECK = ROOT / "test" / "repo_copy_check.sql"
 PREPARE = ROOT / "target" / "prepare.sql"
-CREATE_OWNER = ROOT / "create_owner.sql"
 
 N = "NUMBER"
 TS = "TIMESTAMP(3)"
@@ -537,7 +536,7 @@ def filter_drift():
 
     Per CREATE VIEW of seam.sql: every quoted literal (bar regex patterns) must
     appear in the manifest filter of each filtered source the view reads, or
-    the repository would copy fewer rows than local mode reads."""
+    the copies would hold fewer rows than the seam reads."""
     sql = "\n".join(l.split("--")[0] for l in SEAM.read_text().splitlines())
     # The session scope (CAP_SCOPE, M24.11) is no row filter of a source.
     sql = re.sub(r"SYS_CONTEXT\('USERENV', *'CLIENT_INFO'\)", "", sql, flags=re.I)
@@ -555,9 +554,8 @@ def filter_drift():
     return out
 
 
-def granted(path, first=None):
-    found = re.findall(r"'DBA_HIST_(\w+)'", path.read_text())
-    return found[:first] if first else found
+def granted(path):
+    return re.findall(r"'DBA_HIST_(\w+)'", path.read_text())
 
 
 def render():
@@ -594,8 +592,6 @@ def problems():
         out.append(f"repository/seam.sql reads {sorted(seam_sources() ^ want)} that the manifest does not match")
     if PREPARE.exists() and set(granted(PREPARE)) != want:
         out.append(f"target/prepare.sql grants differ from the manifest: {sorted(set(granted(PREPARE)) ^ want)}")
-    if set(granted(CREATE_OWNER, len(want))) != want:
-        out.append("create_owner.sql: its first seventeen DBA_HIST grants are not the manifest's views")
     out += filter_drift()
     seam = set(view_blocks(strip_comments(SEAM.read_text())))
     over = overrides()

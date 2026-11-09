@@ -450,10 +450,9 @@ DEFINE owner       = '&cap_owner'
 DEFINE owner_pw    = '$opw'
 DEFINE owner_ts    = '${CFG[OWNER_TS]}'
 DEFINE owner_quota = '${CFG[OWNER_QUOTA]}'
-DEFINE owner_mode  = '$([[ ${CFG[ROLE]} == repository || ${CFG[ROLE]} == standalone ]] && echo repository || echo local)'
 @@create_owner.sql
 $STRICT
-UNDEFINE owner owner_pw owner_ts owner_quota owner_mode
+UNDEFINE owner owner_pw owner_ts owner_quota
 EOF
   fi
   [[ ${CFG[INTO]} == schema ]] && echo "ALTER SESSION SET CURRENT_SCHEMA = &cap_owner;"

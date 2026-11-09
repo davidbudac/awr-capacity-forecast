@@ -3,7 +3,9 @@
 -- =====================================================================
 -- Removes the opt-in scheduler jobs first (uninstall_jobs.sql), then the OML
 -- models (via the package, which needs the registry), then all views, then
--- the persisted tables, the two types and the two packages. Idempotent: safe
+-- the persisted tables, the two types and the two packages, then the grants a
+-- local-mode install (retired in M25) gave the owner: revoked as SYSDBA,
+-- printed as statements otherwise (revoke_local_grants.sql). Idempotent: safe
 -- to run against a partial or already-removed install. "Does not exist" is
 -- silent; any other error is printed and the script carries on. The last
 -- block counts what is left in the current schema (0 expected).
@@ -325,6 +327,18 @@ BEGIN
     END LOOP;
 END;
 /
+
+PROMPT -- grants a local-mode install left (revoke_local_grants.sql) ...
+SET DEFINE '&'
+SET TERMOUT OFF
+COLUMN cap_rv_owner NEW_VALUE revoke_owner NOPRINT
+SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AS cap_rv_owner FROM dual;
+COLUMN cap_rv_owner CLEAR
+SET TERMOUT ON
+@@revoke_local_grants.sql
+SET DEFINE OFF
+SET SERVEROUTPUT ON SIZE UNLIMITED FORMAT WRAPPED
+SET FEEDBACK OFF
 
 PROMPT -- what is left ...
 DECLARE

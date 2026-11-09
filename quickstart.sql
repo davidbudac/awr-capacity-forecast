@@ -76,7 +76,6 @@ PROMPT ==== [2/6] suite owner -- create_owner.sql ====
 DEFINE owner_pw    = ''
 DEFINE owner_ts    = ''
 DEFINE owner_quota = 'UNLIMITED'
-DEFINE owner_mode  = 'repository'
 @@create_owner.sql
 SET DEFINE '&'
 SET FEEDBACK OFF
@@ -144,4 +143,4 @@ PROMPT
 UNDEFINE deploy_mode
 UNDEFINE force_install
 UNDEFINE cap_doctor_mode
-UNDEFINE owner owner_ts owner_quota owner_mode
+UNDEFINE owner owner_ts owner_quota
