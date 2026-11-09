@@ -7,8 +7,10 @@
 -- local-mode install (retired in M25) gave the owner: revoked as SYSDBA,
 -- printed as statements otherwise (revoke_local_grants.sql). Idempotent: safe
 -- to run against a partial or already-removed install. "Does not exist" is
--- silent; any other error is printed and the script carries on. The last
--- block counts what is left in the current schema (0 expected).
+-- silent; any other error is printed and the script carries on, except one
+-- while writing the config replay file (below), which ends the run before
+-- anything is dropped. The last block counts what is left in the current
+-- schema (0 expected).
 --
 -- CAP_FIXTURE_* test tables are not the suite's; test/fixture_remove.sql
 -- drops them. The closing count lists them separately.
@@ -26,7 +28,7 @@ SET APPINFO "AWRCAP/uninstall.sql"
 SET DEFINE OFF
 SET SERVEROUTPUT ON SIZE UNLIMITED FORMAT WRAPPED
 SET FEEDBACK OFF
-WHENEVER SQLERROR CONTINUE
+WHENEVER SQLERROR EXIT FAILURE ROLLBACK
 
 PROMPT -- writing the config replay file (knobs off their default, tablespace overrides) ...
 VARIABLE cap_replay      CLOB
@@ -58,8 +60,7 @@ DECLARE
         RETURN NVL(TO_CHAR(p_n, 'TM9', 'NLS_NUMERIC_CHARACTERS=''.,'''), 'NULL');
     END num;
 
-    -- SQL that renders column p_col of one row as a literal of its type.
-    FUNCTION lit(p_col IN VARCHAR2, p_type IN VARCHAR2) RETURN VARCHAR2 IS
+    FUNCTION literal_sql(p_col IN VARCHAR2, p_type IN VARCHAR2) RETURN VARCHAR2 IS
     BEGIN
         IF p_type IN ('NUMBER', 'FLOAT') THEN
             RETURN 'NVL(TO_CHAR(' || p_col || q'[, 'TM9', 'NLS_NUMERIC_CHARACTERS=''.,'''), 'NULL')]';
@@ -71,7 +72,7 @@ DECLARE
                    || q'[, 'YYYY-MM-DD HH24:MI:SS') || ''', ''YYYY-MM-DD HH24:MI:SS'')', 'NULL')]';
         END IF;
         RETURN NULL;
-    END lit;
+    END literal_sql;
 BEGIN
     :cap_replay_file := 'reports/cap_config_replay_'
                         || REGEXP_REPLACE(LOWER(v_owner), '[^a-z0-9_]', '') || '_'
@@ -137,9 +138,9 @@ BEGIN
               FROM   all_tab_columns c
               WHERE  c.owner = v_owner AND c.table_name = 'CAP_TBSPC_OVERRIDE'
               ORDER  BY c.column_id) LOOP
-        CONTINUE WHEN lit(c.column_name, c.data_type) IS NULL;
+        CONTINUE WHEN literal_sql(c.column_name, c.data_type) IS NULL;
         v_sel  := v_sel || CASE WHEN v_sel IS NOT NULL THEN q'[ || ', ' || ]' END
-                  || lit(c.column_name, c.data_type) || q'[ || ' AS ]' || c.column_name || q'[']';
+                  || literal_sql(c.column_name, c.data_type) || q'[ || ' AS ]' || c.column_name || q'[']';
         v_cols := v_cols || CASE WHEN v_cols IS NOT NULL THEN ', ' END || c.column_name;
         v_vals := v_vals || CASE WHEN v_vals IS NOT NULL THEN ', ' END || 's.' || c.column_name;
         IF c.is_pk > 0 THEN
@@ -181,14 +182,15 @@ BEGIN
     :cap_replay   := CASE WHEN v_n > 0 THEN v_out END;
 END;
 /
+WHENEVER SQLERROR CONTINUE
 SET DEFINE '&'
 SET VERIFY OFF
 SET TERMOUT OFF
-COLUMN cap_r_term  NEW_VALUE cap_replay_term  NOPRINT
+COLUMN cap_r_spool_termout  NEW_VALUE cap_replay_spool_termout  NOPRINT
 COLUMN cap_r_mkdir NEW_VALUE cap_replay_mkdir NOPRINT
 COLUMN cap_r_spool NEW_VALUE cap_replay_spool NOPRINT
 COLUMN cap_r_note  NEW_VALUE cap_replay_note  NOPRINT
-SELECT CASE WHEN :cap_replay_n > 0 THEN 'ON' ELSE 'OFF' END AS cap_r_term,
+SELECT CASE WHEN :cap_replay_n > 0 THEN 'ON' ELSE 'OFF' END AS cap_r_spool_termout,
        CASE WHEN :cap_replay_n > 0 THEN 'mkdir -p reports' ELSE ':' END AS cap_r_mkdir,
        CASE WHEN :cap_replay_n > 0 THEN :cap_replay_file ELSE 'OFF' END AS cap_r_spool,
        CASE WHEN :cap_replay_n > 0
@@ -196,12 +198,11 @@ SELECT CASE WHEN :cap_replay_n > 0 THEN 'ON' ELSE 'OFF' END AS cap_r_term,
                  || ' statement(s)), run it in the new owner after install.sql'
             ELSE '-- no config replay file: no knob off its default, no tablespace override' END AS cap_r_note
 FROM   dual;
-COLUMN cap_r_term  CLEAR
+COLUMN cap_r_spool_termout  CLEAR
 COLUMN cap_r_mkdir CLEAR
 COLUMN cap_r_spool CLEAR
 COLUMN cap_r_note  CLEAR
--- Shown only when there is a file to write, so a failed SPOOL is visible.
-SET TERMOUT &cap_replay_term
+SET TERMOUT &cap_replay_spool_termout
 HOST &cap_replay_mkdir
 SPOOL &cap_replay_spool
 SET TERMOUT OFF
@@ -225,7 +226,7 @@ END;
 SPOOL OFF
 SET TERMOUT ON
 PROMPT &cap_replay_note
-UNDEFINE cap_replay_term cap_replay_mkdir cap_replay_spool cap_replay_note
+UNDEFINE cap_replay_spool_termout cap_replay_mkdir cap_replay_spool cap_replay_note
 SET DEFINE OFF
 
 PROMPT -- removing scheduler jobs + cap_report_spool (uninstall_jobs.sql) ...
