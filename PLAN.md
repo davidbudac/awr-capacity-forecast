@@ -852,6 +852,178 @@ Decided 2026-11-07:
       the CAPD daily layer once per refresh, which every one of them
       re-derives from the copies.
 
+## M25 — One architecture: every database is a target
+
+Every install is a repository, and every measured database is a target read
+over a DB link. That includes the database the repository lives in, which
+it reads over a loopback link. `deploy_mode=local` retires and `fixture`
+stays for the harness.
+
+Decided 2026-11-09:
+
+- **Why.** Local mode keeps only as much history as the database's own AWR
+  retention: 8 days by default, while ESM needs 120 (M24.7), so local mode
+  forces a retention change on production. Copies keep
+  `repo_retention_days` (400), also when the repository reads its own
+  database. Production runs one seam instead of two, one database grows
+  into a fleet without a reinstall, and no suite object stays in CDB$ROOT.
+- **Analytics lose nothing.** M24.5 diffed local against repository over
+  the same root, and every CAPV and CAPD/CAPF/CAPA/CAPR view was equal.
+  ddl/13 stays the local seam with each `dba_hist_x` renamed to `cap_h_x`.
+- **Accepted costs.** A loopback link needs the listener and a stored reader
+  password (or a wallet), and that password can expire (ORA-28001). A LIVE
+  report sees the last hourly collect, not the last snapshot. A repository
+  that is its own target stores its AWR twice (0.25 MB a day on dbmint).
+  Creating the reader needs SYSDBA, so a plain user can no longer run the
+  quickstart into their own schema.
+- **The owner lives in a PDB by default:** `AWRCAP` in a PDB reads its
+  CDB's root over the loopback link (the CAPX2 layout M24.5 proved), and
+  `AWRCAP` in a non-CDB reads that database. With exactly one open user PDB
+  the installer uses it; otherwise it asks for `CONTAINER`. A root owner
+  (`C##AWRCAP`) stays possible, but nothing defaults to it.
+- **An existing standalone install starts fresh (a breaking upgrade).** Its
+  persisted tables live in the root schema, so the upgrade path is:
+  uninstall it there, install anew in a PDB, collect. Lost: CAP_RUN,
+  CAP_FIT_HIST, the alert state and its acks, CAP_ALERT_EVENT and
+  CAP_ML_MODEL (retrain). The operator's CAP_CONFIG / CAP_TBSPC_OVERRIDE
+  values carry over through a replay file that uninstall.sql writes
+  (M25.6). The first collect copies everything the AWR still holds, so
+  forecasts resume at once on the history the local install saw.
+- **ddl/10 becomes the template.** install.sql no longer runs it. It moves
+  to `repository/seam.sql` as build.py's input, so DBA_HIST_* appears only
+  under repository/ and target/ (plus test/ and bench/).
+
+- [ ] **M25.0 Probe the unknowns on dbmint before changing anything.**
+      (a) GLOBAL_NAMES: `ALTER SESSION SET global_names = TRUE`, then
+      add_target / collect. ORA-02085 is expected, because link `CAP_<NAME>`
+      does not match the target's global name. (b) The connect string from
+      a PDB owner to its own root: as SYSDBA in CDB$ROOT, derive
+      `//host:port/service` from `V$LISTENER_NETWORK` (local listener) and
+      the root's default service. Check: over a link built from it, the
+      dbid equals the CDB's and the reader sees every container (3 on
+      cdb1).
+- [x] **M25.1 A copy check replaces the parity lever.** With no local
+      install left, nothing remains to diff the repository against, so
+      prove the copies instead. build.py generates
+      `test/repo_copy_check.sql` from the manifest: per source and DBID,
+      `source@link` under the manifest's filter MINUS the copy, and the
+      reverse, over the collected snap_id window. Dimensions are compared
+      whole, SEG_STAT_OBJ over the copied chunks, and the check exits 5 when
+      a snapshot lands mid-check, as dbmint_parity.sh does. ddl/13 is
+      generated from the same text (`--check`), so equal copies give equal
+      views. Check on CAPX2, while the M24.5 lever still runs: 0 rows, and a
+      copy row deleted by hand shows up as one row.
+      Done 2026-11-09: the check runs in a throwaway definer's-rights
+      procedure (CAP_COPY_CHECK, dropped at the end), and
+      `test/dbmint_copy_check.sh SCHEMA [TARGET] [--collect] [--plant SRC]`
+      runs it. On CAPX2: 17 sources, 163,401 rows equal in 2.8 s. A
+      dimension copy keeps rows the target has purged (the DATABASE_INSTANCE
+      row of an aged-out startup), so there only a source row missing from
+      the copy is a difference; copy-only rows are listed as kept.
+      `--plant OSSTAT` deleted one copy row, uncommitted: reported as
+      exactly that row (src 7398, copy 7397), then rolled back. The M24.5
+      lever's seam pass agreed at the same snap_id (12 CAPV views equal at
+      4019), but its local install no longer runs in CDB$ROOT: since M24.13
+      `build_snap_tables` raises ORA-00600 [KGL-heap-size-exceeded] there
+      (C##CAPLOC kept its seam and packages VALID, snapshot tables partly
+      built). So CDB1 was re-registered in CAPX2 by hand, as the lever does,
+      and the seams compared with `--no-install`.
+- [ ] **M25.2 "Measure one database" in one run.** install.sh role
+      `standalone` (and quickstart.sql / .sh) runs as SYSDBA in CDB$ROOT,
+      in this order: target/prepare.sql (the reader gets a random password,
+      never printed); target/check.sql as the gate; pick the PDB (the one
+      open user PDB, else `CONTAINER`; a non-CDB uses itself); in that PDB,
+      create_owner and install; `cap_repo.add_target` over the loopback to
+      the root (M25.0b, overridable with `SELF_CONNECT`); collect; then ML,
+      jobs and reports as before. quickstart stops installing into SYS: it
+      creates the schema-only owner `AWRCAP` (NO AUTHENTICATION) and works
+      under `CURRENT_SCHEMA`. A re-run reuses the reader, the owner and the
+      target, resets the reader's password and updates the link with
+      `set_link_password`. Check: `--dry-run` of every profile; on dbmint a
+      fresh standalone into a throwaway PDB1 owner and `quickstart.sh` both
+      end with a report and 0 FAIL, twice in a row; with two open PDBs and
+      no `CONTAINER`, both stop before any change.
+- [ ] **M25.3 GLOBAL_NAMES** (only if M25.0a fails). target/prepare.sql
+      prints the target's global name, and the standalone path reads its
+      own. add_target takes the global name and, on ORA-02085, creates
+      `<global_name>@CAP_<NAME>`, the qualified link name that GLOBAL_NAMES
+      accepts. Check: add / collect / ping / set_link_password /
+      remove_target / uninstall under `global_names = TRUE`.
+- [ ] **M25.4 RAC: no half-copied snapshot.** With one high-water mark per
+      DBID, a collect can copy a snapshot that one instance has finished and
+      another has not. Local mode picked up the late rows on its next read,
+      but a copy never will. collect therefore holds back the newest snap_id
+      while it has fewer instances than the snap_id before it, and copies it
+      on the next run once it has as many. Check: on single-instance CAPX2
+      the window is unchanged (copy check 0, fingerprints equal before and
+      after). RAC stays untested, and the docs say so.
+- [ ] **M25.5 doctor without DBA_HIST.** Sections 2, 3, 5 and 6 check the
+      measured database, which is target/check.sql's job now (the standalone
+      path runs it, M25.2). doctor keeps the repository side and keeps
+      sections 7..11 under their numbers, because the docs and
+      CAP_CFG_CHECK cite them. Section 11 adds the reader's password expiry
+      over each link (`USER_USERS@link`): WARN inside the new knob
+      `reader_expiry_warn_days` (30), naming the two statements that rotate
+      it (`ALTER USER ... IDENTIFIED BY` on the target, then
+      `cap_repo.set_link_password`). Check: on dbmint, a reader whose
+      profile expires it in 10 days gets the WARN.
+- [ ] **M25.6 Carry the operator's config across a reinstall.** Before it
+      drops anything, uninstall.sql spools
+      `reports/cap_config_replay_<schema>_<ts>.sql` and prompts its path.
+      The file holds an UPDATE for each CAP_CONFIG knob whose `cfg_value`
+      differs from `cfg_default` (null-safe, `suite_version` left out) and
+      a MERGE for each CAP_TBSPC_OVERRIDE row. The MERGE takes its columns
+      from ALL_TAB_COLUMNS, so a column added later comes along. Run the
+      file in the new owner after the new install: the seed MERGE has
+      created every key by then, and a knob that no longer exists updates 0
+      rows and is named. The overrides' dbid / con_dbid are the database's
+      own, so they match again once the same database is the target. Check
+      on dbmint: set two knobs and one override, then uninstall, install
+      and replay. CAP_CFG and CAP_TBSPC_OVERRIDE must equal what they were
+      before, and CAP_CFG_CHECK must be all OK.
+- [ ] **M25.7 Retire local mode.** Move ddl/10 to `repository/seam.sql`
+      and update every reference. install.sql: `deploy_mode = local` aborts
+      before any DDL and names the upgrade path (uninstall here, standalone
+      into a PDB), as warehouse mode did in M24.9. create_owner.sql:
+      `owner_mode` goes; every owner gets CREATE DATABASE LINK and no
+      DBA_HIST grants, and a user that already holds the old local-mode
+      grants (create_owner's DBA_HIST list, CONTAINER_DATA) has them revoked.
+      uninstall.sql revokes them too, so a dropped root install leaves an
+      inert user (as SYSDBA; run as the owner it prints the REVOKEs, since
+      only the grantor can run them). `cap_results.deploy_mode` loses
+      `local` (CAP_RUN keeps its history rows). install.sh drops the role
+      and profile combinations that meant local mode. test/dbmint_parity.sh
+      retires (M25.1 replaced it). suite_version 25. A new lint enforces the
+      golden rule: DBA_HIST_* only under repository/, target/, test/ and
+      bench/. Check: every profile's `--dry-run`; on dbmint the fixture
+      harness passes on CAPX1, a CAPX2 re-install has 0 INVALID, the copy
+      check returns 0, and `deploy_mode = local` aborts without touching
+      any object. End to end, after asking (it drops a root install):
+      uninstall C##CAPLOC, standalone into a throwaway PDB1 owner, replay
+      its config file (M25.6) and collect. Then no CAP object is left in
+      the root schema, C##CAPLOC holds no DBA_HIST grant and no
+      CONTAINER_DATA, the new owner's CAP_CFG equals C##CAPLOC's, and the
+      new install's fingerprints equal CAPX2's.
+- [ ] **M25.8 Docs.** start.html keeps "Measure one database" and "Measure
+      a fleet" as two paths of one install; the first is the second with
+      the repository as its own target. Also: reference.html (modes,
+      prerequisites, privileges, #installer, #repository), README, the
+      concepts diagram, tutorial, testing.html (copy check, not parity),
+      design.md (the M25 rationale beside M24's) and CLAUDE.md (golden
+      rules, layout, testing levers). The upgrade notes state the break:
+      what a standalone install loses, and the steps that replace it
+      (uninstall, which writes the replay file; standalone into a PDB;
+      replay; collect).
+      docs_lint check 9 fails on
+      `deploy_mode = local`, `owner_mode` or `10_seam_local` in any tracked
+      file except PLAN.md and bench/.
+
+Order: M25.0 gates the rest. M25.1 lands before M25.7, while the parity
+lever can still vouch for it, and so does M25.6, which M25.7's end-to-end
+check uses. M25.3 and M25.4 are independent. Nothing on dbmint is dropped
+without asking: M25.7 uninstalls C##CAPLOC only after a yes, and C##AWRRDR
+stays because every loopback uses it.
+
 ## v2 (unchanged)
 
 - [ ] Memory forecasting (SGA/PGA from `DBA_HIST_MEM_DYNAMIC_COMP` (the
