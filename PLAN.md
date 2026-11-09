@@ -1129,9 +1129,9 @@ Decided 2026-11-09:
       what a standalone install loses, and the steps that replace it
       (uninstall, which writes the replay file; standalone into a PDB;
       replay; collect).
-      docs_lint check 9 fails on
-      `deploy_mode = local`, `owner_mode` or `10_seam_local` in any tracked
-      file except PLAN.md and bench/.
+      docs_lint check 9 (check 10 since main's README-diagram check took 9)
+      fails on `deploy_mode = local`, `owner_mode` or `10_seam_local` in
+      any tracked file except PLAN.md and bench/.
       Done 2026-11-09: reference.html's "Local mode" section became
       "Standalone: a database as its own target" (the five scripts in order,
       by hand and through the installer), doctor's table lost checks 2, 3, 5
