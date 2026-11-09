@@ -119,7 +119,7 @@ USING (
     UNION ALL SELECT 'cpu_quality_gate',        1,        'CAPF_CPU_TREND quality gate: 1 = OK when |slope| > slope CI (slope significance), 0 = legacy R2 >= r2_gate.' FROM dual
     UNION ALL SELECT 'cpu_deseason',            1,        'CAPF_CPU_TREND: 1 = subtract the weekday / weekend mean (and add back the window mean) before the fit, 0 = fit the raw daily values.' FROM dual
     UNION ALL SELECT 'stale_days',              3,        'A CAPF_* series whose last_day is more than this many days before the newest day of its daily source (same dbid) reads is_current = N: dropped tablespace, retired DBID, stopped collection.' FROM dual
-    UNION ALL SELECT 'suite_version',          25.2,     'Suite release that built these objects (latest PLAN.md milestone). Set by every install; not a tuning knob.' FROM dual
+    UNION ALL SELECT 'suite_version',          25.3,     'Suite release that built these objects (latest PLAN.md milestone). Set by every install; not a tuning knob.' FROM dual
     UNION ALL SELECT 'cpu_min_mad_pct_hour',    5,        'M15: cpu_min_mad_pct for HOUR-grain CPU (HOUR_OF_WEEK): hourly values are noisier than daily averages.' FROM dual
     UNION ALL SELECT 'hour_gap_ratio',        1.5,        'M15: an interval <= 0 h or longer than LEAST(cpu_gap_hours, this x the instance''s median interval) is a gap at HOUR grain.' FROM dual
     UNION ALL SELECT 'series_floor_count',     10,        'M15: anomaly threshold floor for COUNT series (PROCESSES/SESSIONS), in sessions/processes.' FROM dual
@@ -140,7 +140,8 @@ USING (
     UNION ALL SELECT 'mem_pga_limit_pct',      90,        'M25 PGA_LIMIT: a window peak (sampled or high-water mark) at or above this percent of pga_aggregate_limit grades the limit UNDERSIZED.' FROM dual
     UNION ALL SELECT 'mem_max_step',            2,        'M25 memory verdicts: a suggested size is at most this factor of the current size (one step, re-evaluate after the change).' FROM dual
     UNION ALL SELECT 'mem_host_ram_pct',       80,        'M25 memory verdicts: exceeds_host_ram = Y when the suggested size plus the other side''s current size (the SGA, or pga_aggregate_target) passes this percent of the host''s physical memory.' FROM dual
-    UNION ALL SELECT 'mem_min_uptime_hours',   24,        'M25 advisor areas: a startup observed for fewer hours adds no advisor increments, and an advised size needs this many hours of coverage to be a candidate (the current size: fewer reads ADVISOR_THIN).' FROM dual
+    UNION ALL SELECT 'mem_min_uptime_hours',   24,        'M25 advisor areas: a startup observed for fewer hours adds no advisor increments, and an advised size needs this many hours of coverage to be a candidate or the reference size (none: ADVISOR_THIN).' FROM dual
+    UNION ALL SELECT 'mem_ref_tolerance_pct',  10,        'M25 advisor areas: a current size with too little advisor history is measured against the nearest advised size with enough, when that lies within this percent of the current size (0 = never).' FROM dual
     UNION ALL SELECT 'mem_gain_dbtime_pct',     1,        'M25 BUFFER_CACHE / SHARED_POOL / SGA_TOTAL: advisor pressure when the best larger candidate saves at least this percent of DB time.' FROM dual
     UNION ALL SELECT 'mem_shrink_dbtime_pct', 0.5,        'M25 BUFFER_CACHE / SHARED_POOL / SGA_TOTAL: advisor slack when a smaller candidate loses at most this percent of DB time.' FROM dual
     UNION ALL SELECT 'mem_shrink_min_days',    21,        'M25 advisor areas: sampled days the window needs before advisor slack grades OVERSIZED (fewer: OK / SHRINK_UNPROVEN).' FROM dual
@@ -156,6 +157,7 @@ USING (
     UNION ALL SELECT 'mem_shpool_free_pct',    25,        'M25 SHARED_POOL context: the window''s smallest free share of the shared pool at or above this percent reads SLACK (shown, never decides the grade).' FROM dual
     UNION ALL SELECT 'mem_resize_ops_day',     10,        'M25 SGA_BALANCE: THRASHING when the SGA components were resized at least this many times per sampled day.' FROM dual
     UNION ALL SELECT 'mem_resize_reversals',    2,        'M25 SGA_BALANCE: THRASHING when the buffer cache and the shared pool reversed direction at least this many times in the window.' FROM dual
+    UNION ALL SELECT 'mem_shift_pct',          10,        'M25 SGA_BALANCE: DRIFTING when the buffer cache or the shared pool ends the window at least this percent of sga_target below its largest size in it.' FROM dual
 ) s
 ON (c.cfg_name = s.cfg_name)
 WHEN MATCHED THEN
@@ -257,7 +259,9 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'mem_rowcache_miss_pct'   THEN cfg_value END) AS mem_rowcache_miss_pct,
        MAX(CASE WHEN cfg_name = 'mem_shpool_free_pct'     THEN cfg_value END) AS mem_shpool_free_pct,
        MAX(CASE WHEN cfg_name = 'mem_resize_ops_day'      THEN cfg_value END) AS mem_resize_ops_day,
-       MAX(CASE WHEN cfg_name = 'mem_resize_reversals'    THEN cfg_value END) AS mem_resize_reversals
+       MAX(CASE WHEN cfg_name = 'mem_resize_reversals'    THEN cfg_value END) AS mem_resize_reversals,
+       MAX(CASE WHEN cfg_name = 'mem_ref_tolerance_pct'   THEN cfg_value END) AS mem_ref_tolerance_pct,
+       MAX(CASE WHEN cfg_name = 'mem_shift_pct'           THEN cfg_value END) AS mem_shift_pct
 FROM   cap_config;
 
 COMMENT ON TABLE cap_cfg IS 'One row, one NUMBER column per CAP_CONFIG knob (column name = knob name). NULL = the knob row is missing.';
@@ -319,7 +323,8 @@ WITH u AS (
                mem_shrink_min_days, mem_knee_pct, mem_pga_gain_pts, mem_pga_shrink_pts,
                mem_symptom_dbtime_pct, mem_temp_io_dbtime_pct, mem_multipass_pct,
                mem_onepass_pct, mem_reload_pct, mem_rowcache_miss_pct,
-               mem_shpool_free_pct, mem_resize_ops_day, mem_resize_reversals))
+               mem_shpool_free_pct, mem_resize_ops_day, mem_resize_reversals,
+               mem_ref_tolerance_pct, mem_shift_pct))
      ),
      r AS (
         SELECT u.knob, u.value,
@@ -398,14 +403,17 @@ WITH u AS (
                    WHEN u.knob IN ('mem_gain_dbtime_pct', 'mem_shrink_dbtime_pct', 'mem_pga_gain_pts',
                                    'mem_pga_shrink_pts', 'mem_symptom_dbtime_pct', 'mem_temp_io_dbtime_pct',
                                    'mem_multipass_pct', 'mem_onepass_pct', 'mem_reload_pct',
-                                   'mem_rowcache_miss_pct', 'mem_shpool_free_pct', 'mem_knee_pct')
+                                   'mem_rowcache_miss_pct', 'mem_shpool_free_pct', 'mem_knee_pct',
+                                   'mem_shift_pct')
                         AND (u.value <= 0 OR u.value > 100)
                         THEN 'must be > 0 and <= 100 (percent or percentage points)'
+                   WHEN u.knob = 'mem_ref_tolerance_pct' AND u.value NOT BETWEEN 0 AND 100
+                        THEN 'must be between 0 (the current size only) and 100 (percent of the current size)'
                    WHEN u.knob IN ('mem_shrink_min_days', 'mem_resize_reversals')
                         AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
-                   WHEN u.knob = 'suite_version'       AND u.value < 25.2
-                        THEN 'older than this release (25.2): re-run install.sql'
+                   WHEN u.knob = 'suite_version'       AND u.value < 25.3
+                        THEN 'older than this release (25.3): re-run install.sql'
                END AS reason
         FROM   u
         CROSS  JOIN (SELECT g.*,

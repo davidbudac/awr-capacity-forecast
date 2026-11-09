@@ -886,6 +886,20 @@ full, and a PGA target that over-allocates at every size inside the step cap
 is advised the largest candidate. Not built: per-PDB usage, the history
 table, report sections, the snapshot registry entries, doctor readiness.
 
+Built third (suite_version 25.3), from the first read of the real verdicts:
+two rule changes, both in the spec's "Detailed rules" section. An advisor
+area whose current size has too little advisor history is measured against
+the nearest advised size that has it (`mem_ref_tolerance_pct`,
+`CAPM_ADVICE.reference_bytes` / `reference_fallback`), so a shared pool that
+has just been resized is graded instead of reading `ADVISOR_THIN`. A pool
+squeezed one way is a balance finding: signal `SGA_POOL_SHIFT_PCT`
+(`mem_shift_pct`) and grade `DRIFTING` / `ONE_WAY_SHIFT`, after `THRASHING`
+in rule order, with no suggested size. On the real AWR `SGA_BALANCE` now
+reads `DRIFTING` (buffer cache 256 MiB to 48 MiB under a 1536 MiB
+`sga_target`) and `SHARED_POOL` reads `UNDERSIZED` against a reference of
+1056 MiB. `SELECT * FROM capm_verdict` takes about 11 s and 223 MB of PGA in
+local mode.
+
 - [ ] **M25.1 Seam.** Fourteen new `CAPV_*` views (component history, resize
       operations, PGA statistics, work area histogram, the PGA / SGA / cache /
       shared pool advisors, SGA statistics, library cache, row cache, buffer

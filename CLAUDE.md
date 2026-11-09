@@ -515,16 +515,33 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   advisor resets at a resize).
 - **Advisor facts (verified 19.27):** the SGA, cache and shared pool
   advisors list MB, the PGA advisor bytes. The shared pool list moves with
-  the pool, so a size is compared with the current one over exactly the
-  intervals that list both, and a pool that keeps resizing stays
-  ADVISOR_THIN. Gain = percent of instance DB time (PGA: cache hit points).
-  The cache advisor's factor 1 size can differ from the component's size.
-- **`CAPM_ADVICE` joins each size to `cur`**, the current size's increments
-  alone. Joining the pivoted increments to themselves on the interval is
-  sizes x sizes (2.2M rows, 20 s on a 30-size list).
+  the pool, so a size is compared with the reference size over exactly the
+  intervals that list both. Gain = percent of instance DB time (PGA: cache
+  hit points). The cache advisor's factor 1 size can differ from the
+  component's size.
+- **Reference size (25.3).** `ref` in `CAPM_ADVICE`: the advised size nearest
+  to the current (factor 1) one, the larger on a tie, with own coverage >=
+  `mem_min_uptime_hours`, within `mem_ref_tolerance_pct` of it. The current
+  size wins whenever it has the hours (distance 0). `reference_fallback = Y`
+  when it is another size: rows are then every size listed in the window,
+  not the latest list; the reference is no candidate; grow / shrink sides
+  stay relative to `current_bytes`; ADVISOR sentences say "measured
+  against". No reference = `advisor_thin` = ADVISOR_THIN. Without fallback
+  the rows stay the latest list (the "left the list, no row" assertion).
+  `cur_cost` / `cur_hit_pct` / `cur_overalloc` are the reference size's.
+- **`CAPM_ADVICE` never joins the increments to themselves.** `paired`
+  carries the reference size's increment beside every size's with a window
+  over the interval. A self-join on the interval is sizes x sizes (2.2M
+  rows, 20 s on a 30-size list), and the optimizer picked that order as soon
+  as the reference came from a joined CTE (verdict 8 s to 17 s, 19.27).
+- **SGA_BALANCE grades:** THRASHING / RESIZE_CHURN (`churn_p`: operations
+  or reversals row in PRESSURE, floor suggested), then DRIFTING /
+  ONE_WAY_SHIFT (`shift_p`: `SGA_POOL_SHIFT_PCT` >= `mem_shift_pct`, the
+  larger pool loss from its window peak over sga_target; no suggestion, no
+  parameter), else OK / STABLE.
 - **Nothing reads a CAPM_ view** (run_test.sql asserts it from
   ALL_DEPENDENCIES): no alert, no series. Cost on the real 30-day AWR:
-  `SELECT * FROM capm_verdict` about 10 s, 205 MB PGA, most of it
+  `SELECT * FROM capm_verdict` about 11 s, 223 MB PGA, most of it
   `CAPM_AREA` evaluated twice (under the evidence and for the facts).
 
 ## Testing on a 19c test database

@@ -292,10 +292,15 @@ Increments, not totals
 
 Advisor curves
 
-- The current size of an area is the advisor's own factor 1 size at the instance's latest snapshot.
-- The relative cost of an advised size X is the sum of X's increments divided by the sum of the current size's increments, both taken over exactly the snapshot intervals where the advisor listed both sizes. Summing increments weights each interval by the work it carried.
-- Coverage is the hours of those intervals. Coverage of the current size below the minimum uptime knob grades `INSUFFICIENT_EVIDENCE` with reason `ADVISOR_THIN`. That covers an advisor that is switched off, an instance that keeps restarting and a pool that has only just reached its current size.
-- Candidate sizes are the sizes on the latest snapshot's list, inside the step cap, with enough coverage of their own. A thin current size leaves no candidate.
+- The current size of an area is the advisor's own factor 1 size at the instance's latest snapshot. The verdict reports it as the current size in every case.
+- The reference size is the size every gain and loss is measured against. It is the current size when the current size's own increments cover the minimum uptime knob.
+- A resize moves the shared pool advisor's list, so a pool that has just been resized has a new factor 1 size with a few hours of increments, next to sizes that were on every list for weeks. On the test database the current size, 1072 MiB, had 6.5 hours and a size 16 MiB below it had 152. The reference size is then the advised size nearest to the current size, the larger one on a tie, among every size the advisor listed in the window whose own increments cover the minimum uptime knob. It must lie within the reference tolerance knob, `mem_ref_tolerance_pct` (default 10 percent of the current size). The rule is one rule: the current size is its own nearest size whenever it has the hours.
+- No such size grades `INSUFFICIENT_EVIDENCE` with reason `ADVISOR_THIN`. That covers an advisor that is switched off, an instance that keeps restarting and a pool that has just reached a size with no covered size near it.
+- The relative cost of an advised size X is the sum of X's increments divided by the sum of the reference size's increments, both taken over exactly the snapshot intervals where the advisor listed both sizes. Summing increments weights each interval by the work it carried. Coverage is the hours of those intervals.
+- Candidate sizes, when the reference is the current size, are the sizes on the latest snapshot's list, inside the step cap, with enough coverage against it.
+- Under a fallback reference the latest list is the one without history. A candidate is then any size the advisor listed in the window, inside the step cap around the current size, with enough coverage against the reference. The reference itself is not a candidate, because its gain against itself is zero.
+- A grow candidate is larger than the current size and a shrink candidate is smaller than it, under a fallback reference too.
+- Every advisor evidence sentence of an area under a fallback reference names the reference size and the current size, in whole MiB.
 - The buffer cache advisor is read for the DEFAULT pool of the standard block size, pool id 3. A row an advisor wrote while switched off does not count.
 
 Materiality is measured in DB time
@@ -341,4 +346,8 @@ SGA balance
 - Per component and snapshot interval: operations (the increment of the operation counter) and the net size change.
 - A reversal is a pool whose net move changes sign inside the window, or an interval with operations and no net change.
 - `THRASHING` when operations per day or reversals reach their knobs. The suggestion is a floor for the pool with the most growing intervals (the shared pool on a tie), equal to the largest size it reached in the window.
+- Reversals and operations per day miss a pool that the instance squeezes one way. On the test database forced shared pool grows took the buffer cache from 256 MiB to 48 MiB under a 1536 MiB `sga_target`, with one operation a day and no reversal.
+- The pool shift signal, `SGA_POOL_SHIFT_PCT`, measures that. For the buffer cache and the shared pool it takes the pool's largest size in the window minus its size at the latest snapshot. The signal is the larger of the two losses as a percentage of `sga_target`. It is a symptom of area `SGA_BALANCE` and reads pressure at or above the shift knob, `mem_shift_pct` (default 10). Its sentence names the pool that shrank with its peak and current size, and the other pool with its smallest and current size.
+- `DRIFTING` with reason `ONE_WAY_SHIFT` when the shift signal reads pressure and neither churn signal does. Rule order for the area: not collected, AMM, manual sizing, `THRASHING`, `DRIFTING`, then `OK` with reason `STABLE`. An oscillating instance that also ends below a peak stays `THRASHING`.
+- `DRIFTING` carries no suggested size and names no parameter. The answer to a drift is the SGA total verdict, or a floor the DBA sets knowingly.
 - The sign of a pool's net move is compared with its previous net move in the window, across a restart too. The targets (`SGA Target`, `PGA Target`) are not components and are left out.

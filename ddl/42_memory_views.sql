@@ -3,9 +3,9 @@
 -- =====================================================================
 -- A verdict layer beside forecast and anomaly: per database, instance and
 -- memory area a grade (UNDERSIZED / OK / OVERSIZED / INSUFFICIENT_EVIDENCE,
--- for SGA_BALANCE OK / THRASHING), the evidence behind it and a suggested
--- size. Advice for reports: no alert reads it, and the suite never changes a
--- parameter. docs/specs/memory-sizing.md is the design.
+-- for SGA_BALANCE OK / THRASHING / DRIFTING), the evidence behind it and a
+-- suggested size. Advice for reports: no alert reads it, and the suite
+-- never changes a parameter. docs/specs/memory-sizing.md is the design.
 --
 -- Areas: PGA_LIMIT (usage against the ceiling), the four advisor-based
 -- areas PGA_TARGET, BUFFER_CACHE, SHARED_POOL and SGA_TOTAL, and
@@ -15,7 +15,7 @@
 --   CAPM_ADV_SRC      the four advisors in one shape, sizes in bytes.
 --   CAPM_DELTA        every counter and advisor estimate as increments
 --                     between snapshots of one startup, one long shape.
---   CAPM_ADVICE       per advised size: cost and gain against the current size.
+--   CAPM_ADVICE       per advised size: cost and gain against the reference size.
 --   CAPM_PGA_LIMIT    the facts of area PGA_LIMIT.
 --   CAPM_AREA         the facts of each advisor-based area.
 --   CAPM_SGA_BALANCE  resize facts of the SGA pools.
@@ -334,27 +334,42 @@ WHERE  prev_snap_id IS NOT NULL
 -- instance_number, area, advised size) on the list of the instance's latest
 -- snapshot.
 --   current_bytes  the advisor's own factor 1 size on that list.
---   An advised size X is compared with the current size over exactly the
+--   reference_bytes  the size every other size is measured against: the
+--                  advised size nearest to current_bytes (the larger on a
+--                  tie) whose own increments cover mem_min_uptime_hours,
+--                  within mem_ref_tolerance_pct percent of it. That is the
+--                  current size itself whenever it has the hours. A resize
+--                  moves the shared pool advisor's list, so a pool that has
+--                  just changed size has a new factor 1 size with hours of
+--                  history beside sizes with weeks of it. NULL when no size
+--                  qualifies.
+--   reference_fallback  Y when reference_bytes is not the current size. The
+--                  rows are then every size the advisor listed in the
+--                  window (size_factor NULL off the latest list), because
+--                  the latest list is the one without history.
+--   An advised size X is compared with the reference size over exactly the
 --   snapshot intervals in which the advisor gave an increment for both (same
 --   snap_id and prev_snap_id), inside the window, on startups with seg_ok.
---   Summing increments weights each interval by the work it carried. cur
---   holds the current size's increments alone, so that join is one row an
---   interval in any join order (sizes x sizes otherwise: 2.2 million rows
---   and 20 s on a 30-size shared pool list).
+--   Summing increments weights each interval by the work it carried. paired
+--   puts the reference size's increment beside every size's with a window
+--   over the interval, so the increments are never joined to themselves
+--   (sizes x sizes: 2.2 million rows and 20 s on a 30-size shared pool
+--   list, a join order the optimizer did pick). Without a reference the
+--   current size takes its place, which shows how little it covers.
 --   cover_hours / n_intervals / n_days  those intervals.
 --   est_cost / cur_cost / rel_cost      summed cost increments of X and of
---                  the current size, and their ratio.
---   gain           what X gains over the current size, negative for a loss:
+--                  the reference size, and their ratio.
+--   gain           what X gains over the reference size, negative for a loss:
 --                  DBTIME_PCT  100 x (cur_cost - est_cost) / the instance's
 --                              DB time, over the intervals that have DB time
 --                              (dbtime_sec);
 --                  HIT_PTS     PGA: est_hit_pct - cur_hit_pct, the estimated
 --                              cache hit 100 x work / (work + cost).
 --   overalloc      PGA: X's over-allocation increments.
---   is_candidate   Y for a size other than the current one, inside
---                  [current / mem_max_step, current x mem_max_step], with
---                  cover_hours >= mem_min_uptime_hours for itself and for
---                  the current size, and a gain.
+--   is_candidate   Y for a size other than the current and the reference
+--                  one, inside [current / mem_max_step, current x
+--                  mem_max_step], with cover_hours >= mem_min_uptime_hours
+--                  against a reference, and a gain.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capm_advice AS
 WITH latest AS (
@@ -394,30 +409,61 @@ WITH latest AS (
         WHERE  metric = 'DBTIME'
         GROUP  BY dbid, instance_number, snap_id
      ),
-     cur AS (
-        SELECT a.dbid, a.instance_number, a.area, a.snap_id, a.prev_snap_id, a.cost
+     own AS (
+        SELECT dbid, instance_number, area, size_bytes, SUM(ivl_hours) AS own_hours
+        FROM   adv
+        WHERE  cost IS NOT NULL
+        GROUP  BY dbid, instance_number, area, size_bytes
+     ),
+     ref AS (
+        SELECT k.dbid, k.instance_number, k.area, k.current_bytes,
+               MIN(o.size_bytes) KEEP (DENSE_RANK FIRST ORDER BY ABS(o.size_bytes - k.current_bytes),
+                                                                 o.size_bytes DESC) AS reference_bytes
+        FROM   (SELECT DISTINCT dbid, instance_number, area, current_bytes FROM latest) k
+        CROSS  JOIN cap_cfg cfg
+        LEFT   JOIN own o
+          ON   o.dbid = k.dbid AND o.instance_number = k.instance_number AND o.area = k.area
+         AND   o.own_hours >= cfg.mem_min_uptime_hours
+         AND   (o.size_bytes = k.current_bytes
+                OR ABS(o.size_bytes - k.current_bytes) <= k.current_bytes * cfg.mem_ref_tolerance_pct / 100)
+        GROUP  BY k.dbid, k.instance_number, k.area, k.current_bytes
+     ),
+     paired AS (
+        SELECT a.dbid, a.instance_number, a.area, a.size_bytes, a.snap_id,
+               a.cost, a.work, a.overalloc, a.ivl_hours, a.end_time,
+               MAX(CASE WHEN a.size_bytes = NVL(r.reference_bytes, r.current_bytes) THEN a.cost END)
+                   OVER (PARTITION BY a.dbid, a.instance_number, a.area, a.snap_id, a.prev_snap_id) AS cur_cost
         FROM   adv a
-        JOIN   (SELECT DISTINCT dbid, instance_number, area, current_bytes FROM latest) k
-          ON   k.dbid = a.dbid AND k.instance_number = a.instance_number
-         AND   k.area = a.area AND k.current_bytes = a.size_bytes
+        JOIN   ref r
+          ON   r.dbid = a.dbid AND r.instance_number = a.instance_number
+         AND   r.area = a.area
         WHERE  a.cost IS NOT NULL
      ),
+     sizes AS (
+        SELECT dbid, instance_number, area, size_bytes, MAX(size_factor) AS size_factor
+        FROM  ( SELECT dbid, instance_number, area, size_bytes, size_factor
+                FROM   latest
+                UNION  ALL
+                SELECT o.dbid, o.instance_number, o.area, o.size_bytes, NULL
+                FROM   own o
+                JOIN   ref r
+                  ON   r.dbid = o.dbid AND r.instance_number = o.instance_number
+                 AND   r.area = o.area
+                WHERE  r.reference_bytes <> r.current_bytes )
+        GROUP  BY dbid, instance_number, area, size_bytes
+     ),
      pair AS (
-        SELECT l.dbid, l.instance_number, l.area, l.size_bytes,
-               x.ivl_hours, x.end_time, x.cost, c.cost AS cur_cost, x.work, x.overalloc,
+        SELECT z.dbid, z.instance_number, z.area, z.size_bytes,
+               x.ivl_hours, x.end_time, x.cost, x.cur_cost, x.work, x.overalloc,
                t.dbtime_sec
-        FROM   latest l
-        JOIN   adv x
-          ON   x.dbid = l.dbid AND x.instance_number = l.instance_number
-         AND   x.area = l.area AND x.size_bytes = l.size_bytes
-        JOIN   cur c
-          ON   c.dbid = x.dbid AND c.instance_number = x.instance_number
-         AND   c.area = x.area
-         AND   c.snap_id = x.snap_id AND c.prev_snap_id = x.prev_snap_id
+        FROM   sizes z
+        JOIN   paired x
+          ON   x.dbid = z.dbid AND x.instance_number = z.instance_number
+         AND   x.area = z.area AND x.size_bytes = z.size_bytes
         LEFT   JOIN dbt t
           ON   t.dbid = x.dbid AND t.instance_number = x.instance_number
          AND   t.snap_id = x.snap_id
-        WHERE  x.cost IS NOT NULL
+        WHERE  x.cur_cost IS NOT NULL
      ),
      agg AS (
         SELECT dbid, instance_number, area, size_bytes,
@@ -434,23 +480,25 @@ WITH latest AS (
         GROUP  BY dbid, instance_number, area, size_bytes
      ),
      curve AS (
-        SELECT l.dbid, l.instance_number, l.area, l.size_bytes, l.size_factor, l.current_bytes,
+        SELECT z.dbid, z.instance_number, z.area, z.size_bytes, z.size_factor,
+               r.current_bytes, r.reference_bytes,
                NVL(g.cover_hours, 0) AS cover_hours,
                NVL(g.n_intervals, 0) AS n_intervals,
                NVL(g.n_days, 0)      AS n_days,
                g.est_cost, g.cur_cost, g.dbtime_sec, g.overalloc,
-               CASE WHEN l.area = 'PGA_TARGET' AND g.work + g.est_cost > 0
+               CASE WHEN z.area = 'PGA_TARGET' AND g.work + g.est_cost > 0
                     THEN 100 * g.work / (g.work + g.est_cost) END AS est_hit_pct,
-               CASE WHEN l.area = 'PGA_TARGET' AND g.work + g.cur_cost > 0
+               CASE WHEN z.area = 'PGA_TARGET' AND g.work + g.cur_cost > 0
                     THEN 100 * g.work / (g.work + g.cur_cost) END AS cur_hit_pct,
-               CASE WHEN l.area <> 'PGA_TARGET' AND g.dbtime_sec > 0
-                    THEN 100 * g.gain_sec / g.dbtime_sec END      AS gain_dbtime_pct,
-               MAX(CASE WHEN l.size_bytes = l.current_bytes THEN NVL(g.cover_hours, 0) END)
-                   OVER (PARTITION BY l.dbid, l.instance_number, l.area) AS cur_cover_hours
-        FROM   latest l
+               CASE WHEN z.area <> 'PGA_TARGET' AND g.dbtime_sec > 0
+                    THEN 100 * g.gain_sec / g.dbtime_sec END      AS gain_dbtime_pct
+        FROM   sizes z
+        JOIN   ref r
+          ON   r.dbid = z.dbid AND r.instance_number = z.instance_number
+         AND   r.area = z.area
         LEFT   JOIN agg g
-          ON   g.dbid = l.dbid AND g.instance_number = l.instance_number
-         AND   g.area = l.area AND g.size_bytes = l.size_bytes
+          ON   g.dbid = z.dbid AND g.instance_number = z.instance_number
+         AND   g.area = z.area AND g.size_bytes = z.size_bytes
      ),
      graded AS (
         SELECT c.*,
@@ -467,10 +515,10 @@ SELECT g.dbid,
        g.current_bytes,
        CAST(CASE WHEN g.size_bytes = g.current_bytes THEN 'Y' ELSE 'N' END AS VARCHAR2(1)) AS is_current,
        CAST(CASE WHEN g.size_bytes <> g.current_bytes
+                  AND g.size_bytes <> g.reference_bytes
                   AND g.size_bytes BETWEEN g.current_bytes / cfg.mem_max_step
                                        AND g.current_bytes * cfg.mem_max_step
-                  AND g.cover_hours     >= cfg.mem_min_uptime_hours
-                  AND g.cur_cover_hours >= cfg.mem_min_uptime_hours
+                  AND g.cover_hours >= cfg.mem_min_uptime_hours
                   AND g.gain IS NOT NULL
                  THEN 'Y' ELSE 'N' END AS VARCHAR2(1))                                     AS is_candidate,
        g.cover_hours,
@@ -485,7 +533,10 @@ SELECT g.dbid,
             AS VARCHAR2(10))                    AS gain_unit,
        g.est_hit_pct,
        g.cur_hit_pct,
-       g.overalloc
+       g.overalloc,
+       g.reference_bytes,
+       CAST(CASE WHEN g.reference_bytes <> g.current_bytes THEN 'Y' ELSE 'N' END
+            AS VARCHAR2(1))                     AS reference_fallback
 FROM   graded g
 CROSS  JOIN cap_cfg cfg;
 
@@ -601,17 +652,25 @@ LEFT   JOIN over_days o ON o.dbid = l.dbid AND o.instance_number = l.instance_nu
 --   points for PGA_TARGET, percent of DB time for the others).
 --   n_adv_snaps    window snapshots that carry the advisor at all (0 =
 --                  not collected).
---   current_bytes / cover_hours / n_days  the current size's CAPM_ADVICE row.
---   advisor_thin   Y when cover_hours < mem_min_uptime_hours: an advisor
---                  that is off, an instance that keeps restarting, a pool
---                  that has only just reached its size. No candidates then.
+--   current_bytes  the advisor's current (factor 1) size.
+--   reference_bytes / reference_fallback  CAPM_ADVICE's: the size the gains
+--                  and losses below are measured against, and Y when it is
+--                  not the current size.
+--   cover_hours / n_days  the reference size's CAPM_ADVICE row, the current
+--                  size's when there is no reference.
+--   advisor_thin   Y when there is no reference size: an advisor that is
+--                  off, an instance that keeps restarting, a pool that has
+--                  only just reached its size with no advised size near it
+--                  that has the history. No candidates then.
+--   Larger and smaller mean larger and smaller than current_bytes, under a
+--   fallback reference too.
 --   best_gain / best_bytes  the largest gain among the larger candidates and
 --                  the smallest size that reaches it.
 --   grow_bytes     the suggestion when the area is UNDERSIZED: the smallest
 --                  larger candidate whose gain is at least mem_knee_pct
 --                  percent of best_gain. PGA_TARGET: and at least the
 --                  smallest larger candidate without over-allocation
---                  increments; when the current size over-allocates and no
+--                  increments; when the reference size over-allocates and no
 --                  candidate inside the step cap ends it, the largest one.
 --   slack_bytes / slack_loss  the smallest smaller candidate whose loss is
 --                  within the shrink knob (PGA_TARGET: and without
@@ -620,7 +679,7 @@ LEFT   JOIN over_days o ON o.dbid = l.dbid AND o.instance_number = l.instance_nu
 --   near_bytes / near_loss  the nearest smaller candidate and its loss,
 --                  shown when no candidate qualifies as slack.
 --   cur_overalloc  PGA_TARGET: the advisor's over-allocation increments at
---                  the current size, NULL while the advisor is thin.
+--                  the reference size, NULL while the advisor is thin.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capm_area AS
 WITH def AS (
@@ -647,7 +706,9 @@ WITH def AS (
         GROUP  BY a.dbid, a.instance_number, a.area
      ),
      c AS (
-        SELECT v.dbid, v.instance_number, v.area, v.size_bytes, v.current_bytes, v.is_current,
+        SELECT v.dbid, v.instance_number, v.area, v.size_bytes, v.current_bytes,
+               v.reference_bytes, v.reference_fallback,
+               CASE WHEN v.size_bytes = NVL(v.reference_bytes, v.current_bytes) THEN 'Y' END AS is_ref,
                v.cover_hours, v.n_days, v.gain, v.overalloc,
                d.shrink_thr, d.mem_knee_pct,
                CASE WHEN v.is_candidate = 'Y' AND v.size_bytes > v.current_bytes THEN 'UP'
@@ -670,9 +731,11 @@ WITH def AS (
      f AS (
         SELECT dbid, instance_number, area,
                MAX(current_bytes)                                           AS current_bytes,
-               MAX(CASE WHEN is_current = 'Y' THEN cover_hours END)         AS cover_hours,
-               MAX(CASE WHEN is_current = 'Y' THEN n_days END)              AS n_days,
-               MAX(CASE WHEN is_current = 'Y' THEN overalloc END)           AS cur_overalloc,
+               MAX(reference_bytes)                                         AS reference_bytes,
+               MAX(reference_fallback)                                      AS reference_fallback,
+               MAX(CASE WHEN is_ref = 'Y' THEN cover_hours END)             AS cover_hours,
+               MAX(CASE WHEN is_ref = 'Y' THEN n_days END)                  AS n_days,
+               MAX(CASE WHEN is_ref = 'Y' THEN overalloc END)               AS cur_overalloc,
                MAX(best_gain)                                               AS best_gain,
                MIN(CASE WHEN side = 'UP' AND gain = best_gain THEN size_bytes END) AS best_bytes,
                MIN(CASE WHEN side = 'UP' AND best_gain > 0
@@ -698,7 +761,7 @@ SELECT i.dbid,
        f.current_bytes,
        NVL(f.cover_hours, 0)                    AS cover_hours,
        NVL(f.n_days, 0)                         AS n_days,
-       CAST(CASE WHEN NVL(f.cover_hours, 0) < d.mem_min_uptime_hours THEN 'Y' ELSE 'N' END
+       CAST(CASE WHEN f.reference_bytes IS NULL THEN 'Y' ELSE 'N' END
             AS VARCHAR2(1))                     AS advisor_thin,
        f.best_gain,
        f.best_bytes,
@@ -709,7 +772,7 @@ SELECT i.dbid,
        f.slack_loss,
        f.near_bytes,
        f.near_loss,
-       CASE WHEN NVL(f.cover_hours, 0) >= d.mem_min_uptime_hours THEN f.cur_overalloc END AS cur_overalloc,
+       CASE WHEN f.reference_bytes IS NOT NULL THEN f.cur_overalloc END AS cur_overalloc,
        d.gain_thr,
        d.shrink_thr,
        CAST(d.gain_unit AS VARCHAR2(10))        AS gain_unit,
@@ -718,7 +781,9 @@ SELECT i.dbid,
        CAST(d.advisor_name AS VARCHAR2(20))     AS advisor_name,
        i.sga_bytes,
        i.pga_target_bytes,
-       i.host_ram_bytes
+       i.host_ram_bytes,
+       f.reference_bytes,
+       CAST(NVL(f.reference_fallback, 'N') AS VARCHAR2(1)) AS reference_fallback
 FROM   capm_inst i
 CROSS  JOIN def d
 LEFT   JOIN f   ON f.dbid = i.dbid AND f.instance_number = i.instance_number AND f.area = d.area
@@ -746,7 +811,14 @@ LEFT   JOIN src s ON s.dbid = i.dbid AND s.instance_number = i.instance_number A
 --   sga_forced_grows    intervals in which any component did.
 --   *_at                when that last happened.
 --   cache_bytes / shpool_bytes          the pools at their latest window
---                       snapshot. *_max_bytes: their largest size in it.
+--                       snapshot. *_max_bytes / *_min_bytes: their largest
+--                       and smallest size in it.
+--   shift_bytes / shift_pct / shift_pool  the larger of the two pools'
+--                       losses from its window peak (largest size minus
+--                       latest size), that loss as a percentage of
+--                       sga_target, and the pool that lost it (the buffer
+--                       cache on a tie, NULL when neither is below its
+--                       peak). Reversals miss a pool squeezed one way.
 --   floor_pool / floor_bytes / floor_param  the pool with the most growing
 --                       intervals (the shared pool on a tie), the largest
 --                       size it reached in the window and its parameter:
@@ -806,7 +878,10 @@ WITH mc AS (
                COUNT(CASE WHEN net > 0 AND last_oper_mode = 'IMMEDIATE' THEN 1 END) AS n_forced,
                COUNT(CASE WHEN ops > 0 AND net = 0 THEN 1 END)                     AS n_flat_ops,
                MAX(current_size)                                                   AS max_bytes,
+               MIN(current_size)                                                   AS min_bytes,
                MAX(current_size) KEEP (DENSE_RANK LAST ORDER BY snap_id)           AS now_bytes,
+               MAX(current_size)
+               - MAX(current_size) KEEP (DENSE_RANK LAST ORDER BY snap_id)         AS drop_bytes,
                MAX(CASE WHEN net > 0 THEN end_time END)                            AS grow_at,
                MAX(CASE WHEN net > 0 AND last_oper_mode = 'IMMEDIATE' THEN end_time END) AS forced_at
         FROM   iv
@@ -820,10 +895,14 @@ WITH mc AS (
                MAX(CASE WHEN component = 'DEFAULT buffer cache' THEN grow_at END)   AS cache_grow_at,
                MAX(CASE WHEN component = 'DEFAULT buffer cache' THEN now_bytes END) AS cache_bytes,
                MAX(CASE WHEN component = 'DEFAULT buffer cache' THEN max_bytes END) AS cache_max_bytes,
+               MAX(CASE WHEN component = 'DEFAULT buffer cache' THEN min_bytes END) AS cache_min_bytes,
                MAX(CASE WHEN component = 'shared pool' THEN n_forced END)           AS shpool_forced_grows,
                MAX(CASE WHEN component = 'shared pool' THEN forced_at END)          AS shpool_forced_at,
                MAX(CASE WHEN component = 'shared pool' THEN now_bytes END)          AS shpool_bytes,
                MAX(CASE WHEN component = 'shared pool' THEN max_bytes END)          AS shpool_max_bytes,
+               MAX(CASE WHEN component = 'shared pool' THEN min_bytes END)          AS shpool_min_bytes,
+               MAX(drop_bytes)                                                      AS shift_bytes,
+               MIN(component) KEEP (DENSE_RANK LAST ORDER BY drop_bytes)            AS shift_pool,
                MAX(n_grows)                                                         AS floor_grows,
                MAX(component) KEEP (DENSE_RANK LAST ORDER BY n_grows, component)    AS floor_pool,
                MAX(max_bytes) KEEP (DENSE_RANK LAST ORDER BY n_grows, component)    AS floor_bytes
@@ -855,7 +934,12 @@ SELECT i.dbid,
        CASE WHEN p.floor_grows > 0 THEN p.floor_bytes END                       AS floor_bytes,
        CAST(CASE WHEN p.floor_grows > 0
                  THEN DECODE(p.floor_pool, 'shared pool', 'shared_pool_size', 'db_cache_size')
-            END AS VARCHAR2(30))                AS floor_param
+            END AS VARCHAR2(30))                AS floor_param,
+       p.cache_min_bytes,
+       p.shpool_min_bytes,
+       p.shift_bytes,
+       100 * p.shift_bytes / NULLIF(i.sga_target_bytes, 0) AS shift_pct,
+       CAST(CASE WHEN p.shift_bytes > 0 THEN p.shift_pool END AS VARCHAR2(64)) AS shift_pool
 FROM   capm_inst i
 LEFT   JOIN tot t ON t.dbid = i.dbid AND t.instance_number = i.instance_number
 LEFT   JOIN pv  p ON p.dbid = i.dbid AND p.instance_number = i.instance_number
@@ -890,6 +974,10 @@ LEFT   JOIN rev r ON r.dbid = i.dbid AND r.instance_number = i.instance_number;
 --   <sig>_ADV_SHRINK_LOSS_DBTIME_PCT / PGA_ADV_SHRINK_LOSS_PTS   the loss at
 --       slack_bytes, SLACK; without one the loss at near_bytes, NEUTRAL.
 --   PGA_ADV_OVERALLOC     cur_overalloc; PRESSURE at 1 or more.
+-- Under a fallback reference (CAPM_AREA.reference_fallback = Y) each of
+-- these sentences names the reference size in place of "the current" one
+-- and says which size is current, every size in whole MiB (the sizes are
+-- within a few percent of each other).
 --
 -- SYMPTOM rows from window sums of CAPM_DELTA (every startup counts). Each
 -- is a row of sig with its terms in term: value = 100 x sum(N terms) /
@@ -908,8 +996,10 @@ LEFT   JOIN rev r ON r.dbid = i.dbid AND r.instance_number = i.instance_number;
 -- Each is PRESSURE at or above its knob (a COUNT at 1 or more).
 --
 -- Rows from CAPM_SGA_BALANCE: CACHE_GROWS, SHPOOL_FORCED_GROWS and
--- SGA_FORCED_GROWS (SYMPTOM, PRESSURE at 1 or more), SGA_RESIZE_OPS_DAY and
--- SGA_RESIZE_REVERSALS (area SGA_BALANCE, PRESSURE at their knobs).
+-- SGA_FORCED_GROWS (SYMPTOM, PRESSURE at 1 or more), SGA_RESIZE_OPS_DAY,
+-- SGA_RESIZE_REVERSALS and SGA_POOL_SHIFT_PCT (area SGA_BALANCE, PRESSURE
+-- at their knobs; the shift only while sga_target is known and above zero).
+-- The shift sentence gives its four sizes in one unit, GiB when all reach 1.
 -- SGA_POOLS_PRESSED counts the areas BUFFER_CACHE and SHARED_POOL that have
 -- a SYMPTOM row in PRESSURE; PRESSURE at 2.
 --
@@ -951,19 +1041,32 @@ WITH lim AS (
      ),
      ar AS (
         SELECT a.*,
-               CASE WHEN a.current_bytes >= 1073741824
+               CASE WHEN a.reference_fallback = 'N' AND a.current_bytes >= 1073741824
                     THEN TO_CHAR(a.current_bytes / 1073741824, 'FM999999990.00', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' GiB'
                     ELSE TO_CHAR(a.current_bytes / 1048576, 'FM999999990', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' MiB'
                END AS cur_txt,
-               CASE WHEN a.best_bytes >= 1073741824
+               CASE WHEN a.reference_fallback = 'N' AND a.best_bytes >= 1073741824
                     THEN TO_CHAR(a.best_bytes / 1073741824, 'FM999999990.00', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' GiB'
                     ELSE TO_CHAR(a.best_bytes / 1048576, 'FM999999990', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' MiB'
                END AS best_txt,
-               CASE WHEN NVL(a.slack_bytes, a.near_bytes) >= 1073741824
+               CASE WHEN a.reference_fallback = 'N' AND NVL(a.slack_bytes, a.near_bytes) >= 1073741824
                     THEN TO_CHAR(NVL(a.slack_bytes, a.near_bytes) / 1073741824, 'FM999999990.00', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' GiB'
                     ELSE TO_CHAR(NVL(a.slack_bytes, a.near_bytes) / 1048576, 'FM999999990', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' MiB'
-               END AS small_txt
+               END AS small_txt,
+               CASE WHEN a.reference_fallback = 'N' AND a.reference_bytes >= 1073741824
+                    THEN TO_CHAR(a.reference_bytes / 1073741824, 'FM999999990.00', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' GiB'
+                    ELSE TO_CHAR(a.reference_bytes / 1048576, 'FM999999990', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' MiB'
+               END AS ref_txt
         FROM   capm_area a
+     ),
+     art AS (
+        SELECT ar.*,
+               CASE WHEN ar.reference_fallback = 'Y'
+                    THEN ar.ref_txt || ', the advised size with enough history nearest to the current '
+                         || ar.cur_txt
+                    ELSE 'the current ' || ar.cur_txt END AS at_txt,
+               CASE WHEN ar.reference_fallback = 'Y' THEN ', measured against ' ELSE ' against ' END AS against
+        FROM   ar
      ),
      adv_ev AS (
         SELECT a.dbid, a.instance_number, a.area,
@@ -988,14 +1091,14 @@ WITH lim AS (
                     THEN 'The PGA advisor estimates a cache hit ' || CASE k.n WHEN 1 THEN 'gain' ELSE 'loss' END || ' of '
                     ELSE 'The ' || a.advisor_name || ' advisor estimates '
                END AS lead,
-               CASE WHEN k.n = 3 THEN ' over-allocations in the window at the current ' || a.cur_txt
+               CASE WHEN k.n = 3 THEN ' over-allocations in the window at ' || a.at_txt
                     ELSE CASE WHEN a.gain_unit = 'PTS' THEN ' points at '
                               WHEN k.n = 1 THEN '% of DB time saved at '
                               ELSE '% of DB time lost at ' END
                          || CASE k.n WHEN 1 THEN a.best_txt ELSE a.small_txt END
-                         || ' against the current ' || a.cur_txt
+                         || a.against || a.at_txt
                END AS tail
-        FROM   ar a
+        FROM   art a
         CROSS  JOIN (SELECT LEVEL AS n FROM dual CONNECT BY LEVEL <= 3) k
         WHERE  (k.n = 1 AND a.best_gain IS NOT NULL)
            OR  (k.n = 2 AND NVL(a.slack_loss, a.near_loss) IS NOT NULL)
@@ -1083,32 +1186,74 @@ WITH lim AS (
         WHERE  g.unit = 'COUNT' OR r.d_total > 0
      ),
      bal AS (
-        SELECT b.*, cfg.mem_resize_ops_day, cfg.mem_resize_reversals
+        SELECT b.*, cfg.mem_resize_ops_day, cfg.mem_resize_reversals, cfg.mem_shift_pct,
+               DECODE(b.shift_pool, 'shared pool', 'shared pool', 'buffer cache') AS lost_name,
+               DECODE(b.shift_pool, 'shared pool', 'buffer cache', 'shared pool') AS other_name,
+               DECODE(b.shift_pool, 'shared pool', b.shpool_max_bytes, b.cache_max_bytes) AS lost_max,
+               DECODE(b.shift_pool, 'shared pool', b.shpool_bytes,     b.cache_bytes)     AS lost_now,
+               DECODE(b.shift_pool, 'shared pool', b.cache_min_bytes,  b.shpool_min_bytes) AS other_min,
+               DECODE(b.shift_pool, 'shared pool', b.cache_bytes,      b.shpool_bytes)     AS other_now
         FROM   capm_sga_balance b
         CROSS  JOIN cap_cfg cfg
+     ),
+     balt AS (
+        SELECT b.*,
+               CASE WHEN b.shift_pool IS NULL
+                    THEN 'Neither the buffer cache nor the shared pool is below its largest size of the window, a shift of '
+                    ELSE 'The ' || b.lost_name || ' shrank from its window peak of '
+                         || CASE WHEN b.in_gib = 'Y'
+                    THEN TO_CHAR(b.lost_max / 1073741824, 'FM999999990.00', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' GiB'
+                    ELSE TO_CHAR(b.lost_max / 1048576, 'FM999999990', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' MiB'
+               END
+                         || ' to '
+                         || CASE WHEN b.in_gib = 'Y'
+                    THEN TO_CHAR(b.lost_now / 1073741824, 'FM999999990.00', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' GiB'
+                    ELSE TO_CHAR(b.lost_now / 1048576, 'FM999999990', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' MiB'
+               END
+                         || CASE WHEN b.other_now > b.other_min
+                                 THEN ' while the ' || b.other_name || ' grew from its window low of '
+                                      || CASE WHEN b.in_gib = 'Y'
+                    THEN TO_CHAR(b.other_min / 1073741824, 'FM999999990.00', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' GiB'
+                    ELSE TO_CHAR(b.other_min / 1048576, 'FM999999990', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' MiB'
+               END
+                                      || ' to '
+                                 ELSE ' while the ' || b.other_name || ' is at its window low of ' END
+                         || CASE WHEN b.in_gib = 'Y'
+                    THEN TO_CHAR(b.other_now / 1073741824, 'FM999999990.00', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' GiB'
+                    ELSE TO_CHAR(b.other_now / 1048576, 'FM999999990', 'NLS_NUMERIC_CHARACTERS=''.,''') || ' MiB'
+               END
+                         || ', a shift of '
+               END AS shift_lead
+        FROM  ( SELECT x.*, CASE WHEN LEAST(x.lost_now, x.other_min) >= 1073741824 THEN 'Y' ELSE 'N' END AS in_gib
+                FROM   bal x ) b
      ),
      bal_ev AS (
         SELECT b.dbid, b.instance_number,
                DECODE(k.n, 1, 'BUFFER_CACHE', 2, 'SHARED_POOL', 3, 'SGA_TOTAL', 'SGA_BALANCE') AS area,
                DECODE(k.n, 1, 'CACHE_GROWS', 2, 'SHPOOL_FORCED_GROWS', 3, 'SGA_FORCED_GROWS',
-                           4, 'SGA_RESIZE_OPS_DAY', 'SGA_RESIZE_REVERSALS') AS signal,
+                           4, 'SGA_RESIZE_OPS_DAY', 5, 'SGA_RESIZE_REVERSALS',
+                              'SGA_POOL_SHIFT_PCT') AS signal,
                'SYMPTOM' AS kind,
                DECODE(k.n, 1, b.cache_grows, 2, b.shpool_forced_grows, 3, b.sga_forced_grows,
-                           4, ROUND(b.ops_per_day, 4), b.n_reversals) AS value,
-               DECODE(k.n, 4, 'PER_DAY', 'COUNT') AS unit,
-               DECODE(k.n, 4, b.mem_resize_ops_day, 5, b.mem_resize_reversals, 1) AS threshold,
+                           4, ROUND(b.ops_per_day, 4), 5, b.n_reversals,
+                              ROUND(b.shift_pct, 4)) AS value,
+               DECODE(k.n, 4, 'PER_DAY', 6, 'PCT', 'COUNT') AS unit,
+               DECODE(k.n, 4, b.mem_resize_ops_day, 5, b.mem_resize_reversals,
+                           6, b.mem_shift_pct, 1) AS threshold,
                NVL(DECODE(k.n, 1, b.cache_grow_at, 2, b.shpool_forced_at, 3, b.sga_forced_at),
                    b.window_end) AS observed_at,
                DECODE(k.n, 1, 'The instance grew the buffer cache in ',
                            2, 'The shared pool was grown by force (IMMEDIATE) in ',
                            3, 'An SGA component was grown by force (IMMEDIATE) in ',
                            4, 'The SGA components were resized ',
-                              'The buffer cache and the shared pool reversed direction ') AS lead,
+                           5, 'The buffer cache and the shared pool reversed direction ',
+                              b.shift_lead) AS lead,
                DECODE(k.n, 4, ' times per sampled day in the window',
                            5, ' times in the window',
+                           6, '% of sga_target',
                               ' snapshot intervals of the window') AS tail
-        FROM   bal b
-        CROSS  JOIN (SELECT LEVEL AS n FROM dual CONNECT BY LEVEL <= 5) k
+        FROM   balt b
+        CROSS  JOIN (SELECT LEVEL AS n FROM dual CONNECT BY LEVEL <= 6) k
         WHERE  b.n_days > 0
      ),
      measured AS (
@@ -1246,6 +1391,8 @@ FROM   ev e;
 --     thin       the advisor's coverage is under mem_min_uptime_hours
 --     adv_p      an ADVISOR row in PRESSURE     sym_p  a SYMPTOM row in PRESSURE
 --     any_p      a row of any kind in PRESSURE  slack  an ADVISOR row in SLACK
+--     churn_p    SGA_BALANCE: the operations or the reversals row in PRESSURE
+--     shift_p    SGA_BALANCE: the pool shift row in PRESSURE
 --     days_ok    enough sampled days (mem_shrink_min_days; PGA_LIMIT:
 --                mem_min_days)
 --     no_limit   PGA_LIMIT: pga_aggregate_limit is 0
@@ -1260,6 +1407,8 @@ FROM   ev e;
 --                      times the limit; an advisor area CAPM_AREA.grow_bytes.
 --                      OVERSIZED: CAPM_AREA.slack_bytes. THRASHING:
 --                      CAPM_SGA_BALANCE.floor_bytes, a floor for floor_pool.
+--                      DRIFTING: none. The answer to a drift is the SGA_TOTAL
+--                      verdict, or a floor the DBA sets knowingly.
 --   suggested_param    the parameter the suggestion is for. Under ASMM a
 --                      db_cache_size or shared_pool_size is a floor.
 --                      SGA_BALANCE names one only when THRASHING.
@@ -1281,7 +1430,12 @@ WITH ev AS (
                COUNT(CASE WHEN direction = 'PRESSURE' THEN 1 END)                      AS n_pressure,
                COUNT(CASE WHEN direction = 'PRESSURE' AND kind = 'ADVISOR' THEN 1 END) AS n_adv_pressure,
                COUNT(CASE WHEN direction = 'PRESSURE' AND kind = 'SYMPTOM' THEN 1 END) AS n_sym_pressure,
-               COUNT(CASE WHEN direction = 'SLACK' AND kind = 'ADVISOR' THEN 1 END)    AS n_adv_slack
+               COUNT(CASE WHEN direction = 'SLACK' AND kind = 'ADVISOR' THEN 1 END)    AS n_adv_slack,
+               COUNT(CASE WHEN direction = 'PRESSURE'
+                           AND signal IN ('SGA_RESIZE_OPS_DAY', 'SGA_RESIZE_REVERSALS')
+                          THEN 1 END)                                                  AS n_churn_pressure,
+               COUNT(CASE WHEN direction = 'PRESSURE' AND signal = 'SGA_POOL_SHIFT_PCT'
+                          THEN 1 END)                                                  AS n_shift_pressure
         FROM   capm_evidence
         GROUP  BY dbid, instance_number, area
      ),
@@ -1332,28 +1486,30 @@ WITH ev AS (
                CAST(NULL AS VARCHAR2(1)) AS thin, CAST(NULL AS VARCHAR2(1)) AS adv_p,
                CAST(NULL AS VARCHAR2(1)) AS sym_p, CAST(NULL AS VARCHAR2(1)) AS any_p,
                CAST(NULL AS VARCHAR2(1)) AS slack, CAST(NULL AS VARCHAR2(1)) AS days_ok,
-               CAST(NULL AS VARCHAR2(1)) AS no_limit FROM dual
-        --                           cls        n   grade                    reason                 coll  amm   man   thin  advp  symp  anyp  slack days  nolim
-        UNION ALL SELECT 'ADVISOR',  2, 'INSUFFICIENT_EVIDENCE', 'AMM',                 NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'ADVISOR',  3, 'INSUFFICIENT_EVIDENCE', 'MANUAL_SIZING',       NULL, NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'ADVISOR',  4, 'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN',        NULL, NULL, NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'ADVISOR',  5, 'UNDERSIZED',            'ADVISOR_AND_SYMPTOM', NULL, NULL, NULL, NULL, 'Y',  'Y',  NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'ADVISOR',  6, 'OK',                    'ADVISOR_ONLY',        NULL, NULL, NULL, NULL, 'Y',  NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'ADVISOR',  7, 'OK',                    'SYMPTOM_ONLY',        NULL, NULL, NULL, NULL, NULL, 'Y',  NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'ADVISOR',  8, 'OVERSIZED',             'SHRINK_COSTS_LITTLE', NULL, NULL, NULL, NULL, NULL, NULL, 'N',  'Y',  'Y',  NULL FROM dual
-        UNION ALL SELECT 'ADVISOR',  9, 'OK',                    'SHRINK_UNPROVEN',     NULL, NULL, NULL, NULL, NULL, NULL, 'N',  'Y',  NULL, NULL FROM dual
-        UNION ALL SELECT 'ADVISOR', 10, 'OK',                    'SIZED_RIGHT',         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'BALANCE',  1, 'INSUFFICIENT_EVIDENCE', 'NOT_COLLECTED',       'N',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'BALANCE',  2, 'INSUFFICIENT_EVIDENCE', 'AMM',                 NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'BALANCE',  3, 'INSUFFICIENT_EVIDENCE', 'MANUAL_SIZING',       NULL, NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'BALANCE',  4, 'THRASHING',             'RESIZE_CHURN',        NULL, NULL, NULL, NULL, NULL, NULL, 'Y',  NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'BALANCE',  5, 'OK',                    'STABLE',              NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'LIMIT',    1, 'INSUFFICIENT_EVIDENCE', 'NOT_COLLECTED',       'N',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'LIMIT',    2, 'INSUFFICIENT_EVIDENCE', 'AMM',                 NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'LIMIT',    3, 'OK',                    'NO_LIMIT',            NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Y'  FROM dual
-        UNION ALL SELECT 'LIMIT',    4, 'UNDERSIZED',            'PEAK_NEAR_LIMIT',     NULL, NULL, NULL, NULL, NULL, NULL, 'Y',  NULL, NULL, NULL FROM dual
-        UNION ALL SELECT 'LIMIT',    5, 'INSUFFICIENT_EVIDENCE', 'WINDOW_TOO_SHORT',    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'N',  NULL FROM dual
-        UNION ALL SELECT 'LIMIT',    6, 'OK',                    'PEAK_BELOW_LIMIT',    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+               CAST(NULL AS VARCHAR2(1)) AS no_limit, CAST(NULL AS VARCHAR2(1)) AS churn_p,
+               CAST(NULL AS VARCHAR2(1)) AS shift_p FROM dual
+        --                           cls        n   grade                    reason                 coll  amm   man   thin  advp  symp  anyp  slack days  nolim churn shift
+        UNION ALL SELECT 'ADVISOR',  2, 'INSUFFICIENT_EVIDENCE', 'AMM',                 NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'ADVISOR',  3, 'INSUFFICIENT_EVIDENCE', 'MANUAL_SIZING',       NULL, NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'ADVISOR',  4, 'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN',        NULL, NULL, NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'ADVISOR',  5, 'UNDERSIZED',            'ADVISOR_AND_SYMPTOM', NULL, NULL, NULL, NULL, 'Y',  'Y',  NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'ADVISOR',  6, 'OK',                    'ADVISOR_ONLY',        NULL, NULL, NULL, NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'ADVISOR',  7, 'OK',                    'SYMPTOM_ONLY',        NULL, NULL, NULL, NULL, NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'ADVISOR',  8, 'OVERSIZED',             'SHRINK_COSTS_LITTLE', NULL, NULL, NULL, NULL, NULL, NULL, 'N',  'Y',  'Y',  NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'ADVISOR',  9, 'OK',                    'SHRINK_UNPROVEN',     NULL, NULL, NULL, NULL, NULL, NULL, 'N',  'Y',  NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'ADVISOR', 10, 'OK',                    'SIZED_RIGHT',         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'BALANCE',  1, 'INSUFFICIENT_EVIDENCE', 'NOT_COLLECTED',       'N',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'BALANCE',  2, 'INSUFFICIENT_EVIDENCE', 'AMM',                 NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'BALANCE',  3, 'INSUFFICIENT_EVIDENCE', 'MANUAL_SIZING',       NULL, NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'BALANCE',  4, 'THRASHING',             'RESIZE_CHURN',        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Y',  NULL FROM dual
+        UNION ALL SELECT 'BALANCE',  5, 'DRIFTING',              'ONE_WAY_SHIFT',       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Y'  FROM dual
+        UNION ALL SELECT 'BALANCE',  6, 'OK',                    'STABLE',              NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'LIMIT',    1, 'INSUFFICIENT_EVIDENCE', 'NOT_COLLECTED',       'N',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'LIMIT',    2, 'INSUFFICIENT_EVIDENCE', 'AMM',                 NULL, 'Y',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'LIMIT',    3, 'OK',                    'NO_LIMIT',            NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Y',  NULL, NULL FROM dual
+        UNION ALL SELECT 'LIMIT',    4, 'UNDERSIZED',            'PEAK_NEAR_LIMIT',     NULL, NULL, NULL, NULL, NULL, NULL, 'Y',  NULL, NULL, NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'LIMIT',    5, 'INSUFFICIENT_EVIDENCE', 'WINDOW_TOO_SHORT',    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'N',  NULL, NULL, NULL FROM dual
+        UNION ALL SELECT 'LIMIT',    6, 'OK',                    'PEAK_BELOW_LIMIT',    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dual
      ),
      flagged AS (
         SELECT f.*,
@@ -1363,7 +1519,9 @@ WITH ev AS (
                CASE WHEN e.n_adv_pressure > 0       THEN 'Y' ELSE 'N' END AS adv_p,
                CASE WHEN e.n_sym_pressure > 0       THEN 'Y' ELSE 'N' END AS sym_p,
                CASE WHEN e.n_pressure > 0           THEN 'Y' ELSE 'N' END AS any_p,
-               CASE WHEN e.n_adv_slack > 0          THEN 'Y' ELSE 'N' END AS slack
+               CASE WHEN e.n_adv_slack > 0          THEN 'Y' ELSE 'N' END AS slack,
+               CASE WHEN e.n_churn_pressure > 0     THEN 'Y' ELSE 'N' END AS churn_p,
+               CASE WHEN e.n_shift_pressure > 0     THEN 'Y' ELSE 'N' END AS shift_p
         FROM   fact f
         LEFT   JOIN ev e
           ON   e.dbid = f.dbid AND e.instance_number = f.instance_number
@@ -1385,6 +1543,8 @@ WITH ev AS (
          AND   (r.slack     IS NULL OR r.slack     = f.slack)
          AND   (r.days_ok   IS NULL OR r.days_ok   = f.days_ok)
          AND   (r.no_limit  IS NULL OR r.no_limit  = f.no_limit)
+         AND   (r.churn_p   IS NULL OR r.churn_p   = f.churn_p)
+         AND   (r.shift_p   IS NULL OR r.shift_p   = f.shift_p)
      ),
      v AS (
         SELECT d.*,
