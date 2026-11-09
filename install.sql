@@ -223,22 +223,31 @@ END;
 
 PROMPT
 SET DEFINE '&'
--- A fresh repository has no target yet, so its first step is registering one.
+-- A fresh repository has no target yet, so its first step is registering one,
+-- unless target/self.sql ran in this session (the standalone path), whose
+-- repository/self.sql registers this database next.
 -- TERMOUT OFF because a NOPRINT-only SELECT still prints blank lines.
 SET TERMOUT OFF
+COLUMN cap_self_in NEW_VALUE cap_self_name NOPRINT
+SELECT NULL AS cap_self_in FROM dual WHERE 1 = 0;
+COLUMN cap_self_in CLEAR
 COLUMN cap_next1 NEW_VALUE cap_next1 NOPRINT
 COLUMN cap_next2 NEW_VALUE cap_next2 NOPRINT
 COLUMN cap_next3 NEW_VALUE cap_next3 NOPRINT
-SELECT DECODE(m, 'repository',
-              'EXEC cap_repo.add_target(''<NAME>'', ''//<host>:<port>/<service>'', ''C##AWRRDR'', ''<password>'')',
-              'report/report.sql  (text capacity report)') AS cap_next1,
-       DECODE(m, 'repository',
-              'EXEC cap_repo.collect  (copies AWR from every enabled target)',
-              'cap_forecast_ml.train_all  (optional Tier 2 ESM models)') AS cap_next2,
-       DECODE(m, 'repository',
-              'then report/report.sql, cap_forecast_ml.train_all, cap_results.refresh as usual',
-              'cap_results.refresh  (optional run history + alert state)') AS cap_next3
-FROM   (SELECT LOWER('&&deploy_mode') AS m FROM dual);
+SELECT CASE WHEN m = 'repository' AND s IS NOT NULL
+            THEN 'repository/self.sql  (registers this database as target ' || s || ')'
+            WHEN m = 'repository'
+            THEN 'EXEC cap_repo.add_target(''<NAME>'', ''//<host>:<port>/<service>'', ''C##AWRRDR'', ''<password>'')'
+            ELSE 'report/report.sql  (text capacity report)' END AS cap_next1,
+       CASE WHEN m = 'repository' AND s IS NOT NULL
+            THEN 'EXEC cap_repo.collect  (repository/self.sql runs it too)'
+            WHEN m = 'repository'
+            THEN 'EXEC cap_repo.collect  (copies AWR from every enabled target)'
+            ELSE 'cap_forecast_ml.train_all  (optional Tier 2 ESM models)' END AS cap_next2,
+       CASE WHEN m = 'repository'
+            THEN 'then report/report.sql, cap_forecast_ml.train_all, cap_results.refresh as usual'
+            ELSE 'cap_results.refresh  (optional run history + alert state)' END AS cap_next3
+FROM   (SELECT LOWER('&&deploy_mode') AS m, '&cap_self_name' AS s FROM dual);
 COLUMN cap_next1 CLEAR
 COLUMN cap_next2 CLEAR
 COLUMN cap_next3 CLEAR

@@ -928,7 +928,7 @@ Decided 2026-11-09:
       (C##CAPLOC kept its seam and packages VALID, snapshot tables partly
       built). So CDB1 was re-registered in CAPX2 by hand, as the lever does,
       and the seams compared with `--no-install`.
-- [ ] **M25.2 "Measure one database" in one run.** install.sh role
+- [x] **M25.2 "Measure one database" in one run.** install.sh role
       `standalone` (and quickstart.sql / .sh) runs as SYSDBA in CDB$ROOT,
       in this order: target/prepare.sql (the reader gets a random password,
       never printed); target/check.sql as the gate; pick the PDB (the one
@@ -943,6 +943,29 @@ Decided 2026-11-09:
       fresh standalone into a throwaway PDB1 owner and `quickstart.sh` both
       end with a report and 0 FAIL, twice in a row; with two open PDBs and
       no `CONTAINER`, both stop before any change.
+      Done 2026-11-09: two scripts carry it. `target/self.sql` (root side)
+      refuses a non-SYSDBA session, a PDB session and an ambiguous PDB
+      before it changes anything, derives the target name (DB_UNIQUE_NAME),
+      the loopback address and the global name, generates the password
+      into the bind `:cap_self_pw` (it survives the PL/SQL container
+      switch at the end), and runs prepare.sql and check.sql.
+      `repository/self.sql` (in the owner, after install.sql) calls
+      add_target, or set_link_password when the target exists with the
+      same reader and address, and collects. install.sh's standalone is
+      now deploy_mode repository, forces INTO=schema, keeps READER, adds
+      SELF_CONNECT and with JOBS_ENABLE turns on CAP_COLLECT_JOB too.
+      quickstart.sh passes `CAP_OWNER` / `CAP_READER` / `CAP_CONTAINER` /
+      `CAP_SELF_CONNECT` as DEFINEs. On dbmint (owners CAPM3, CAPM4,
+      reader C##AWRM25): standalone and quickstart.sh each ran twice to a
+      report with 0 FAIL; the first run copied 164,845 rows in 1.3 s over
+      `//localhost:1521/cdb1.world`, the second refreshed the link and found
+      nothing to copy; the copy check on CAPM3 was EQUAL; the password
+      pattern appears in no log. The `--dry-run` drivers of target,
+      repository, fixture-test and demo are byte-identical to before. The
+      two-PDB stop was exercised only by a copy of the check that also
+      counts PDB$SEED (dbmint has one PDB). A re-run's doctor WARNs
+      ORA-01017 on the link, because it runs between the password reset
+      and set_link_password.
 - [x] **M25.3 GLOBAL_NAMES** (only if M25.0a fails). target/prepare.sql
       prints the target's global name, and the standalone path reads its
       own. add_target takes the global name and, on ORA-02085, creates
