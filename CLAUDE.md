@@ -17,17 +17,20 @@ for making changes safely.
   the `CAP_H_*` copies, and runs only SELECTs on a target (plus one
   `dbms_application_info.set_module@link` that labels its session there).
   Preserve this.
-- **All analytics go through the `CAPV_*` seam.** Never reference `DBA_HIST_*`
-  outside `ddl/10_seam_local.sql`, except the repository's reads over a
-  target's link: the pull statements `repository/build.py` generates into
-  `CAP_REPO_SOURCE` and `cap_repo`'s probe / DBID discovery. That is what
-  keeps local / repository / fixture modes byte-identical downstream.
-  `standalone/` is outside the suite: no install, one SELECT over
-  `DBA_HIST_*` that re-derives the Tier 1 logic with the knob defaults
-  inlined. Mirror a change to ddl/20 / ddl/30's tablespace fit there.
+- **All analytics go through the `CAPV_*` seam.** Code names `DBA_HIST_*`
+  only under `repository/` (`seam.sql`, the seam template build.py renames
+  into ddl/13; the pull statements build.py generates into `CAP_REPO_SOURCE`;
+  `cap_repo`'s probe, DBID discovery and `reader_expiry`) and `target/` (the
+  reader's grants and checks), plus test/ and bench/.
+  `test/lint_dba_hist.sh` enforces it. That is what keeps repository and
+  fixture modes byte-identical downstream.
+  `standalone/` is outside the suite and its seam: one SELECT over
+  `DBA_HIST_*` for a database with nothing installed, re-deriving the Tier 1
+  tablespace fit with the knob defaults inlined. Mirror a change to the
+  ddl/20 / ddl/30 tablespace fit there.
 - **Every seam source read carries the session scope (M24.11).** Each
-  `FROM dba_hist_x` / `cap_fixture_x` in ddl/10 and ddl/12 (and ddl/13,
-  generated) keeps `dbid = NVL((SELECT scope_dbid FROM cap_scope), dbid)`:
+  `FROM dba_hist_x` / `cap_fixture_x` in repository/seam.sql and ddl/12 (and
+  ddl/13, generated) keeps `dbid = NVL((SELECT scope_dbid FROM cap_scope), dbid)`:
   both sides of a join, each UNION branch, each NOT EXISTS subquery (an
   anti-join scans its table whole otherwise). `CAP_SCOPE` (ddl/05, one row)
   parses CLIENT_INFO `AWRCAP dbid=<n>`, which `report/scope.sql` sets and
@@ -59,8 +62,11 @@ for making changes safely.
   (repository/cap_repo.sql) and the `CAP_H_*` copies (ddl/13), which cannot
   be re-pulled once a target's AWR has aged out. Each is created
   idempotently, NOT dropped by `ddl/00_drop.sql`, dropped only by
-  `uninstall.sql` (which first drops the links `add_target` made, through a
-  throwaway definer's-rights procedure: only the owner can drop them). `CAP_TBSPC_OVERRIDE` holds operator-set tablespace
+  `uninstall.sql` (which first spools the knobs off their default and the
+  override rows to `reports/cap_config_replay_<schema>_<ts>.sql`, to run in
+  the new owner after the next install, M25.6, then drops the links
+  `add_target` made, through a throwaway definer's-rights procedure: only
+  the owner can drop them). `CAP_TBSPC_OVERRIDE` holds operator-set tablespace
   ceilings, exclusions and per-tablespace `dtf_warn` / `dtf_crit` /
   `nearfull_warn_pct` / `nearfull_crit_pct` (NULL = the knob), applied once in
   `CAPD_TBSPC_DAILY`; `dbid`/`con_dbid` `0` are wildcards and the most
@@ -120,9 +126,11 @@ for making changes safely.
 ## Layout / load order
 
 `install.sql` includes, in order: `ddl/00_drop` → `05_config` (CAP_CONFIG,
-CAP_CFG, CAP_CFG_CHECK, CAP_SCOPE, CAP_TBSPC_OVERRIDE) → the seam (`10`/`13`/`12` for
-`deploy_mode` local / repository / fixture: thirteen CAPV_* views +
-CAPV_CONTRACT; `13` also creates the copies and pulls `repository/cap_repo.sql`) → `20_daily` →
+CAP_CFG, CAP_CFG_CHECK, CAP_SCOPE, CAP_TBSPC_OVERRIDE) → the seam (`13`/`12` for
+`deploy_mode` repository / fixture: thirteen CAPV_* views + CAPV_CONTRACT;
+`13`, generated from `repository/seam.sql`, also creates the copies and pulls
+`repository/cap_repo.sql`; the retired `local` aborts before any DDL and
+names the upgrade path, M25) → `20_daily` →
 `25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `35_series_forecast`
 (CAPF_SERIES_FORECAST) → `40_anomaly` → `45_report_views` (CAPR_CONTAINER,
 CAPR_ANOMALIES, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
@@ -147,26 +155,51 @@ valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 (read by `CAPR_ALERTS` in ddl/55), `CAPR_SERIES_ANOMALIES`, `CAPR_HOURLY_POINTS`.
 `CAPA_TBSPC_ANOM` / `CAPA_CPU_ANOM` are gone (still in `00_drop` so an upgrade
 removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
-`test/lint_anom_joins.sh`, `test/lint_appinfo.sh`, `test/lint_dbid_windows.sh`
-and `test/lint_snapshot_reads.sh`, syncs and runs the whole fixture harness on dbmint.
+`test/lint_anom_joins.sh`, `test/lint_appinfo.sh`, `test/lint_dbid_windows.sh`,
+`test/lint_snapshot_reads.sh` and `test/lint_dba_hist.sh` (plus build.py
+--check and the two offline report tests), syncs and runs the whole fixture
+harness on dbmint.
+README.md shows diagrams as `docs/diagrams/readme/*.svg`, standalone copies
+of inline SVGs from the docs pages made by `docs/diagrams/readme_svgs.py`
+(its `DIAGRAMS` map names page and diagram): edit the page's SVG, rerun it.
 `test/docs_lint.sh` checks the docs against the DDL (knobs, object index,
 alert kinds, no assertion counts, no "generated" claim, every `CREATE TABLE`
 in ddl/ + repository/ plus `CAP_H_*` named in reference.html#tables and in
 the "Persisted tables" bullet above, every `profiles/*.env` in
-reference.html#installer and install.sh's `--profile` help, and no token of
-the retired warehouse mode in a tracked file outside PLAN.md and bench/).
+reference.html#installer and install.sh's `--profile` help, no token of
+the retired warehouse mode, none of the retired local mode (its
+deploy_mode value, create_owner's former mode define, ddl/10's old file
+name) outside PLAN.md, bench/ and the allow-listed lines that reject or
+explain it, and README diagrams current).
 `install.sh` is the guided / silent installer for every role (one SQL*Plus
 driver per run, log in `reports/install_<ts>.log`); `profiles/*.env` are its
-answer files: `standalone` (dedicated owner, ML, jobs), `target`,
-`repository`, plus `quickstart`, `demo`, `fixture-test`.
+answer files: `standalone` (this database as its own target: the reader
+and a PDB owner, ML, jobs), `target`, `repository`, plus `quickstart`,
+`demo`, `fixture-test`. Keys `READER` and `SELF_CONNECT` name the reader
+(empty: `C##AWRRDR`, `AWRRDR` in a non-CDB) and the loopback address
+(empty: `//localhost:<local listener port>/<the root's default service>`).
 `docs/start.html` presents "Measure one database" and "Measure a fleet" as
-equal paths; reference.html `#installer` / `#repository` hold the detail.
+two paths of one install (the first is the second with the repository as its
+own target); reference.html `#installer` / `#repository` hold the detail.
+The standalone path is two scripts: `target/self.sql` (SYSDBA in CDB$ROOT or a
+non-CDB: picks the one open PDB or `container`, else stops before any change;
+gives the reader a random password held only in the bind `:cap_self_pw`; runs
+target/prepare.sql + check.sql; ends in the suite's container) and
+`repository/self.sql` (in the owner, once before doctor and once after
+install; dynamic, so before the first install it does nothing: add_target
+over the loopback, or set_link_password when ping fails, then collect).
 Opt-in extras outside install.sql: `create_owner.sql` (run once as SYSDBA:
-a dedicated owner, `C##AWRCAP` in CDB$ROOT or `AWRCAP` in a PDB, with direct
-grants on every DBA_HIST_* view ddl/10 reads; views and the definer's-rights
-packages ignore role grants), `quickstart.sql` / `quickstart.sh` (doctor →
-install local → report/report.sql, in one run; the docs' "Getting started"
-path), `doctor.sql` (preflight), `install_jobs.sql` / `uninstall_jobs.sql`
+a dedicated owner, `AWRCAP` in a PDB (the default home) or a non-CDB,
+`C##AWRCAP` in CDB$ROOT, with direct system grants including CREATE DATABASE
+LINK and no DBA_HIST grant; views and the definer's-rights packages ignore
+role grants; it and uninstall.sql include `revoke_local_grants.sql`, which
+takes back a pre-M25 owner's SELECT on DBA_HIST_* / V_$PARAMETER and its
+CONTAINER_DATA as SYSDBA, or prints the REVOKEs), `quickstart.sql` /
+`quickstart.sh` (SYSDBA only: target/self.sql → create_owner (schema-only
+`AWRCAP`) → repository/self.sql → doctor → install repository →
+repository/self.sql → report/report.sql, in one run; `CAP_OWNER` /
+`CAP_READER` / `CAP_CONTAINER` / `CAP_SELF_CONNECT` override the defaults;
+the docs' "Getting started" path), `doctor.sql` (preflight), `install_jobs.sql` / `uninstall_jobs.sql`
 (DBMS_SCHEDULER, all created disabled: CAP_NIGHTLY_JOB daily 01:00 runs
 procedure `cap_nightly`, the steps PURGE (repository) → RETRAIN → REFRESH →
 SPOOL one after the other in one session, a failed step logged and skipped
@@ -264,6 +297,9 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
 - **Positional args:** `COLUMN 1 NEW_VALUE 1` + a zero-row SELECT defines an
   unpassed `&1` as empty and leaves a passed one intact (verified 19c);
   scripts `UNDEFINE 1 2 3` at the end so a later script doesn't inherit them.
+- **A substitution variable cannot hold a whole command line** (SP2-0734),
+  only its arguments: uninstall.sql runs `SPOOL &cap_replay_spool`, the
+  variable being the replay file's name or `OFF`.
 - **`@@` includes resolve relative to the OUTERMOST caller** on 19c, so run
   `install.sql` / `report/report.sql` from the repo root and use full paths
   (`@@ddl/...`, `@@report/sections/...`).
@@ -279,15 +315,23 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   SESSION SET CURRENT_SCHEMA` still query `ALL_OBJECTS` yourself to prove
   nothing is INVALID. Failures exit via `WHENEVER SQLERROR EXIT FAILURE`
   (`SQL.SQLCODE` exits 0 for codes that are multiples of 256).
-- **doctor.sql** takes the mode from the installed `CAPV_SNAPSHOT`, assumes
-  local before install, or reads `DEFINE cap_doctor_mode = local |
-  repository | fixture` (no prompt when undefined). It probes every
-  DBA_HIST_* view ddl/10 reads and the target schema's direct grants, prints a readiness table
-  (days each feature needs vs days available), suite_version, the fit-quality
-  mix, `CAP_CFG_CHECK`, the results layer and the live `CAPV_CONTRACT` check,
-  and leaves `cap_doctor_fail` (count of FAIL lines, "1" if the block did not
-  finish). `quickstart.sql` sets `cap_doctor_mode = local` and stops before
-  install on a FAIL unless `DEFINE force_install = Y`.
+- **doctor.sql** checks the repository side only and names no DBA_HIST_*
+  view (M25.5): the measured database is `target/check.sql`'s (pack access,
+  STATISTICS_LEVEL, AWR retention / interval, the reader's grants, expiry and
+  CONTAINER_DATA). Its former sections 2, 3, 5 and 6 are gone and the rest
+  keep their numbers (docs and `CAP_CFG_CHECK` cite section 7). It takes the
+  mode from the installed `CAPV_SNAPSHOT`, assumes repository before install,
+  or reads `DEFINE cap_doctor_mode = repository | fixture` (no prompt when
+  undefined; `local` or anything else is ignored with a note; an installed
+  local seam is a WARN naming the upgrade path). It prints the install
+  privileges (CREATE DATABASE LINK included), a readiness table (days each
+  feature needs vs days available), suite_version, the fit-quality mix,
+  `CAP_CFG_CHECK`, the results layer, the live `CAPV_CONTRACT` check and
+  per target (section 11) the link, collect health and the reader's password
+  expiry (`cap_repo.reader_expiry`, WARN inside `reader_expiry_warn_days`,
+  30), and leaves `cap_doctor_fail` (count of FAIL lines, "1" if the block
+  did not finish). `quickstart.sql` stops before install on a FAIL unless
+  `DEFINE force_install = Y`.
 - **Scheduler jobs.** `install_jobs.sql` creates jobs with unqualified names;
   DBMS_SCHEDULER resolves them in `CURRENT_SCHEMA`, so a SYSDBA +
   `CURRENT_SCHEMA` run creates them in the target schema, and the script lists
@@ -465,12 +509,18 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
 
 ## Testing on a 19c test database
 
-Connect where AWR is visible: `sqlplus / as sysdba` in `CDB\$ROOT` (AWR lives
-there for local mode).
+AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
 
-- **Local smoke** (real AWR): install `deploy_mode=local` as sysdba in CDB\$ROOT,
-  run the report. Expect `INSUFFICIENT_HISTORY` everywhere unless retention was
-  raised (default 8 days).
+- **Standalone smoke** (real AWR): `./quickstart.sh` (or `./install.sh
+  --profile standalone`) as SYSDBA in CDB\$ROOT. On dbmint the defaults are
+  taken (`AWRCAP` holds someone's install, `C##AWRRDR` is CAPX2's reader), so
+  pass a throwaway owner and the test reader: `CAP_OWNER=CAPMn
+  CAP_READER=C##AWRM25 ./quickstart.sh` (install.sh: `--set OWNER=CAPMn
+  --set READER=C##AWRM25`). Each run gives the reader a new random password:
+  afterwards rotate it yourself and run `cap_repo.set_link_password` in every
+  CAPM schema with target CDB1 (CAPM1, CAPM3..CAPM6; CAPM2 has none).
+  `INSUFFICIENT_HISTORY` is normal for a feature whose need exceeds the days
+  AWR still held at the first collect.
 - **Fixture harness + ML** need `CREATE TABLE/VIEW/TYPE/PROCEDURE` and (for ML)
   `CREATE MINING MODEL`. `V$*` views are **not** required — the report uses
   `SYS_CONTEXT` for identity. Create a test user in a PDB with those privileges,
@@ -488,16 +538,24 @@ there for local mode).
   `CAPX1`..`CAPX3` and `CAPW1`..`CAPW3` in PDB1 are throwaway schemas for
   parallel runs (one schema per concurrent run; ask before dropping them);
   `CAPDEMO` feeds the lab dashboards and `CAPTEST` is the shared default.
+  `CAPM1`..`CAPM6` (M25) are throwaway repository owners over the test
+  reader `C##AWRM25` (ask before dropping; the throwaway profile
+  `C##M25_EXPIRY` is unused). C##CAPLOC in the root is an empty common user
+  since M25.7 (its local install uninstalled, its grants revoked).
   Shared schemas collide (ORA-04063 / ORA-00942 mid-reinstall).
-- **Parity lever (M24.5):** `test/dbmint_parity.sh <REPO_SCHEMA> <LOCAL_USER>
-  [--seam-only] [--no-install]` prepares cdb1's root as a target (reader
-  `C##AWRRDR`, new random password per run), installs local mode into the
-  common user (`C##CAPLOC`) and repository mode into the PDB1 schema
-  (`CAPX2`), registers the root over a loopback link, collects and diffs
-  `test/parity_fingerprint.sql` output: every `CAPV_*` view cut at the
-  repository's high-water mark, then every `CAPD/CAPF/CAPA/CAPR` view in two
-  parallel sessions (exit 5 = a snapshot landed mid-run, rerun). Logs
-  `/tmp/dbmint_parity.*` locally.
+- **Copy check (M25.1, replaced the M24.5 parity lever):**
+  `test/dbmint_copy_check.sh <REPO_SCHEMA> [TARGET] [--collect] [--plant SRC]`
+  runs the generated `test/repo_copy_check.sql` in PDB1: per target, DBID and
+  source, `source@link` under the manifest's filter MINUS the copy and back,
+  facts over the collected window, dimensions whole (a copy-only dimension
+  row is "kept", not a difference: AWR purges rows the copy keeps),
+  SEG_STAT_OBJ over SEG_STAT's keys. It runs in a throwaway definer's-rights
+  procedure (a private link resolves only for its owner). Exit 0 equal, 1
+  different, 5 a snapshot landed mid-check. `--plant OSSTAT` deletes one copy
+  row uncommitted and passes only when exactly that row is reported. Equal
+  copies under one seam text give equal views; `test/parity_fingerprint.sql`
+  still fingerprints every view of two installs (it skips CAPV_TARGET /
+  CAPR_TARGETS and clock columns).
 - **Scale lever (M24.10):** `test/dbmint_scale.sh CAPX3 <K>`, see
   "Repository mode" below. CAPX3 holds the synthetic targets; CAPX2 must
   have collected cdb1 first (it is the clone source).
@@ -511,32 +569,42 @@ there for local mode).
   stalled two parallel harness runs on a 4 GB dbmint with a 2 GB limit).
   Measured figures live in `docs/reference.html#memory`.
 
-## Repository mode (M24)
+## Repository mode (M24; the only mode since M25)
 
-- **Two deployments.** Standalone = `deploy_mode=local` on the measured
-  database. Target + repository: the target gets only `target/prepare.sql`
-  (a read-only common user, direct SELECT on the seventeen views, nothing
-  else) and the repository runs the suite with `deploy_mode=repository` over
-  `CAP_H_*` copies that `cap_repo.collect` pulls over one DB link per target.
-  `install.sh` asks the role first (standalone / target / repository /
-  fixture); profiles `standalone.env`, `target.env`,
-  `repository.env`. A repository install's closing banner names
-  `cap_repo.add_target` / `collect` as the next step.
+- **Every install is a repository (M25).** A target gets only
+  `target/prepare.sql` (a read-only common user, direct SELECT on the
+  seventeen views, nothing else) and the repository runs the suite with
+  `deploy_mode=repository` over `CAP_H_*` copies that `cap_repo.collect`
+  pulls over one DB link per target. Standalone is the same install with the
+  repository as its own target over a loopback link (target/self.sql +
+  repository/self.sql, owner in the PDB by default). `install.sh` asks the
+  role first (standalone / target / repository / fixture); profiles
+  `standalone.env`, `target.env`, `repository.env`. Why: copies keep
+  `repo_retention_days` (400) even of the repository's own AWR (stock AWR
+  keeps 8 days, ESM needs 120), and one production seam replaces two. Local
+  mode was also broken in CDB$ROOT at the end: since M24.13
+  `build_snap_tables` raised ORA-00600 [KGL-heap-size-exceeded] there
+  (19.27). A pre-M25 local install moves by uninstall (replay file, grants
+  revoked) → standalone into a PDB → replay → collect; its run, fit and
+  alert history and its models do not move. A repository install's closing
+  banner names `cap_repo.add_target` / `collect` as the next step.
 - **`repository/build.py` owns the copy contract.** Its manifest lists each
   source view's copied columns, kind (F fact appended per snap_id window, D
   dimension MERGEd null-safe on its key, S dimension scoped to a fact's
-  chunk: SEG_STAT_OBJ) and row filter (a superset of ddl/10's). It writes
+  chunk: SEG_STAT_OBJ) and row filter (a superset of seam.sql's). It writes
   `ddl/13_seam_repository.sql`: the copy tables (created once, columns only
   ever added), `CAP_REPO_SOURCE` (the finished pull statements) and the seam,
-  which is ddl/10 with `dba_hist_x` renamed `cap_h_x`. Never edit ddl/13;
-  change the manifest or ddl/10 and rerun it. `--check` (also run by both
-  dbmint scripts) fails on a stale ddl/13 or when ddl/10, target/prepare.sql
-  or create_owner.sql name other views than the manifest.
+  which is `repository/seam.sql` (never installed itself; ddl/10 before M25)
+  with `dba_hist_x` renamed `cap_h_x`; and `test/repo_copy_check.sql`. Never
+  edit either; change the manifest or seam.sql and rerun it. `--check` (also
+  run by the dbmint scripts) fails on a stale generated file or when
+  seam.sql or target/prepare.sql name other views than the manifest.
 - **CONTAINER_DATA (verified 19.27).** A common user without `CONTAINER_DATA
   = ALL` that reads `DBA_HIST_*` in CDB$ROOT sees the root's rows only (1
   container instead of 3). The filter follows the querying session, so SYS
   through a view sees everything while the owner's own sessions and jobs do
-  not. `target/prepare.sql` and `create_owner.sql` (local mode) both set it.
+  not. `target/prepare.sql` sets it for the reader; an owner reads copies and
+  needs none (`revoke_local_grants.sql` takes a pre-M25 owner's back).
 - **AWR purges its tables unevenly.** `DBA_HIST_CON_SYSSTAT` kept rows for
   snapshots 2657..2695 after they had left `DBA_HIST_SNAPSHOT` (which shows
   only `status = 0`, completed, snapshots). The collector's window therefore
@@ -545,14 +613,23 @@ there for local mode).
 - **Links.** `cap_repo` is definer's rights, so `CREATE DATABASE LINK` in
   `add_target` creates the link in the suite owner's schema even when SYS
   calls it under `CURRENT_SCHEMA` (needs the privilege granted directly;
-  `create_owner.sql` with `owner_mode = repository`). With a `db_domain`
-  the link is stored as `CAP_<NAME>.<domain>`; the bare name resolves.
+  `create_owner.sql` grants it). With a `db_domain` the link is stored as
+  `CAP_<NAME>.<domain>`; the bare name resolves. Under `GLOBAL_NAMES = TRUE`
+  a link not named after the target's global name fails with ORA-02085
+  (19.27: `CAP_CDB1.WORLD connects to CDB1.WORLD`), while one named
+  `<global_name>@<qualifier>` answers, quoted or not. So `add_target` takes
+  `p_global_name` (target/prepare.sql prints it; target/self.sql passes the
+  root's) and, when the `CAP_<NAME>` probe raises ORA-02085, recreates the
+  link as `<global_name>@CAP_<NAME>`; without it that case is ORA-20074 and
+  no link is left. The qualified name works unquoted in every `@link` use,
+  CLOSE_DATABASE_LINK and DROP. The loopback address: `//localhost:<port of
+  the LOCAL LISTENER in V$LISTENER_NETWORK>/<the root's default service,
+  DB_UNIQUE_NAME[.DB_DOMAIN]>` (dbmint: `//localhost:1521/cdb1.world`).
 - **Fleet identity (M24.6).** `CAPV_TARGET` (one row per target and dbid:
   name, `feed`, AWR host, and in repository mode link, `enabled`, high-water
   mark and collect health from `CAP_COLLECT_LOG` since `added_at`) is in
-  every seam; the repository version is `repository/seam_overrides.sql`,
-  which build.py puts in ddl/13 in place of ddl/10's (`--check` fails on an
-  override ddl/10 lacks), so ddl/13 includes `cap_repo.sql` before the seam.
+  every seam; seam.sql's reads the registry, so ddl/13 includes
+  `cap_repo.sql` before the seam.
   `CAPR_CONTAINER.target_name` (last column) names `db_pdb`; `CAPR_TARGETS`
   adds freshness and `collect_state`. `report/scope.sql` gives all four
   drivers their scope and Database / Host / file stem from it, and resolves a
@@ -590,8 +667,12 @@ there for local mode).
   peak PGA 911 MB) and a SNAPSHOT report takes ~1 s / 10 MB at any fleet
   size; other steps PGA flat at 490-640 MB (reference.html#fleet-size). A report scoped to one target (`--target`)
   costs one target at any fleet size (M24.11, the seam scope above).
-- **RAC** is untested: one high-water mark per DBID, so a snapshot that completes on one
-  instance before another could be copied half; untested.
+- **RAC** is untested. One high-water mark per DBID could copy a snapshot
+  one instance finished and another had not, and facts are copied once, so
+  collect holds back the newest snap_id while it has fewer instances
+  (`COUNT(DISTINCT instance_number)`) than the one before it and copies it
+  on the next run (M25.4; named in the output and CAP_COLLECT_LOG). A single
+  instance keeps exactly the old window.
 
 ## Not yet built (see PLAN.md milestones)
 

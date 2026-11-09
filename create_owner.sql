@@ -1,19 +1,18 @@
 --
 -- create_owner.sql -- create a dedicated schema that owns the suite.
 -- =====================================================================
--- The quickstart installs as SYS. That is fine for a first look, but it puts
--- every CAP* object in the dictionary schema. The production path is a
--- dedicated owner: run this script once as SYSDBA (or a DBA holding CREATE
--- USER, GRANT ANY PRIVILEGE and GRANT ANY OBJECT PRIVILEGE), then install as
--- that owner. Not called by quickstart.sql.
+-- Every install is a repository (M25): the owner reads AWR copied from its
+-- targets over DB links, never its own AWR. Run this script once as SYSDBA
+-- (or a DBA holding CREATE USER, GRANT ANY PRIVILEGE and GRANT ANY OBJECT
+-- PRIVILEGE), then install into that owner. quickstart.sql and install.sh
+-- (OWNER_CREATE=Y) call it.
 --
 -- Where to run it, and the default owner name:
---   CDB      in CDB$ROOT, where AWR lives. Creates a COMMON user, default
---            C##AWRCAP (the C## prefix is mandatory for a common user), and
---            grants with CONTAINER=ALL.
+--   a PDB    a local user, default AWRCAP: the usual home of the suite, also
+--            when it measures its own CDB (the standalone path).
 --   non-CDB  in the database. Default owner AWRCAP. No CONTAINER clause.
---   a PDB    a local user, default AWRCAP. Use this for fixture or repository
---            mode, or for PDB-level AWR.
+--   CDB      in CDB$ROOT: a COMMON user, default C##AWRCAP (the C## prefix is
+--            mandatory), granted with CONTAINER=ALL. Possible, not the default.
 --
 -- Usage (every DEFINE is optional):
 --   sqlplus / as sysdba
@@ -21,7 +20,6 @@
 --   SQL> DEFINE owner_pw    = secret      -- omitted: NO AUTHENTICATION
 --   SQL> DEFINE owner_ts    = USERS       -- default: database default tablespace
 --   SQL> DEFINE owner_quota = 1G          -- default 1G; UNLIMITED is allowed
---   SQL> DEFINE owner_mode  = repository  -- default local; see below
 --   SQL> @create_owner.sql
 --
 -- Without owner_pw the user is schema-only (NO AUTHENTICATION): nobody can log
@@ -32,19 +30,14 @@
 --
 -- What it grants, all DIRECT (views and the definer's-rights ML package
 -- ignore privileges that arrive through a role):
---   system  CREATE SESSION / TABLE / VIEW / TYPE / PROCEDURE / MINING MODEL / JOB
---   object  SELECT on the seventeen DBA_HIST_* views ddl/10_seam_local.sql reads,
---           plus DBA_HIST_WR_CONTROL and V_$PARAMETER, which only doctor.sql
---           reads (retention, pack access, STATISTICS_LEVEL).
+--   system  CREATE SESSION / TABLE / VIEW / TYPE / PROCEDURE / MINING MODEL /
+--           JOB / DATABASE LINK (the definer's-rights collector,
+--           repository/cap_repo.sql, creates the links it reads targets over)
 --   quota   owner_quota on owner_ts.
---   owner_mode = repository: CREATE DATABASE LINK instead of the DBA_HIST_*
---           grants and CONTAINER_DATA. A repository reads the copies it
---           pulls from its targets (repository/cap_repo.sql), not its own AWR,
---           and its definer's-rights collector creates the links it uses.
---   CDB$ROOT only: CONTAINER_DATA = ALL. The DBA_HIST_* rows a session sees
---           follow the querying user, and a common user without it sees the
---           root's rows only (verified on 19.27), so the owner's own sessions
---           and its scheduler jobs would lose every PDB series.
+-- No DBA_HIST_* grant: the reader on each target holds those
+-- (target/prepare.sql). An owner that a local-mode install left with them
+-- (SELECT on DBA_HIST_* and V_$PARAMETER, CONTAINER_DATA = ALL) loses them
+-- here, through revoke_local_grants.sql.
 --
 -- Idempotent: an existing user (ORA-01920) is kept as is, password and default
 -- tablespace untouched; the quota and grants are re-applied. Exits non-zero if
@@ -68,9 +61,7 @@ COLUMN cap_o_in  NEW_VALUE owner       NOPRINT
 COLUMN cap_p_in  NEW_VALUE owner_pw    NOPRINT
 COLUMN cap_t_in  NEW_VALUE owner_ts    NOPRINT
 COLUMN cap_q_in  NEW_VALUE owner_quota NOPRINT
-COLUMN cap_m_in  NEW_VALUE owner_mode  NOPRINT
-SELECT NULL AS cap_o_in, NULL AS cap_p_in, NULL AS cap_t_in, NULL AS cap_q_in,
-       NULL AS cap_m_in
+SELECT NULL AS cap_o_in, NULL AS cap_p_in, NULL AS cap_t_in, NULL AS cap_q_in
 FROM   dual WHERE 1 = 0;
 
 COLUMN cap_o_eff NEW_VALUE owner       NOPRINT
@@ -88,7 +79,6 @@ COLUMN cap_o_in  CLEAR
 COLUMN cap_p_in  CLEAR
 COLUMN cap_t_in  CLEAR
 COLUMN cap_q_in  CLEAR
-COLUMN cap_m_in  CLEAR
 COLUMN cap_o_eff CLEAR
 COLUMN cap_t_eff CLEAR
 COLUMN cap_q_eff CLEAR
@@ -99,32 +89,21 @@ PROMPT ============================================================
 PROMPT  AWR Capacity Forecast -- create_owner
 PROMPT ============================================================
 
+VARIABLE cap_owner_new VARCHAR2(1)
 DECLARE
     v_con    VARCHAR2(10)  := SYS_CONTEXT('USERENV', 'CON_ID');
     v_owner  VARCHAR2(128) := DBMS_ASSERT.SIMPLE_SQL_NAME('&owner');
     v_pw     VARCHAR2(128) := '&owner_pw';
     v_ts     VARCHAR2(128) := DBMS_ASSERT.SIMPLE_SQL_NAME('&owner_ts');
     v_quota  VARCHAR2(20)  := '&owner_quota';
-    v_mode   VARCHAR2(20)  := LOWER(NVL('&owner_mode', 'local'));
     v_cont   VARCHAR2(20);
     v_fail   PLS_INTEGER   := 0;
-    v_new    BOOLEAN       := TRUE;
-    v_auth   VARCHAR2(30);
 
     TYPE t_list IS TABLE OF VARCHAR2(40);
     v_sys t_list := t_list(
         'CREATE SESSION', 'CREATE TABLE', 'CREATE VIEW', 'CREATE TYPE',
-        'CREATE PROCEDURE', 'CREATE MINING MODEL', 'CREATE JOB');
-    -- The first seventeen are exactly the FROM targets of ddl/10_seam_local.sql.
-    v_obj t_list := t_list(
-        'DBA_HIST_SNAPSHOT', 'DBA_HIST_TBSPC_SPACE_USAGE', 'DBA_HIST_TABLESPACE',
-        'DBA_HIST_DATAFILE', 'DBA_HIST_OSSTAT', 'DBA_HIST_SYS_TIME_MODEL',
-        'DBA_HIST_PDB_INSTANCE', 'DBA_HIST_DATABASE_INSTANCE',
-        'DBA_HIST_RESOURCE_LIMIT', 'DBA_HIST_SYSSTAT',
-        'DBA_HIST_CON_SYS_TIME_MODEL', 'DBA_HIST_CON_SYSSTAT',
-        'DBA_HIST_PARAMETER', 'DBA_HIST_ASM_DISKGROUP_STAT', 'DBA_HIST_ASM_DISKGROUP',
-        'DBA_HIST_SEG_STAT', 'DBA_HIST_SEG_STAT_OBJ',
-        'DBA_HIST_WR_CONTROL', 'V_$PARAMETER');
+        'CREATE PROCEDURE', 'CREATE MINING MODEL', 'CREATE JOB',
+        'CREATE DATABASE LINK');
 
     PROCEDURE run(p_sql IN VARCHAR2) IS
     BEGIN
@@ -137,14 +116,7 @@ DECLARE
             DBMS_OUTPUT.PUT_LINE('          ' || SQLERRM);
     END run;
 BEGIN
-    IF v_mode NOT IN ('local', 'repository') THEN
-        RAISE_APPLICATION_ERROR(-20001, 'owner_mode must be local or repository, not ' || v_mode);
-    END IF;
-    IF v_mode = 'repository' THEN
-        v_sys.EXTEND;
-        v_sys(v_sys.LAST) := 'CREATE DATABASE LINK';
-        v_obj := t_list();
-    END IF;
+    :cap_owner_new := 'Y';
     IF NOT REGEXP_LIKE(v_quota, '^([0-9]+[KMGT]?|UNLIMITED)$') THEN
         RAISE_APPLICATION_ERROR(-20001, 'owner_quota must look like 500M, 1G or UNLIMITED, not '
                                         || v_quota);
@@ -175,7 +147,7 @@ BEGIN
     EXCEPTION
         WHEN OTHERS THEN
             IF SQLCODE = -1920 THEN
-                v_new := FALSE;
+                :cap_owner_new := 'N';
                 DBMS_OUTPUT.PUT_LINE('  exists  user ' || v_owner
                                      || ' (password and default tablespace left unchanged)');
             ELSE
@@ -187,20 +159,27 @@ BEGIN
     FOR i IN 1 .. v_sys.COUNT LOOP
         run('GRANT ' || v_sys(i) || ' TO ' || v_owner || v_cont);
     END LOOP;
-    FOR i IN 1 .. v_obj.COUNT LOOP
-        run('GRANT SELECT ON SYS.' || v_obj(i) || ' TO ' || v_owner || v_cont);
-    END LOOP;
-    IF v_cont IS NOT NULL AND v_mode = 'local' THEN
-        run('ALTER USER ' || v_owner || ' SET CONTAINER_DATA = ALL CONTAINER = CURRENT');
-    END IF;
 
-    DBMS_OUTPUT.PUT_LINE(' ');
     IF v_fail > 0 THEN
         RAISE_APPLICATION_ERROR(-20002, v_fail || ' statement(s) failed for owner '
                                         || v_owner || ' (see FAILED lines above).');
     END IF;
+END;
+/
+
+DEFINE revoke_owner = '&owner'
+@@revoke_local_grants.sql
+SET DEFINE '&'
+SET FEEDBACK OFF
+WHENEVER SQLERROR EXIT FAILURE
+
+DECLARE
+    v_owner  VARCHAR2(128) := '&owner';
+    v_auth   VARCHAR2(30);
+BEGIN
+    DBMS_OUTPUT.PUT_LINE(' ');
     DBMS_OUTPUT.PUT_LINE('  Owner ' || v_owner || ' is ready'
-                         || CASE WHEN v_new THEN ' (created)' ELSE ' (already existed)' END
+                         || CASE WHEN :cap_owner_new = 'Y' THEN ' (created)' ELSE ' (already existed)' END
                          || '. Next, from the repo root:');
     BEGIN
         SELECT authentication_type INTO v_auth FROM dba_users WHERE username = v_owner;
@@ -213,7 +192,7 @@ BEGIN
         DBMS_OUTPUT.PUT_LINE('    CONNECT ' || v_owner || '/<password>');
     END IF;
     DBMS_OUTPUT.PUT_LINE('    @doctor.sql');
-    DBMS_OUTPUT.PUT_LINE('    DEFINE deploy_mode = ' || v_mode);
+    DBMS_OUTPUT.PUT_LINE('    DEFINE deploy_mode = repository');
     DBMS_OUTPUT.PUT_LINE('    @install.sql');
 END;
 /

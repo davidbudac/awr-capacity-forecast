@@ -91,7 +91,7 @@ export from and Filebeat deployed per `elk_db_automation` (the
 
 ```bash
 cp elk/filebeat/awrcap.yml /u01/app/oracle/filebeat/inputs.d/ && chmod 600 /u01/app/oracle/filebeat/inputs.d/awrcap.yml
-elk/export.sh --sid cdb1                                  # local-mode install in CDB$ROOT
+elk/export.sh --sid cdb1 --container PDB1 --schema AWRCAP    # a standalone install (its own target)
 elk/export.sh --sid cdb1 --container PDB1 --schema CAPDEMO   # a fixture/demo schema in a PDB
 ```
 

@@ -4,9 +4,12 @@
 -- Answers, in one page, "will this suite actually produce forecasts for me,
 -- and if not, why not?" -- BEFORE you run install.sql, and again afterwards.
 --
--- Usage (any schema, any container -- run it where you intend to install):
+-- Usage: run it as the suite owner, or as SYSDBA in the owner's schema, where
+-- you install (or have installed) the repository:
 --
---   sqlplus / as sysdba            -- or: sqlplus c##awrcap/...
+--   sqlplus / as sysdba
+--   SQL> ALTER SESSION SET CONTAINER = PDB1;
+--   SQL> ALTER SESSION SET CURRENT_SCHEMA = AWRCAP;
 --   SQL> @doctor.sql
 --
 -- STRICTLY READ-ONLY. It creates nothing, drops nothing, writes nothing: it
@@ -14,33 +17,30 @@
 -- own CAP_CONFIG / CAPV_ / CAPF_ views) and prints a PASS/WARN/FAIL checklist
 -- through DBMS_OUTPUT.
 --
+-- It checks the repository side: this schema, its privileges, the history
+-- the copies hold, the install, the config, the results layer, the jobs and
+-- the targets. A measured database is checked where it runs, by
+-- target/check.sql (pack access, AWR retention and interval, the reader's
+-- grants, container visibility).
+--
 -- Section 10 checks CAP_NIGHTLY_JOB, its last run and the nightly steps that
 -- run failed, and in repository mode CAP_COLLECT_JOB. In repository mode
--- section 11 checks every registered target: its link,
--- its collect health (state, freshness, gaps) and the days copied against
--- section 7's needs. The link is probed through cap_repo.ping, which only
--- SELECTs over it: a private DB link resolves for the session user, so only
--- the owner's definer's-rights code can use it when doctor runs as SYSDBA.
+-- section 11 checks every registered target: its link, its collect health
+-- (state, freshness, gaps), the days copied against section 7's needs and
+-- when the reader's password expires (reader_expiry_warn_days). The link is
+-- read through cap_repo.ping and cap_repo.reader_expiry, which only SELECT
+-- over it: a private DB link resolves for the session user, so only the
+-- owner's definer's-rights code can use it when doctor runs as SYSDBA.
 --
 -- It leaves one SQL*Plus variable behind for callers: cap_doctor_fail, the
 -- number of FAIL lines ("1" if the block did not finish). quickstart.sql stops
 -- before install when it is not 0.
 --
--- The DBA_HIST_* checks count only when the install reads DBA_HIST_* (local
--- mode). Doctor takes the mode from the installed CAPV_SNAPSHOT, assumes local
--- before install, and lets a caller say which install it is about to run:
---   SQL> DEFINE cap_doctor_mode = fixture     -- local | repository | fixture
+-- Doctor takes the mode from the installed CAPV_SNAPSHOT and assumes
+-- repository before install. A caller may say which install it is about to
+-- run (any other value is ignored with a note):
+--   SQL> DEFINE cap_doctor_mode = fixture     -- repository | fixture
 --   SQL> @doctor.sql
--- quickstart.sql sets it to local.
---
--- Note on the CAPV_* seam rule (CLAUDE.md): that rule says the ANALYTICS must
--- never touch DBA_HIST_* outside ddl/10_seam_local.sql, so local / repository /
--- fixture modes stay byte-identical downstream. doctor.sql is not analytics --
--- it is a preflight probe whose entire job is to test whether those base
--- objects are reachable, so it references them directly and on purpose. Every
--- such reference is dynamic (EXECUTE IMMEDIATE / ref cursor) precisely so a
--- missing object or a missing grant degrades to one WARN/FAIL line instead of
--- failing to compile the block.
 --
 -- Everything runs inside ONE anonymous block with per-check EXCEPTION
 -- handlers, so no single privilege error can cut the checklist short.
@@ -77,19 +77,11 @@ DECLARE
     v_schema    VARCHAR2(128) := SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA');
     v_session   VARCHAR2(128) := SYS_CONTEXT('USERENV', 'SESSION_USER');
 
-    -- carried between checks so the closing summary can explain itself
-    v_pack_ok       BOOLEAN     := FALSE;
-    v_pack_known    BOOLEAN     := FALSE;
-    v_seam_fails    PLS_INTEGER := 0;
-    v_grant_missing PLS_INTEGER := 0;
-    v_hist_days     NUMBER;                 -- best per-dbid snapshot day count
-    v_short_hist    PLS_INTEGER := 0;       -- sources with < min_train_days
-    v_retention_d   NUMBER;
     v_installed     BOOLEAN     := FALSE;
-    v_deploy_mode     VARCHAR2(30);           -- local | repository | fixture
+    v_deploy_mode   VARCHAR2(30);
     v_seam_refs     VARCHAR2(200);
-    v_hist_applies  BOOLEAN     := TRUE;    -- FALSE in repository / fixture mode
     v_intended      VARCHAR2(30) := :cap_doctor_mode_v;   -- caller's DEFINE, or NULL
+    v_check_mode    VARCHAR2(30);
 
     -- knobs: CAP_CFG when installed, else the shipped defaults (05_config)
     v_knob_src      VARCHAR2(60) := 'shipped defaults (suite not installed here)';
@@ -102,26 +94,6 @@ DECLARE
     v_esm_step      NUMBER := 30;
 
     TYPE t_names IS TABLE OF VARCHAR2(40);
-    -- Exactly the FROM targets of ddl/10_seam_local.sql.
-    v_views t_names := t_names(
-        'DBA_HIST_SNAPSHOT',
-        'DBA_HIST_TBSPC_SPACE_USAGE',
-        'DBA_HIST_TABLESPACE',
-        'DBA_HIST_DATAFILE',
-        'DBA_HIST_OSSTAT',
-        'DBA_HIST_SYS_TIME_MODEL',
-        'DBA_HIST_PDB_INSTANCE',
-        'DBA_HIST_DATABASE_INSTANCE',
-        'DBA_HIST_RESOURCE_LIMIT',
-        'DBA_HIST_SYSSTAT',
-        'DBA_HIST_CON_SYS_TIME_MODEL',
-        'DBA_HIST_CON_SYSSTAT',
-        'DBA_HIST_PARAMETER',
-        'DBA_HIST_ASM_DISKGROUP_STAT',
-        'DBA_HIST_ASM_DISKGROUP',
-        'DBA_HIST_SEG_STAT',
-        'DBA_HIST_SEG_STAT_OBJ');
-
     v_privs t_names := t_names(
         'CREATE TABLE',
         'CREATE VIEW',
@@ -170,13 +142,6 @@ DECLARE
                              || RPAD(p_label, 30) || ' ' || p_detail);
     END emit;
 
-    -- Checks on DBA_HIST_* only count when the install reads them (local
-    -- mode, or not installed yet); otherwise they print as INFO.
-    FUNCTION hst(p_status IN VARCHAR2) RETURN VARCHAR2 IS
-    BEGIN
-        RETURN CASE WHEN v_hist_applies THEN p_status ELSE 'INFO' END;
-    END hst;
-
     -- SQLERRM trimmed to one readable line.
     FUNCTION err RETURN VARCHAR2 IS
     BEGIN
@@ -199,8 +164,6 @@ DECLARE
         RETURN NVL(knob_raw(p_name), p_default);
     END knob;
 
-    -- Count distinct AWR days behind a dynamic aggregate query. Returns NULL
-    -- when the query cannot run (missing object / grant) and sets p_err.
     FUNCTION count_days(p_sql IN VARCHAR2, p_err OUT VARCHAR2) RETURN NUMBER IS
         v_n NUMBER;
     BEGIN
@@ -212,48 +175,6 @@ DECLARE
             RETURN NULL;
     END count_days;
 
-    -- PASS when a source covers min_train_days, WARN otherwise.
-    PROCEDURE report_days(p_label IN VARCHAR2, p_sql IN VARCHAR2) IS
-        v_n   NUMBER;
-        v_e   VARCHAR2(200);
-    BEGIN
-        v_n := count_days(p_sql, v_e);
-        IF v_n IS NULL THEN
-            emit(hst('WARN'), p_label, 'cannot read: ' || v_e);
-        ELSIF v_n >= v_min_train THEN
-            emit(hst('PASS'), p_label, v_n || ' days (need >= ' || TO_CHAR(v_min_train) || ')');
-        ELSE
-            v_short_hist := v_short_hist + 1;
-            emit(hst('WARN'), p_label, 'only ' || v_n || ' days (need >= '
-                                  || TO_CHAR(v_min_train) || ')');
-        END IF;
-    END report_days;
-
-    -- Does the current schema hold p_priv on SYS.p_obj DIRECTLY? 1 yes, 0 no,
-    -- NULL when no dictionary view we can read answers the question.
-    FUNCTION direct_obj_grant(p_obj IN VARCHAR2) RETURN NUMBER IS
-        v_n NUMBER;
-    BEGIN
-        BEGIN
-            EXECUTE IMMEDIATE
-                'SELECT COUNT(*) FROM dba_tab_privs WHERE grantee = :g'
-                || ' AND owner = ''SYS'' AND table_name = :t'
-                || ' AND privilege IN (''SELECT'', ''READ'')'
-                INTO v_n USING v_schema, p_obj;
-        EXCEPTION
-            WHEN OTHERS THEN
-                EXECUTE IMMEDIATE
-                    'SELECT COUNT(*) FROM all_tab_privs WHERE grantee = :g'
-                    || ' AND table_schema = ''SYS'' AND table_name = :t'
-                    || ' AND privilege IN (''SELECT'', ''READ'')'
-                    INTO v_n USING v_schema, p_obj;
-        END;
-        RETURN SIGN(v_n);
-    EXCEPTION
-        WHEN OTHERS THEN RETURN NULL;
-    END direct_obj_grant;
-
-    -- Same for a system privilege granted directly to the current schema.
     FUNCTION direct_sys_priv(p_priv IN VARCHAR2) RETURN NUMBER IS
         v_n NUMBER;
     BEGIN
@@ -330,8 +251,12 @@ BEGIN
     note('NOTE: probes and SESSION_PRIVS below are the SESSION USER''s. ALTER SESSION');
     note('      SET CURRENT_SCHEMA changes where objects resolve, not what you may do;');
     note('      the direct-grant checks look at the current schema itself.');
-    IF v_intended NOT IN ('local', 'repository', 'fixture') THEN
-        note('mode under test : ' || v_intended || ' ignored (DEFINE cap_doctor_mode = local | repository | fixture)');
+    IF v_intended = 'local' THEN
+        note('mode under test : local ignored: local mode is retired (M25); a standalone');
+        note('                  install is a repository that reads its own database');
+        v_intended := NULL;
+    ELSIF v_intended NOT IN ('repository', 'fixture') THEN
+        note('mode under test : ' || v_intended || ' ignored (DEFINE cap_doctor_mode = repository | fixture)');
         v_intended := NULL;
     ELSIF v_intended IS NOT NULL THEN
         note('mode under test : ' || v_intended || ' (DEFINE cap_doctor_mode)');
@@ -357,19 +282,24 @@ BEGIN
         v_holdout    := knob('backtest_holdout_days', v_holdout);
         v_esm_step   := knob('esm_prediction_step',   v_esm_step);
 
-        FOR r IN (SELECT referenced_name
+        FOR r IN (SELECT referenced_owner, referenced_name
                   FROM   all_dependencies
                   WHERE  owner = v_schema
                     AND  name  = 'CAPV_SNAPSHOT'
                     AND  type  = 'VIEW') LOOP
             v_seam_refs := SUBSTR(v_seam_refs || r.referenced_name || ' ', 1, 200);
-            IF    r.referenced_name = 'DBA_HIST_SNAPSHOT'      THEN v_deploy_mode := 'local';
-            ELSIF r.referenced_name LIKE 'CAP\_H\_%' ESCAPE '\' THEN v_deploy_mode := 'repository';
+            IF    r.referenced_name LIKE 'CAP\_H\_%' ESCAPE '\' THEN v_deploy_mode := 'repository';
             ELSIF r.referenced_name LIKE 'CAP\_FIXTURE\_%' ESCAPE '\' THEN v_deploy_mode := 'fixture';
+            ELSIF r.referenced_owner = 'SYS' AND r.referenced_name LIKE 'DBA\_%' ESCAPE '\'
+                  AND v_deploy_mode IS NULL                    THEN v_deploy_mode := 'local';
             END IF;
         END LOOP;
     END IF;
-    v_hist_applies := COALESCE(v_intended, v_deploy_mode, 'local') = 'local';
+    v_check_mode := COALESCE(v_intended, v_deploy_mode, 'repository');
+    IF v_check_mode = 'repository' THEN
+        v_privs.EXTEND;
+        v_privs(v_privs.LAST) := 'CREATE DATABASE LINK';
+    END IF;
     add_need('trend fit (min_train_days)',                       v_min_train);
     add_need('full training window (train_days)',                v_train);
     add_need('CPU weekday baseline (dow_weeks*7)',               v_dow_weeks * 7);
@@ -384,134 +314,13 @@ BEGIN
     hdr(' 1. Target schema (where install.sql would create objects)');
     IF v_schema = 'SYS' THEN
         emit('WARN', 'current schema', 'SYS -- every CAP* object would be owned by SYS');
-        note('Works (the quickstart does it), but a dedicated owner is the production');
-        note('path: run @create_owner.sql as SYSDBA, then install as that user.');
+        note('Install into a dedicated owner instead: run @create_owner.sql as SYSDBA,');
+        note('then install as that user (or under ALTER SESSION SET CURRENT_SCHEMA).');
     ELSE
         emit('PASS', 'current schema', v_schema);
     END IF;
-
-    -- =================================================================
-    -- 2. Database settings that decide whether AWR collects anything
-    -- =================================================================
-    hdr(' 2. Database settings (CONTROL_MANAGEMENT_PACK_ACCESS, STATISTICS_LEVEL)');
-    DECLARE
-        v_val VARCHAR2(100);
-        v_e   VARCHAR2(200);
-
-        FUNCTION param(p_name IN VARCHAR2) RETURN VARCHAR2 IS
-            v_v VARCHAR2(100);
-        BEGIN
-            BEGIN
-                EXECUTE IMMEDIATE
-                    'SELECT MAX(value) FROM v$parameter WHERE name = :n' INTO v_v USING p_name;
-            EXCEPTION
-                WHEN OTHERS THEN
-                    v_e := err;
-                    EXECUTE IMMEDIATE
-                        'SELECT MAX(value) FROM v$system_parameter WHERE name = :n'
-                        INTO v_v USING p_name;
-                    v_e := NULL;
-            END;
-            RETURN v_v;
-        EXCEPTION
-            WHEN OTHERS THEN RETURN NULL;
-        END param;
-    BEGIN
-        v_val := param('control_management_pack_access');
-        IF v_val IS NOT NULL THEN
-            v_pack_known := TRUE;
-            IF INSTR(UPPER(v_val), 'DIAGNOSTIC') > 0 THEN
-                v_pack_ok := TRUE;
-                emit('PASS', 'pack access', v_val);
-            ELSE
-                emit(hst('FAIL'), 'pack access', v_val
-                     || ' -- AWR is not licensed/enabled; DBA_HIST_* will be empty');
-            END IF;
-        ELSE
-            emit('WARN', 'pack access',
-                 'cannot read v$parameter (' || NVL(v_e, 'no row') || ')');
-        END IF;
-
-        v_e   := NULL;
-        v_val := param('statistics_level');
-        IF v_val IS NULL THEN
-            emit('WARN', 'statistics_level',
-                 'cannot read v$parameter (' || NVL(v_e, 'no row') || ')');
-        ELSIF UPPER(v_val) = 'BASIC' THEN
-            emit(hst('FAIL'), 'statistics_level', 'BASIC -- AWR takes no automatic snapshots');
-        ELSE
-            emit('PASS', 'statistics_level', v_val);
-        END IF;
-    END;
-
-    -- =================================================================
-    -- 3. DBA_HIST_* views the local seam reads
-    -- =================================================================
-    hdr(' 3. DBA_HIST_* readable (local seam, ' || v_views.COUNT || ' views)');
-    IF NOT v_hist_applies THEN
-        note('Deploy mode is ' || COALESCE(v_intended, v_deploy_mode)
-             || ': these views are not used, so these lines are INFO.');
-    END IF;
-    FOR i IN 1 .. v_views.COUNT LOOP
-        DECLARE
-            v_n NUMBER;
-        BEGIN
-            EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM ' || v_views(i)
-                              || ' WHERE ROWNUM = 1' INTO v_n;
-            emit(hst('PASS'), v_views(i),
-                 CASE WHEN v_n > 0 THEN 'readable, has rows' ELSE 'readable, EMPTY' END);
-        EXCEPTION
-            WHEN OTHERS THEN
-                v_seam_fails := v_seam_fails + 1;
-                emit(hst('FAIL'), v_views(i), err);
-        END;
-    END LOOP;
-
-    -- The probes above run with the session user's privileges, roles
-    -- included. The seam views compile with the OWNER's direct grants only.
-    IF v_schema <> 'SYS' THEN
-        DECLARE
-            v_any     NUMBER := direct_sys_priv('SELECT ANY DICTIONARY');
-            v_g       NUMBER;
-            v_unknown PLS_INTEGER := 0;
-            v_list    VARCHAR2(400);
-        BEGIN
-            IF v_any = 1 THEN
-                emit(hst('PASS'), 'direct grants', v_schema
-                     || ' holds SELECT ANY DICTIONARY directly');
-            ELSE
-                FOR i IN 1 .. v_views.COUNT LOOP
-                    v_g := direct_obj_grant(v_views(i));
-                    IF v_g IS NULL THEN
-                        v_unknown := v_unknown + 1;
-                    ELSIF v_g = 0 THEN
-                        v_grant_missing := v_grant_missing + 1;
-                        v_list := SUBSTR(v_list || CASE WHEN v_list IS NOT NULL THEN ', ' END
-                                         || REPLACE(v_views(i), 'DBA_HIST_'), 1, 400);
-                    END IF;
-                END LOOP;
-                IF v_unknown > 0 THEN
-                    emit(hst('WARN'), 'direct grants', 'cannot read DBA_TAB_PRIVS / ALL_TAB_PRIVS for '
-                         || v_schema);
-                ELSIF v_grant_missing = 0 THEN
-                    emit(hst('PASS'), 'direct grants', 'all ' || v_views.COUNT
-                         || ' granted directly to ' || v_schema);
-                ELSE
-                    emit(hst('FAIL'),
-                         'direct grants', v_schema || ' lacks a direct grant on '
-                         || v_grant_missing || ' of ' || v_views.COUNT);
-                    note('missing DBA_HIST_: ' || v_list);
-                    note('A grant through a role (SELECT_CATALOG_ROLE, DBA) will not do: views');
-                    note('and definer''s-rights PL/SQL see only direct grants. Fix with');
-                    note('@create_owner.sql, or GRANT SELECT ON SYS.<view> TO ' || v_schema || ';');
-                END IF;
-            END IF;
-        END;
-    END IF;
-    IF v_seam_fails > 0 AND v_hist_applies THEN
-        note('Local mode needs every view above readable by the owning schema.');
-        note('Repository / fixture mode do not need them.');
-    END IF;
+    note('Sections 2, 3, 5 and 6 check a measured database: run @target/check.sql');
+    note('on each target (as SYSDBA in its CDB$ROOT, or in a non-CDB).');
 
     -- =================================================================
     -- 4. Object-creation privileges
@@ -531,6 +340,8 @@ BEGIN
                      'missing -- Tier 2 ESM (ml/) will fail at train time; Tier 1 is fine');
             ELSIF v_privs(i) = 'CREATE JOB' THEN
                 emit('WARN', v_privs(i), 'missing -- install_jobs.sql cannot create jobs');
+            ELSIF v_privs(i) = 'CREATE DATABASE LINK' THEN
+                emit('WARN', v_privs(i), 'missing -- cap_repo.add_target can only use links a DBA made');
             ELSE
                 emit('FAIL', v_privs(i), 'missing -- install.sql cannot create its objects');
             END IF;
@@ -559,7 +370,7 @@ BEGIN
     -- cap_repo (repository mode) creates its DB links with the owner's
     -- DIRECT privileges too. Without it, register targets over links the
     -- DBA made (cap_repo.add_target p_db_link).
-    IF COALESCE(v_intended, v_deploy_mode) = 'repository' AND v_schema <> 'SYS' THEN
+    IF v_check_mode = 'repository' AND v_schema <> 'SYS' THEN
         DECLARE
             v_g NUMBER := direct_sys_priv('CREATE DATABASE LINK');
         BEGIN
@@ -575,194 +386,40 @@ BEGIN
     END IF;
 
     -- =================================================================
-    -- 5. AWR retention + snapshot interval
-    -- =================================================================
-    hdr(' 5. AWR retention / interval (DBA_HIST_WR_CONTROL, vs train_days = '
-        || TO_CHAR(v_train) || ')');
-    DECLARE
-        v_cur   SYS_REFCURSOR;
-        v_dbid  NUMBER;
-        v_ret   NUMBER;          -- retention, minutes
-        v_int   NUMBER;          -- snap_interval, minutes
-        v_days  NUMBER;
-        v_rows  PLS_INTEGER := 0;
-    BEGIN
-        -- One row per dbid. In a PDB you see both the PDB's row and the CDB's,
-        -- so report each rather than aggregating them into one misleading number.
-        OPEN v_cur FOR
-            'SELECT dbid,'
-            || ' EXTRACT(DAY FROM retention) * 1440'
-            || ' + EXTRACT(HOUR FROM retention) * 60'
-            || ' + EXTRACT(MINUTE FROM retention),'
-            || ' EXTRACT(DAY FROM snap_interval) * 1440'
-            || ' + EXTRACT(HOUR FROM snap_interval) * 60'
-            || ' + EXTRACT(MINUTE FROM snap_interval)'
-            || ' FROM dba_hist_wr_control ORDER BY dbid';
-        LOOP
-            FETCH v_cur INTO v_dbid, v_ret, v_int;
-            EXIT WHEN v_cur%NOTFOUND OR v_rows >= 10;
-            v_rows := v_rows + 1;
-
-            v_days := ROUND(v_ret / 1440, 1);
-            -- worst (smallest) retention seen drives the closing summary
-            v_retention_d := LEAST(NVL(v_retention_d, v_days), v_days);
-
-            IF v_days >= v_train THEN
-                emit(hst('PASS'), 'retention dbid ' || v_dbid,
-                     v_days || ' days (need >= train_days ' || TO_CHAR(v_train) || ')');
-            ELSE
-                emit(hst('WARN'), 'retention dbid ' || v_dbid,
-                     v_days || ' days -- below train_days (' || TO_CHAR(v_train) || ')'
-                     || CASE WHEN v_days < v_min_train + 1
-                             THEN '; forecasts stay INSUFFICIENT_HISTORY'
-                             ELSE '; the training window can never fill' END);
-                note('  EXEC DBMS_WORKLOAD_REPOSITORY.MODIFY_SNAPSHOT_SETTINGS('
-                     || 'retention => ' || TO_CHAR(v_train * 1440) || ');');
-            END IF;
-
-            -- 40150 days is Oracle's "not set here" sentinel: a PDB that has
-            -- never had its own settings inherits CDB$ROOT's interval.
-            IF v_int IS NULL THEN
-                NULL;
-            ELSIF v_int >= 40150 * 1440 THEN
-                emit(hst('PASS'), 'interval dbid ' || v_dbid,
-                     'not set in this container (inherits CDB$ROOT)');
-            ELSIF v_int = 0 THEN
-                emit(hst('FAIL'), 'interval dbid ' || v_dbid,
-                     'snapshots are DISABLED (interval 0)');
-            ELSIF v_int <= 60 THEN
-                emit(hst('PASS'), 'interval dbid ' || v_dbid, v_int || ' min');
-            ELSE
-                emit(hst('WARN'), 'interval dbid ' || v_dbid,
-                     v_int || ' min -- coarse; daily peaks (p95/max) lose resolution');
-            END IF;
-        END LOOP;
-        CLOSE v_cur;
-
-        IF v_rows = 0 THEN
-            emit(hst('WARN'), 'retention', 'no DBA_HIST_WR_CONTROL row');
-        END IF;
-    EXCEPTION
-        WHEN OTHERS THEN
-            BEGIN
-                IF v_cur%ISOPEN THEN CLOSE v_cur; END IF;
-            EXCEPTION WHEN OTHERS THEN NULL;
-            END;
-            emit(hst('WARN'), 'DBA_HIST_WR_CONTROL', 'cannot read: ' || err);
-    END;
-
-    -- =================================================================
-    -- 6. How much history each source actually has, and how fresh it is
-    -- =================================================================
-    hdr(' 6. History available per source (vs min_train_days = '
-        || TO_CHAR(v_min_train) || ', from ' || v_knob_src || ')');
-    DECLARE
-        v_cur   SYS_REFCURSOR;
-        v_dbid  NUMBER;
-        v_days  NUMBER;
-        v_from  VARCHAR2(20);
-        v_to    VARCHAR2(20);
-        v_age   NUMBER;          -- hours since the newest snapshot ended
-        v_rows  PLS_INTEGER := 0;
-    BEGIN
-        OPEN v_cur FOR
-            'SELECT dbid, COUNT(DISTINCT TRUNC(end_interval_time)),'
-            || ' TO_CHAR(MIN(end_interval_time), ''YYYY-MM-DD''),'
-            || ' TO_CHAR(MAX(end_interval_time), ''YYYY-MM-DD HH24:MI''),'
-            || ' ROUND((SYSDATE - CAST(MAX(end_interval_time) AS DATE)) * 24, 1)'
-            || ' FROM dba_hist_snapshot GROUP BY dbid ORDER BY 2 DESC';
-        LOOP
-            FETCH v_cur INTO v_dbid, v_days, v_from, v_to, v_age;
-            EXIT WHEN v_cur%NOTFOUND OR v_rows >= 10;
-            v_rows := v_rows + 1;
-            v_hist_days := GREATEST(NVL(v_hist_days, 0), v_days);
-            IF v_days >= v_min_train THEN
-                emit(hst('PASS'), 'snapshots dbid ' || v_dbid,
-                     v_days || ' days (' || v_from || ' .. ' || v_to || ')');
-            ELSE
-                v_short_hist := v_short_hist + 1;
-                emit(hst('WARN'), 'snapshots dbid ' || v_dbid,
-                     'only ' || v_days || ' days (' || v_from || ' .. ' || v_to || ')');
-            END IF;
-            IF v_age <= 24 THEN
-                emit(hst('PASS'), 'newest snap dbid ' || v_dbid,
-                     TO_CHAR(v_age, 'FM999999990.0') || ' h ago');
-            ELSE
-                emit(hst('WARN'), 'newest snap dbid ' || v_dbid, TO_CHAR(v_age, 'FM999999990.0')
-                     || ' h ago -- is AWR still taking snapshots for this database?');
-            END IF;
-        END LOOP;
-        CLOSE v_cur;
-        IF v_rows = 0 THEN
-            emit(hst('WARN'), 'snapshots', 'no rows in DBA_HIST_SNAPSHOT');
-        END IF;
-    EXCEPTION
-        WHEN OTHERS THEN
-            BEGIN
-                IF v_cur%ISOPEN THEN CLOSE v_cur; END IF;
-            EXCEPTION WHEN OTHERS THEN NULL;
-            END;
-            emit(hst('WARN'), 'snapshots', 'cannot read: ' || err);
-    END;
-
-    report_days('tablespace usage',
-        'SELECT COUNT(DISTINCT TRUNC(s.end_interval_time))'
-        || ' FROM dba_hist_tbspc_space_usage u, dba_hist_snapshot s'
-        || ' WHERE s.snap_id = u.snap_id AND s.dbid = u.dbid');
-
-    report_days('host CPU (OSSTAT BUSY)',
-        'SELECT COUNT(DISTINCT TRUNC(s.end_interval_time))'
-        || ' FROM dba_hist_osstat o, dba_hist_snapshot s'
-        || ' WHERE s.snap_id = o.snap_id AND s.dbid = o.dbid'
-        || ' AND s.instance_number = o.instance_number'
-        || ' AND o.stat_name = ''BUSY_TIME''');
-
-    report_days('DB CPU (time model)',
-        'SELECT COUNT(DISTINCT TRUNC(s.end_interval_time))'
-        || ' FROM dba_hist_sys_time_model t, dba_hist_snapshot s'
-        || ' WHERE s.snap_id = t.snap_id AND s.dbid = t.dbid'
-        || ' AND s.instance_number = t.instance_number'
-        || ' AND t.stat_name = ''DB CPU''');
-
-    -- =================================================================
     -- 7. Readiness: days each feature needs vs days of history available
     -- =================================================================
     DECLARE
         v_avail NUMBER;
-        v_src   VARCHAR2(60);
         v_e     VARCHAR2(200);
 
         PROCEDURE ready(p_label IN VARCHAR2, p_need IN NUMBER) IS
             v_st VARCHAR2(4);
         BEGIN
-            v_st := CASE WHEN v_avail >= p_need THEN 'PASS' ELSE 'WARN' END;
+            v_st := CASE WHEN v_avail IS NULL THEN 'INFO' WHEN v_avail >= p_need THEN 'PASS' ELSE 'WARN' END;
             tally(v_st);
             DBMS_OUTPUT.PUT_LINE('  ' || RPAD(p_label, 48) || LPAD(TO_CHAR(p_need), 6)
                                  || LPAD(NVL(TO_CHAR(v_avail), '?'), 7) || '   ' || v_st);
         END ready;
     BEGIN
-        -- Once installed, count through the seam (whatever mode it is in);
-        -- before install, the local-mode source.
         IF v_installed THEN
             v_avail := count_days('SELECT MAX(n) FROM (SELECT COUNT(DISTINCT'
                                   || ' TRUNC(end_interval_time)) n FROM capv_snapshot'
                                   || ' GROUP BY dbid)', v_e);
-            v_src   := 'CAPV_SNAPSHOT';
-        END IF;
-        IF v_avail IS NULL THEN
-            v_avail := v_hist_days;
-            v_src   := 'DBA_HIST_SNAPSHOT';
         END IF;
 
-        hdr(' 7. Readiness per feature (days of history; best dbid in ' || v_src
+        hdr(' 7. Readiness per feature (days of history; best dbid in CAPV_SNAPSHOT'
             || '; knobs from ' || v_knob_src || ')');
         DBMS_OUTPUT.PUT_LINE('  ' || RPAD('feature', 48) || LPAD('need', 6)
                              || LPAD('have', 7) || '   status');
         FOR i IN 1 .. v_needs.COUNT LOOP
             ready(v_needs(i).label, v_needs(i).days);
         END LOOP;
-        IF v_avail IS NULL THEN
-            note('No history could be counted (' || NVL(v_e, 'no snapshot rows') || ').');
+        IF NOT v_installed THEN
+            note('Not installed here yet: the days are counted in CAPV_SNAPSHOT once the');
+            note('copies are collected. On a target, target/check.sql shows its AWR history.');
+        ELSIF v_avail IS NULL THEN
+            note('No history could be counted (' || NVL(v_e, CASE WHEN v_check_mode = 'repository'
+                 THEN 'nothing copied yet: EXEC cap_repo.collect' ELSE 'no snapshot rows' END) || ').');
         END IF;
     END;
 
@@ -818,12 +475,12 @@ BEGIN
             emit('WARN', 'deploy mode', 'CAPV_SNAPSHOT not found in this schema');
         ELSIF v_deploy_mode IS NULL THEN
             emit('WARN', 'deploy mode', 'unrecognised: ' || v_seam_refs);
+        ELSIF v_deploy_mode = 'local' THEN
+            emit('WARN', 'deploy mode', 'local (CAPV_SNAPSHOT -> ' || v_seam_refs || '), retired in M25');
+            note('Move to a repository: @uninstall.sql here (it writes a config replay');
+            note('file), install standalone into a PDB, then run the replay file there.');
         ELSE
             emit('PASS', 'deploy mode', v_deploy_mode || '  (CAPV_SNAPSHOT -> ' || v_seam_refs || ')');
-            IF v_deploy_mode = 'local' AND (v_seam_fails > 0 OR v_grant_missing > 0) THEN
-                note('Local seam installed but some DBA_HIST_* view is unreadable or not');
-                note('granted directly (check 3).');
-            END IF;
         END IF;
 
         -- A green checklist means little if every fit is untrustworthy, so say
@@ -995,7 +652,7 @@ BEGIN
             EXCEPTION
                 WHEN OTHERS THEN emit('INFO', 'nightly steps', 'cannot read the job run OUTPUT: ' || err);
             END;
-            IF COALESCE(v_intended, v_deploy_mode) = 'repository' THEN
+            IF v_check_mode = 'repository' THEN
                 job_check('CAP_COLLECT_JOB', 'install_jobs.sql; until then nothing is copied'
                                              || ' unless you EXEC cap_repo.collect');
             END IF;
@@ -1060,7 +717,7 @@ BEGIN
     -- 11. Repository targets (installed, repository mode): per target the
     -- link, the collect health and the days copied per DBID.
     -- =================================================================
-    IF v_installed AND COALESCE(v_intended, v_deploy_mode) = 'repository' THEN
+    IF v_installed AND v_check_mode = 'repository' THEN
         hdr('11. Repository targets (CAPR_TARGETS; links probed by cap_repo.ping)');
         DECLARE
             c_max     CONSTANT PLS_INTEGER := 50;
@@ -1085,11 +742,44 @@ BEGIN
             v_short   VARCHAR2(1000);
             v_targets PLS_INTEGER := 0;
             v_stale_h NUMBER := knob('stale_hours', 36);
+            v_warn_d  NUMBER := knob('reader_expiry_warn_days', 30);
 
             FUNCTION line1(p_txt IN VARCHAR2) RETURN VARCHAR2 IS
             BEGIN
                 RETURN SUBSTR(REGEXP_SUBSTR(p_txt, '[^' || CHR(10) || ']+'), 1, 120);
             END line1;
+
+            PROCEDURE expiry(p_name IN VARCHAR2) IS
+                v_exp   DATE;
+                v_user  VARCHAR2(128);
+                v_owned VARCHAR2(1);
+            BEGIN
+                EXECUTE IMMEDIATE 'BEGIN :r := cap_repo.reader_expiry(:n); END;'
+                    USING OUT v_exp, IN p_name;
+                IF v_exp IS NULL THEN
+                    emit('PASS', 'reader ' || p_name, 'password never expires');
+                ELSIF v_exp - SYSDATE > v_warn_d THEN
+                    emit('PASS', 'reader ' || p_name, 'password expires ' || TO_CHAR(v_exp, 'YYYY-MM-DD')
+                         || ' (in ' || ROUND(v_exp - SYSDATE) || ' d)');
+                ELSE
+                    EXECUTE IMMEDIATE 'SELECT link_user, link_owned FROM cap_target WHERE target_name = :n'
+                        INTO v_user, v_owned USING p_name;
+                    emit('WARN', 'reader ' || p_name, 'password expires ' || TO_CHAR(v_exp, 'YYYY-MM-DD HH24:MI')
+                         || CASE WHEN v_exp <= SYSDATE THEN ' (already: grace period)'
+                                 ELSE ' (in ' || ROUND(v_exp - SYSDATE) || ' d)' END
+                         || ', inside reader_expiry_warn_days ' || v_warn_d
+                         || ': its collects fail with ORA-28001 from then on');
+                    note('Rotate it. On the target: ALTER USER ' || NVL(v_user, '<reader>')
+                         || ' IDENTIFIED BY "<new>";');
+                    IF v_owned = 'Y' THEN
+                        note('Then here: EXEC cap_repo.set_link_password(''' || p_name || ''', ''<new>'')');
+                    ELSE
+                        note('Then recreate the link the DBA made for ' || p_name || ' with the new password.');
+                    END IF;
+                END IF;
+            EXCEPTION
+                WHEN OTHERS THEN emit('WARN', 'reader ' || p_name, 'cannot read its expiry: ' || err);
+            END expiry;
         BEGIN
             OPEN v_cur FOR
                 'SELECT target_name, dbid, db_link, enabled, age_hours, is_stale,'
@@ -1111,6 +801,7 @@ BEGIN
                                 USING OUT v_ping, IN v_name;
                             IF v_ping IS NULL THEN
                                 emit('PASS', 'link ' || v_name, v_link || ' answers; every copied view readable');
+                                expiry(v_name);
                             ELSE
                                 emit('WARN', 'link ' || v_name, v_link || ': ' || line1(v_ping));
                             END IF;
@@ -1189,38 +880,14 @@ BEGIN
     DBMS_OUTPUT.PUT_LINE('  ' || n_pass || ' PASS / ' || n_warn || ' WARN / '
                          || n_fail || ' FAIL');
 
-    IF v_pack_known AND NOT v_pack_ok THEN
-        note('Forecasts will be empty: CONTROL_MANAGEMENT_PACK_ACCESS excludes');
-        note('DIAGNOSTIC, so AWR collects nothing to fit.');
-    END IF;
-    IF v_hist_applies AND (v_seam_fails > 0 OR v_grant_missing > 0) THEN
-        note('A local-mode install would leave CAPV_* invalid: the owning schema');
-        note('cannot read every DBA_HIST_* view the seam needs (check 3).');
-    END IF;
-    IF NOT v_hist_applies THEN
-        note('Deploy mode here is ' || COALESCE(v_intended, v_deploy_mode)
-             || ', so checks 3, 5 and 6 (DBA_HIST_*)');
-        note('do not apply to this install -- the data comes from '
-             || CASE COALESCE(v_intended, v_deploy_mode)
-                     WHEN 'repository' THEN 'the CAP_H_* copies (cap_repo.collect).'
-                     ELSE 'CAP_FIXTURE_* tables.' END);
-        IF v_installed AND COALESCE(v_intended, v_deploy_mode) = 'repository' THEN
-            note('Check 11 covers what feeds them: each target''s link, collect and days copied.');
-        END IF;
-    ELSIF NOT v_installed AND v_intended IS NULL THEN
-        note('Not installed here, so checks 3, 5 and 6 assume local mode. Repository');
-        note('and fixture installs do not read DBA_HIST_*.');
-    END IF;
-    IF v_short_hist > 0 AND v_hist_applies THEN
-        note('Why forecasts may say INSUFFICIENT_HISTORY:');
-        note('  ' || v_short_hist || ' source(s) hold fewer than min_train_days ('
-             || TO_CHAR(v_min_train) || ') distinct days.');
-        note('  A fit needs that many daily points, so those series stay quiet');
-        note('  until AWR has accumulated them. Re-run doctor.sql later.');
-    END IF;
-    IF v_retention_d IS NOT NULL AND v_retention_d < v_train AND v_hist_applies THEN
-        note('Retention (' || v_retention_d || ' d) is below train_days (' || v_train
-             || ' d), so the training window can never fill.');
+    IF v_check_mode = 'repository' AND NOT v_installed THEN
+        note('Not installed here yet. Next: install.sql (deploy_mode = repository), then');
+        note('cap_repo.add_target and cap_repo.collect. Check each target: @target/check.sql.');
+    ELSIF v_check_mode = 'repository' THEN
+        note('The data comes from the CAP_H_* copies (cap_repo.collect); check 11 covers');
+        note('what feeds them. Check each target where it runs: @target/check.sql.');
+    ELSIF v_check_mode = 'fixture' THEN
+        note('The data comes from the CAP_FIXTURE_* tables (test/fixture_install.sql).');
     END IF;
     IF n_fail = 0 AND n_warn = 0 THEN
         note('All green -- install.sql should produce usable forecasts.');

@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
-# quickstart.sh -- preflight + install + first report, in one command.
+# quickstart.sh -- this database as its own target, the suite, a first report,
+# in one command.
 #
-#   ./quickstart.sh                       # sqlplus / as sysdba   (CDB$ROOT)
-#   ./quickstart.sh user/pw@//host/svc    # any connect string sqlplus accepts
+#   ./quickstart.sh                              # sqlplus / as sysdba (CDB$ROOT)
+#   ./quickstart.sh 'sys/pw@//host/svc as sysdba'  # any SYSDBA connect sqlplus accepts
 #
-# Needs sqlplus on PATH (source oraenv first on the DB host). Runs from the
-# repo directory regardless of where you call it from, because the SQL*Plus
-# @@ includes resolve relative to the outermost script.
+# Optional environment, passed to quickstart.sql as DEFINEs:
+#   CAP_OWNER         the suite owner (default AWRCAP, in the PDB)
+#   CAP_READER        the read-only reader (default C##AWRRDR; AWRRDR in a non-CDB)
+#   CAP_CONTAINER     the PDB the suite lives in (default: the one open PDB)
+#   CAP_SELF_CONNECT  the loopback link's address (default
+#                     //localhost:<listener port>/<the root's default service>)
 #
-# With no argument the suite lands in SYS (install.sql warns about it). For a
-# dedicated owner run create_owner.sql once as SYSDBA, then pass that user's
-# connect string here. Exits non-zero if doctor.sql reports a FAIL or the
-# install fails.
+# Needs sqlplus on PATH (source oraenv first on the DB host) and a SYSDBA
+# connection: it creates the reader and a schema-only owner and installs into
+# that owner, never into SYS. Runs from the repo directory regardless of
+# where you call it from, because the SQL*Plus @@ includes resolve relative to
+# the outermost script. Exits non-zero if doctor.sql reports a FAIL or a step
+# fails.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
@@ -21,8 +27,18 @@ command -v sqlplus >/dev/null 2>&1 || {
 }
 mkdir -p reports
 
-if [ "$#" -eq 0 ]; then
-  exec sqlplus -L / as sysdba @quickstart.sql </dev/null
-else
-  exec sqlplus -L "$@" @quickstart.sql </dev/null
-fi
+defs=""
+define() {
+  local name=$1 value=$2 pattern=$3 what=$4
+  [[ -z $value ]] && return 0
+  [[ $value =~ $pattern ]] || { echo "quickstart: $what" >&2; exit 2; }
+  defs+="DEFINE $name = '$value'"$'\n'
+}
+sql_name='^[A-Za-z][A-Za-z0-9_$#]{0,127}$'
+define owner        "${CAP_OWNER:-}"        "$sql_name"    "CAP_OWNER must be a plain SQL name"
+define reader       "${CAP_READER:-}"       "$sql_name"    "CAP_READER must be a plain SQL name"
+define container    "${CAP_CONTAINER:-}"    "$sql_name"    "CAP_CONTAINER must be a plain SQL name"
+define self_connect "${CAP_SELF_CONNECT:-}" "^[^\"'&]+$"   "CAP_SELF_CONNECT may not contain quotes or &"
+
+[[ $# -eq 0 ]] && set -- / as sysdba
+printf '%s@quickstart.sql\nEXIT\n' "$defs" | sqlplus -S -L "$@"

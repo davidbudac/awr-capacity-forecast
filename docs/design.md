@@ -41,15 +41,17 @@ This document explains *why* each layer is shaped the way it is. For usage see
   `UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = '...'`.
 - **19c floor.** No 21c+ syntax (notably: no standalone `WINDOW` clause).
 
-## Deployment: standalone, or target + repository (M24)
+## Deployment: every database a target (M24, M25)
 
-The suite measures one database from inside it (`deploy_mode=local`), or a
-fleet from a repository database (`deploy_mode=repository`). In the fleet
-shape a *target* gets only a read-only common user (`target/prepare.sql`:
-`C##AWRRDR`, `CREATE SESSION`, direct `SELECT` on the seventeen views ddl/10
-reads, `CONTAINER_DATA = ALL`), and the repository copies those views over
-one DB link per target and runs everything else. The choices, made
-2026-11-07:
+Every install is a repository (`deploy_mode=repository`). A *target* gets
+only a read-only common user (`target/prepare.sql`: `C##AWRRDR`,
+`CREATE SESSION`, direct `SELECT` on the seventeen views the seam reads,
+`CONTAINER_DATA = ALL`), and the repository copies those views over one DB
+link per target and runs everything else. A database that measures only
+itself is its own target, over a loopback link (M25). M24 built the fleet
+shape beside a local mode, in which the suite read the installing
+database's own `DBA_HIST_*` views; M25 retired local mode. The M24 choices,
+made 2026-11-07:
 
 - **Copy, not federate.** Views over `@link` would cap history at the
   target's AWR retention (8 days on a stock database) and run the deep view
@@ -61,19 +63,20 @@ one DB link per target and runs everything else. The choices, made
   every statement it runs there is a `SELECT`. A target-side exporter would
   mean installing code on production; it is out of scope.
 - **Copies shaped like `DBA_HIST`, seam generated.** `CAP_H_<view>` keeps
-  the columns ddl/10 reads under their AWR names, keyed with `con_dbid`
+  the columns the seam reads under their AWR names, keyed with `con_dbid`
   wherever the source has it (from `CDB$ROOT`, seg_stat, seg_stat_obj,
   parameter and the `CON_` time model / sysstat span every container; keys
   without `con_dbid` collided there). `repository/build.py` holds the
   manifest (each source's columns, kind and row filter) and writes
   `ddl/13_seam_repository.sql`: the copy tables, `CAP_REPO_SOURCE` (the
-  finished pull statements) and the seam, which is ddl/10 with each
-  `dba_hist_x` renamed `cap_h_x`. One body serves both modes, so a column the
+  finished pull statements) and the seam, which is the seam written over
+  `DBA_HIST_*` (ddl/10 then, `repository/seam.sql` since M25) with each
+  `dba_hist_x` renamed `cap_h_x`. One body served both modes, so a column the
   copy lacks fails the install compile, and `build.py --check` fails on a
-  stale ddl/13, on a copy filter that drops a literal ddl/10 filters on, and
-  when ddl/10, `target/prepare.sql` or `create_owner.sql` name other views
-  than the manifest. `CAPV_TARGET` is the one view that differs by design
-  (`repository/seam_overrides.sql`): it reads the registry.
+  stale ddl/13, on a copy filter that drops a literal the seam filters on,
+  and when the seam or `target/prepare.sql` name other views than the
+  manifest. `CAPV_TARGET` also reads the registry tables of
+  `repository/cap_repo.sql`, which ddl/13 includes before the seam.
 - **Three copy kinds.** Facts (F) are appended per snap_id window above the
   DBID's high-water mark. Dimensions (D: tablespace, datafile, PDB and
   database instance, ASM diskgroup) are MERGEd null-safe on their key. One
@@ -98,21 +101,23 @@ one DB link per target and runs everything else. The choices, made
 - **`CONTAINER_DATA` follows the querying session.** A common user without
   `CONTAINER_DATA = ALL` reading `DBA_HIST_*` in `CDB$ROOT` sees the root's
   rows only (1 container of 3 on 19.27), while SYS through the same view
-  sees all of them. `target/prepare.sql` sets it for the reader, and
-  `create_owner.sql` for a local-mode owner, whose own jobs would otherwise
-  lose every PDB series.
+  sees all of them. `target/prepare.sql` sets it for the reader. Until M25
+  `create_owner.sql` set it for a local-mode owner too, whose own jobs would
+  otherwise have lost every PDB series; an owner now reads copies and needs
+  none.
 - **Links belong to the owner.** `cap_repo` is definer's rights, so
   `add_target` creates the link in the suite owner's schema even when SYSDBA
   calls it under `CURRENT_SCHEMA`; `CREATE DATABASE LINK` must be granted
   directly. A private link resolves only for its owner, so `doctor.sql`
   (SYSDBA) tests one through `cap_repo.ping`, and `uninstall.sql` drops them
   through a throwaway definer's-rights procedure in the owner's schema.
-- **Parity is the ship gate.** `test/dbmint_parity.sh` installs local mode
-  and repository mode over the same CDB root, collects to one snap_id and
-  fingerprints every `CAPV_` view at the repository's high-water mark and
-  every `CAPD/CAPF/CAPA/CAPR` view: row count and an order-free hash, zero
-  differences. Only the identity views (`CAPV_TARGET`, `CAPR_TARGETS`) are
-  skipped, because they differ by design.
+- **Parity was the ship gate (M24.5).** `test/dbmint_parity.sh` installed
+  local mode and repository mode over the same CDB root, collected to one
+  snap_id and fingerprinted every `CAPV_` view at the repository's
+  high-water mark and every `CAPD/CAPF/CAPA/CAPR` view: row count and an
+  order-free hash, zero differences. Only the identity views
+  (`CAPV_TARGET`, `CAPR_TARGETS`) were skipped, because they differ by
+  design. With local mode retired the copy check replaced it (below).
 - **Retention guards the forecasts.** `repo_retention_days` below the
   longest window a feature reads (120 days at the shipped knobs: the ESM
   horizon) is `BAD` in `CAP_CFG_CHECK`, and `purge` refuses to run on it,
@@ -152,6 +157,61 @@ one DB link per target and runs everything else. The choices, made
   diffs the two; `test/lint_snapshot_reads.sh` keeps every driver read on the
   registry.
 
+The M25 choices, made 2026-11-09:
+
+- **One architecture.** Local mode kept only as much history as the
+  database's own AWR retention, 8 days on a stock database, while the ESM
+  horizon needs 120: it forced a retention change on production. Copies keep
+  `repo_retention_days` (400) of a database's own AWR too. Production runs one
+  seam instead of two, and one database grows into a fleet without a
+  reinstall. Analytics lose nothing: the M24.5 parity run had found every
+  view equal. Local mode was also broken in `CDB$ROOT` by then: since M24.13
+  `build_snap_tables` raised ORA-00600 [KGL-heap-size-exceeded] there (19.27).
+- **Accepted costs.** A loopback link needs the listener and a stored reader
+  password, and that password can expire (ORA-28001). A LIVE report sees the
+  last hourly collect, not the last snapshot. A repository that is its own
+  target stores its AWR twice (0.25 MB a day on the test CDB). Creating the
+  reader needs SYSDBA, so a plain user can no longer run the quickstart into
+  their own schema.
+- **The suite lives in a PDB by default.** The standalone path
+  (`target/self.sql` in the root, `repository/self.sql` in the owner) puts
+  the owner `AWRCAP` in the one open PDB, or the one `CONTAINER` names, and
+  reads the root over `//localhost:<local listener port>/<the root's default
+  service>`. It stops before any change when more than one PDB is open and
+  none is named. The reader's password is random and lives only in a session
+  bind; a re-run rotates it and rebuilds the link before the preflight.
+- **An old local install starts fresh.** Its persisted tables live in the
+  root schema, so the upgrade is uninstall, standalone into a PDB, collect.
+  `uninstall.sql` writes the knobs off their default and the tablespace
+  overrides to a replay file first, and revokes the owner's old
+  `DBA_HIST_*` grants and `CONTAINER_DATA` (`revoke_local_grants.sql`). The
+  run, fit and alert history and the models do not move; the first collect
+  copies everything AWR still holds, so the forecasts come back at once.
+- **The copy check replaces parity.** `repository/build.py` generates
+  `test/repo_copy_check.sql`: per target, DBID and source, the source over
+  the link (under the manifest's filter) MINUS the copy and back. Equal
+  copies under one seam text give equal views. A dimension copy keeps rows
+  the target has purged, so there only a source row missing from the copy
+  counts. `test/dbmint_copy_check.sh --plant` proves it catches one deleted
+  row.
+- **`GLOBAL_NAMES = TRUE` names the link after the target.** Under it a link
+  `CAP_<NAME>` fails with ORA-02085, while one named
+  `<global_name>@<qualifier>` answers, quoted or not (19.27). So
+  `add_target` takes `p_global_name` and recreates the link as
+  `<global_name>@CAP_<NAME>` when the probe raises ORA-02085; without the
+  name it fails with ORA-20074 and leaves no link.
+- **RAC: hold back a half-finished snapshot.** With one high-water mark per
+  DBID, a collect could copy a snapshot one instance had finished and another
+  had not, and facts are copied once. A local read picked up the late rows on
+  its next run; a copy never would. So collect holds back the newest snap_id
+  while fewer instances have it than the one before. A single instance keeps
+  the old window. RAC remains untested.
+- **AWR is read in one place.** `doctor.sql` checks only the repository side
+  (its sections over the database's own AWR moved to `target/check.sql`) and
+  warns before a reader's password expires (`reader_expiry_warn_days`). Code
+  names `DBA_HIST_*` only under `repository/` and `target/` (plus test/ and
+  bench/), which `test/lint_dba_hist.sh` enforces.
+
 A warehouse mode, a seam over the `../awr-fleet-warehouse` collector,
 predated M24. M24.9 retired it, so repository mode is the one fleet path;
 `../awr-fleet-warehouse` stays its own product.
@@ -159,9 +219,9 @@ predated M24. M24.9 retired it, so repository mode is the one fleet path;
 ## Layer 1 — the seam (`CAPV_*`)
 
 Thirteen views re-present the AWR dictionary in a stable shape. Everything
-downstream depends only on these, so swapping `ddl/10_seam_local.sql` for
-`13` (repository, generated from `10`) or `12` (fixture)
-re-points the whole stack. Every view carries
+downstream depends only on these, so swapping `ddl/13_seam_repository.sql`
+(generated from `repository/seam.sql`, the seam written over `DBA_HIST_*`)
+for `ddl/12_seam_fixture.sql` re-points the whole stack. Every view carries
 `(dbid, con_dbid)` but `CAPV_TARGET`, which is per dbid. A fourteenth view,
 `CAPV_CONTRACT`, describes what the other thirteen present (see the last
 bullet).
@@ -202,24 +262,25 @@ bullet).
   `DBA_TABLESPACES` is never joined (loses dropped tablespaces; in
   repository mode it describes the repository, not the target).
 - `CAPV_CONTAINER` (M7.2) is the naming dimension: one row per
-  `(dbid, con_dbid)` with `db_name` + `con_name`. Local mode (repository
-  mode over the copies) reads
+  `(dbid, con_dbid)` with `db_name` + `con_name`. The seam reads (in
+  repository mode, over the copies)
   `DBA_HIST_PDB_INSTANCE` (which names every container including `CDB$ROOT`,
   whose `con_dbid` equals the CDB dbid — verified on 19c) with a
   `DBA_HIST_DATABASE_INSTANCE` fallback branch for non-CDBs; fixture mode
   reads `CAP_FIXTURE_CONTAINER`. Historical dictionaries only, same as the rest of
   the seam — never live `V$` views.
 - `CAPV_TARGET` (M24.6) says what is measured and how it is fed: one row per
-  (target, dbid) with `target_name`, `feed` (`LOCAL` / `LINK` / `FIXTURE`),
+  (target, dbid) with `target_name`, `feed` (`LINK` / `FIXTURE`; `LOCAL`
+  before M25),
   the AWR `host_name` of the newest instance startup, and, in
   repository mode only, the link, `enabled`, the high-water mark and the
   collect health from `CAP_COLLECT_LOG` (newest good collect, newest error
-  of the dbid or of the whole target, purge gaps). Local and fixture mode
-  name the target after the AWR `db_name`. The repository
-  version reads the registry, so it is not ddl/10's with the rename:
-  `repository/seam_overrides.sql` holds it and `repository/build.py` puts it
-  in ddl/13 in place of ddl/10's. `CAPR_CONTAINER.db_pdb` and every report
-  header take their database name from it.
+  of the dbid or of the whole target, purge gaps). Fixture mode names the
+  target after the AWR `db_name`. The repository
+  version reads the registry. Until M25 it lived in
+  `repository/seam_overrides.sql` and replaced local mode's version in
+  ddl/13; with one seam left it sits in seam.sql. `CAPR_CONTAINER.db_pdb` and
+  every report header take their database name from it.
 - `CAPV_RESOURCE_LIMIT` / `CAPV_SYSSTAT` (M11).
   `DBA_HIST_RESOURCE_LIMIT` (filtered to `processes` / `sessions`) has a
   `CON_DBID` column, but in `CDB$ROOT` its rows are root-only (verified on
@@ -347,7 +408,7 @@ row per day.
   `host_busy_sec` (Σbusy_d/100) is the denominator for a container's share of
   host CPU.
 - **`CAPD_DBTIME_DAILY`** — the time-model deltas, same restart rule, per
-  container → `db_cpu_sec`, `db_time_sec`, `bg_cpu_sec` (÷1e6). In local mode
+  container → `db_cpu_sec`, `db_time_sec`, `bg_cpu_sec` (÷1e6). On a CDB
   the root row is `CDB$ROOT` alone; the CDB's DB CPU is the sum over its rows.
   `db_cpu_per_core` divides by the host core count summed across instances
   from OSSTAT (falling back to `NUM_CPUS`). **DB CPU as % of logical-CPU
@@ -760,7 +821,7 @@ schedule, while this view stays a plain, hand-auditable OLS fit.
 `CAPV_PARAMETER`, NULL when unset or 0) and `fra_days_at_cur = fra_size_gb /
 the dbid's current redo rate`, the days of redo the FRA holds at today's
 rate. The log stream is shared, so the rate is the sum of `cur_val` over the
-dbid's current `REDO_GB_DAY` rows (one per container in local mode), and
+dbid's current `REDO_GB_DAY` rows (one per container of a CDB), and
 every REDO row of the dbid carries the same number. It is an upper bound:
 the FRA also holds flashback logs and backups. NULL on every other series.
 Fixture: 100 GiB / 2.0 GiB/day = 50.
@@ -1727,6 +1788,9 @@ AWR history. See `bench/README.md`.
   modes (M15) and the 2026-10-17 review program (M16 config and install, M17
   seam and daily, M18 forecasts, M19 alerts and results layer, M20 seam
   extensions, M21 consumers and docs).
+- **M24–M25 — done.** The repository and its fleet (M24), then one
+  architecture: every database a target, local mode retired (M25). See
+  Deployment above.
 - **v2** — memory forecasting (SGA / PGA from `DBA_HIST_MEM_DYNAMIC_COMP`, the
   19c view name, and `DBA_HIST_PGASTAT`); cross-DBID series stitching
   (non-CDB → PDB migrations) keyed on a stable `CAP_TARGET.target_id`.
