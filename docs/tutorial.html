@@ -174,7 +174,7 @@
         <span class="ico">i</span>
         <p><strong>The example database.</strong> The sample report comes from ECOMPRD, a fictional
         e-commerce CDB with one application PDB, SHOP_PDB, and 150 days of designed hourly AWR
-        history, last day 2026-10-17. The charts replot the daily values the report was computed from.</p>
+        history, last day 2026-11-09. The charts replot the daily values the report was computed from.</p>
       </div>
 
       <!-- ===================== 1. PICTURE ===================== -->
@@ -299,17 +299,14 @@ Source   : LIVE (CAPR views evaluated now)
 == 0. AT A GLANCE (from CAPR_ALERTS, or CAPR_ALERTS_LATEST when the source is SNAPSHOT) ==
 ECOMPRD (dbid 3141592653): current, 151 days of AWR, 24 series (19 OK, 0 low confidence, 4 flat, 0 short history, 1 cyclic), 0 not current
 
- CRIT  WARN  INFO
------ ----- -----
-    1    10     0
-
 SEV  KIND             DB/PDB               MESSAGE
 ---- ---------------- -------------------- -----------------------------------------------------------------------
+     TOTAL                                 CRIT 1, WARN 10, INFO 0
 <span class="c-crit">CRIT TBSPC_FULL       ECOMPRD/SHOP_PDB     Tablespace AUDIT_TRAIL forecast full in 17 days (92.0% used, 613.7 MiB/day)</span>
-<span class="c-warn">WARN CPU_ANOM         ECOMPRD              Host CPU 69.8% busy on 2026-10-09 vs usual 46.8% for that weekday, robust z +7.7 (+49% vs median)</span>
-<span class="c-warn">WARN CPU_SAT          ECOMPRD              Host CPU (busy-hour p95) forecast to reach 80% busy in 51 days (now 65.0% busy)</span>
-<span class="c-warn">WARN DBCPU_ANOM       ECOMPRD/SHOP_PDB     13 consecutive days, latest 2026-10-17, peak robust z +6.0: DB CPU 21.6% of host CPUs ...</span>
-<span class="c-warn">WARN SERIES_LIMIT     ECOMPRD/SHOP_PDB     SESSIONS forecast to reach 90% of its limit (1300 COUNT) in 36 days (now 1091, 83.9% of limit)</span>
+<span class="c-warn">WARN CPU_ANOM         ECOMPRD              Host CPU 69.6% busy on 2026-10-30 vs usual 46.4% for that weekday, robust z +7.7 (+50% vs median)</span>
+<span class="c-warn">WARN CPU_SAT          ECOMPRD              Host CPU (busy-hour p95) forecast to reach 80% busy in 52 days (now 70.2% busy)</span>
+<span class="c-warn">WARN DBCPU_ANOM       ECOMPRD/SHOP_PDB     13 consecutive days, latest 2026-11-09, peak robust z +6.0: DB CPU 23.1% of logical CPUs ...</span>
+<span class="c-warn">WARN SERIES_LIMIT     ECOMPRD/SHOP_PDB     SESSIONS forecast to reach 90% of its limit (1300 COUNT) in 34 days (now 1094, 84.2% of limit)</span>
 <span class="c-warn">WARN TBSPC_NEARFULL   ECOMPRD/SHOP_PDB     Tablespace CUSTOMER_DATA is 95.0% full now (152.02 of 160.00 GiB; forecast quality OK)</span>
 <span class="c-dim">... 5 more WARN rows</span></pre>
       </div>
@@ -491,7 +488,7 @@ SEV  KIND             DB/PDB               MESSAGE
         <div class="anim__scroll"><svg class="wide" viewBox="0 0 720 330" role="img"
           aria-label="90 daily values rising from 62 to 119.6 GiB, faster in the last month. A fitted line, then a projection from today with a widening band that reaches the 130 GiB ceiling after about 17 days."></svg></div>
         <p class="anim__cap" aria-live="polite"></p>
-        <p class="anim__src">Values: the sample's daily AUDIT_TRAIL series, 2026-07-20 to 2026-10-17 (train_days 90). Fit numbers from report sections 1a and 2.</p>
+        <p class="anim__src">Values: the sample's daily AUDIT_TRAIL series, 2026-08-12 to 2026-11-09 (train_days 90). Fit numbers from report sections 1a and 2.</p>
       </figure>
 
       <p>The fit is ordinary least squares over the last <span class="inline">train_days</span> (90)
@@ -508,10 +505,10 @@ days_full   (130.00 − 119.60) / 0.5993 = 17.4 → 17   (section 1a: DAYS_FULL 
 
       <p>ACCEL 1.92 in section 1a is the slope of the last <span class="inline">recent_days</span>
         (28) divided by the 90-day slope; above 1.5 means growth is accelerating. AUDIT_TRAIL tripled
-        its daily growth in mid-September (the bend in the chart). At the recent rate, 1.92 × 613.664
+        its daily growth in early October (the bend in the chart). At the recent rate, 1.92 × 613.664
         ≈ 1,178 MiB/day, the remaining 10.40 GiB lasts about 9 days, not 17. Tier 2's +30 estimate in
         section 6 is 155.35 GiB, past the ceiling. Section 1a also prints NEED_90_GIB 54.40 (space to
-        add so the upper band stays under the limit for 90 days) and ADD_BY 2026-11-02 (the
+        add so the upper band stays under the limit for 90 days) and ADD_BY 2026-11-25 (the
         worst-case fill date).</p>
 
       <h3>Quality grades</h3>
@@ -533,8 +530,8 @@ days_full   (130.00 − 119.60) / 0.5993 = 17.4 → 17   (section 1a: DAYS_FULL 
 
       <p>CPU differs in one way: the projection starts at ANCHOR, the median of the last
         <span class="inline">shift_days</span> (7) complete days, because single CPU days are noisy.
-        Host BUSY_P95 (the busy hour): ANCHOR 69.62, slope 0.2018 points per day,
-        (80 − 69.62) / 0.2018 = 51 days to <span class="inline">cpu_sat_pct</span> (80). That is the
+        Host BUSY_P95 (the busy hour): ANCHOR 69.60, slope 0.1972 points per day,
+        (80 − 69.60) / 0.1972 = 52 days to <span class="inline">cpu_sat_pct</span> (80). That is the
         CPU_SAT row in section 0.</p>
 
       <!-- ===================== 6. ANOMALIES ===================== -->
@@ -546,22 +543,22 @@ days_full   (130.00 − 119.60) / 0.5993 = 17.4 → 17   (section 1a: DAYS_FULL 
       <p>An anomaly is a day (for CPU, also an hour) too far from a baseline. The baseline is the
         median of comparable past points; distance is scaled by the MAD (median absolute deviation),
         so one bad day in the history does not move the baseline. Example: the CPU_ANOM row, host CPU
-        on Friday 2026-10-09 against the 8 Fridays before it.</p>
+        on Friday 2026-10-30 against the 8 Fridays before it.</p>
 
-      <figure class="anim" id="an" aria-label="Anomaly animation, host CPU on 2026-10-09">
+      <figure class="anim" id="an" aria-label="Anomaly animation, host CPU on 2026-10-30">
         <div class="anim__head">
           <span class="anim__title">Host BUSY_PCT · Fridays · SAME_DOW baseline</span>
           <button class="anim__btn" type="button" data-role="replay">↻ Replay</button>
         </div>
         <div class="anim__scroll"><svg class="wide" viewBox="0 0 720 300" role="img"
-          aria-label="Eight Fridays between 43.8 and 49.7 percent busy, their median 46.82, a band of plus or minus 9 points, and 2026-10-09 at 69.8 percent, far above the band."></svg></div>
+          aria-label="Eight Fridays between 43.9 and 49.1 percent busy, their median 46.36, a band of plus or minus 9 points, and 2026-10-30 at 69.6 percent, far above the band."></svg></div>
         <p class="anim__cap" aria-live="polite"></p>
-        <p class="anim__src">Values: daily host busy% of the sample, the Fridays 2026-08-14 to 2026-10-09. Median, threshold and z from report section 5.</p>
+        <p class="anim__src">Values: daily host busy% of the sample, the Fridays 2026-09-04 to 2026-10-30. Median, threshold and z from report section 5.</p>
       </figure>
 
-      <div class="calc">MAD σ       1.4826 × median |x − 46.82| = 2.07, floored at cpu_min_mad_pct 3.00
+      <div class="calc">MAD σ       1.4826 × median |x − 46.36| = 1.81, floored at cpu_min_mad_pct 3.00
 threshold   mad_k × σ = 3 × 3.00 = 9.00 points
-robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
+robust z    (69.59 − 46.36) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
 
       <p>Without the floor, a very steady baseline has a tiny MAD and every small wobble flags. The
         tablespace floor is <span class="inline">abs_floor_bytes</span> (100 MiB per day).</p>
@@ -583,12 +580,12 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
         <span class="inline">alert_modes_series</span> (1 = TRAILING, 2 = SAME_DOW, 4 = HOUR_OF_WEEK).
         The report shows every mode; only alerting modes reach section 0.</p>
 
-      <p>A trailing baseline adapts: AUDIT_TRAIL's growth tripled on 2026-09-15; section 3 flags it
-        under TRL until 2026-09-28, then stops, because the new rate fills half the 28-day window and
+      <p>A trailing baseline adapts: AUDIT_TRAIL's growth tripled on 2026-10-08; section 3 flags it
+        under TRL until 2026-10-21, then stops, because the new rate fills half the 28-day window and
         has become the median. The lasting change shows in the forecast (ACCEL 1.92).</p>
 
       <p>Consecutive flagged days collapse into one alert row: SHOP_PDB's DB CPU flagged 13 days in a
-        row and section 0 shows one DBCPU_ANOM row, "13 consecutive days, latest 2026-10-17". Section 0
+        row and section 0 shows one DBCPU_ANOM row, "13 consecutive days, latest 2026-11-09". Section 0
         looks back <span class="inline">anomaly_report_days</span> (14) days; the report sections
         print the last 30.</p>
 
@@ -610,15 +607,15 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
           <button class="anim__btn" type="button" data-role="replay">↻ Replay</button>
         </div>
         <div class="anim__scroll"><svg class="wide" viewBox="0 0 720 300" role="img"
-          aria-label="35 days of DB CPU percent. The 28-day baseline window has median 11.98, the last 7 days have median 22.96. The gap of 10.98 points is below the 15 point threshold."></svg></div>
+          aria-label="35 days of DB CPU percent. The 28-day baseline window has median 12.00, the last 7 days have median 22.91. The gap of 10.91 points is below the 15 point threshold."></svg></div>
         <p class="anim__cap" aria-live="polite"></p>
-        <p class="anim__src">Values: the sample's daily SHOP_PDB DB_CPU_PCT, 2026-09-13 to 2026-10-17. The 2026-10-05 to 2026-10-17 values appear in report section 5.</p>
+        <p class="anim__src">Values: the sample's daily SHOP_PDB DB_CPU_PCT, 2026-10-06 to 2026-11-09. The 2026-10-28 to 2026-11-09 values appear in report section 5.</p>
       </figure>
 
       <p>A shift is flagged UP or DOWN only when both hold: the gap between the medians exceeds
         <span class="inline">shift_min_pct</span> (15) percentage points, and every day of the recent
         window is outside the baseline median ± its MAD σ. Here the second holds (all 7 days above
-        14.98) but the gap is 22.96 − 11.98 = 10.98 points, so no CPU_SHIFT; the step appears as the
+        15.00) but the gap is 22.91 − 12.00 = 10.91 points, so no CPU_SHIFT; the step appears as the
         DBCPU_ANOM episode. To flag a 10-point step, lower the knob:</p>
 
       <div class="term in">
@@ -654,9 +651,9 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
           <tbody>
             <tr><td class="kt">TBSPC_FULL</td><td class="def">days_to_full ≤ dtf_warn (90)</td><td class="def">≤ dtf_crit (30)</td><td class="def">AUDIT_TRAIL, 17 days: CRIT</td></tr>
             <tr><td class="kt">TBSPC_NEARFULL</td><td class="def">used ≥ nearfull_warn_pct (90%)</td><td class="def">≥ nearfull_crit_pct (97%)</td><td class="def">CUSTOMER_DATA, 95.0%: WARN</td></tr>
-            <tr><td class="kt">CPU_SAT · DBCPU_SAT</td><td class="def">days to 80% ≤ 90</td><td class="def">≤ 30</td><td class="def">host BUSY_P95, 51 days: WARN</td></tr>
+            <tr><td class="kt">CPU_SAT · DBCPU_SAT</td><td class="def">days to 80% ≤ 90</td><td class="def">≤ 30</td><td class="def">host BUSY_P95, 52 days: WARN</td></tr>
             <tr><td class="kt">CPU_HOT · DBCPU_HOT</td><td class="def">median of the recent daily p95 (<span class="inline">recent_p95_med</span>) at or above <span class="inline">cpu_sat_pct</span> (80%)</td><td class="def">no CRIT level</td><td class="def">HOT N everywhere</td></tr>
-            <tr><td class="kt">SERIES_LIMIT</td><td class="def">days to 90% of the limit ≤ 90</td><td class="def">≤ 30</td><td class="def">SESSIONS, 36 days: WARN</td></tr>
+            <tr><td class="kt">SERIES_LIMIT</td><td class="def">days to 90% of the limit ≤ 90</td><td class="def">≤ 30</td><td class="def">SESSIONS, 34 days: WARN</td></tr>
             <tr><td class="kt">*_ANOM</td><td class="def">a HIGH day or episode</td><td class="def">no CRIT level</td><td class="def">CPU_ANOM, robust z +7.7: WARN</td></tr>
           </tbody>
         </table>
@@ -786,11 +783,11 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
     if (!fig) return;
     var STAGES = [
       ["DBA_HIST_TBSPC_SPACE_USAGE",
-       "One row per tablespace per snapshot, here hourly. Read only. On 2026-10-17 the last snapshot of the day has AUDIT_TRAIL at 119.60 GiB used, maxsize 130.00 GiB."],
+       "One row per tablespace per snapshot, here hourly. Read only. On 2026-11-09 the last snapshot of the day has AUDIT_TRAIL at 119.60 GiB used, maxsize 130.00 GiB."],
       ["CAPV_TBSPC_USAGE",
        "The seam: the only layer that knows the row source. Local AWR, a repository's copies and the test fixture present the same columns."],
       ["CAPD_TBSPC_DAILY",
-       "One row per tablespace per day, from the day's last snapshot: 2026-10-17, 119.60 GiB used, 1.21 GiB more than the day before. CPU: CAPD_CPU_DAILY."],
+       "One row per tablespace per day, from the day's last snapshot: 2026-11-09, 119.60 GiB used, 1.21 GiB more than the day before. CPU: CAPD_CPU_DAILY."],
       ["CAPF_TBSPC_FORECAST · CAPA_ANOM",
        "CAPF fits the last 90 days: 613.664 MiB/day, R² 0.916, quality OK, days_to_full 17. CAPA scores each day's growth against its baselines to find unusual days."],
       ["CAPR_ALERTS",
@@ -876,7 +873,7 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
     var fig = document.getElementById("fc");
     if (!fig) return;
     var D = [62.02,62.39,62.71,63.03,63.39,63.79,64.18,64.5,64.88,65.26,65.66,66.04,66.38,66.7,67.01,67.37,67.75,68.06,68.4,68.74,69.04,69.41,69.8,70.14,70.46,70.78,71.09,71.41,71.81,72.17,72.58,72.9,73.29,73.61,73.95,74.33,74.69,75.04,75.42,75.72,76.13,76.42,76.76,77.08,77.4,77.71,78.08,78.4,78.72,79.08,79.44,79.74,80.1,80.5,80.88,81.23,81.55,82.72,83.86,84.97,86.17,87.28,88.44,89.63,90.83,91.99,93.08,94.23,95.4,96.57,97.73,98.93,100.11,101.27,102.45,103.55,104.73,105.92,107.02,108.14,109.28,110.4,111.53,112.7,113.79,114.91,116.07,117.26,118.39,119.6];
-    var BASE = [2026, 7, 20], N = D.length, LAST = N - 1, H = 30, CEIL = 130;
+    var BASE = [2026, 8, 12], N = D.length, LAST = N - 1, H = 30, CEIL = 130;
     // OLS on the plotted values, and the M9.1 band: t = 1.96 + 2.4/(n-2).
     var mx = 0, my = 0, i;
     for (i = 0; i < N; i++) { mx += i; my += D[i]; }
@@ -899,7 +896,7 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
     });
     el("line", { x1: L, x2: R, y1: B, y2: B, "class": "g-axis" }, svg);
     [0, 30, 60].forEach(function (d) { txt(svg, x(d), B + 18, dateLabel(BASE, d), "g-txt", "middle"); });
-    txt(svg, x(LAST), B + 18, "2026-10-17 today", "g-acc", "middle");
+    txt(svg, x(LAST), B + 18, "2026-11-09 today", "g-acc", "middle");
     txt(svg, x(LAST + H), B + 18, "+30", "g-txt", "end");
     el("line", { x1: x(LAST), x2: x(LAST), y1: T, y2: B, "class": "g-grid" }, svg);
     el("line", { x1: L, x2: R, y1: y(CEIL), y2: y(CEIL), "class": "g-ceil" }, svg);
@@ -918,7 +915,7 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
     txt(mark, xd, y(CEIL) + 30, "worst 16 · best 18", "g-lbl", "middle");
 
     var CAPS = [
-      "Each dot is one day: AUDIT_TRAIL's used GiB at the day's last snapshot. Growth bends upward in mid-September.",
+      "Each dot is one day: AUDIT_TRAIL's used GiB at the day's last snapshot. Growth bends upward in early October.",
       "<b>Fit.</b> The least-squares line through all 90 days: <b>613.664 MiB/day</b>, R² <b>0.916</b>, so quality OK.",
       "<b>Project.</b> Start at today's 119.60 GiB and add the slope per day. The shaded 95% band widens with distance.",
       "<b>Days to full.</b> The projection meets the 130 GiB ceiling after <b>17 days</b>; the slope's confidence interval gives 16 to 18. That is the CRIT row."
@@ -950,14 +947,14 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
   })();
 
   // ------------------------------------------------------------------
-  // 4. Anomaly: host BUSY_PCT on Friday 2026-10-09 vs the 8 Fridays before
+  // 4. Anomaly: host BUSY_PCT on Friday 2026-10-30 vs the 8 Fridays before
   // ------------------------------------------------------------------
   (function () {
     var fig = document.getElementById("an");
     if (!fig) return;
-    var F = [["2026-08-14", 43.83], ["2026-08-21", 44.87], ["2026-08-28", 45.54], ["2026-09-04", 46.55],
-             ["2026-09-11", 47.08], ["2026-09-18", 47.89], ["2026-09-25", 48.33], ["2026-10-02", 49.65]];
-    var TODAY = 69.80, MED = 46.82, THR = 9.00;
+    var F = [["2026-09-04", 43.87], ["2026-09-11", 44.30], ["2026-09-18", 45.64], ["2026-09-25", 45.76],
+             ["2026-10-02", 47.26], ["2026-10-09", 46.96], ["2026-10-16", 47.91], ["2026-10-23", 49.14]];
+    var TODAY = 69.59, MED = 46.36, THR = 9.00;
     var svg = fig.querySelector("svg");
     var L = 50, R = 700, T = 18, B = 258, Y0 = 30, Y1 = 80;
     function x(k) { return L + 40 + k * (R - L - 80) / 8; }
@@ -967,23 +964,23 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
       txt(svg, L - 8, y(v) + 4, v + "%", "g-txt", "end");
     });
     F.forEach(function (f, k) { txt(svg, x(k), B + 18, f[0].slice(5), "g-txt", "middle"); });
-    txt(svg, x(8), B + 18, "10-09", "g-acc", "middle");
+    txt(svg, x(8), B + 18, "10-30", "g-acc", "middle");
     txt(svg, x(8), B + 33, "the day", "g-txt", "middle");
     txt(svg, x(3.5), B + 33, "the same weekday, 1 to 8 weeks back (dow_weeks 8)", "g-txt", "middle");
     var bandR = el("rect", { x: L, width: R - L, y: y(MED + THR), height: y(MED - THR) - y(MED + THR), "class": "g-win2" }, svg);
     var bandL = txt(svg, L + 6, y(MED + THR) - 6, "band ± 9.00 = 3 × σ 3.00", "g-acc");
     var med = el("line", { "class": "g-med", x1: L, x2: L, y1: y(MED), y2: y(MED) }, svg);
-    var medL = txt(svg, L + 6, y(MED) - 6, "median 46.82", "g-acc");
+    var medL = txt(svg, L + 6, y(MED) - 6, "median 46.36", "g-acc");
     var dots = F.map(function (f, k) { return el("circle", { cx: x(k), cy: y(f[1]), r: 5, "class": "g-dot" }, svg); });
     var arrow = el("line", { "class": "g-arrow", x1: x(8) - 20, x2: x(8) - 20, y1: y(MED), y2: y(TODAY) }, svg);
-    var arrowL = txt(svg, x(8) - 28, y((MED + TODAY) / 2) + 4, "+22.98 · robust z +7.7", "g-crit", "end");
+    var arrowL = txt(svg, x(8) - 28, y((MED + TODAY) / 2) + 4, "+23.23 · robust z +7.7", "g-crit", "end");
     var dot = el("circle", { cx: x(8), cy: y(TODAY), r: 6.5, "class": "g-dot hot" }, svg);
-    var dotL = txt(svg, x(8), y(TODAY) - 13, "69.80% HIGH", "g-crit", "middle");
+    var dotL = txt(svg, x(8), y(TODAY) - 13, "69.59% HIGH", "g-crit", "middle");
     var CAPS = [
-      "The baseline: host busy% on each of the 8 previous Fridays, between 43.83% and 49.65%.",
-      "Their <b>median is 46.82%</b>.",
-      "The MAD σ is 2.07, below the floor <b>cpu_min_mad_pct</b> 3.00, so σ = 3.00 and the band is ± 3 × 3.00 = 9.00 points.",
-      "<b>2026-10-09: 69.80%</b>, 22.98 points above the median. z = 22.98 / 3.00 = +7.7, past mad_k 3, so HIGH: the CPU_ANOM row."
+      "The baseline: host busy% on each of the 8 previous Fridays, between 43.87% and 49.14%.",
+      "Their <b>median is 46.36%</b>.",
+      "The MAD σ is 1.81, below the floor <b>cpu_min_mad_pct</b> 3.00, so σ = 3.00 and the band is ± 3 × 3.00 = 9.00 points.",
+      "<b>2026-10-30: 69.59%</b>, 23.23 points above the median. z = 23.23 / 3.00 = +7.7, past mad_k 3, so HIGH: the CPU_ANOM row."
     ];
     function draw(t) {
       var p1 = phase(t, 0, 2200), p2 = phase(t, 2400, 3200), p3 = phase(t, 3400, 4000), p4 = phase(t, 4300, 5100);
@@ -1003,14 +1000,14 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
   })();
 
   // ------------------------------------------------------------------
-  // 5. CPU level shift: SHOP_PDB DB_CPU_PCT, 2026-09-13 .. 2026-10-17
+  // 5. CPU level shift: SHOP_PDB DB_CPU_PCT, 2026-10-06 .. 2026-11-09
   // ------------------------------------------------------------------
   (function () {
     var fig = document.getElementById("sh");
     if (!fig) return;
-    var P = [10.88,11.85,11.73,11.74,12.01,11.97,11.21,11.14,11.96,11.87,11.98,11.97,12.08,11.28,11.18,12.18,12.27,12.28,12.25,12.41,11.51,11.43,22.71,22.86,22.82,22.85,29.66,21.48,21.42,22.9,22.96,23.24,23.12,23.18,21.63];
-    var BASE = [2026, 9, 13], NB = 28, N = P.length;
-    var BMED = 11.98, RMED = 22.96, NEED = 15, BHI = 14.98;
+    var P = [11.70,11.85,11.73,11.74,11.19,11.15,12.04,11.97,11.96,11.87,11.98,11.13,11.24,12.12,12.03,12.18,12.27,12.28,11.39,11.55,12.37,12.29,22.71,22.86,29.58,21.38,21.45,22.97,22.91,22.90,22.96,23.24,21.62,21.67,23.14];
+    var BASE = [2026, 10, 6], NB = 28, N = P.length;
+    var BMED = 12.00, RMED = 22.91, NEED = 15, BHI = 15.00;
     var svg = fig.querySelector("svg");
     var L = 50, R = 700, T = 18, B = 254, Y0 = 0, Y1 = 32;
     var step = (R - L) / N;
@@ -1026,22 +1023,22 @@ robust z    (69.80 − 46.82) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
     var wl1 = txt(svg, L + step * NB / 2, B + 34, "baseline: 28 days (shift_baseline_days)", "g-txt", "middle");
     var wl2 = txt(svg, L + step * (NB + (N - NB) / 2), B + 34, "recent: 7 (shift_days)", "g-acc", "middle");
     var bhi = el("line", { x1: L, x2: L + step * NB, y1: y(BHI), y2: y(BHI), "class": "g-fit" }, svg);
-    var bhiL = txt(svg, L + 6, y(BHI) - 5, "median + σ floor 14.98", "g-txt");
+    var bhiL = txt(svg, L + 6, y(BHI) - 5, "median + σ floor 15.00", "g-txt");
     var bmed = el("line", { "class": "g-med", x1: L, x2: L, y1: y(BMED), y2: y(BMED) }, svg);
-    var bmedL = txt(svg, L + 6, y(BMED) + 16, "baseline median 11.98", "g-acc");
+    var bmedL = txt(svg, L + 6, y(BMED) + 16, "baseline median 12.00", "g-acc");
     var rmed = el("line", { "class": "g-med", x1: L + step * NB, x2: L + step * NB, y1: y(RMED), y2: y(RMED) }, svg);
-    var rmedL = txt(svg, R - 4, y(RMED) - 8, "recent 22.96", "g-acc", "end");
+    var rmedL = txt(svg, R - 4, y(RMED) - 8, "recent 22.91", "g-acc", "end");
     var ghost = el("line", { "class": "g-ghost", x1: L + step * NB, x2: R, y1: y(BMED + NEED), y2: y(BMED + NEED) }, svg);
-    var ghostL = txt(svg, R - 4, y(BMED + NEED) - 6, "needed: 11.98 + 15 = 26.98", "g-lbl", "end");
+    var ghostL = txt(svg, R - 4, y(BMED + NEED) - 6, "needed: 12.00 + 15 = 27.00", "g-lbl", "end");
     var ax = L + step * NB - 10;
     var arrow = el("line", { "class": "g-arrow ok", x1: ax, x2: ax, y1: y(BMED), y2: y(RMED) }, svg);
-    var arrowL = txt(svg, ax - 6, y((BMED + RMED) / 2) + 4, "gap 10.98 < 15", "g-lbl", "end");
+    var arrowL = txt(svg, ax - 6, y((BMED + RMED) / 2) + 4, "gap 10.91 < 15", "g-lbl", "end");
     var dots = P.map(function (v, k) { return el("circle", { cx: x(k), cy: y(v), r: 3.6, "class": k >= 22 ? "g-dot hot" : "g-dot" }, svg); });
     var CAPS = [
-      "Each dot is a day of SHOP_PDB DB CPU as a % of the host's 32 logical CPUs. A release on <b>2026-10-05</b> roughly doubles it.",
-      "The <b>baseline window</b> is the 28 days before the last 7. Its median is <b>11.98%</b>; six of its days are already after the release.",
-      "The <b>recent window</b>, the last 7 days, has median <b>22.96%</b>. Every one of those days is above the baseline band (14.98).",
-      "The gap is <b>10.98 points</b>, less than <b>shift_min_pct</b> 15. No CPU_SHIFT; the step shows up as the DBCPU_ANOM episode instead."
+      "Each dot is a day of SHOP_PDB DB CPU as a % of the host's 32 logical CPUs. A release on <b>2026-10-28</b> roughly doubles it.",
+      "The <b>baseline window</b> is the 28 days before the last 7. Its median is <b>12.00%</b>; six of its days are already after the release.",
+      "The <b>recent window</b>, the last 7 days, has median <b>22.91%</b>. Every one of those days is above the baseline band (15.00).",
+      "The gap is <b>10.91 points</b>, less than <b>shift_min_pct</b> 15. No CPU_SHIFT; the step shows up as the DBCPU_ANOM episode instead."
     ];
     function draw(t) {
       var p1 = phase(t, 0, 2600), p2 = phase(t, 2800, 3700), p3 = phase(t, 3900, 4700), p4 = phase(t, 4900, 5600);
