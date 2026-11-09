@@ -1010,7 +1010,7 @@ Decided 2026-11-09:
       "expires 2026-11-19 07:21 (in 9 d), inside reader_expiry_warn_days 30"
       with both statements; an empty schema (CAPM2) no FAIL and no
       DBA_HIST error; fixture CAPX1 no FAIL.
-- [ ] **M25.6 Carry the operator's config across a reinstall.** Before it
+- [x] **M25.6 Carry the operator's config across a reinstall.** Before it
       drops anything, uninstall.sql spools
       `reports/cap_config_replay_<schema>_<ts>.sql` and prompts its path.
       The file holds an UPDATE for each CAP_CONFIG knob whose `cfg_value`
@@ -1024,6 +1024,19 @@ Decided 2026-11-09:
       on dbmint: set two knobs and one override, then uninstall, install
       and replay. CAP_CFG and CAP_TBSPC_OVERRIDE must equal what they were
       before, and CAP_CFG_CHECK must be all OK.
+      Done 2026-11-09: a PL/SQL block builds the file into a CLOB bind
+      (dynamic SQL, so a half-removed install compiles), and SQL*Plus spools
+      it with `SPOOL &file` or `SPOOL OFF` (a whole command line from a
+      substitution variable is SP2-0734). With nothing to replay no file is
+      written. The file sets DEFINE OFF and replays through a local `knob`
+      procedure; the MERGE renders each column as a literal of its type
+      (quotes doubled, CR/LF as CHR(), NUMBER in TM9). On dbmint (CAPM2):
+      train_days 120, dtf_warn 45 and an override row whose note held a
+      quote, `&`, `;` and a newline; uninstall wrote 3 statements, a second
+      uninstall wrote none and raised nothing, and after a fresh install
+      the replay gave 59 of 59 lines equal (58 knobs and the row),
+      CAP_CFG_CHECK all OK. A replay naming a knob the release lacks
+      printed "not replayed: knob tbspc_min_hist" and applied the rest.
 - [ ] **M25.7 Retire local mode.** Move ddl/10 to `repository/seam.sql`
       and update every reference. install.sql: `deploy_mode = local` aborts
       before any DDL and names the upgrade path (uninstall here, standalone
