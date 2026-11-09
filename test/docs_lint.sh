@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test/docs_lint.sh -- catch documentation drift against the DDL.
-# Bash + grep/awk, and git for check 8. Eight checks, each prints one OK / FAIL
+# Bash + grep/awk, and git for checks 8 and 9. Nine checks, each prints one OK / FAIL
 # summary line (6 and 7 one per document they read):
 #   1. every knob the ddl/05 seed MERGE inserts is named in docs/reference.html;
 #   2. every view / table / package / procedure that ddl/, ml/ and repository/ create is
@@ -19,7 +19,11 @@
 #   7. every profiles/*.env is named in docs/reference.html as --profile NAME or
 #      NAME.env, and in the --profile help of install.sh;
 #   8. no tracked file but PLAN.md and bench/ names the retired warehouse mode
-#      (M24.9): its views, owner, seam file, profile, role or deploy_mode.
+#      (M24.9): its views, owner, seam file, profile, role or deploy_mode;
+#   9. no tracked file but PLAN.md and bench/ names the retired local mode
+#      (M25): its deploy_mode value, create_owner's owner_mode define or
+#      ddl/10's old file name, except the allow-listed lines that exist to
+#      reject or explain it.
 # Exit 1 when any check fails.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -138,5 +142,21 @@ hits=$(git grep -n -I -i -E \
   "awrv_|awrwh|11_seam_warehouse|warehouse\.env|profile +warehouse|role *= *warehouse|deploy_mode *= *'?warehouse" \
   "${not_wh[@]}")
 report "tracked files without a retired warehouse-mode token" "$(git ls-files "${not_wh[@]}" | grep -c .)" "$hits"
+
+# ---- 9. retired local mode -----------------------------------------------------
+# Same exemptions as check 8. The allow list holds only lines that exist because
+# the mode is gone: install.sql's abort, doctor.sql's test for an installed local
+# seam (it WARNs with the upgrade path) and repository/seam.sql's note of its
+# former name.
+not_local=(-- . ':!PLAN.md' ':!bench' ':!test/docs_lint.sh')
+local_ok=(
+  "^install\.sql:[0-9]+: .*'deploy_mode = local is retired \(M25\)"
+  "^doctor\.sql:[0-9]+: +ELSIF v_deploy_mode = 'local' THEN\$"
+  "^repository/seam\.sql:[0-9]+:-- was ddl/10_seam_local\.sql, local mode's seam"
+)
+hits=$(git grep -n -I -i -E \
+  "deploy_mode[\"']? *= *[\"']?local\b|owner_mode|10_seam_local" \
+  "${not_local[@]}" | grep -v -E "$(IFS='|'; echo "${local_ok[*]}")")
+report "tracked files without a retired local-mode token" "$(git ls-files "${not_local[@]}" | grep -c .)" "$hits"
 
 exit $rc

@@ -1110,7 +1110,7 @@ Decided 2026-11-09:
       once run_test.sql's SNAPSHOT-table check stopped comparing the clock
       columns: CAPR_COVERAGE.age_hours, stored by the refresh minutes
       earlier, crossed its 0.1 h rounding while the VM was busy.
-- [ ] **M25.8 Docs.** start.html keeps "Measure one database" and "Measure
+- [x] **M25.8 Docs.** start.html keeps "Measure one database" and "Measure
       a fleet" as two paths of one install; the first is the second with
       the repository as its own target. Also: reference.html (modes,
       prerequisites, privileges, #installer, #repository), README, the
@@ -1123,6 +1123,23 @@ Decided 2026-11-09:
       docs_lint check 9 fails on
       `deploy_mode = local`, `owner_mode` or `10_seam_local` in any tracked
       file except PLAN.md and bench/.
+      Done 2026-11-09: reference.html's "Local mode" section became
+      "Standalone: a database as its own target" (the five scripts in order,
+      by hand and through the installer), doctor's table lost checks 2, 3, 5
+      and 6 and gained CREATE DATABASE LINK and the reader expiry, the
+      deploy-modes, prerequisites, privileges, owner, profiles, cap_repo
+      (`p_global_name`, `reader_expiry`), load-order, upgrade and retention
+      parts follow the code, and suite_version reads 25. index.html,
+      concepts.html and start.html redraw their source diagrams with the
+      loopback link; testing.html's Track B is the standalone smoke with the
+      copy check as its own step and the new AWR-read lint; report examples
+      run in the owner (`--container PDB1 --schema AWRCAP`). Sample output
+      comes from the 2026-11-09 quickstart run into CAPM5 on dbmint,
+      genericised (owner AWRCAP, reader C##AWRRDR, domain example.com, a
+      fake DBID). Check 9 allow-lists three lines by file and text:
+      install.sql's abort, doctor.sql's test for an installed local seam and
+      repository/seam.sql's former-name note. Two lines planted in README.md
+      failed it with exactly those two lines.
 
 Order: M25.0 gates the rest. M25.1 lands before M25.7, while the parity
 lever can still vouch for it, and so does M25.6, which M25.7's end-to-end
