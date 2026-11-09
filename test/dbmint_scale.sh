@@ -51,6 +51,7 @@ LOG=/tmp/dbmint_scale_${SCHEMA}.log
 TSV=/tmp/dbmint_scale_${SCHEMA}.tsv
 
 python3 "$HERE"/repository/build.py --check || { echo "generated seam stale: not syncing"; exit 4; }
+"$HERE"/test/lint_dba_hist.sh >/dev/null || { echo "lint_dba_hist failed: not syncing"; exit 4; }
 rsync -az --delete -e 'ssh -p 2200' \
   --exclude .git --exclude .claude --exclude reports --exclude '__pycache__' \
   --exclude grafana/.ords.env --exclude grafana/ords/config --exclude grafana/.env \

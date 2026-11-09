@@ -31,6 +31,7 @@ REMOTE=awr_cap_copycheck
 LOG=/tmp/dbmint_copy_check.$REPO.log
 
 python3 "$HERE"/repository/build.py --check || exit 4
+"$HERE"/test/lint_dba_hist.sh >/dev/null || exit 4
 
 rsync -az --delete -e 'ssh -p 2200' \
   --exclude .git --exclude .claude --exclude reports --exclude '__pycache__' \
