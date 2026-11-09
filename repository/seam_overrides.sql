@@ -1,16 +1,16 @@
 --
--- repository/seam_overrides.sql -- repository versions of ddl/10 seam views.
+-- repository/seam_overrides.sql -- repository versions of seam.sql views.
 -- =====================================================================
--- Read by repository/build.py, never run on its own. ddl/13 is ddl/10 with
--- dba_hist_<x> renamed cap_h_<x>; a view defined here replaces ddl/10's view
--- of the same name in ddl/13 instead (comment lines stripped). Only views
--- ddl/10 defines may appear here (build.py --check), and nothing else: text
--- outside a CREATE OR REPLACE VIEW would never reach ddl/13. These read the
--- registry tables of repository/cap_repo.sql, which ddl/13 includes before
--- the seam.
+-- Read by repository/build.py, never run on its own. ddl/13 is
+-- repository/seam.sql with dba_hist_<x> renamed cap_h_<x>; a view defined
+-- here replaces seam.sql's view of the same name in ddl/13 instead (comment
+-- lines stripped). Only views seam.sql defines may appear here (build.py
+-- --check), and nothing else: text outside a CREATE OR REPLACE VIEW would
+-- never reach ddl/13. These read the registry tables of
+-- repository/cap_repo.sql, which ddl/13 includes before the seam.
 --
 
--- CAPV_TARGET (M24.6) -- the column contract of ddl/10's, over the registry:
+-- CAPV_TARGET (M24.6) -- the column contract of seam.sql's, over the registry:
 -- one row per registered target and DBID (dbid NULL until the first DBID is
 -- found), fed LINK, with the collect health from CAP_COLLECT_LOG. Only log
 -- rows since the target was added count, so a removed and re-added target

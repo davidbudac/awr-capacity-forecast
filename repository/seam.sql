@@ -1,5 +1,5 @@
 --
--- ddl/10_seam_local.sql -- CAPV_* portable seam over DBA_HIST_* (LOCAL mode).
+-- repository/seam.sql -- CAPV_* portable seam over DBA_HIST_* (LOCAL mode).
 -- =====================================================================
 -- These thirteen views (plus the CAPV_CONTRACT diagnostic at the bottom) are the
 -- ONLY place the analytics touch Oracle's AWR dictionary. Everything

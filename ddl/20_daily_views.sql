@@ -659,7 +659,7 @@ CROSS  JOIN cap_cfg cfg;
 --                     totals do not, and on a gap day db_cpu_sec carries more
 --                     than a day of CPU (gap_flag says so) while db_cpu_pct
 --                     stays an average over the covered time.
--- In local mode the root row is CDB$ROOT alone (see ddl/10). The CDB's total
+-- In local mode the root row is CDB$ROOT alone (see repository/seam.sql). The CDB's total
 -- DB CPU is the SUM over its containers.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capd_dbtime_daily AS

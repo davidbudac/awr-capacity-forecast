@@ -33,7 +33,7 @@
 -- What it grants, all DIRECT (views and the definer's-rights ML package
 -- ignore privileges that arrive through a role):
 --   system  CREATE SESSION / TABLE / VIEW / TYPE / PROCEDURE / MINING MODEL / JOB
---   object  SELECT on the seventeen DBA_HIST_* views ddl/10_seam_local.sql reads,
+--   object  SELECT on the seventeen DBA_HIST_* views repository/seam.sql reads,
 --           plus DBA_HIST_WR_CONTROL and V_$PARAMETER, which only doctor.sql
 --           reads (retention, pack access, STATISTICS_LEVEL).
 --   quota   owner_quota on owner_ts.
@@ -115,7 +115,7 @@ DECLARE
     v_sys t_list := t_list(
         'CREATE SESSION', 'CREATE TABLE', 'CREATE VIEW', 'CREATE TYPE',
         'CREATE PROCEDURE', 'CREATE MINING MODEL', 'CREATE JOB');
-    -- The first seventeen are exactly the FROM targets of ddl/10_seam_local.sql.
+    -- The first seventeen are exactly the FROM targets of repository/seam.sql.
     v_obj t_list := t_list(
         'DBA_HIST_SNAPSHOT', 'DBA_HIST_TBSPC_SPACE_USAGE', 'DBA_HIST_TABLESPACE',
         'DBA_HIST_DATAFILE', 'DBA_HIST_OSSTAT', 'DBA_HIST_SYS_TIME_MODEL',

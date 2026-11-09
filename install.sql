@@ -62,7 +62,7 @@ PROMPT ============================================================
 COLUMN seam_script NEW_VALUE seam_script NOPRINT
 SELECT 'ddl/' ||
        CASE LOWER(NVL('&&deploy_mode', 'local'))
-            WHEN 'local'     THEN '10_seam_local.sql'
+            WHEN 'local'     THEN '../repository/seam.sql'
             WHEN 'repository' THEN '13_seam_repository.sql'
             WHEN 'fixture'   THEN '12_seam_fixture.sql'
             ELSE TO_CHAR(1/0)   -- invalid deploy_mode -> abort

@@ -226,11 +226,11 @@ COMMENT ON TABLE cap_cfg IS 'One row, one NUMBER column per CAP_CONFIG knob (col
 -- CAP_SCOPE (M24.11) -- the database this session reads, one row.
 -- =====================================================================
 -- scope_dbid is the dbid a report driver scoped the session to, NULL for
--- every database. Every AWR read of the seam (ddl/10, 12, 13) keeps only
--- dbid = NVL(scope_dbid, dbid), so a report scoped to one target computes
--- every view above the seam over that target alone: the fleet-wide ranks,
--- windows and materialized subqueries above it would otherwise stop a dbid
--- predicate from reaching the copies. The seam repeats this expression
+-- every database. Every AWR read of the seam (repository/seam.sql, ddl/12,
+-- ddl/13) keeps only dbid = NVL(scope_dbid, dbid), so a report scoped to
+-- one target computes every view above the seam over that target alone: the
+-- fleet-wide ranks, windows and materialized subqueries above it would
+-- otherwise stop a dbid predicate from reaching the copies. The seam repeats this expression
 -- inline, which parses cheaper than a subquery on this view; run_test.sql
 -- proves the two agree. report/scope.sql sets the session's CLIENT_INFO to
 -- 'AWRCAP dbid=<n>' (no privilege, no package state, visible in V$SESSION)

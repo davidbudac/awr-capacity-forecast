@@ -16,7 +16,7 @@
 -- blocks, counters stay cumulative, etc.), so these views are thin
 -- pass-throughs -- keeping the fixture data honest to the same contract the
 -- local seam presents. Each keeps only the scoped dbid (the CAP_SCOPE
--- expression of ddl/05, inline), as every ddl/10 source read does.
+-- expression of ddl/05, inline), as every repository/seam.sql source read does.
 --
 SET DEFINE OFF
 

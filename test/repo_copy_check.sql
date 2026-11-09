@@ -22,7 +22,7 @@
 -- there only a source row missing from the copy is a difference; copy-only
 -- rows are listed as kept. A stale copy of a keyed row still shows as its
 -- source row missing.
--- Equal copies under the same seam text (ddl/13 is ddl/10 renamed, checked
+-- Equal copies under the same seam text (ddl/13 is repository/seam.sql renamed, checked
 -- by build.py --check) give the same CAPV_* views.
 -- Prints "COPYCHECK <target> dbid=<n> <source> ..." per source and DBID, its
 -- first 10 differing rows, and one closing line
