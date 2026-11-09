@@ -125,6 +125,7 @@ BEGIN
     EXCEPTION
         WHEN OTHERS THEN
             IF v_cur%ISOPEN THEN CLOSE v_cur; END IF;
+            IF SQLCODE <> -942 THEN RAISE; END IF;
     END;
     v_n := v_knobs;
 
@@ -171,7 +172,7 @@ BEGIN
         EXCEPTION
             WHEN OTHERS THEN
                 IF v_cur%ISOPEN THEN CLOSE v_cur; END IF;
-                DBMS_OUTPUT.PUT_LINE('  ERROR reading CAP_TBSPC_OVERRIDE: ' || SQLERRM);
+                IF SQLCODE <> -942 THEN RAISE; END IF;
         END;
     END IF;
     put('COMMIT;');
