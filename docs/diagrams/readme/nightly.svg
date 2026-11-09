@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="292" class="dd" viewBox="0 24 760 292" role="img" aria-labelledby="dd-jobs-title dd-jobs-desc">
+<style>
+.dd{--bg:#ffffff;--surface:#f8f9fb;--surface-2:#f1f3f6;--surface-3:#e8ebf0;--text:#111827;--muted:#4b5563;--faint:#8a93a1;--border:#e3e6eb;--border-strong:#cfd4dc;--accent:#2f5bea;--accent-soft:#eaf0ff;--accent-text:#2249c4;--ok:#1f7a4d;--warn:#9a6700;--crit:#c0392b;--ok-bg:#e6f4ec;--warn-bg:#fff5da;--crit-bg:#fdecea;--code-bg:#0f172a;--code-bar:#162036;--code-fg:#d6deea;--code-border:#1f2b45;--mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace;--sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;--r:10px;--dd-soft:#6b7280}
+.dd .paper{fill:var(--bg)}
+.dd .zone{fill:color-mix(in srgb,var(--text) 2%,transparent);stroke:var(--border-strong);stroke-width:1;stroke-dasharray:4 4}
+.dd .zone-solid{fill:color-mix(in srgb,var(--text) 2%,transparent);stroke:var(--border-strong);stroke-width:1}
+.dd .n{fill:var(--surface);stroke:var(--text);stroke-width:1}
+.dd .n-focal{fill:color-mix(in srgb,var(--accent) 8%,var(--bg));stroke:var(--accent);stroke-width:1.2}
+.dd .n-store{fill:color-mix(in srgb,var(--text) 5%,var(--bg));stroke:var(--muted);stroke-width:1}
+.dd .n-ext{fill:color-mix(in srgb,var(--text) 3%,var(--bg));stroke:color-mix(in srgb,var(--text) 30%,var(--bg));stroke-width:1}
+.dd .n-in{fill:color-mix(in srgb,var(--muted) 10%,var(--bg));stroke:var(--dd-soft);stroke-width:1}
+.dd .n-opt{fill:color-mix(in srgb,var(--text) 2%,var(--bg));stroke:color-mix(in srgb,var(--text) 20%,var(--bg));stroke-width:1;stroke-dasharray:4 3}
+.dd .n-sec{fill:color-mix(in srgb,var(--accent) 5%,var(--bg));stroke:color-mix(in srgb,var(--accent) 50%,var(--bg));stroke-width:1;stroke-dasharray:4 4}
+.dd .tag{fill:none;stroke:color-mix(in srgb,var(--text) 40%,var(--bg));stroke-width:.8}
+.dd .tag-acc{fill:none;stroke:color-mix(in srgb,var(--accent) 60%,var(--bg));stroke-width:.8}
+.dd .e{fill:none;stroke:var(--muted);stroke-width:1.2}
+.dd .e-acc{fill:none;stroke:var(--accent);stroke-width:1.4}
+.dd .e-link{fill:none;stroke:var(--ok);stroke-width:1.2}
+.dd .dash{stroke-dasharray:5 4}
+.dd .rule{stroke:color-mix(in srgb,var(--text) 12%,transparent);stroke-width:.8;fill:none}
+.dd .rule-solid{stroke:var(--border-strong);stroke-width:1;fill:none}
+.dd .mk{fill:var(--muted)}
+.dd .mk-acc{fill:var(--accent)}
+.dd .mk-link{fill:var(--ok)}
+.dd .dot{fill:var(--text)}
+.dd .dot-acc{fill:var(--accent)}
+.dd text{font-family:var(--sans);fill:var(--muted)}
+.dd .nm{font-family:var(--sans);font-size:12px;font-weight:600;fill:var(--text)}
+.dd .nm-acc{font-family:var(--sans);font-size:12px;font-weight:600;fill:var(--accent-text)}
+.dd .sub{font-family:var(--mono);font-size:9px;fill:var(--muted)}
+.dd .eb{font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.18em;fill:var(--dd-soft)}
+.dd .eb-acc{font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.18em;fill:var(--accent-text)}
+.dd .al{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--dd-soft)}
+.dd .al-acc{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--accent-text)}
+.dd .al-link{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--ok)}
+.dd .co{font-family:var(--sans);font-style:italic;font-size:13px;fill:var(--muted)}
+.dd .lg{font-family:var(--mono);font-size:8px;letter-spacing:.14em;fill:var(--muted)}
+.dd .lgt{font-family:var(--sans);font-size:10px;fill:var(--muted)}
+@media (prefers-color-scheme:dark){
+.dd{--bg:#0c1017;--surface:#121722;--surface-2:#171d29;--surface-3:#1f2634;--text:#e6e9ef;--muted:#a3acbb;--faint:#6b7585;--border:#222a38;--border-strong:#303a4b;--accent:#6f8dff;--accent-soft:#182142;--accent-text:#8ea4ff;--ok:#5cc58c;--warn:#e0b34a;--crit:#f07d74;--ok-bg:#12271c;--warn-bg:#2a2410;--crit-bg:#2e1715;--code-bg:#0a0e16;--code-bar:#10151f;--code-fg:#d6deea;--code-border:#1c2431;--dd-soft:#8a93a1}
+}
+</style>
+<rect x="0" y="24" width="760" height="292" style="fill:var(--bg)"/>
+<title id="dd-jobs-title">One night of scheduler jobs</title>
+<desc id="dd-jobs-desc">Default schedule. Every install has one nightly job, CAP_NIGHTLY_JOB, which starts at 01:00 and runs its steps one after the other in one session: PURGE (old copies, repository mode only), RETRAIN (the Tier 2 models), REFRESH (the results layer) and SPOOL (the alert file). The box widths show the order of the steps, not how long each one runs. A repository also runs CAP_COLLECT_JOB every hour at five past, beside the nightly job.</desc>
+<rect class="paper" width="760" height="316"/>
+<!-- lanes -->
+<text class="nm" x="12" y="86">Every install</text>
+<text class="sub" x="12" y="100">any deploy_mode</text>
+<line class="rule-solid" x1="160" y1="88" x2="736" y2="88"/>
+<text class="nm" x="12" y="182">Repository only</text>
+<text class="sub" x="12" y="196">package CAP_REPO</text>
+<line class="rule-solid" x1="160" y1="184" x2="736" y2="184"/>
+<!-- axis -->
+<line class="rule-solid" x1="160" y1="248" x2="736" y2="248"/>
+<line class="rule-solid" x1="160" y1="248" x2="160" y2="254"/>
+<line class="rule-solid" x1="304" y1="248" x2="304" y2="254"/>
+<line class="rule-solid" x1="448" y1="248" x2="448" y2="254"/>
+<line class="rule-solid" x1="592" y1="248" x2="592" y2="254"/>
+<line class="rule-solid" x1="736" y1="248" x2="736" y2="254"/>
+<text class="al" x="160" y="266" text-anchor="middle">00:00</text>
+<text class="al" x="304" y="266" text-anchor="middle">01:00</text>
+<text class="al" x="448" y="266" text-anchor="middle">02:00</text>
+<text class="al" x="592" y="266" text-anchor="middle">03:00</text>
+<text class="al" x="736" y="266" text-anchor="middle">04:00</text>
+<!-- lane 1: the nightly job, one step after the other -->
+<text class="nm" x="304" y="52">Nightly job, daily at 01:00</text>
+<text class="sub" x="304" y="65">CAP_NIGHTLY_JOB calls cap_nightly</text>
+<rect class="paper" x="304" y="76" width="92" height="24" rx="4"/>
+<rect class="n-opt" x="304" y="76" width="92" height="24" rx="4"/>
+<text class="nm" x="350" y="92" text-anchor="middle">PURGE</text>
+<text class="sub" x="350" y="114" text-anchor="middle">old copies</text>
+<rect class="paper" x="402" y="76" width="92" height="24" rx="4"/>
+<rect class="n" x="402" y="76" width="92" height="24" rx="4"/>
+<text class="nm" x="448" y="92" text-anchor="middle">RETRAIN</text>
+<text class="sub" x="448" y="114" text-anchor="middle">Tier 2 models</text>
+<rect class="paper" x="500" y="76" width="92" height="24" rx="4"/>
+<rect class="n-focal" x="500" y="76" width="92" height="24" rx="4"/>
+<text class="nm-acc" x="546" y="92" text-anchor="middle">REFRESH</text>
+<text class="sub" x="546" y="114" text-anchor="middle">results layer</text>
+<rect class="paper" x="598" y="76" width="92" height="24" rx="4"/>
+<rect class="n" x="598" y="76" width="92" height="24" rx="4"/>
+<text class="nm" x="644" y="92" text-anchor="middle">SPOOL</text>
+<text class="sub" x="644" y="114" text-anchor="middle">cap_alerts.txt</text>
+<text class="co" x="304" y="140">Each step starts when the one before it ends.</text>
+<text class="co" x="304" y="156">Widths show the order, not how long a step runs.</text>
+<!-- lane 2: hourly collect -->
+<circle class="mk" cx="172" cy="184" r="3"/>
+<circle class="mk" cx="316" cy="184" r="3"/>
+<circle class="mk" cx="460" cy="184" r="3"/>
+<circle class="mk" cx="604" cy="184" r="3"/>
+<line class="rule" x1="460" y1="190" x2="460" y2="202"/>
+<text class="nm" x="460" y="216" text-anchor="middle">Collect, hourly at :05</text>
+<text class="sub" x="460" y="229" text-anchor="middle">CAP_COLLECT_JOB</text>
+<!-- legend -->
+<line class="rule" x1="12" y1="284" x2="748" y2="284"/>
+<text class="lg" x="12" y="306">LEGEND</text>
+<rect class="n-focal" x="84" y="297" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="307">writes the results layer</text>
+<rect class="n-opt" x="252" y="297" width="16" height="12" rx="3"/>
+<text class="lgt" x="276" y="307">repository mode only</text>
+<circle class="mk" cx="404" cy="303" r="3"/>
+<text class="lgt" x="416" y="307">hourly run (default times, every job arrives disabled)</text>
+</svg>
