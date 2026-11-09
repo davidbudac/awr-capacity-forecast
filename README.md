@@ -58,7 +58,7 @@ Two forecasting engines run side by side:
 ## Architecture — layered views over a portable seam
 
 ```
-CAPV_*  seam        DBA_HIST-shaped views  (local | repository | fixture)
+CAPV_*  seam        DBA_HIST-shaped views  (repository | fixture)
   |                 incl. CAPV_CONTAINER: (dbid, con_dbid) -> DB / PDB names;
   |                 per-container time model and redo from the DBA_HIST_CON_ views;
   |                 CAPV_CONTRACT says which sources carry rows
@@ -98,50 +98,66 @@ registry (`CAP_TARGET`, `CAP_TARGET_DBID`), `CAP_COLLECT_LOG` and the
 target's AWR has aged out.
 
 The **seam** is the portability trick: all analytics are written once against
-the thin `CAPV_*` views, so the identical SQL runs against local `DBA_HIST_*`,
-a repository's copies of other databases' `DBA_HIST_*`, or the test fixtures.
-`install.sql` loads one seam file per mode.
+the thin `CAPV_*` views, so the identical SQL runs against a repository's
+copies of its targets' `DBA_HIST_*` (its own database's included) or the
+test fixtures. `install.sql` loads one seam file per mode.
 
 ## Two ways to deploy
 
-- **Measure one database.** The suite runs on the measured database and
-  reads its own AWR (`deploy_mode=local`).
-- **Measure a fleet.** Each measured database (a *target*) gets only a
-  read-only user. One *repository* database copies every target's AWR over a
-  DB link, keeps it for `repo_retention_days` (400), and runs the whole suite,
-  reports and jobs over all of them (`deploy_mode=repository`). Nothing is
-  written on a target.
+Every install is a *repository*: it copies each measured database's (each
+*target*'s) AWR over a DB link, keeps the copies for `repo_retention_days`
+(400), and runs the whole suite, reports and jobs over them
+(`deploy_mode=repository`). A target gets only a read-only user; nothing is
+written on it.
 
-Both give the same reports, alerts and dashboards. Step by step:
+- **Measure one database.** The database is its own target: the suite lives
+  in a PDB owner (`AWRCAP`) and reads its CDB's AWR over a loopback link.
+  One run of `quickstart.sh` or `install.sh --profile standalone` sets up
+  both sides.
+- **Measure a fleet.** One repository database registers many targets.
+
+Both give the same reports, alerts and dashboards, and both keep history past
+the targets' own AWR retention. Until M25 a single database could read its
+own AWR directly (local mode); that mode is retired. Step by step:
 [Getting started](https://davidbudac.github.io/awr-capacity-forecast/start.html).
 
 ## Quickstart: measure one database
 
-On the database host (or anywhere `sqlplus` can reach `CDB$ROOT` as sysdba):
+On the database host, as SYSDBA in `CDB$ROOT` (or in a non-CDB):
 
 ```bash
 git clone https://github.com/davidbudac/awr-capacity-forecast.git
 cd awr-capacity-forecast
-./quickstart.sh                  # preflight (doctor.sql) + install (local mode) + first report
+./quickstart.sh                  # reader + owner + preflight + install + collect + first report
 ```
 
-That is the whole installation. The report lands in `reports/cap_report_<db>_<ts>.txt`.
-`./quickstart.sh user/pw@//host/svc` connects as someone else; `@quickstart.sql`
-from inside SQL*Plus (started in the repo root) does the same without the shell.
-On a stock box the first report says `INSUFFICIENT_HISTORY` -- AWR keeps only
-8 days by default; raise it once with
+That is the whole installation. In order it runs `target/self.sql` (the
+read-only reader `C##AWRRDR` with a random password that never leaves the
+session, `target/check.sql`, then into the one open PDB), `create_owner.sql`
+(the schema-only owner `AWRCAP` there), `doctor.sql`, `install.sql`
+(`deploy_mode = repository`), `repository/self.sql` (registers this database
+as target over `//localhost:<listener port>/<the root's default service>` and
+copies its AWR) and `report/report.sql`. The report lands in
+`reports/cap_report_<db>_<ts>.txt`. `@quickstart.sql` from inside SQL*Plus
+(started in the repo root) does the same without the shell. It needs SYSDBA
+and never installs into SYS. `CAP_OWNER`, `CAP_READER`, `CAP_CONTAINER` and
+`CAP_SELF_CONNECT` override the defaults (with more than one open PDB,
+`CAP_CONTAINER` is required). A re-run reuses the reader, the owner and the
+target; the reader gets a new password and the link follows it.
+
+On a stock box the first report says `INSUFFICIENT_HISTORY`: the first
+collect copies the 8 days stock AWR keeps, and the copies grow with every
+collect after that. Schedule the hourly collect (`@install_jobs.sql` as the
+owner, then enable `CAP_COLLECT_JOB`), or raise AWR retention once with
 `EXEC DBMS_WORKLOAD_REPOSITORY.MODIFY_SNAPSHOT_SETTINGS(retention => 90*24*60);`.
 
 `quickstart` stops before the install when `doctor.sql` reports a FAIL line
-(fix it, or `DEFINE force_install = Y` to install anyway). As `/ as sysdba`
-it installs into SYS, and `install.sql` prints a warning saying so. For a
-lasting install, create a dedicated owner once with `@create_owner.sql` (as
-SYSDBA: `C##AWRCAP` in CDB$ROOT, `AWRCAP` in a PDB, with direct grants on
-every DBA_HIST_* view the seam reads) and install as that user.
-`./install.sh --profile standalone` does all of that in one run: the owner,
-the preflight gate, the install, the Tier 2 models and the scheduler jobs
-(created disabled). `./install.sh` alone walks a wizard, and
-`./install.sh --list-profiles` shows the other shipped profiles.
+(fix it, or `DEFINE force_install = Y` to install anyway).
+`./install.sh --profile standalone` is the lasting form of the same run: the
+reader, the owner, the preflight gate, the install, the registration and
+collect, the Tier 2 models and the scheduler jobs (created disabled).
+`./install.sh` alone walks a wizard, and `./install.sh --list-profiles` shows
+the other shipped profiles.
 
 ## Measure a fleet
 
@@ -169,9 +185,13 @@ the preflight gate, the install, the Tier 2 models and the scheduler jobs
 
    ```sql
    SQL> ALTER SESSION SET CURRENT_SCHEMA = C##AWRCAP;
-   SQL> EXEC cap_repo.add_target('CDB1', '//db1.example.com:1521/cdb1', 'C##AWRRDR', '<reader password>')
+   SQL> EXEC cap_repo.add_target('CDB1', '//db1.example.com:1521/cdb1', 'C##AWRRDR', '<reader password>', p_global_name => 'CDB1.EXAMPLE.COM')
    SQL> EXEC cap_repo.collect('CDB1')
    ```
+
+   `p_global_name` matters only where the repository runs with
+   `GLOBAL_NAMES = TRUE`: there a link must be named after the target's
+   global name, so `add_target` names it `<global_name>@CAP_<NAME>`.
 
 4. **Turn on the jobs**: `CAP_COLLECT_JOB` (hourly copy) and `CAP_NIGHTLY_JOB`
    (retention purge, retrain, refresh and alert file, one after the other).
@@ -196,8 +216,10 @@ examples from the sample report.
 ## Install (manual / other modes)
 
 ```sql
-sqlplus / as sysdba           -- install where DBA_HIST_* is visible: CDB$ROOT
-SQL> DEFINE deploy_mode = 'local'   -- local | repository | fixture
+sqlplus / as sysdba
+SQL> ALTER SESSION SET CONTAINER = PDB1;
+SQL> ALTER SESSION SET CURRENT_SCHEMA = AWRCAP;   -- the owner create_owner.sql made
+SQL> DEFINE deploy_mode = 'repository'            -- repository | fixture
 SQL> @install.sql
 ```
 
@@ -210,9 +232,17 @@ Modes:
 
 | deploy_mode | source | notes |
 |-----------|--------|-------|
-| `local` (default) | `DBA_HIST_*` | needs Diagnostics Pack + **direct** SELECT grants on the DBA_HIST views (not via a role). Install in `CDB$ROOT`. |
-| `repository` | `CAP_H_*`, copies of registered targets' `DBA_HIST_*` | install as an owner made with `DEFINE owner_mode = repository` + `@create_owner.sql` (CREATE DATABASE LINK, no AWR grants), on any 19c database or PDB; register targets with `cap_repo.add_target` and copy with `cap_repo.collect` (see [Measure a fleet](#measure-a-fleet)). `ddl/13_seam_repository.sql` is generated from ddl/10 by `repository/build.py`. |
+| `repository` (default) | `CAP_H_*`, copies of registered targets' `DBA_HIST_*` | install as an owner made with `@create_owner.sql` (CREATE DATABASE LINK, no AWR grants), on any 19c database or PDB; register targets with `cap_repo.add_target` and copy with `cap_repo.collect` (see [Measure a fleet](#measure-a-fleet)), or the database itself with `repository/self.sql`. `ddl/13_seam_repository.sql` is generated from `repository/seam.sql` by `repository/build.py`. |
 | `fixture` | `CAP_FIXTURE_*` | test hook; run `test/fixture_install.sql` (or `test/demo_fixture.sql`) first. |
+
+`local` (the suite reading its own `DBA_HIST_*`) is retired since M25 and
+aborts before any DDL. To move such an install: `@uninstall.sql` in its
+schema, which writes the knobs off their default and the tablespace
+overrides to `reports/cap_config_replay_<schema>_<ts>.sql` and revokes the
+owner's old DBA_HIST grants; then `./quickstart.sh` or
+`./install.sh --profile standalone`; then run the replay file in the new
+owner. The run, fit and alert history and the models stay behind; the first
+collect copies everything AWR still holds.
 
 Uninstall: `@uninstall.sql`.
 
@@ -220,6 +250,8 @@ Uninstall: `@uninstall.sql`.
 
 ```sql
 sqlplus / as sysdba              -- run from the REPO ROOT (@@ include paths)
+SQL> ALTER SESSION SET CONTAINER = PDB1;
+SQL> ALTER SESSION SET CURRENT_SCHEMA = AWRCAP;   -- where the suite lives
 SQL> @report/report.sql          -- spools reports/cap_report_<db>_<ts>.txt
 SQL> @report/report.sql 5 7 N    -- top_n / anomaly_days / show_esm, positionally
 SQL> @report/report.sql 10 30 AUTO 42424242 42424243   -- one container only
@@ -617,27 +649,30 @@ Create a workspace on the suite's schema (`@apex/workspace.sql`), import with
 Standalone scripts at the repo root; none is part of `install.sql`.
 
 **`@create_owner.sql`** — run once as SYSDBA to create a dedicated owner
-(`C##AWRCAP` in CDB$ROOT, `AWRCAP` in a PDB or non-CDB) with direct grants on
-every DBA_HIST_* view the local seam reads and the create privileges. Views
-and the definer's-rights packages ignore role grants, which is why the grants
-are direct. Idempotent.
+(`AWRCAP` in a PDB or non-CDB, `C##AWRCAP` in CDB$ROOT) with direct grants on
+the create privileges and CREATE DATABASE LINK, and no DBA_HIST grant: the
+owner reads copies, the reader on each target reads AWR. Views and the
+definer's-rights packages ignore role grants, which is why the grants are
+direct. Idempotent. An owner that a pre-M25 local install left with
+DBA_HIST grants loses them here (`revoke_local_grants.sql`).
 
-**`@doctor.sql`** — read-only preflight. Run it *before* installing (and again
-after) in the schema/container you intend to use. It prints a PASS/WARN/FAIL
-checklist: Diagnostics Pack access, `STATISTICS_LEVEL`, every `DBA_HIST_*`
-view the local seam reads and the target schema's direct grants on them, the
-create privileges, AWR retention, snapshot interval and newest snapshot age
-per dbid, and a readiness table (days of history each feature needs vs days
-available). If the suite is installed it adds invalid `CAP*` objects, the
-deploy mode, `suite_version`, the fit-quality mix, `CAP_CFG_CHECK`, the results
-layer (last run, failed or running runs, the nightly job and the steps its
-last run failed, open vs acked states, retired dbids) and the live
-seam-contract check over `CAPV_CONTRACT`; in repository mode also the collect
-job and, per
-registered target, its link, collect health and days copied. It creates
-nothing and every probe is exception-wrapped.
-Doctor takes the deploy mode from the install, assumes local before one, or
-reads `DEFINE cap_doctor_mode = local | repository | fixture`; it leaves the
+**`@doctor.sql`** — read-only preflight of the repository side. Run it
+*before* installing (and again after) in the schema/container you intend to
+use. It prints a PASS/WARN/FAIL checklist: the target schema, the create
+privileges (CREATE DATABASE LINK included) and a readiness table (days of
+history each feature needs vs days available). If the suite is installed it
+adds invalid `CAP*` objects, the deploy mode, `suite_version`, the
+fit-quality mix, `CAP_CFG_CHECK`, the results layer (last run, failed or
+running runs, the nightly job and the steps its last run failed, open vs
+acked states, retired dbids), the live seam-contract check over
+`CAPV_CONTRACT`, the collect job and, per registered target, its link,
+collect health, days copied and when its reader's password expires (WARN
+inside `reader_expiry_warn_days`). It creates nothing and every probe is
+exception-wrapped. The measured database is checked where it runs, by
+`@target/check.sql`: Diagnostics Pack access, `STATISTICS_LEVEL`, the
+reader's direct grants and `CONTAINER_DATA`, AWR retention and interval.
+Doctor takes the deploy mode from the install, assumes repository before
+one, or reads `DEFINE cap_doctor_mode = repository | fixture`; it leaves the
 count of FAIL lines in `cap_doctor_fail`, which `quickstart.sql` uses to stop
 before installing.
 
@@ -787,8 +822,9 @@ suite depends on it.
 
 ## Caveats
 
-- **Diagnostics Pack** is required for `DBA_HIST_*` (local mode). The installer
-  runs where you point it; check `CONTROL_MANAGEMENT_PACK_ACCESS`.
+- **Diagnostics Pack** is required on every measured database, whose AWR the
+  reader reads; `target/check.sql` checks `CONTROL_MANAGEMENT_PACK_ACCESS`.
+  The repository reads only its copies.
 - **PGA: about 1.5 GB per suite session.** `cap_results.refresh` and each
   report driver peak at 1.1-1.3 GB of PGA in one session on real AWR (35
   days, 15-minute snapshots), and `test/run_test.sql` at 1.8 GB. Install

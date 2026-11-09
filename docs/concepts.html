@@ -132,19 +132,22 @@
 
       <p>All calculations read from <span class="inline">CAPV_</span> views shaped like the AWR
         dictionary. Nothing above them reads <span class="inline">DBA_HIST_*</span>. Changing the data
-        source means installing a different seam file; everything above it is unchanged. Fixture mode
-        tests the math against precomputed answers; local mode runs the same code on real AWR.
-        Repository mode runs it on copies of other databases' AWR. Its seam file is generated from
-        the local one with each <span class="inline">DBA_HIST_</span> name swapped for its copy, and a
-        parity test diffs every view of a local and a repository install over the same database.</p>
+        source means installing a different seam file; everything above it is unchanged. Repository
+        mode runs the code on copies of its targets' AWR, the installing database's own included when
+        it measures itself over a loopback link. Its seam file is generated from
+        <span class="inline">repository/seam.sql</span>, the seam written over
+        <span class="inline">DBA_HIST_*</span>, with each <span class="inline">DBA_HIST_</span> name
+        swapped for its copy, and a copy check proves each copy equals its source. Fixture mode tests
+        the math against precomputed answers. Until M25 a local mode read the installing database's
+        AWR directly; it is retired.</p>
 
-            <svg class="dg" viewBox="0 0 640 150" role="img" aria-label="Three sources, one seam: local AWR, a repository's copies of other databases' AWR, or fixtures feed the CAPV views; the same analytics SQL runs above them.">
+            <svg class="dg" viewBox="0 0 640 150" role="img" aria-label="Two sources, one seam: a repository's copies of its targets' AWR, or fixtures, feed the CAPV views; the same analytics SQL runs above them.">
 <defs><marker id="a-seam" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0 0L10 5L0 10z"/></marker></defs>
 <rect class="box" x="10" y="12" width="150" height="34" rx="5"/><text class="tm" x="85" y="34" text-anchor="middle">DBA_HIST_*</text>
 <rect class="box" x="10" y="58" width="150" height="34" rx="5"/><text class="tm" x="85" y="80" text-anchor="middle">CAP_H_*</text>
 <rect class="box" x="10" y="104" width="150" height="34" rx="5"/><text class="tm" x="85" y="126" text-anchor="middle">CAP_FIXTURE_*</text>
-<text class="ts" x="168" y="33">local</text><text class="ts" x="168" y="79">repository</text><text class="ts" x="168" y="125">fixture</text>
-<path class="edge" d="M236 29 C 266 29 266 69 290 71" marker-end="url(#a-seam)"/>
+<text class="ts" x="168" y="33">each target</text><text class="ts" x="168" y="79">repository</text><text class="ts" x="168" y="125">fixture</text>
+<path class="edge" d="M85 46 L 85 56" marker-end="url(#a-seam)"/>
 <path class="edge" d="M236 75 L 290 75" marker-end="url(#a-seam)"/>
 <path class="edge" d="M236 121 C 266 121 266 81 290 79" marker-end="url(#a-seam)"/>
 <rect class="boxa" x="295" y="52" width="120" height="46" rx="5"/>
@@ -158,8 +161,7 @@
         <table>
           <thead><tr><th>deploy_mode</th><th>Seam file</th><th>Reads from</th><th>Install as</th></tr></thead>
           <tbody>
-            <tr><td><span class="k">local</span></td><td class="def">ddl/10_seam_local.sql</td><td class="def"><span class="kt">DBA_HIST_*</span> (Diagnostics Pack)</td><td class="def">sysdba in CDB$ROOT</td></tr>
-            <tr><td><span class="k">repository</span></td><td class="def">ddl/13_seam_repository.sql (generated)</td><td class="def"><span class="kt">CAP_H_*</span> copies of each registered target's <span class="kt">DBA_HIST_*</span></td><td class="def">an owner with CREATE DATABASE LINK, any 19c database</td></tr>
+            <tr><td><span class="k">repository</span></td><td class="def">ddl/13_seam_repository.sql (generated from repository/seam.sql)</td><td class="def"><span class="kt">CAP_H_*</span> copies of each registered target's <span class="kt">DBA_HIST_*</span></td><td class="def">an owner with CREATE DATABASE LINK, any 19c database</td></tr>
             <tr><td><span class="k">fixture</span></td><td class="def">ddl/12_seam_fixture.sql</td><td class="def"><span class="kt">CAP_FIXTURE_*</span> deterministic tables</td><td class="def">any schema w/ CREATE privs</td></tr>
           </tbody>
         </table>

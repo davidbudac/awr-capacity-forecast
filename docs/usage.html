@@ -66,7 +66,9 @@
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
-<pre>sqlplus / as sysdba              <span class="c-cmt">-- or any monitoring schema</span>
+<pre>sqlplus / as sysdba              <span class="c-cmt">-- or connect as the suite owner</span>
+<span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CONTAINER = PDB1;
+<span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CURRENT_SCHEMA = AWRCAP;   <span class="c-cmt">-- where the suite lives</span>
 <span class="c-prompt">SQL&gt;</span> @report/report.sql               <span class="c-cmt">-- everything from report/defaults.sql</span>
 <span class="c-prompt">SQL&gt;</span> @report/report.sql 5             <span class="c-cmt">-- top_n=5, the rest defaulted</span>
 <span class="c-prompt">SQL&gt;</span> @report/report.sql 5 7 N         <span class="c-cmt">-- top_n / anomaly_days / show_esm</span>
@@ -121,7 +123,7 @@
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">crontab</span><span class="term__tag in">daily 06:30</span></div>
-<pre>30 6 * * * . ~/.bash_profile; /opt/awrcap/report/run_report.sh "/ as sysdba" --html --keep 14 &gt;&gt; /var/log/awrcap_report.log 2&gt;&amp;1</pre>
+<pre>30 6 * * * . ~/.bash_profile; /opt/awrcap/report/run_report.sh "/ as sysdba" --container PDB1 --schema AWRCAP --html --keep 14 &gt;&gt; /var/log/awrcap_report.log 2&gt;&amp;1</pre>
       </div>
 
       <div class="section-head" id="html">
@@ -132,7 +134,7 @@
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
-<pre>sqlplus / as sysdba              <span class="c-cmt">-- run from the repo root</span>
+<pre>sqlplus / as sysdba              <span class="c-cmt">-- run from the repo root, in the suite owner as above</span>
 <span class="c-prompt">SQL&gt;</span> @report/report_html.sql        <span class="c-cmt">-- spools reports/cap_report_&lt;db&gt;_&lt;ts&gt;.html</span>
 <span class="c-prompt">SQL&gt;</span> @report/report_html.sql 25 60 Y  <span class="c-cmt">-- same three positional arguments</span></pre>
       </div>
