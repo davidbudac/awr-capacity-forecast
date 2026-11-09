@@ -88,6 +88,22 @@ EXEC DBMS_SCHEDULER.ENABLE('C##AWRCAP.CAP_COLLECT_JOB')
 EXEC DBMS_SCHEDULER.ENABLE('C##AWRCAP.CAP_NIGHTLY_JOB')
 ```
 
+### No install: one tablespace query
+
+`standalone/tbspc_capacity.sql` is the tablespace forecast as one read-only
+SELECT over `DBA_HIST_*`, run on the database itself (CDB$ROOT shows every
+container). It creates nothing and keeps no history:
+
+```
+SQL> @standalone/tbspc_capacity.sql
+```
+
+One row per permanent tablespace: used, limit, % used, MB/day, R², +30/+90
+days, days to full (fitted and worst case), space to add for 90 days, quality
+and CRIT / WARN / OK. It is the suite's OLS fit, restarted after a purge, with
+the knob defaults in the `prm` CTE. No overrides, CYCLIC peak line, anomalies
+or ML.
+
 Step by step: [Getting started](https://davidbudac.github.io/awr-capacity-forecast/start.html).
 Manual install, modes, privileges: [Reference](https://davidbudac.github.io/awr-capacity-forecast/reference.html#installer).
 
