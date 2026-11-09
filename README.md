@@ -115,6 +115,23 @@ a repository's copies of other databases' `DBA_HIST_*`, or the test fixtures.
 Both give the same reports, alerts and dashboards. Step by step:
 [Getting started](https://davidbudac.github.io/awr-capacity-forecast/start.html).
 
+### No install: one tablespace query
+
+`standalone/tbspc_capacity.sql` is the tablespace forecast as a single
+read-only SELECT over `DBA_HIST_*`. It creates nothing and needs no ML. Run it
+on the database itself, in CDB$ROOT to see every container:
+
+```
+SQL> @standalone/tbspc_capacity.sql
+```
+
+It prints one row per permanent tablespace: used, limit, % used, MB/day, R²,
++30/+90-day projections, days to full (fitted and worst case), the space to
+add for 90 days, a quality grade and CRIT / WARN / OK. The fit is the suite's
+OLS fit, restarted after a purge, with the default knobs inlined in the `prm`
+CTE at the top. There are no limit overrides, no CYCLIC peak-line forecast,
+no anomalies and no history kept between runs; install the suite for those.
+
 ## Quickstart: measure one database
 
 On the database host (or anywhere `sqlplus` can reach `CDB$ROOT` as sysdba):

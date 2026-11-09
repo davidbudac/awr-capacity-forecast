@@ -22,6 +22,9 @@ for making changes safely.
   target's link: the pull statements `repository/build.py` generates into
   `CAP_REPO_SOURCE` and `cap_repo`'s probe / DBID discovery. That is what
   keeps local / repository / fixture modes byte-identical downstream.
+  `standalone/` is outside the suite: no install, one SELECT over
+  `DBA_HIST_*` that re-derives the Tier 1 logic with the knob defaults
+  inlined. Mirror a change to ddl/20 / ddl/30's tablespace fit there.
 - **Every seam source read carries the session scope (M24.11).** Each
   `FROM dba_hist_x` / `cap_fixture_x` in ddl/10 and ddl/12 (and ddl/13,
   generated) keeps `dbid = NVL((SELECT scope_dbid FROM cap_scope), dbid)`:
