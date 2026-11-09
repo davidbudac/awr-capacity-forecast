@@ -582,9 +582,10 @@ there for local mode).
   blocks, snap_ids 100000 apart); `test/dbmint_scale.sh <SCHEMA> <K>
   [--steps ...]` grows CAPX3 to K such targets and times train_all,
   refresh and the reports (live, one target, SNAPSHOT) with `pga_probe.sql`,
-  appending to `/tmp/dbmint_scale_<SCHEMA>.tsv`. Measured: linear, ~7 min of
-  nightly work per 144-day target on 2 vCPU, PGA flat at 490-640 MB
-  (reference.html#fleet-size). A report scoped to one target (`--target`)
+  appending to `/tmp/dbmint_scale_<SCHEMA>.tsv`. Measured: linear. Since M24.13 the
+  refresh pays for every report view (318 s per 144-day target on 2 vCPU,
+  peak PGA 911 MB) and a SNAPSHOT report takes ~1 s / 10 MB at any fleet
+  size; other steps PGA flat at 490-640 MB (reference.html#fleet-size). A report scoped to one target (`--target`)
   costs one target at any fleet size (M24.11, the seam scope above).
 - **RAC** is untested: one high-water mark per DBID, so a snapshot that completes on one
   instance before another could be copied half; untested.

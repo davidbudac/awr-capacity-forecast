@@ -884,15 +884,17 @@
 
       <div class="tablewrap">
         <table>
-          <caption>Repository mode: elapsed time by number of targets (peak PGA 490&ndash;640&nbsp;MB in every cell)</caption>
+          <caption>Repository mode: elapsed time by number of targets (peak PGA 490&ndash;640&nbsp;MB unless the cell says otherwise)</caption>
           <thead><tr><th scope="col">Step</th><th scope="col">1 target</th><th scope="col">4 targets</th><th scope="col">8 targets</th><th scope="col">Per target</th></tr></thead>
           <tbody>
             <tr><td><span class="inline">EXEC cap_forecast_ml.train_all</span></td><td class="def">43 s</td><td class="def">86 s</td><td class="def">191 s</td><td class="def">24 s</td></tr>
             <tr><td><span class="inline">EXEC cap_results.refresh</span></td><td class="def">62 s</td><td class="def">279 s</td><td class="def">558 s</td><td class="def">70 s</td></tr>
+            <tr><td><span class="inline">EXEC cap_results.refresh</span> since M24.13 (fills the <code>_S</code> tables)</td><td class="def">&nbsp;</td><td class="def">&nbsp;</td><td class="def">2547 s</td><td class="def">318 s</td></tr>
             <tr><td><span class="inline">report/report.sql</span></td><td class="def">179 s</td><td class="def">741 s</td><td class="def">1602 s</td><td class="def">200 s</td></tr>
             <tr><td><span class="inline">report/report_html.sql</span></td><td class="def">122 s</td><td class="def">542 s</td><td class="def">1204 s</td><td class="def">150 s</td></tr>
             <tr><td><span class="inline">report/report.sql</span>, <code>SNAPSHOT</code> before M24.13</td><td class="def">&nbsp;</td><td class="def">452 s</td><td class="def">993 s</td><td class="def">124 s</td></tr>
             <tr><td><span class="inline">report/report_html.sql</span>, <code>SNAPSHOT</code> before M24.13</td><td class="def">&nbsp;</td><td class="def">318 s</td><td class="def">656 s</td><td class="def">82 s</td></tr>
+            <tr><td><span class="inline">report/report.sql</span> or <span class="inline">report_html.sql</span>, <code>SNAPSHOT</code> since M24.13, fleet or one target</td><td class="def">&nbsp;</td><td class="def">&nbsp;</td><td class="def">1 s, 10&nbsp;MB PGA</td><td class="def">none</td></tr>
             <tr><td><span class="inline">report/report.sql</span> for one target</td><td class="def">152 s</td><td class="def">&nbsp;</td><td class="def">159 s</td><td class="def">one target</td></tr>
             <tr><td><span class="inline">report/report_html.sql</span> for one target</td><td class="def">121 s</td><td class="def">&nbsp;</td><td class="def">134 s</td><td class="def">one target</td></tr>
             <tr><td><span class="inline">CAP_NIGHTLY_JOB</span>: purge, retrain, refresh</td><td class="def">&nbsp;</td><td class="def">&nbsp;</td><td class="def">808 s</td><td class="def">101 s</td></tr>
@@ -901,10 +903,11 @@
       </div>
 
       <ul>
-        <li><strong>Plan on about seven minutes of nightly work per target</strong> on two vCPUs:
-          the refresh, a text report and an HTML report, live. With <code>SNAPSHOT</code> reports it
-          is about four and a half. Twenty targets: a 25-minute refresh and an hour for each live
-          fleet report.</li>
+        <li><strong>Plan on about six minutes of nightly work per target</strong> on two vCPUs:
+          the retrain (25&nbsp;s) and the refresh (318&nbsp;s), which since M24.13 pays for every
+          report view once. After it, every <code>SNAPSHOT</code> report of any scope takes about a
+          second. Twenty targets: a two-hour nightly run, then reports for free. A live fleet report
+          still costs about 200&nbsp;s per target.</li>
         <li><strong>PGA does not grow with the fleet.</strong> Every step peaked between 490 and
           640&nbsp;MB at one, four and eight targets, so the <a href="#memory">sizing rule</a> holds
           per session whatever the fleet size.</li>
@@ -919,14 +922,15 @@
           <code>&lt;view&gt;_S</code> tables the last <span class="inline">cap_results.refresh</span>
           filled, so a report no longer evaluates a view over the copies: its cost is a few table
           scans at any fleet size. The work moved into the refresh, which now evaluates each report
-          view once per run. The two <code>SNAPSHOT</code> rows above were measured before that
-          (alert list and fits only), and the refresh figures too.</li>
+          view once per run: 2547&nbsp;s at eight targets against 558&nbsp;s before, and the reports
+          then take 1&nbsp;s and 10&nbsp;MB of PGA, against 993&nbsp;s and 486&nbsp;MB. A scoped
+          <code>SNAPSHOT</code> report prints the same lines as the scoped live one.</li>
         <li><strong>The nightly steps never overlap.</strong>
           <span class="inline">CAP_NIGHTLY_JOB</span> runs the purge, the retrain, the refresh and
           the alert spool one after another in one session, so a fleet of any size needs one
-          session's PGA: 808&nbsp;s at eight targets (purge 1&nbsp;s, retrain 199&nbsp;s, refresh
-          607&nbsp;s), about 100&nbsp;s per target. From 01:00, twenty targets finish by about
-          01:35. Change the start with <span class="inline">install.sh</span>'s
+          session's PGA: 808&nbsp;s at eight targets before M24.13 (purge 1&nbsp;s, retrain
+          199&nbsp;s, refresh 607&nbsp;s), about 2750&nbsp;s since (refresh 2547&nbsp;s, peak PGA
+          911&nbsp;MB in the refresh). From 01:00, twenty targets finish by about 03:00. Change the start with <span class="inline">install.sh</span>'s
           <span class="inline">NIGHTLY_INTERVAL</span> or
           <span class="inline">DBMS_SCHEDULER.SET_ATTRIBUTE</span>.</li>
       </ul>

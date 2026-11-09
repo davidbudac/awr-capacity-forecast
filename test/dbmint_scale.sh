@@ -24,7 +24,8 @@
 # train_all, refresh (cap_results.refresh), report_fleet / report_one
 # (report.sql for the fleet and for SCALE01), html_fleet / html_one
 # (report_html.sql the same), report_snap / html_snap (the fleet reports in
-# SNAPSHOT mode: alerts and fits from the refresh just run), and, only when
+# SNAPSHOT mode: every section from the refresh just run), report_snap_one /
+# html_snap_one (the same for SCALE01), and, only when
 # named in --steps, nightly (install_jobs.sql, then cap_nightly's PURGE
 # RETRAIN REFRESH in that one session: the job's work and its PGA). Appends one line per step to
 # /tmp/dbmint_scale_<SCHEMA>.tsv (utc, K, days, step, seconds, peak PGA MB);
@@ -125,7 +126,9 @@ STEPS+=("refresh|EXEC cap_results.refresh"
         "html_fleet|@report/report_html.sql"
         "html_one|@report/report_html.sql - - - SCALE01"
         "report_snap|@report/report.sql - - - - - SNAPSHOT"
-        "html_snap|@report/report_html.sql - - - - - SNAPSHOT")
+        "html_snap|@report/report_html.sql - - - - - SNAPSHOT"
+        "report_snap_one|@report/report.sql - - - SCALE01 - SNAPSHOT"
+        "html_snap_one|@report/report_html.sql - - - SCALE01 - SNAPSHOT")
 [[ $ONLY == *",nightly,"* ]] && STEPS+=("nightly|@install_jobs.sql
 WHENEVER SQLERROR EXIT FAILURE
 SET SERVEROUTPUT ON SIZE UNLIMITED

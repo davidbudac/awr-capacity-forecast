@@ -823,7 +823,7 @@ Decided 2026-11-07:
       schema, 19.27) and chains (Rules Engine privileges). At 8 targets:
       PURGE 1 s, RETRAIN 199 s, REFRESH 607 s, 808 s in all, peak PGA
       638 MB. Docs: reference.html#fleet-size, design.md.
-- [ ] **M24.13 Per-target ranks and SNAPSHOT from stored tables.** No
+- [x] **M24.13 Per-target ranks and SNAPSHOT from stored tables.** No
       report ranks one target against another: every window in ddl/20..55
       partitions by dbid (`rank_dtf` / `rank_nearfull` / `rank_shift` /
       `rank_series` / `rank_report` / `rank_chart`, `CAPA_ANOM.kind_last_day`)
@@ -842,7 +842,15 @@ Decided 2026-11-07:
       Every install re-creates the tables (`build_snap_tables`), so they are
       a cache, not persisted. `test/lint_snapshot_reads.sh` keeps the drivers
       on the registry; `test/snapshot_parity.sh` diffs LIVE and SNAPSHOT
-      output and checks the plans of a SNAPSHOT run. Measured: TBD.
+      output and checks the plans of a SNAPSHOT run. Measured at 8 targets
+      (CAPX3): SNAPSHOT report.sql / report_html.sql 1 s and ~10 MB PGA,
+      fleet or one target (993 / 656 s before); scoped SNAPSHOT equals scoped
+      LIVE line for line. The cost moved into the refresh: 2547 s (558 s
+      before), peak PGA 911 MB. ASH by ACTION: CAPR_FORECAST_POINTS 622 s, then
+      CAPR_COVERAGE, CAPR_FIT and CAPR_ALERTS ~400 s each (evaluated before
+      too), points / trend / forecast views ~300 s each. Next lever: persist
+      the CAPD daily layer once per refresh, which every one of them
+      re-derives from the copies.
 
 ## v2 (unchanged)
 
