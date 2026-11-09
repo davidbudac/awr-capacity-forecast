@@ -900,6 +900,19 @@ reads `DRIFTING` (buffer cache 256 MiB to 48 MiB under a 1536 MiB
 1056 MiB. `SELECT * FROM capm_verdict` takes about 11 s and 223 MB of PGA in
 local mode.
 
+Fixed in 25.3 after reading those verdicts again. The shared pool suggestion
+moved from 1776 MiB to 1296 MiB between two snapshots 15 minutes apart: each
+advised size was compared over only the intervals that listed it, the lists
+are ragged, and so every size had its own interval set. Every size is now
+compared over the reference size's intervals, the largest listed size below
+it standing in where an interval does not list it, and a candidate must
+count in all of them. The curve rises with size by construction (asserted).
+And a pool suggestion could pass `sga_target`: `CAPM_VERDICT.exceeds_sga`
+flags a buffer cache or shared pool floor above what the two pools hold
+together, without reducing it. On the real AWR the shared pool reads
+`UNDERSIZED`, 1872 MiB, `exceeds_sga = Y`, beside `SGA_TOTAL` `UNDERSIZED`,
+2688 MiB.
+
 - [ ] **M25.1 Seam.** Fourteen new `CAPV_*` views (component history, resize
       operations, PGA statistics, work area histogram, the PGA / SGA / cache /
       shared pool advisors, SGA statistics, library cache, row cache, buffer

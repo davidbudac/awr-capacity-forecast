@@ -347,16 +347,30 @@ WHERE  prev_snap_id IS NOT NULL
 --                  rows are then every size the advisor listed in the
 --                  window (size_factor NULL off the latest list), because
 --                  the latest list is the one without history.
---   An advised size X is compared with the reference size over exactly the
---   snapshot intervals in which the advisor gave an increment for both (same
---   snap_id and prev_snap_id), inside the window, on startups with seg_ok.
---   Summing increments weights each interval by the work it carried. paired
---   puts the reference size's increment beside every size's with a window
---   over the interval, so the increments are never joined to themselves
+--   Every size is compared with the reference size over the SAME snapshot
+--   intervals: the reference size's own (ivl: an increment of it between
+--   snap_id and prev_snap_id, inside the window, on a startup with seg_ok).
+--   Summing increments weights each interval by the work it carried. The
+--   advisor's list is ragged (verified 19.27: sizes come and go from one
+--   snapshot to the next, and the list moves with the pool), so in an
+--   interval that has no increment for size X the largest listed size below
+--   X stands in for it. A larger pool costs no more than a smaller one, so
+--   the stand-in understates a gain and overstates a loss. An interval with
+--   no listed size at or below X does not count for X, and such a size is no
+--   candidate. Comparing each size over only the intervals that listed it
+--   gave every size its own set of intervals: one busy interval then lifted
+--   some sizes and not their neighbours, and the suggestion jumped between
+--   two snapshots. filled finds the stand-in with a window over the
+--   interval's sizes, so the increments are never joined to themselves
 --   (sizes x sizes: 2.2 million rows and 20 s on a 30-size shared pool
---   list, a join order the optimizer did pick). Without a reference the
---   current size takes its place, which shows how little it covers.
---   cover_hours / n_intervals / n_days  those intervals.
+--   list, a join order the optimizer did pick). The sizes ride into agg as
+--   rows of their own (one UNION ALL, one GROUP BY), not as an outer join to
+--   it: the optimizer estimated one row for that join and evaluated the
+--   whole aggregation again for every size (5 minutes, 19.27). Without a
+--   reference the current size takes its place, which shows how little it
+--   covers.
+--   cover_hours / n_intervals / n_days  the reference's intervals that count
+--                  for X.
 --   est_cost / cur_cost / rel_cost      summed cost increments of X and of
 --                  the reference size, and their ratio.
 --   gain           what X gains over the reference size, negative for a loss:
@@ -368,8 +382,9 @@ WHERE  prev_snap_id IS NOT NULL
 --   overalloc      PGA: X's over-allocation increments.
 --   is_candidate   Y for a size other than the current and the reference
 --                  one, inside [current / mem_max_step, current x
---                  mem_max_step], with cover_hours >= mem_min_uptime_hours
---                  against a reference, and a gain.
+--                  mem_max_step], that counts in every interval of the
+--                  reference (n_intervals equal), with cover_hours >=
+--                  mem_min_uptime_hours and a gain.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capm_advice AS
 WITH latest AS (
@@ -415,36 +430,42 @@ WITH latest AS (
         WHERE  cost IS NOT NULL
         GROUP  BY dbid, instance_number, area, size_bytes
      ),
-     ref AS (
-        SELECT k.dbid, k.instance_number, k.area, k.current_bytes,
+     cur AS (
+        SELECT dbid, instance_number, area, MAX(current_bytes) AS current_bytes
+        FROM   latest
+        GROUP  BY dbid, instance_number, area
+     ),
+     near AS (
+        SELECT o.dbid, o.instance_number, o.area,
                MIN(o.size_bytes) KEEP (DENSE_RANK FIRST ORDER BY ABS(o.size_bytes - k.current_bytes),
                                                                  o.size_bytes DESC) AS reference_bytes
-        FROM   (SELECT DISTINCT dbid, instance_number, area, current_bytes FROM latest) k
+        FROM   own o
+        JOIN   cur k
+          ON   k.dbid = o.dbid AND k.instance_number = o.instance_number AND k.area = o.area
         CROSS  JOIN cap_cfg cfg
-        LEFT   JOIN own o
-          ON   o.dbid = k.dbid AND o.instance_number = k.instance_number AND o.area = k.area
-         AND   o.own_hours >= cfg.mem_min_uptime_hours
-         AND   (o.size_bytes = k.current_bytes
+        WHERE  o.own_hours >= cfg.mem_min_uptime_hours
+          AND  (o.size_bytes = k.current_bytes
                 OR ABS(o.size_bytes - k.current_bytes) <= k.current_bytes * cfg.mem_ref_tolerance_pct / 100)
-        GROUP  BY k.dbid, k.instance_number, k.area, k.current_bytes
+        GROUP  BY o.dbid, o.instance_number, o.area
      ),
-     paired AS (
-        SELECT a.dbid, a.instance_number, a.area, a.size_bytes, a.snap_id,
-               a.cost, a.work, a.overalloc, a.ivl_hours, a.end_time,
-               MAX(CASE WHEN a.size_bytes = NVL(r.reference_bytes, r.current_bytes) THEN a.cost END)
-                   OVER (PARTITION BY a.dbid, a.instance_number, a.area, a.snap_id, a.prev_snap_id) AS cur_cost
-        FROM   adv a
-        JOIN   ref r
-          ON   r.dbid = a.dbid AND r.instance_number = a.instance_number
-         AND   r.area = a.area
-        WHERE  a.cost IS NOT NULL
+     ref AS (
+        SELECT k.dbid, k.instance_number, k.area, k.current_bytes, n.reference_bytes
+        FROM   cur k
+        LEFT   JOIN near n
+          ON   n.dbid = k.dbid AND n.instance_number = k.instance_number AND n.area = k.area
      ),
      sizes AS (
-        SELECT dbid, instance_number, area, size_bytes, MAX(size_factor) AS size_factor
-        FROM  ( SELECT dbid, instance_number, area, size_bytes, size_factor
-                FROM   latest
+        SELECT dbid, instance_number, area, size_bytes, MAX(size_factor) AS size_factor,
+               MAX(current_bytes) AS current_bytes, MAX(reference_bytes) AS reference_bytes
+        FROM  ( SELECT l.dbid, l.instance_number, l.area, l.size_bytes, l.size_factor,
+                       r.current_bytes, r.reference_bytes
+                FROM   latest l
+                JOIN   ref r
+                  ON   r.dbid = l.dbid AND r.instance_number = l.instance_number
+                 AND   r.area = l.area
                 UNION  ALL
-                SELECT o.dbid, o.instance_number, o.area, o.size_bytes, NULL
+                SELECT o.dbid, o.instance_number, o.area, o.size_bytes, NULL,
+                       r.current_bytes, r.reference_bytes
                 FROM   own o
                 JOIN   ref r
                   ON   r.dbid = o.dbid AND r.instance_number = o.instance_number
@@ -452,23 +473,62 @@ WITH latest AS (
                 WHERE  r.reference_bytes <> r.current_bytes )
         GROUP  BY dbid, instance_number, area, size_bytes
      ),
+     advr AS (
+        SELECT a.dbid, a.instance_number, a.area, a.size_bytes, a.snap_id, a.prev_snap_id,
+               a.cost, a.work, a.overalloc, a.ivl_hours, a.end_time,
+               NVL(r.reference_bytes, r.current_bytes) AS ref_bytes
+        FROM   adv a
+        JOIN   ref r
+          ON   r.dbid = a.dbid AND r.instance_number = a.instance_number
+         AND   r.area = a.area
+        WHERE  a.cost IS NOT NULL
+     ),
+     filled AS (
+        SELECT x.dbid, x.instance_number, x.area, x.size_bytes, x.snap_id, x.probe,
+               x.cur_cost, x.ivl_hours, x.end_time,
+               LAST_VALUE(x.cost IGNORE NULLS)
+                   OVER (PARTITION BY x.dbid, x.instance_number, x.area, x.snap_id, x.prev_snap_id
+                         ORDER BY x.size_bytes, x.probe
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cost,
+               LAST_VALUE(x.work IGNORE NULLS)
+                   OVER (PARTITION BY x.dbid, x.instance_number, x.area, x.snap_id, x.prev_snap_id
+                         ORDER BY x.size_bytes, x.probe
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS work,
+               LAST_VALUE(x.overalloc IGNORE NULLS)
+                   OVER (PARTITION BY x.dbid, x.instance_number, x.area, x.snap_id, x.prev_snap_id
+                         ORDER BY x.size_bytes, x.probe
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS overalloc
+        FROM  ( SELECT a.dbid, a.instance_number, a.area, a.size_bytes, a.snap_id, a.prev_snap_id,
+                       0 AS probe, a.cost, a.work, a.overalloc,
+                       CAST(NULL AS NUMBER) AS cur_cost, CAST(NULL AS NUMBER) AS ivl_hours,
+                       CAST(NULL AS DATE) AS end_time
+                FROM   advr a
+                UNION  ALL
+                SELECT i.dbid, i.instance_number, i.area, z.size_bytes, i.snap_id, i.prev_snap_id,
+                       1, NULL, NULL, NULL, i.cost, i.ivl_hours, i.end_time
+                FROM   advr i
+                JOIN   sizes z
+                  ON   z.dbid = i.dbid AND z.instance_number = i.instance_number
+                 AND   z.area = i.area
+                WHERE  i.size_bytes = i.ref_bytes ) x
+     ),
      pair AS (
-        SELECT z.dbid, z.instance_number, z.area, z.size_bytes,
+        SELECT x.dbid, x.instance_number, x.area, x.size_bytes,
                x.ivl_hours, x.end_time, x.cost, x.cur_cost, x.work, x.overalloc,
                t.dbtime_sec
-        FROM   sizes z
-        JOIN   paired x
-          ON   x.dbid = z.dbid AND x.instance_number = z.instance_number
-         AND   x.area = z.area AND x.size_bytes = z.size_bytes
+        FROM   filled x
         LEFT   JOIN dbt t
           ON   t.dbid = x.dbid AND t.instance_number = x.instance_number
          AND   t.snap_id = x.snap_id
-        WHERE  x.cur_cost IS NOT NULL
+        WHERE  x.probe = 1 AND x.cost IS NOT NULL
      ),
      agg AS (
         SELECT dbid, instance_number, area, size_bytes,
-               SUM(ivl_hours)                  AS cover_hours,
-               COUNT(*)                        AS n_intervals,
+               MAX(size_factor)                AS size_factor,
+               MAX(current_bytes)              AS current_bytes,
+               MAX(reference_bytes)            AS reference_bytes,
+               NVL(SUM(ivl_hours), 0)          AS cover_hours,
+               COUNT(end_time)                 AS n_intervals,
                COUNT(DISTINCT TRUNC(end_time)) AS n_days,
                SUM(cost)                       AS est_cost,
                SUM(cur_cost)                   AS cur_cost,
@@ -476,29 +536,31 @@ WITH latest AS (
                SUM(overalloc)                  AS overalloc,
                SUM(dbtime_sec)                 AS dbtime_sec,
                SUM(CASE WHEN dbtime_sec IS NOT NULL THEN cur_cost - cost END) AS gain_sec
-        FROM   pair
+        FROM  ( SELECT dbid, instance_number, area, size_bytes,
+                       CAST(NULL AS NUMBER) AS size_factor, CAST(NULL AS NUMBER) AS current_bytes,
+                       CAST(NULL AS NUMBER) AS reference_bytes,
+                       ivl_hours, end_time, cost, cur_cost, work, overalloc, dbtime_sec
+                FROM   pair
+                UNION  ALL
+                SELECT dbid, instance_number, area, size_bytes, size_factor, current_bytes,
+                       reference_bytes, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+                FROM   sizes )
         GROUP  BY dbid, instance_number, area, size_bytes
      ),
      curve AS (
-        SELECT z.dbid, z.instance_number, z.area, z.size_bytes, z.size_factor,
-               r.current_bytes, r.reference_bytes,
-               NVL(g.cover_hours, 0) AS cover_hours,
-               NVL(g.n_intervals, 0) AS n_intervals,
-               NVL(g.n_days, 0)      AS n_days,
+        SELECT g.dbid, g.instance_number, g.area, g.size_bytes, g.size_factor,
+               g.current_bytes, g.reference_bytes,
+               g.cover_hours, g.n_intervals, g.n_days,
                g.est_cost, g.cur_cost, g.dbtime_sec, g.overalloc,
-               CASE WHEN z.area = 'PGA_TARGET' AND g.work + g.est_cost > 0
+               CASE WHEN g.area = 'PGA_TARGET' AND g.work + g.est_cost > 0
                     THEN 100 * g.work / (g.work + g.est_cost) END AS est_hit_pct,
-               CASE WHEN z.area = 'PGA_TARGET' AND g.work + g.cur_cost > 0
+               CASE WHEN g.area = 'PGA_TARGET' AND g.work + g.cur_cost > 0
                     THEN 100 * g.work / (g.work + g.cur_cost) END AS cur_hit_pct,
-               CASE WHEN z.area <> 'PGA_TARGET' AND g.dbtime_sec > 0
-                    THEN 100 * g.gain_sec / g.dbtime_sec END      AS gain_dbtime_pct
-        FROM   sizes z
-        JOIN   ref r
-          ON   r.dbid = z.dbid AND r.instance_number = z.instance_number
-         AND   r.area = z.area
-        LEFT   JOIN agg g
-          ON   g.dbid = z.dbid AND g.instance_number = z.instance_number
-         AND   g.area = z.area AND g.size_bytes = z.size_bytes
+               CASE WHEN g.area <> 'PGA_TARGET' AND g.dbtime_sec > 0
+                    THEN 100 * g.gain_sec / g.dbtime_sec END      AS gain_dbtime_pct,
+               MAX(CASE WHEN g.size_bytes = NVL(g.reference_bytes, g.current_bytes) THEN g.n_intervals END)
+                   OVER (PARTITION BY g.dbid, g.instance_number, g.area) AS ref_intervals
+        FROM   agg g
      ),
      graded AS (
         SELECT c.*,
@@ -518,6 +580,7 @@ SELECT g.dbid,
                   AND g.size_bytes <> g.reference_bytes
                   AND g.size_bytes BETWEEN g.current_bytes / cfg.mem_max_step
                                        AND g.current_bytes * cfg.mem_max_step
+                  AND g.n_intervals = g.ref_intervals
                   AND g.cover_hours >= cfg.mem_min_uptime_hours
                   AND g.gain IS NOT NULL
                  THEN 'Y' ELSE 'N' END AS VARCHAR2(1))                                     AS is_candidate,
@@ -1419,6 +1482,16 @@ FROM   ev e;
 --                      physical memory, N when not, NULL when the host's
 --                      memory is unknown. The suggestion is never reduced
 --                      for it, and other instances on the host are not seen.
+--   exceeds_sga        on BUFFER_CACHE and SHARED_POOL rows with a suggestion
+--                      under ASMM: Y when the suggested size is above what
+--                      the two pools hold together now (CAPM_SGA_BALANCE
+--                      cache_bytes + shpool_bytes), N when not, NULL when
+--                      their sizes are unknown. The two pools share what the
+--                      rest of the SGA leaves, so a floor above their sum
+--                      does not fit in sga_target even with the other pool
+--                      at nothing: raise sga_target first (the SGA_TOTAL
+--                      verdict). N is no promise that the other pool can
+--                      spare the memory. The suggestion is never reduced.
 --   n_evidence / n_pressure  the area's CAPM_EVIDENCE rows, and how many of
 --                      them are PRESSURE.
 --   n_days             the area's sampled days in the window.
@@ -1439,6 +1512,11 @@ WITH ev AS (
         FROM   capm_evidence
         GROUP  BY dbid, instance_number, area
      ),
+     bal AS (
+        SELECT dbid, con_dbid, instance_number, mem_mode, window_start, window_end, n_days,
+               sga_target_bytes, floor_bytes, floor_param, cache_bytes, shpool_bytes
+        FROM   capm_sga_balance
+     ),
      fact AS (
         SELECT 'LIMIT' AS cls, l.dbid, l.con_dbid, l.instance_number, 'PGA_LIMIT' AS area,
                l.mem_mode, l.window_start, l.window_end, l.n_days,
@@ -1453,7 +1531,8 @@ WITH ev AS (
                'N' AS manual, 'N' AS thin,
                CASE WHEN l.n_days < cfg.mem_min_days THEN 'N' ELSE 'Y' END AS days_ok,
                CASE WHEN l.limit_bytes IS NULL THEN 'Y' ELSE 'N' END       AS no_limit,
-               'Y' AS ram_flag, NVL(l.sga_bytes, 0) AS other_bytes, l.host_ram_bytes
+               'Y' AS ram_flag, NVL(l.sga_bytes, 0) AS other_bytes, l.host_ram_bytes,
+               CAST(NULL AS NUMBER) AS pools_bytes
         FROM   capm_pga_limit l
         CROSS  JOIN cap_cfg cfg
         UNION  ALL
@@ -1468,17 +1547,21 @@ WITH ev AS (
                CASE WHEN a.area IN ('PGA_TARGET', 'SGA_TOTAL') THEN 'Y' ELSE 'N' END,
                CASE a.area WHEN 'PGA_TARGET' THEN NVL(a.sga_bytes, 0)
                            ELSE NVL(a.pga_target_bytes, 0) END,
-               a.host_ram_bytes
+               a.host_ram_bytes,
+               CASE WHEN a.mem_mode = 'ASMM' AND a.area IN ('BUFFER_CACHE', 'SHARED_POOL')
+                    THEN b.cache_bytes + b.shpool_bytes END
         FROM   capm_area a
         CROSS  JOIN cap_cfg cfg
+        LEFT   JOIN bal b
+          ON   b.dbid = a.dbid AND b.instance_number = a.instance_number
         UNION  ALL
         SELECT 'BALANCE', b.dbid, b.con_dbid, b.instance_number, 'SGA_BALANCE',
                b.mem_mode, b.window_start, b.window_end, b.n_days,
                b.sga_target_bytes, b.floor_bytes, NULL, b.floor_param,
                CASE WHEN b.n_days = 0 THEN 'N' ELSE 'Y' END,
                CASE WHEN b.mem_mode = 'MANUAL' THEN 'Y' ELSE 'N' END,
-               'N', 'Y', 'N', 'N', 0, NULL
-        FROM   capm_sga_balance b
+               'N', 'Y', 'N', 'N', 0, NULL, NULL
+        FROM   bal b
      ),
      rule AS (
         SELECT 'ADVISOR' AS cls, 1 AS n, 'INSUFFICIENT_EVIDENCE' AS grade, 'NOT_COLLECTED' AS reason,
@@ -1574,6 +1657,9 @@ SELECT v.dbid,
        v.window_end,
        v.n_days,
        CAST(CASE WHEN v.cls = 'BALANCE' AND v.grade <> 'THRASHING' THEN NULL ELSE v.param END
-            AS VARCHAR2(30))                    AS suggested_param
+            AS VARCHAR2(30))                    AS suggested_param,
+       CAST(CASE WHEN v.suggested_bytes IS NOT NULL AND v.pools_bytes IS NOT NULL
+                 THEN CASE WHEN v.suggested_bytes > v.pools_bytes THEN 'Y' ELSE 'N' END
+            END AS VARCHAR2(1))                 AS exceeds_sga
 FROM   v
 CROSS  JOIN cap_cfg cfg;

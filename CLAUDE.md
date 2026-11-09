@@ -514,11 +514,21 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   Advisor rows never zero-fill. A negative step is dropped (the buffer cache
   advisor resets at a resize).
 - **Advisor facts (verified 19.27):** the SGA, cache and shared pool
-  advisors list MB, the PGA advisor bytes. The shared pool list moves with
-  the pool, so a size is compared with the reference size over exactly the
-  intervals that list both. Gain = percent of instance DB time (PGA: cache
-  hit points). The cache advisor's factor 1 size can differ from the
-  component's size.
+  advisors list MB, the PGA advisor bytes. The lists are ragged: the shared
+  pool list moves with the pool, low sizes come and go, some lists stop
+  short (30 different lists in 502 intervals). Gain = percent of instance
+  DB time (PGA: cache hit points). The cache advisor's factor 1 size can
+  differ from the component's size.
+- **One interval set per area.** Every size is compared over the reference
+  size's intervals (`advr` rows with `size_bytes = ref_bytes`). Where an
+  interval has no increment for a size, the largest listed size below it
+  stands in (`filled`: LAST_VALUE IGNORE NULLS over the interval's sizes,
+  probe rows after listed rows), which understates a gain and overstates a
+  loss. No size at or below it = the interval does not count, and a
+  candidate needs `n_intervals` equal to the reference's. Per-size interval
+  sets made the curve non-monotonic and the suggestion jump between two
+  snapshots (1776 to 1296 MiB); run_test.sql asserts the gain never falls
+  with size.
 - **Reference size (25.3).** `ref` in `CAPM_ADVICE`: the advised size nearest
   to the current (factor 1) one, the larger on a tie, with own coverage >=
   `mem_min_uptime_hours`, within `mem_ref_tolerance_pct` of it. The current
@@ -529,11 +539,19 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   against". No reference = `advisor_thin` = ADVISOR_THIN. Without fallback
   the rows stay the latest list (the "left the list, no row" assertion).
   `cur_cost` / `cur_hit_pct` / `cur_overalloc` are the reference size's.
-- **`CAPM_ADVICE` never joins the increments to themselves.** `paired`
-  carries the reference size's increment beside every size's with a window
-  over the interval. A self-join on the interval is sizes x sizes (2.2M
-  rows, 20 s on a 30-size list), and the optimizer picked that order as soon
-  as the reference came from a joined CTE (verdict 8 s to 17 s, 19.27).
+- **`CAPM_ADVICE` never joins the increments to themselves,** and never
+  outer-joins the sizes to the aggregation. A self-join on the interval is
+  sizes x sizes (2.2M rows, 20 s on a 30-size list, an order the optimizer
+  did pick). `sizes LEFT JOIN agg` was estimated at one row and ran the
+  whole aggregation once per size (`SELECT * FROM capm_area` 5 minutes,
+  19.27): the sizes ride into `agg` as rows of a UNION ALL, carrying
+  `current_bytes` / `reference_bytes`. Time `capm_advice`, `capm_area` AND
+  `capm_verdict` after any change here; the plans differ.
+- **`exceeds_sga`** (CAPM_VERDICT, last column): a BUFFER_CACHE or
+  SHARED_POOL suggestion under ASMM above `cache_bytes + shpool_bytes` of
+  CAPM_SGA_BALANCE cannot fit in sga_target. Flagged, never reduced, like
+  `exceeds_host_ram`. NULL without a suggestion, under MANUAL, without the
+  component sizes.
 - **SGA_BALANCE grades:** THRASHING / RESIZE_CHURN (`churn_p`: operations
   or reversals row in PRESSURE, floor suggested), then DRIFTING /
   ONE_WAY_SHIFT (`shift_p`: `SGA_POOL_SHIFT_PCT` >= `mem_shift_pct`, the

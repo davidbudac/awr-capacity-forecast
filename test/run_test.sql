@@ -2035,14 +2035,15 @@ BEGIN
         a_thin   VARCHAR2(1);
         a_ref    NUMBER;
         a_fb     VARCHAR2(1);
+        v_xsga   VARCHAR2(1);
         v_exp    NUMBER;
         v_d      DATE;
 
         PROCEDURE verdict(p_area VARCHAR2) IS
         BEGIN
             SELECT grade, reason, current_bytes, suggested_bytes, suggested_param, exceeds_host_ram,
-                   mem_mode, n_days, n_evidence, n_pressure
-              INTO v_grade, v_reason, v_cur, v_sug, v_param, v_xram, v_mode, v_days, v_nev, v_npr
+                   mem_mode, n_days, n_evidence, n_pressure, exceeds_sga
+              INTO v_grade, v_reason, v_cur, v_sug, v_param, v_xram, v_mode, v_days, v_nev, v_npr, v_xsga
               FROM capm_verdict
              WHERE dbid = v_dbid AND instance_number = 1 AND area = p_area;
         END;
@@ -2315,6 +2316,7 @@ BEGIN
         chk_int('PGA_TARGET current_bytes 1 GiB', v_cur, n_gib);
         chk_str('PGA_TARGET suggested_param', v_param, 'pga_aggregate_target');
         chk_str('PGA_TARGET exceeds_host_ram (4 GiB SGA + 1792 MiB within 80% of 16 GiB)', v_xram, 'N');
+        chk_true('PGA_TARGET exceeds_sga NULL (no SGA pool)', v_xsga IS NULL);
         chk_int('PGA_TARGET n_days', v_days, 30);
         chk_int('PGA_TARGET n_evidence', v_nev, 8);
         chk_int('PGA_TARGET n_pressure (advisor gain, advisor over-allocation, multi-pass, over-allocations)', v_npr, 4);
@@ -2323,10 +2325,12 @@ BEGIN
         chk_int('BUFFER_CACHE current_bytes 2560 MiB', v_cur, 2560 * n_mib);
         chk_str('BUFFER_CACHE suggested_param', v_param, 'db_cache_size');
         chk_true('BUFFER_CACHE exceeds_host_ram NULL (a pool row)', v_xram IS NULL);
+        chk_str('BUFFER_CACHE exceeds_sga (1536 MiB within the two pools'' 2560 + 1024)', v_xsga, 'N');
         chk_int('BUFFER_CACHE n_pressure', v_npr, 0);
         chk_v('shipped', 'SHARED_POOL', 'OK', 'ADVISOR_ONLY', NULL);
         chk_str('SHARED_POOL suggested_param', v_param, 'shared_pool_size');
         chk_int('SHARED_POOL n_pressure (the advisor gain alone)', v_npr, 1);
+        chk_true('SHARED_POOL exceeds_sga NULL without a suggestion', v_xsga IS NULL);
         chk_v('shipped', 'SGA_TOTAL', 'OK', 'SIZED_RIGHT', NULL);
         chk_int('SGA_TOTAL current_bytes 4 GiB', v_cur, 4 * n_gib);
         chk_str('SGA_TOTAL suggested_param', v_param, 'sga_target');
@@ -2335,6 +2339,7 @@ BEGIN
         chk_int('SGA_BALANCE current_bytes = sga_target', v_cur, 4 * n_gib);
         chk_true('SGA_BALANCE names no parameter while stable', v_param IS NULL);
         chk_true('SGA_BALANCE exceeds_host_ram NULL', v_xram IS NULL);
+        chk_true('SGA_BALANCE exceeds_sga NULL', v_xsga IS NULL);
         chk_int('SGA_BALANCE n_days', v_days, 30);
 
         DBMS_OUTPUT.PUT_LINE('=== M25 advisor area knob variations ===');
@@ -2396,6 +2401,7 @@ BEGIN
             chk_v('mem_symptom_dbtime_pct 0.03 (advisor gain and shared pool waits)', 'SHARED_POOL',
                   'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', meta_n('MEM_SHP_KNEE_MIB'));
             chk_true('SHARED_POOL UNDERSIZED: exceeds_host_ram NULL (a pool row)', v_xram IS NULL);
+            chk_str ('SHARED_POOL UNDERSIZED: exceeds_sga (1536 MiB within the two pools'' 3584)', v_xsga, 'N');
             chk_e('mem_symptom_dbtime_pct 0.03', 'SGA_POOLS_PRESSED', 1, 'NEUTRAL');
             chk_v('mem_symptom_dbtime_pct 0.03 (free buffer waits 0.02%)', 'BUFFER_CACHE',
                   'OVERSIZED', 'SHRINK_COSTS_LITTLE', 1536);
@@ -2514,6 +2520,7 @@ BEGIN
             chk_str('sga_target 0: mem_mode', v_mode, 'MANUAL');
             chk_v('sga_target 0', 'SGA_BALANCE',  'INSUFFICIENT_EVIDENCE', 'MANUAL_SIZING', NULL);
             chk_v('sga_target 0 (graded from its own advisor)', 'BUFFER_CACHE', 'OVERSIZED', 'SHRINK_COSTS_LITTLE', 1536);
+            chk_true('sga_target 0: BUFFER_CACHE exceeds_sga NULL (no sga_target to fit in)', v_xsga IS NULL);
             chk_v('sga_target 0 (graded from its own advisor)', 'SHARED_POOL',  'OK', 'ADVISOR_ONLY', NULL);
             chk_v('sga_target 0', 'PGA_TARGET',   'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1792);
             ROLLBACK TO SAVEPOINT m25_mem;
@@ -2543,6 +2550,25 @@ BEGIN
                   meta_n('PGA_SUGGEST_MIB'));
             ROLLBACK TO SAVEPOINT m25_mem;
 
+            -- A floor that cannot fit. The buffer cache holds 256 MiB all
+            -- window: the two pools share 1280 MiB, and the shared pool's
+            -- advisor asks for 1536.
+            UPDATE cap_fixture_mem_comp SET current_size = 256 * 1048576
+             WHERE component = 'DEFAULT buffer cache';
+            knob('mem_symptom_dbtime_pct', 0.03);
+            chk_v('pools of 256 + 1024 MiB', 'SHARED_POOL', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1536);
+            chk_str('pools of 256 + 1024 MiB: SHARED_POOL exceeds_sga, the suggestion stays', v_xsga, 'Y');
+            chk_v('pools of 256 + 1024 MiB (no move, no shift)', 'SGA_BALANCE', 'OK', 'STABLE', NULL);
+            UPDATE cap_fixture_mem_comp SET current_size = 512 * 1048576
+             WHERE component = 'DEFAULT buffer cache';
+            chk_v('pools of 512 + 1024 MiB', 'SHARED_POOL', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1536);
+            chk_str('pools of 512 + 1024 MiB: 1536 MiB is exactly their sum, no flag', v_xsga, 'N');
+            DELETE FROM cap_fixture_mem_comp WHERE component = 'DEFAULT buffer cache';
+            chk_v('no buffer cache component', 'SHARED_POOL', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1536);
+            chk_true('no buffer cache component: exceeds_sga NULL', v_xsga IS NULL);
+            knob('mem_symptom_dbtime_pct', 0.1);
+            ROLLBACK TO SAVEPOINT m25_mem;
+
             -- The buffer cache advisor restarts its estimates at day 105 06:00
             -- (snapshot 2210), as it does when the cache is resized: that
             -- interval's increment is negative and dropped, 59 intervals stay.
@@ -2569,10 +2595,16 @@ BEGIN
             chk_int('cache advisor reset: the shared pool advisor keeps its 720 hours', a_cover, 720);
             ROLLBACK TO SAVEPOINT m25_mem;
 
-            -- The shared pool advisor's list changes mid-window. 1408 MiB is
-            -- listed from day 111 06:00 on (snapshot 2222, 1 u an interval):
-            -- compared over exactly its 19 intervals. 1100 MiB is listed early
-            -- in the window only, 1664 MiB on the last two snapshots only.
+            -- The shared pool advisor's list changes mid-window. Every size is
+            -- compared over the current size's 60 intervals, and where the
+            -- advisor did not list it the next smaller listed size stands in.
+            -- 1408 MiB is listed from day 111 06:00 on (snapshot 2222, 1 u an
+            -- interval): 1280 MiB (1.9 u) stands in for the 41 intervals
+            -- before. 1664 MiB is on the last two snapshots only (0.1 u):
+            -- 1536 MiB (1.6 u) stands in for 59. 1100 MiB is listed early in
+            -- the window only and has no row. 640 MiB is listed from snapshot
+            -- 2222 on (7 u) and 512 MiB, the only smaller size, not at snapshot
+            -- 2200: two intervals have no size at or below 640.
             INSERT INTO cap_fixture_shpool_advice
             SELECT dbid, con_dbid, instance_number, snap_id, 1408, 1.375, 704, 1000, 0, 1,
                    (snap_id - 2221) * 1 * n_u, 0.33, 0
@@ -2588,29 +2620,54 @@ BEGIN
                    (snap_id - n_latest + 2) * 0.1 * n_u, 0.03, 0
               FROM cap_fixture_shpool_advice
              WHERE shared_pool_size_for_estimate = 1024 AND snap_id IN (n_latest - 1, n_latest);
-            v_exp := dbt(2222, n_latest);
+            INSERT INTO cap_fixture_shpool_advice
+            SELECT dbid, con_dbid, instance_number, snap_id, 640, 0.625, 320, 1000, 0, 1,
+                   (snap_id - 2221) * 7 * n_u, 2.33, 0
+              FROM cap_fixture_shpool_advice
+             WHERE shared_pool_size_for_estimate = 1024 AND snap_id BETWEEN 2222 AND n_latest;
+            DELETE FROM cap_fixture_shpool_advice
+             WHERE shared_pool_size_for_estimate = 512 AND snap_id = 2200;
             SELECT cover_hours, n_intervals, est_cost, cur_cost, dbtime_sec, gain, is_candidate
               INTO v_num, v_n, v_num2, v_num3, v_r2, n_aux, v_c1
               FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 1408 * n_mib;
-            chk_int  ('shared pool list change: 1408 MiB cover_hours = 19 intervals x 12 h', v_num, 228);
-            chk_int  ('shared pool list change: 1408 MiB n_intervals', v_n, 19);
-            chk_close('shared pool list change: 1408 MiB est_cost = 19 x 1 u', v_num2, 19 * n_u, 0.000001);
-            chk_close('shared pool list change: the current size over the same 19 intervals, 19 x 3 u',
-                      v_num3, 19 * 3 * n_u, 0.000001);
-            chk_close('shared pool list change: dbtime_sec of the 19 intervals', v_r2, v_exp, 0.000001);
-            chk_close('shared pool list change: 1408 MiB gain', n_aux, pct(19, 2, v_exp), 0.000001);
+            chk_int  ('shared pool list change: 1408 MiB cover_hours = the current size''s 720', v_num, 720);
+            chk_int  ('shared pool list change: 1408 MiB n_intervals', v_n, 60);
+            chk_close('shared pool list change: 1408 MiB est_cost = 41 x 1.9 u (1280 MiB stands in) + 19 x 1 u',
+                      v_num2, (41 * 1.9 + 19) * n_u, 0.000001);
+            chk_close('shared pool list change: the current size over the same 60 intervals, 60 x 3 u',
+                      v_num3, 60 * 3 * n_u, 0.000001);
+            chk_close('shared pool list change: dbtime_sec = the window''s DB time', v_r2, n_dbt, 0.000001);
+            chk_close('shared pool list change: 1408 MiB gain', n_aux, pct(41 * 1.1 + 19 * 2, 1, n_dbt), 0.000001);
             chk_str  ('shared pool list change: 1408 MiB is a candidate', v_c1, 'Y');
             SELECT COUNT(*) INTO v_n FROM capm_advice
              WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 1100 * n_mib;
             chk_int('shared pool list change: 1100 MiB left the list, no row', v_n, 0);
-            SELECT cover_hours, is_candidate INTO v_num, v_c1
+            SELECT cover_hours, gain, is_candidate INTO v_num, v_num2, v_c1
               FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 1664 * n_mib;
-            chk_int('shared pool list change: 1664 MiB cover_hours 12', v_num, 12);
-            chk_str('shared pool list change: 1664 MiB is under mem_min_uptime_hours, no candidate', v_c1, 'N');
+            chk_int  ('shared pool list change: 1664 MiB cover_hours 720', v_num, 720);
+            chk_close('shared pool list change: 1664 MiB gain = 59 x (3 - 1.6) u (1536 MiB stands in) + 2.9 u',
+                      v_num2, pct(59 * 1.4 + 2.9, 1, n_dbt), 0.000001);
+            chk_str  ('shared pool list change: 1664 MiB, one increment of its own, is a candidate', v_c1, 'Y');
+            SELECT n_intervals, cover_hours, is_candidate INTO v_n, v_num, v_c1
+              FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 640 * n_mib;
+            chk_int('shared pool list change: 640 MiB n_intervals (two have no size at or below it)', v_n, 58);
+            chk_int('shared pool list change: 640 MiB cover_hours', v_num, 696);
+            chk_str('shared pool list change: 640 MiB is no candidate short of the current size''s intervals', v_c1, 'N');
+            SELECT n_intervals, is_candidate, gain INTO v_n, v_c1, v_num
+              FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 768 * n_mib;
+            chk_true('shared pool list change: 768 MiB, listed throughout, keeps its 60 intervals and its loss',
+                     v_n = 60 AND v_c1 = 'Y' AND ABS(v_num + pct(60, 2, n_dbt)) <= 0.000001);
+            SELECT COUNT(*) INTO v_n
+              FROM (SELECT gain, LAG(gain) OVER (ORDER BY size_bytes) AS prev_gain
+                      FROM capm_advice
+                     WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes BETWEEN 768 * n_mib AND 1536 * n_mib)
+             WHERE gain < prev_gain;
+            chk_int('shared pool list change: the gain never falls from 768 to 1536 MiB', v_n, 0);
             area('SHARED_POOL');
-            chk_close('shared pool list change: best_gain is 1408 MiB''s', a_best, pct(19, 2, v_exp), 0.000001);
-            chk_int  ('shared pool list change: best_bytes', a_bestb, 1408 * n_mib);
-            chk_int  ('shared pool list change: grow_bytes', a_grow, 1408 * n_mib);
+            chk_close('shared pool list change: best_gain is 2048 MiB''s, as before the change',
+                      a_best, meta_n('MEM_SHP_GAIN'), 0.000001);
+            chk_int  ('shared pool list change: best_bytes', a_bestb, 2048 * n_mib);
+            chk_int  ('shared pool list change: grow_bytes = the knee, 1408 MiB (83.1 of 90 u)', a_grow, 1408 * n_mib);
             chk_int  ('shared pool list change: the current size keeps its 720 hours', a_cover, 720);
             ROLLBACK TO SAVEPOINT m25_mem;
 
@@ -2714,7 +2771,8 @@ BEGIN
             -- factor 1 size, with one increment (12 hours), and every other
             -- factor is relative to it. 1024 MiB, 4.48% away, has the window's
             -- 720 hours and becomes the reference. 1536 MiB is off the latest
-            -- list and still a candidate, over its 59 intervals.
+            -- list and still a candidate: 1280 MiB (1.9 u) stands in for it in
+            -- the last interval.
             UPDATE cap_fixture_shpool_advice
                SET shared_pool_size_factor = ROUND(shared_pool_size_for_estimate / 1072, 4)
              WHERE snap_id IN (n_latest - 1, n_latest);
@@ -2725,7 +2783,6 @@ BEGIN
              WHERE shared_pool_size_for_estimate = 1024 AND snap_id IN (n_latest - 1, n_latest);
             DELETE FROM cap_fixture_shpool_advice
              WHERE shared_pool_size_for_estimate = 1536 AND snap_id = n_latest;
-            v_exp := n_dbt - dbt(n_latest - 1, n_latest);
             SELECT COUNT(*), COUNT(CASE WHEN is_candidate = 'Y' THEN 1 END),
                    COUNT(CASE WHEN reference_fallback = 'Y' AND reference_bytes = 1024 * n_mib
                                AND current_bytes = 1072 * n_mib THEN 1 END)
@@ -2737,8 +2794,12 @@ BEGIN
             chk_int('fallback: every row carries current 1072 MiB, reference 1024 MiB, reference_fallback Y', v_num2, 10);
             SELECT is_current, is_candidate, cover_hours, size_factor INTO v_c1, v_str, v_num, v_num2
               FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 1072 * n_mib;
-            chk_true('fallback: 1072 MiB is the current row, no candidate, 12 hours against the reference',
-                     v_c1 = 'Y' AND v_str = 'N' AND v_num = 12 AND v_num2 = 1);
+            chk_true('fallback: 1072 MiB is the current row, no candidate, the reference''s 720 hours',
+                     v_c1 = 'Y' AND v_str = 'N' AND v_num = 720 AND v_num2 = 1);
+            SELECT gain INTO v_num
+              FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 1072 * n_mib;
+            chk_close('fallback: 1072 MiB gain = (3 - 2.8) u in its own interval, the reference stands in for 59',
+                      v_num, pct(1, 0.2, n_dbt), 0.000001);
             SELECT is_current, is_candidate, cover_hours, gain INTO v_c1, v_str, v_num, v_num2
               FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 1024 * n_mib;
             chk_true('fallback: the reference 1024 MiB is no candidate (720 hours, gain 0 against itself)',
@@ -2747,10 +2808,11 @@ BEGIN
               FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 1536 * n_mib;
             chk_str  ('fallback: 1536 MiB, off the latest list, is a candidate', v_c1, 'Y');
             chk_true ('fallback: 1536 MiB size_factor NULL off the latest list', v_num3 IS NULL);
-            chk_int  ('fallback: 1536 MiB n_intervals', v_n, 59);
-            chk_close('fallback: 1536 MiB cur_cost = the reference over the same 59 intervals, 59 x 3 u',
-                      v_num2, 59 * 3 * n_u, 0.000001);
-            chk_close('fallback: 1536 MiB gain = (3 - 1.6) u over 59 intervals', v_num, pct(59, 1.4, v_exp), 0.000001);
+            chk_int  ('fallback: 1536 MiB n_intervals = the reference''s', v_n, 60);
+            chk_close('fallback: 1536 MiB cur_cost = the reference over its 60 intervals, 60 x 3 u',
+                      v_num2, 60 * 3 * n_u, 0.000001);
+            chk_close('fallback: 1536 MiB gain = (3 - 1.6) u over 59 intervals + (3 - 1.9) u in the last',
+                      v_num, pct(59 * 1.4 + 1.1, 1, n_dbt), 0.000001);
             area('SHARED_POOL');
             chk_int  ('fallback: CAPM_AREA current_bytes stays the advisor''s 1072 MiB', a_cur, 1072 * n_mib);
             chk_int  ('fallback: CAPM_AREA reference_bytes 1024 MiB', a_ref, 1024 * n_mib);
