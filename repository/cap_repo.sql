@@ -144,6 +144,12 @@ CREATE OR REPLACE PACKAGE cap_repo AUTHID DEFINER AS
     -- caller's transaction (the remote SELECT opens a distributed one).
     FUNCTION ping(p_name IN VARCHAR2) RETURN VARCHAR2;
 
+    -- When the reader's password expires on the target (USER_USERS over the
+    -- link; doctor.sql check 11 warns ahead of it). NULL when it never
+    -- expires or the link cannot answer (ping says why). Never raises; rolls
+    -- back the caller's transaction as ping does.
+    FUNCTION reader_expiry(p_name IN VARCHAR2) RETURN DATE;
+
     -- Every procedure above labels its session MODULE 'AWRCAP/cap_repo.<name>'
     -- (collect: ACTION = the target and DBID it copies) and puts the caller's
     -- MODULE / ACTION back when it returns or raises. The target's session
@@ -762,6 +768,23 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         END IF;
         RETURN v_err;
     END ping;
+
+    FUNCTION reader_expiry(p_name IN VARCHAR2) RETURN DATE IS
+        t     cap_target%ROWTYPE;
+        v_exp DATE;
+    BEGIN
+        BEGIN
+            t := get_target(p_name);
+            EXECUTE IMMEDIATE 'SELECT expiry_date FROM user_users@' || t.db_link INTO v_exp;
+        EXCEPTION
+            WHEN OTHERS THEN v_exp := NULL;
+        END;
+        ROLLBACK;
+        IF t.db_link IS NOT NULL THEN
+            close_link(t.db_link);
+        END IF;
+        RETURN v_exp;
+    END reader_expiry;
 
 END cap_repo;
 /

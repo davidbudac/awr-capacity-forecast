@@ -985,7 +985,7 @@ Decided 2026-11-09:
       reader): after collect the high-water mark equals the target's newest
       snap_id (4019), the log message stays empty, and the copy check is
       EQUAL (17 sources, 163,401 rows).
-- [ ] **M25.5 doctor without DBA_HIST.** Sections 2, 3, 5 and 6 check the
+- [x] **M25.5 doctor without DBA_HIST.** Sections 2, 3, 5 and 6 check the
       measured database, which is target/check.sql's job now (the standalone
       path runs it, M25.2). doctor keeps the repository side and keeps
       sections 7..11 under their numbers, because the docs and
@@ -995,6 +995,21 @@ Decided 2026-11-09:
       it (`ALTER USER ... IDENTIFIED BY` on the target, then
       `cap_repo.set_link_password`). Check: on dbmint, a reader whose
       profile expires it in 10 days gets the WARN.
+      Done 2026-11-09: doctor.sql names no DBA_HIST_* view any more. Before
+      install it assumes repository (section 7 prints the needs as INFO,
+      nothing to count yet), section 4 adds CREATE DATABASE LINK, and
+      `cap_doctor_mode = local` is ignored with a note (install.sh's
+      standalone role and quickstart.sql still pass it). An installed local
+      seam (CAPV_SNAPSHOT on a SYS DBA_ view) is a WARN naming the upgrade
+      path. The expiry is read by the new definer's-rights
+      `cap_repo.reader_expiry(p_name)` (NULL = never expires or the link
+      fails, ping says why; rolls back like ping). On dbmint: CAPM1
+      (repository, target CDB1, reader C##AWRM25) 0 FAIL, the reader under
+      DEFAULT read "expires 2027-05-08 (in 179 d)" PASS, and under a
+      throwaway profile `C##M25_EXPIRY` (PASSWORD_LIFE_TIME 10) the WARN
+      "expires 2026-11-19 07:21 (in 9 d), inside reader_expiry_warn_days 30"
+      with both statements; an empty schema (CAPM2) no FAIL and no
+      DBA_HIST error; fixture CAPX1 no FAIL.
 - [ ] **M25.6 Carry the operator's config across a reinstall.** Before it
       drops anything, uninstall.sql spools
       `reports/cap_config_replay_<schema>_<ts>.sql` and prompts its path.

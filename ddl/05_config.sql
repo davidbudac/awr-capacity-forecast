@@ -135,6 +135,7 @@ USING (
     UNION ALL SELECT 'seg_window_days',        28,        'CAPR_SEGMENT_GROWTH: trailing days (up to the dbid''s newest snapshot) over which segment growth is summed for the "who is filling it" ranking.' FROM dual
     UNION ALL SELECT 'anomaly_hour_grain',      1,        'CAPA_OBS: 1 = score CPU per hour too (HOUR_OF_WEEK), 0 = day grain only: no HOUR rows, so no hourly anomalies, alerts or ring tooltips (cheaper on long hourly AWR).' FROM dual
     UNION ALL SELECT 'repo_retention_days',   400,        'Repository mode: cap_repo.purge deletes the CAP_H_* copies of snapshots that ended more than this many days ago, and older CAP_COLLECT_LOG rows. 0 = keep everything.' FROM dual
+    UNION ALL SELECT 'reader_expiry_warn_days', 30,       'Repository mode: doctor.sql check 11 WARNs when a target reader''s password expires within this many days (its collects fail with ORA-28001 from then on).' FROM dual
 ) s
 ON (c.cfg_name = s.cfg_name)
 WHEN MATCHED THEN
@@ -215,7 +216,8 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'digest_days'            THEN cfg_value END) AS digest_days,
        MAX(CASE WHEN cfg_name = 'seg_window_days'        THEN cfg_value END) AS seg_window_days,
        MAX(CASE WHEN cfg_name = 'anomaly_hour_grain'     THEN cfg_value END) AS anomaly_hour_grain,
-       MAX(CASE WHEN cfg_name = 'repo_retention_days'    THEN cfg_value END) AS repo_retention_days
+       MAX(CASE WHEN cfg_name = 'repo_retention_days'    THEN cfg_value END) AS repo_retention_days,
+       MAX(CASE WHEN cfg_name = 'reader_expiry_warn_days' THEN cfg_value END) AS reader_expiry_warn_days
 FROM   cap_config;
 
 COMMENT ON TABLE cap_cfg IS 'One row, one NUMBER column per CAP_CONFIG knob (column name = knob name). NULL = the knob row is missing.';
@@ -271,7 +273,7 @@ WITH u AS (
                alert_modes_cpu, alert_modes_series, stale_hours,
                data_stale_max_days, resolve_grace_runs, refresh_stale_hours,
                digest_days, seg_window_days, anomaly_hour_grain,
-               repo_retention_days))
+               repo_retention_days, reader_expiry_warn_days))
      ),
      r AS (
         SELECT u.knob, u.value,
@@ -322,6 +324,8 @@ WITH u AS (
                    WHEN u.knob = 'digest_days'         AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
                    WHEN u.knob = 'seg_window_days'     AND (u.value <> TRUNC(u.value) OR u.value < 1)
+                        THEN 'must be a whole number >= 1'
+                   WHEN u.knob = 'reader_expiry_warn_days' AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
                    WHEN u.knob = 'anomaly_hour_grain'  AND u.value NOT IN (0, 1)
                         THEN 'must be 0 (day grain only) or 1 (score hours too)'
