@@ -107,6 +107,17 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
         g_fc_failed := 0;
     END;
 
+    -- A trainer reads every database. A scope an aborted report left in this
+    -- session (CAP_SCOPE, M24.11) would hide the other targets' series.
+    PROCEDURE unscope IS
+        l_scope NUMBER;
+    BEGIN
+        SELECT scope_dbid INTO l_scope FROM cap_scope;
+        IF l_scope IS NOT NULL THEN
+            DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL);
+        END IF;
+    END;
+
     PROCEDURE raise_if_failed IS
     BEGIN
         IF g_fc_failed > 0 THEN
@@ -503,6 +514,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
     BEGIN
         DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
         DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.train_tablespaces', NULL);
+        unscope;
         reset_counts;
         do_tablespaces(p_top_n, NULL, NULL);
         raise_if_failed;
@@ -521,6 +533,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
     BEGIN
         DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
         DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.train_tablespace', NULL);
+        unscope;
         reset_counts;
         -- top-N does not apply to a named series; any cap above the number of
         -- containers will do.
@@ -540,6 +553,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
     BEGIN
         DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
         DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.train_cpu', NULL);
+        unscope;
         reset_counts;
         do_cpu;
         raise_if_failed;
@@ -558,6 +572,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
     BEGIN
         DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
         DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.train_all', NULL);
+        unscope;
         reset_counts;
         do_tablespaces(p_top_n, NULL, NULL);   -- trains the candidate twins too when AUTO
         IF p_backtest AND NOT auto_select THEN
@@ -591,6 +606,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
     BEGIN
         DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
         DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_forecast_ml.train_backtest', NULL);
+        unscope;
         backtest_tbspc(p_top_n, p_holdout_days);
         backtest_cpu(p_holdout_days);
         DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);

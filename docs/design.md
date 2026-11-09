@@ -1132,17 +1132,39 @@ no partitioned ESM) via `DBMS_DATA_MINING.CREATE_MODEL2(mining_function =>
 
 ### Retraining (M8.3 — opt-in, never part of `install.sql`)
 
-`@install_jobs.sql` at the repo root creates three `DBMS_SCHEDULER` jobs (five
-in repository mode), all **DISABLED**, idempotently: `CAP_REFRESH_JOB` (daily 01:30,
-`cap_results.refresh`, `DEFINE refresh_interval`; Layer 7),
-`CAP_ML_RETRAIN` (daily 02:00 by default,
-`cap_forecast_ml.train_all`; `DEFINE retrain_interval` overrides the calendar
-string) and `CAP_REPORT_SPOOL_JOB` (daily 03:00), which
-calls the `cap_report_spool(p_dir)` procedure the same script creates. Where
-package `CAP_REPO` exists (repository mode) it adds `CAP_COLLECT_JOB` (hourly
-at :05, `cap_repo.collect`, `DEFINE collect_interval`) and `CAP_PURGE_JOB`
-(daily 01:00, `cap_repo.purge`: the copies older than `repo_retention_days`,
-before the refresh). The spool procedure writes a pollable
+`@install_jobs.sql` at the repo root creates one `DBMS_SCHEDULER` job (two in
+repository mode), all **DISABLED**, idempotently. `CAP_NIGHTLY_JOB` (daily
+01:00, `DEFINE nightly_interval`) calls the `cap_nightly(p_steps, p_dir)`
+procedure the same script creates. It runs the night's steps one after the
+other in one session, in a fixed order: `PURGE` (`cap_repo.purge`, the copies
+older than `repo_retention_days`), `RETRAIN` (`cap_forecast_ml.train_all`),
+`REFRESH` (`cap_results.refresh`, Layer 7) and `SPOOL`
+(`cap_report_spool(p_dir)`). `DEFINE nightly_steps` picks the steps,
+blank-separated, and the order stays fixed. The default is all four, with
+`PURGE` only where package `CAP_REPO` exists and `SPOOL` only when the
+directory object exists at install time. `RETRAIN` runs before `REFRESH`, so
+the refresh records tonight's models. A failed step is rolled back and the
+later steps still run. The run then ends FAILED with ORA-20080, which names
+every failed step. The run's `OUTPUT` in `ALL_SCHEDULER_JOB_RUN_DETAILS` holds each
+step's outcome and seconds, and the step's own record says why (`CAP_RUN`,
+`CAPF_ESM_HEALTH.last_error`, `CAP_COLLECT_LOG`). An unknown step name raises
+ORA-20081. Where package `CAP_REPO` exists (repository mode) the script adds
+`CAP_COLLECT_JOB` (hourly at :05, `cap_repo.collect`, `DEFINE
+collect_interval`). It runs beside the nightly job, because it only inserts
+above the high-water mark, which no nightly step reads past.
+
+**One job, not one per step (M24.12).** Before M24.12 the script created four
+jobs at fixed times: `CAP_PURGE_JOB` (01:00, repository mode),
+`CAP_REFRESH_JOB` (01:30, `DEFINE refresh_interval`), `CAP_ML_RETRAIN` (02:00,
+`DEFINE retrain_interval`) and `CAP_REPORT_SPOOL_JOB` (03:00), so the refresh
+ran before the retrain. On a repository fleet the refresh grows by about 70 s
+per target on 2 vCPUs. Past about 25 targets the 01:30 refresh still ran when
+the 02:00 retrain started, and both needed a session's PGA at once. One job
+cannot overlap itself. Scheduler job incompatibilities keep jobs apart but not
+in order (verified on 19.27), and a chain needs Rules Engine privileges.
+Re-running `install_jobs.sql` on an older install drops the four replaced jobs.
+
+The spool procedure writes a pollable
 `<dir>/cap_alerts.txt` snapshot of `CAPR_ALERTS`
 through `UTL_FILE` — *not* the formatted report, because SQL\*Plus spooling
 cannot happen inside a scheduler job; keep driving `report/report.sql` from
@@ -1156,9 +1178,11 @@ mark when the job stopped (Layer 7). The directory object is not
 created for you: the script checks
 `ALL_DIRECTORIES` and prints the exact `CREATE DIRECTORY` / `GRANT READ, WRITE`
 DDL if it is missing (`DEFINE report_dir` overrides the default `CAP_REPORTS`).
-The `_JOB` suffix on the second job is not decoration: jobs share the schema
-namespace with procedures, so `CAP_REPORT_SPOOL` for both would be ORA-27477.
-`@uninstall_jobs.sql` drops the jobs and the procedure. The retrain used to
+The `_JOB` suffix is not decoration. Jobs share the schema namespace with
+procedures, so a job named `CAP_NIGHTLY` beside the procedure would be
+ORA-27477, as it was for `CAP_REPORT_SPOOL`. `@uninstall_jobs.sql` drops
+`CAP_NIGHTLY_JOB`, `CAP_COLLECT_JOB`, the four older job names and the
+procedures `CAP_NIGHTLY` and `CAP_REPORT_SPOOL`. The retrain used to
 be weekly. It is daily now because of the age gate: a weekly model sits up to
 7 days behind the data, right at `esm_max_age_days`, and its ESM value is
 dated up to a week before the REGR value it is compared with.
@@ -1392,7 +1416,7 @@ keeps the newest run and the newest OK live run. `reset` forgets everything.
 | `CAPR_WEEKLY_DIGEST` | the latest OK run against the latest OK run at least `digest_days` (7) older: per series `days_to_full`, `pct`, quality and severity then and now, a `change` verdict, and the alert events in between (`n_new`, `n_resolved`, `n_reopened`, `n_sev_changes`, and `events`, the counts per kind) |
 | `CAPR_FORECAST_ACCURACY` | every snapshot row whose series has newer data today: `projected` = `value_then + slope_then * elapsed_days` (the anchored formula), `actual` = `CAPR_FIT.value` now, `error`, `error_pct`. Filter `elapsed_days` for a horizon |
 
-**Poller recipe.** Enable `CAP_REFRESH_JOB`, then poll
+**Poller recipe.** Enable `CAP_NIGHTLY_JOB` (its `REFRESH` step), then poll
 `SELECT * FROM capr_alert_events WHERE run_id > :last_seen_run_id`, remember
 the highest `run_id`, page on NEW / ESCALATED / REOPENED and clear on RESOLVED.
 For a state board, read `CAPR_ALERTS_LATEST`. To silence a known issue,
@@ -1573,10 +1597,11 @@ the latter follows the *session* user and would report nothing useful when
 testing as SYSDBA with `CURRENT_SCHEMA` set elsewhere. Section 10 (M21)
 covers the results layer and the live seam contract: the last `CAPR_RUNS`
 row and `stale_run`, FAILED runs of the last 7 days with the first error
-line, RUNNING runs older than an hour, `CAP_REFRESH_JOB` (enabled, last
-scheduler run), open versus acknowledged alert states, retired dbids from
+line, RUNNING runs older than an hour, `CAP_NIGHTLY_JOB` (enabled, last
+scheduler run, and since M24.12 a WARN per step its last run failed, read from
+the run's `OUTPUT`), open versus acknowledged alert states, retired dbids from
 `CAPR_COVERAGE`, and every `CAPV_CONTRACT` row. In repository mode (M24.7)
-section 10 adds `CAP_COLLECT_JOB` and `CAP_PURGE_JOB`, and section 11 checks
+section 10 adds `CAP_COLLECT_JOB`, and section 11 checks
 each registered target: its link through `cap_repo.ping` (a private DB link
 resolves only for its owner, and doctor may run as SYSDBA), the collect
 state, staleness, gaps, and the days copied per DBID against section 7's

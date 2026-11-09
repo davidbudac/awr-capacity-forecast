@@ -14,8 +14,9 @@
 -- own CAP_CONFIG / CAPV_ / CAPF_ views) and prints a PASS/WARN/FAIL checklist
 -- through DBMS_OUTPUT.
 --
--- In repository mode section 10 also checks CAP_COLLECT_JOB and
--- CAP_PURGE_JOB, and section 11 checks every registered target: its link,
+-- Section 10 checks CAP_NIGHTLY_JOB, its last run and the nightly steps that
+-- run failed, and in repository mode CAP_COLLECT_JOB. In repository mode
+-- section 11 checks every registered target: its link,
 -- its collect health (state, freshness, gaps) and the days copied against
 -- section 7's needs. The link is probed through cap_repo.ping, which only
 -- SELECTs over it: a private DB link resolves for the session user, so only
@@ -975,11 +976,28 @@ BEGIN
                 WHEN OTHERS THEN emit('WARN', 'stuck RUNNING runs', 'cannot read CAPR_RUNS: ' || err);
             END;
             -- the jobs and their last scheduler run
-            job_check('CAP_REFRESH_JOB', 'install_jobs.sql');
+            job_check('CAP_NIGHTLY_JOB', 'install_jobs.sql; until then nothing refreshes, retrains'
+                                         || ' or purges unless you run cap_nightly');
+            -- The steps the last nightly run failed (its OUTPUT, one line per step).
+            BEGIN
+                -- CONNECT BY always returns its first row, hence the outer filter.
+                FOR r IN (SELECT line
+                          FROM  (SELECT REGEXP_SUBSTR(output, '^[A-Z]+ +FAILED.*$', 1, LEVEL, 'm') AS line
+                                 FROM  (SELECT output FROM (SELECT output FROM all_scheduler_job_run_details
+                                                            WHERE  owner = v_schema
+                                                              AND  job_name = 'CAP_NIGHTLY_JOB'
+                                                            ORDER  BY log_date DESC)
+                                        WHERE ROWNUM = 1)
+                                 CONNECT BY LEVEL <= REGEXP_COUNT(output, '^[A-Z]+ +FAILED', 1, 'm'))
+                          WHERE  line IS NOT NULL) LOOP
+                    emit('WARN', 'nightly step', SUBSTR(r.line, 1, 160));
+                END LOOP;
+            EXCEPTION
+                WHEN OTHERS THEN emit('INFO', 'nightly steps', 'cannot read the job run OUTPUT: ' || err);
+            END;
             IF COALESCE(v_intended, v_deploy_mode) = 'repository' THEN
                 job_check('CAP_COLLECT_JOB', 'install_jobs.sql; until then nothing is copied'
                                              || ' unless you EXEC cap_repo.collect');
-                job_check('CAP_PURGE_JOB', 'install_jobs.sql; until then the copies keep every snapshot');
             END IF;
             -- alert states: open, acknowledged
             BEGIN

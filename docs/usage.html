@@ -354,7 +354,7 @@
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">poll it</span></div>
-<pre><span class="c-cmt">-- once a day: EXEC cap_results.refresh, or enable CAP_REFRESH_JOB (01:30)</span>
+<pre><span class="c-cmt">-- once a day: EXEC cap_results.refresh, or enable CAP_NIGHTLY_JOB (01:00)</span>
 
 <span class="c-cmt">-- what is open and not acknowledged</span>
 <span class="c-prompt">SQL&gt;</span> SELECT severity, db_pdb, series_key, value, message, first_seen, age_days, state_key
@@ -384,7 +384,7 @@
         <code>DATA_STALE</code> rows in <span class="inline">CAPR_ALERTS</span> (newest snapshot older
         than <span class="inline">stale_hours</span>). At level 3 also alarm on
         <code>SELECT 1 FROM capr_runs WHERE is_last = 'Y' AND stale_run = 'Y'</code>, which returns a
-        row when the refresh job has stopped.</p>
+        row when the nightly refresh has stopped.</p>
       </div>
 
       <p>For HTTP or Prometheus, the ORDS module in <span class="inline">grafana/</span> publishes the
@@ -491,7 +491,7 @@
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-prompt">SQL&gt;</span> EXEC cap_results.refresh                     <span class="c-cmt">-- or enable CAP_REFRESH_JOB (daily 01:30)</span>
+<pre><span class="c-prompt">SQL&gt;</span> EXEC cap_results.refresh                     <span class="c-cmt">-- or enable CAP_NIGHTLY_JOB (daily 01:00)</span>
 <span class="c-prompt">SQL&gt;</span> SELECT severity, kind, db_pdb, message, age_days, events_since
   2    FROM capr_alerts_latest ORDER BY sev_rank;   <span class="c-cmt">-- open, not acked, as of the last run</span>
 
@@ -1146,7 +1146,7 @@ COMMIT;</pre>
 <div class="dd-scroll">
 <svg class="dd" viewBox="0 24 760 292" role="img" aria-labelledby="dd-jobs-title dd-jobs-desc">
 <title id="dd-jobs-title">One night of scheduler jobs</title>
-<desc id="dd-jobs-desc">Default schedule: every install runs the refresh at 01:30, the Tier 2 retrain at 02:00 and the alert file at 03:00; a repository also purges old copies at 01:00 and collects every hour at five past.</desc>
+<desc id="dd-jobs-desc">Default schedule. Every install has one nightly job, CAP_NIGHTLY_JOB, which starts at 01:00 and runs its steps one after the other in one session: PURGE (old copies, repository mode only), RETRAIN (the Tier 2 models), REFRESH (the results layer) and SPOOL (the alert file). The box widths show the order of the steps, not how long each one runs. A repository also runs CAP_COLLECT_JOB every hour at five past, beside the nightly job.</desc>
 <rect class="paper" width="760" height="316"/>
 <!-- lanes -->
 <text class="nm" x="12" y="86">Every install</text>
@@ -1167,24 +1167,28 @@ COMMIT;</pre>
 <text class="al" x="448" y="266" text-anchor="middle">02:00</text>
 <text class="al" x="592" y="266" text-anchor="middle">03:00</text>
 <text class="al" x="736" y="266" text-anchor="middle">04:00</text>
-<!-- lane 1 events -->
-<line class="rule" x1="376" y1="68" x2="376" y2="80"/>
-<circle class="dot-acc" cx="376" cy="88" r="6"/>
-<text class="nm-acc" x="376" y="50" text-anchor="middle">Refresh</text>
-<text class="sub" x="376" y="63" text-anchor="middle">CAP_REFRESH_JOB</text>
-<line class="rule" x1="448" y1="94" x2="448" y2="106"/>
-<circle class="dot" cx="448" cy="88" r="4"/>
-<text class="nm" x="448" y="120" text-anchor="middle">Tier 2 retrain</text>
-<text class="sub" x="448" y="133" text-anchor="middle">CAP_ML_RETRAIN</text>
-<line class="rule" x1="592" y1="68" x2="592" y2="82"/>
-<circle class="dot" cx="592" cy="88" r="4"/>
-<text class="nm" x="592" y="50" text-anchor="middle">Alert file</text>
-<text class="sub" x="592" y="63" text-anchor="middle">CAP_REPORT_SPOOL_JOB</text>
-<!-- lane 2 events -->
-<line class="rule" x1="304" y1="164" x2="304" y2="178"/>
-<circle class="dot" cx="304" cy="184" r="4"/>
-<text class="nm" x="304" y="146" text-anchor="middle">Purge copies</text>
-<text class="sub" x="304" y="159" text-anchor="middle">CAP_PURGE_JOB</text>
+<!-- lane 1: the nightly job, one step after the other -->
+<text class="nm" x="304" y="52">Nightly job, daily at 01:00</text>
+<text class="sub" x="304" y="65">CAP_NIGHTLY_JOB calls cap_nightly</text>
+<rect class="paper" x="304" y="76" width="92" height="24" rx="4"/>
+<rect class="n-opt" x="304" y="76" width="92" height="24" rx="4"/>
+<text class="nm" x="350" y="92" text-anchor="middle">PURGE</text>
+<text class="sub" x="350" y="114" text-anchor="middle">old copies</text>
+<rect class="paper" x="402" y="76" width="92" height="24" rx="4"/>
+<rect class="n" x="402" y="76" width="92" height="24" rx="4"/>
+<text class="nm" x="448" y="92" text-anchor="middle">RETRAIN</text>
+<text class="sub" x="448" y="114" text-anchor="middle">Tier 2 models</text>
+<rect class="paper" x="500" y="76" width="92" height="24" rx="4"/>
+<rect class="n-focal" x="500" y="76" width="92" height="24" rx="4"/>
+<text class="nm-acc" x="546" y="92" text-anchor="middle">REFRESH</text>
+<text class="sub" x="546" y="114" text-anchor="middle">results layer</text>
+<rect class="paper" x="598" y="76" width="92" height="24" rx="4"/>
+<rect class="n" x="598" y="76" width="92" height="24" rx="4"/>
+<text class="nm" x="644" y="92" text-anchor="middle">SPOOL</text>
+<text class="sub" x="644" y="114" text-anchor="middle">cap_alerts.txt</text>
+<text class="co" x="304" y="140">Each step starts when the one before it ends.</text>
+<text class="co" x="304" y="156">Widths show the order, not how long a step runs.</text>
+<!-- lane 2: hourly collect -->
 <circle class="mk" cx="172" cy="184" r="3"/>
 <circle class="mk" cx="316" cy="184" r="3"/>
 <circle class="mk" cx="460" cy="184" r="3"/>
@@ -1195,12 +1199,12 @@ COMMIT;</pre>
 <!-- legend -->
 <line class="rule" x1="12" y1="284" x2="748" y2="284"/>
 <text class="lg" x="12" y="306">LEGEND</text>
-<circle class="dot-acc" cx="92" cy="303" r="5"/>
-<text class="lgt" x="104" y="307">writes the results layer</text>
-<circle class="dot" cx="268" cy="303" r="4"/>
-<text class="lgt" x="280" y="307">daily run</text>
-<circle class="mk" cx="364" cy="303" r="3"/>
-<text class="lgt" x="376" y="307">hourly run (default intervals; every job arrives disabled)</text>
+<rect class="n-focal" x="84" y="297" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="307">writes the results layer</text>
+<rect class="n-opt" x="252" y="297" width="16" height="12" rx="3"/>
+<text class="lgt" x="276" y="307">repository mode only</text>
+<circle class="mk" cx="404" cy="303" r="3"/>
+<text class="lgt" x="416" y="307">hourly run (default times, every job arrives disabled)</text>
 </svg>
 </div>
       </figure>
@@ -1209,27 +1213,30 @@ COMMIT;</pre>
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
 <pre><span class="c-cmt">-- every job arrives DISABLED; enable whichever you want</span>
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_REFRESH_JOB')      <span class="c-cmt">-- daily 01:30, results layer</span>
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_ML_RETRAIN')       <span class="c-cmt">-- daily 02:00</span>
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_REPORT_SPOOL_JOB')  <span class="c-cmt">-- daily 03:00</span>
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_COLLECT_JOB')       <span class="c-cmt">-- repository mode: hourly cap_repo.collect</span>
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_PURGE_JOB')         <span class="c-cmt">-- repository mode: daily 01:00 cap_repo.purge</span>
+<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_NIGHTLY_JOB')   <span class="c-cmt">-- daily 01:00: PURGE, RETRAIN, REFRESH, SPOOL</span>
+<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_COLLECT_JOB')   <span class="c-cmt">-- repository mode: hourly cap_repo.collect</span>
 
-<span class="c-cmt">-- run one once, right now</span>
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.RUN_JOB('CAP_REPORT_SPOOL_JOB')
+<span class="c-cmt">-- run the night once, right now, in this session</span>
+<span class="c-prompt">SQL&gt;</span> SET SERVEROUTPUT ON
+<span class="c-prompt">SQL&gt;</span> EXEC cap_nightly('RETRAIN REFRESH SPOOL', 'CAP_REPORTS')
 
 <span class="c-cmt">-- or write the snapshot by hand, no job needed</span>
 <span class="c-prompt">SQL&gt;</span> EXEC cap_report_spool('CAP_REPORTS')
 
-<span class="c-cmt">-- check what happened</span>
-<span class="c-prompt">SQL&gt;</span> SELECT job_name, status, error#, actual_start_date
+<span class="c-cmt">-- check what happened (OUTPUT: each step's outcome and seconds)</span>
+<span class="c-prompt">SQL&gt;</span> SELECT job_name, status, error#, actual_start_date, output
   2    FROM user_scheduler_job_run_details ORDER BY log_date DESC;</pre>
       </div>
 
-      <p><span class="inline">CAP_REFRESH_JOB</span> runs <span class="inline">cap_results.refresh</span>
-        (<a href="#results">Alert state</a>). <span class="inline">CAP_ML_RETRAIN</span> retrains the
-        Tier 2 models daily, because a model older than <span class="inline">esm_max_age_days</span>
-        drops out of the comparison. <span class="inline">CAP_REPORT_SPOOL_JOB</span> writes
+      <p><span class="inline">CAP_NIGHTLY_JOB</span> calls <span class="inline">cap_nightly</span>,
+        which runs the night's steps one after the other in one session, always in this order.
+        <code>PURGE</code> (repository mode) calls <span class="inline">cap_repo.purge</span>, which
+        deletes the copies older than <span class="inline">repo_retention_days</span>.
+        <code>RETRAIN</code> retrains the Tier 2 models every night, because a model older than
+        <span class="inline">esm_max_age_days</span> drops out of the comparison.
+        <code>REFRESH</code> runs <span class="inline">cap_results.refresh</span>
+        (<a href="#results">Alert state</a>) after the retrain, so the run records tonight's models.
+        <code>SPOOL</code> writes
         <span class="inline">&lt;report_dir&gt;/cap_alerts.txt</span>: a header with the timestamp,
         database and CRIT/WARN/INFO counts, then one pipe-delimited line per
         <span class="inline">CAPR_ALERTS</span> row,
@@ -1237,29 +1244,39 @@ COMMIT;</pre>
         <code>OK|NONE|…|No capacity alerts.</code> line. The file name is stable and overwritten on
         every run.</p>
 
+      <p><span class="inline">DEFINE nightly_steps</span> before
+        <span class="inline">@install_jobs.sql</span> picks the steps, blank-separated; the order
+        stays fixed. By default the job runs all four, <code>PURGE</code> only in repository mode and
+        <code>SPOOL</code> only when the directory object exists at install time. A failed step is
+        rolled back and the later steps still run. The run then ends <code>FAILED</code> with
+        <code>ORA-20080</code>, which names every failed step. One job cannot overlap itself, so on a
+        large fleet the refresh never runs while the retrain does.
+        <span class="inline">CAP_COLLECT_JOB</span> runs beside the nightly job.</p>
+
       <div class="callout">
         <span class="ico">i</span>
-        <p><strong>The job writes alerts, not the report.</strong> SQL*Plus spooling cannot run inside
-        a scheduler job, so the formatted report comes from cron:
+        <p><strong>The SPOOL step writes alerts, not the report.</strong> SQL*Plus spooling cannot run
+        inside a scheduler job, so the formatted report comes from cron:
         <span class="inline">report/run_report.sh</span> (<a href="#run">CSV and cron</a>).
-        <span class="inline">@uninstall_jobs.sql</span> removes the jobs and the procedure and leaves
-        the rest of the suite.</p>
+        <span class="inline">@uninstall_jobs.sql</span> removes the jobs and both procedures and
+        leaves the rest of the suite.</p>
       </div>
 
       <h3>Tracking each job</h3>
-      <p>The scheduler records whether a job ran. Each job also leaves its own record of what it did:</p>
+      <p>The scheduler records whether a job ran and, for the nightly job, how each step ended. Each
+        step and the collect job also leave their own record of what they did:</p>
 
       <div class="tablewrap">
         <table>
-          <caption>Where each job's record lives</caption>
-          <thead><tr><th scope="col">Job</th><th scope="col">Look in</th><th scope="col">Grain and what it holds</th></tr></thead>
+          <caption>Where each job and step leaves its record</caption>
+          <thead><tr><th scope="col">Job or step</th><th scope="col">Look in</th><th scope="col">Grain and what it holds</th></tr></thead>
           <tbody>
-            <tr><td>Any of them</td><td><span class="inline">USER_SCHEDULER_JOB_RUN_DETAILS</span></td><td class="def">One row per job run: status, <code>error#</code>, start, duration, <code>additional_info</code> (the error text). As SYSDBA with <code>CURRENT_SCHEMA</code>, read <span class="inline">ALL_SCHEDULER_JOB_RUN_DETAILS</span> on <code>owner</code>.</td></tr>
-            <tr><td><span class="inline">CAP_REFRESH_JOB</span></td><td><span class="inline">CAPR_RUNS</span></td><td class="def">One row per <span class="inline">cap_results.refresh</span>: start, end, <code>duration_sec</code>, status, fit / alert / anomaly / event counts, <code>error_text</code>, <code>stale_run</code>.</td></tr>
-            <tr><td><span class="inline">CAP_COLLECT_JOB</span>, <span class="inline">CAP_PURGE_JOB</span></td><td><span class="inline">CAP_COLLECT_LOG</span></td><td class="def">One row per target and DBID per collect (<code>OK</code> / <code>NOTHING</code> / <code>SKIPPED</code>), and per <code>GAP</code>, <code>BEHIND</code>, <code>COLLISION</code>, <code>ERROR</code>, <code>REMOVED</code> or <code>PURGED</code>: the snap_id window, rows copied, seconds, and the message (an error carries its backtrace).</td></tr>
+            <tr><td>Any of them</td><td><span class="inline">USER_SCHEDULER_JOB_RUN_DETAILS</span></td><td class="def">One row per job run: status, <code>error#</code>, start, duration, <code>additional_info</code> (the error text). For <span class="inline">CAP_NIGHTLY_JOB</span>, <code>output</code> holds one line per step with its outcome and seconds. As SYSDBA with <code>CURRENT_SCHEMA</code>, read <span class="inline">ALL_SCHEDULER_JOB_RUN_DETAILS</span> on <code>owner</code>.</td></tr>
+            <tr><td><code>REFRESH</code> step</td><td><span class="inline">CAPR_RUNS</span></td><td class="def">One row per <span class="inline">cap_results.refresh</span>: start, end, <code>duration_sec</code>, status, fit / alert / anomaly / event counts, <code>error_text</code>, <code>stale_run</code>.</td></tr>
+            <tr><td><span class="inline">CAP_COLLECT_JOB</span>, <code>PURGE</code> step</td><td><span class="inline">CAP_COLLECT_LOG</span></td><td class="def">One row per target and DBID per collect (<code>OK</code> / <code>NOTHING</code> / <code>SKIPPED</code>), and per <code>GAP</code>, <code>BEHIND</code>, <code>COLLISION</code>, <code>ERROR</code>, <code>REMOVED</code> or <code>PURGED</code>: the snap_id window, rows copied, seconds, and the message (an error carries its backtrace).</td></tr>
             <tr><td></td><td><span class="inline">CAPR_TARGETS</span></td><td class="def">The same log summed up per target: last OK, last error, gaps, <code>collect_state</code> (<code>OK</code> / <code>FAILING</code> / <code>NEVER</code> / <code>DISABLED</code>), data freshness.</td></tr>
-            <tr><td><span class="inline">CAP_ML_RETRAIN</span></td><td><span class="inline">CAPF_ESM_HEALTH</span></td><td class="def">One row per model: status, <code>trained_at</code>, age, <code>stale_flag</code>, <code>last_error</code>, <code>failed_at</code>.</td></tr>
-            <tr><td><span class="inline">CAP_REPORT_SPOOL_JOB</span></td><td>the scheduler only</td><td class="def">The timestamp in the header of <span class="inline">cap_alerts.txt</span> shows the last write.</td></tr>
+            <tr><td><code>RETRAIN</code> step</td><td><span class="inline">CAPF_ESM_HEALTH</span></td><td class="def">One row per model: status, <code>trained_at</code>, age, <code>stale_flag</code>, <code>last_error</code>, <code>failed_at</code>.</td></tr>
+            <tr><td><code>SPOOL</code> step</td><td>the scheduler only</td><td class="def">Its line in the run's <code>output</code>. The timestamp in the header of <span class="inline">cap_alerts.txt</span> shows the last write.</td></tr>
           </tbody>
         </table>
       </div>
@@ -1268,7 +1285,7 @@ COMMIT;</pre>
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
 <pre><span class="c-cmt">-- every run of every suite job</span>
-<span class="c-prompt">SQL&gt;</span> SELECT job_name, status, error#, actual_start_date, run_duration, additional_info
+<span class="c-prompt">SQL&gt;</span> SELECT job_name, status, error#, actual_start_date, run_duration, additional_info, output
   2    FROM user_scheduler_job_run_details WHERE job_name LIKE 'CAP%' ORDER BY log_date DESC;
 
 <span class="c-cmt">-- the calculation: each refresh</span>
@@ -1296,9 +1313,9 @@ COMMIT;</pre>
       <div class="callout">
         <span class="ico">i</span>
         <p><strong>What is not recorded.</strong> A collect logs one row count and one duration per
-        target and DBID, not per copied view. <span class="inline">CAP_ML_RETRAIN</span> keeps
-        per-model state but no record of the batch as a whole.
-        <span class="inline">CAP_REPORT_SPOOL_JOB</span> has no log of its own. No shared id links a
+        target and DBID, not per copied view. <code>RETRAIN</code> keeps per-model state, and the
+        batch as a whole has only its line in the run's <code>output</code>. <code>SPOOL</code> has
+        no log of its own beyond that line. No shared id links a
         scheduler run to its <span class="inline">CAPR_RUNS</span> or
         <span class="inline">CAP_COLLECT_LOG</span> rows, so match them by time.</p>
       </div>

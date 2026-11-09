@@ -20,6 +20,8 @@
 -- columns are scalar subqueries, not joins, because the optimizer drops an
 -- unselected one: CAPR_CONTAINER, which every report view joins and which
 -- reads only target_name, never touches the log (verified 19.27).
+-- Scoped (the CAP_SCOPE expression) like every seam view, NULL-safe: a
+-- target with no DBID yet is in no database's scope.
 CREATE OR REPLACE VIEW capv_target AS
 SELECT CAST(t.target_name AS VARCHAR2(30))      AS target_name,
        d.dbid                                   AS dbid,
@@ -49,5 +51,8 @@ LEFT   JOIN cap_target_dbid d
 LEFT   JOIN (SELECT dbid,
                     MAX(host_name) KEEP (DENSE_RANK LAST ORDER BY startup_time NULLS FIRST) AS host_name
              FROM   cap_h_database_instance
+             WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
              GROUP  BY dbid) h
-  ON   h.dbid = d.dbid;
+  ON   h.dbid = d.dbid
+WHERE  TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)) IS NULL
+   OR  d.dbid = TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1));

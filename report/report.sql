@@ -299,6 +299,9 @@ PROMPT =========================================================================
 
 SPOOL OFF
 
+-- The run's scope (report/scope.sql) ends with it.
+EXEC DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL)
+
 -- M7.6: positional arguments stay DEFINEd for the rest of the SQL*Plus
 -- session, so drop them -- otherwise a following `@report/report_html.sql`
 -- with no arguments would silently inherit this run's.

@@ -55,11 +55,10 @@ KEYS=(
 "DOCTOR|Y|yn|Run the doctor.sql preflight before installing"
 "FORCE_INSTALL|N|yn|Install even when doctor reports FAIL lines"
 "TRAIN_ML|N|yn|Train the Tier 2 OML ESM models now (needs CREATE MINING MODEL)"
-"JOBS|N|yn|Create the DBMS_SCHEDULER jobs (refresh 01:30, ML retrain 02:00, alert spool 03:00)"
-"JOBS_ENABLE|N|yn|Enable the jobs right away (they are created disabled)"
+"JOBS|N|yn|Create the DBMS_SCHEDULER jobs (CAP_NIGHTLY_JOB: purge, retrain, refresh, alert spool in order; repository: hourly collect)"
+"JOBS_ENABLE|N|yn|Enable CAP_NIGHTLY_JOB right away (jobs are created disabled; CAP_COLLECT_JOB stays off until targets are added)"
 "REPORT_DIR|CAP_REPORTS|name|Directory object the alert-spool job writes to"
-"REFRESH_INTERVAL|FREQ=DAILY;BYHOUR=1;BYMINUTE=30;BYSECOND=0|text|CAP_REFRESH_JOB calendar string"
-"RETRAIN_INTERVAL|FREQ=DAILY;BYHOUR=2;BYMINUTE=0;BYSECOND=0|text|CAP_ML_RETRAIN calendar string"
+"NIGHTLY_INTERVAL|FREQ=DAILY;BYHOUR=1;BYMINUTE=0;BYSECOND=0|text|CAP_NIGHTLY_JOB calendar string"
 "ORDS|N|yn|Publish the ORDS REST module awrcap (Grafana / Prometheus feed; needs ORDS in this database)"
 "ORDS_ALIAS||text|ORDS URL alias (empty = lower-case schema name)"
 "APEX|N|yn|Import the APEX application (needs APEX and an existing workspace)"
@@ -233,7 +232,7 @@ EOF
   section "Automation"
   ask JOBS
   if [[ ${CFG[JOBS]} == Y ]]; then
-    ask JOBS_ENABLE; ask REPORT_DIR; ask REFRESH_INTERVAL; ask RETRAIN_INTERVAL
+    ask JOBS_ENABLE; ask REPORT_DIR; ask NIGHTLY_INTERVAL
   fi
 
   section "Integrations inside the database (ELK and Grafana run elsewhere: see elk/ and grafana/)"
@@ -254,7 +253,7 @@ normalise() {
   if [[ ${CFG[ROLE]} == target ]]; then
     local k
     for k in INTO OWNER OWNER_CREATE OWNER_TS OWNER_QUOTA FIXTURE_DATA DOCTOR FORCE_INSTALL TRAIN_ML \
-             JOBS JOBS_ENABLE REPORT_DIR REFRESH_INTERVAL RETRAIN_INTERVAL ORDS ORDS_ALIAS APEX \
+             JOBS JOBS_ENABLE REPORT_DIR NIGHTLY_INTERVAL ORDS ORDS_ALIAS APEX \
              APEX_WORKSPACE APEX_APP_ID REPORTS RUN_TESTS; do
       CFG[$k]=${DEFAULT[$k]}
     done
@@ -305,7 +304,7 @@ steps() {
   [[ ${CFG[DOCTOR]} == Y ]] && p "doctor.sql ($([[ ${CFG[FORCE_INSTALL]} == Y ]] && echo 'a FAIL is reported, install goes on' || echo 'a FAIL stops before install'))"
   p "install.sql (deploy_mode = $(deploy_mode))"
   [[ ${CFG[TRAIN_ML]} == Y ]] && p "cap_forecast_ml.train_all"
-  [[ ${CFG[JOBS]} == Y ]] && p "install_jobs.sql$([[ ${CFG[JOBS_ENABLE]} == Y ]] && echo ', then enable all three')"
+  [[ ${CFG[JOBS]} == Y ]] && p "install_jobs.sql$([[ ${CFG[JOBS_ENABLE]} == Y ]] && echo ', then enable CAP_NIGHTLY_JOB')"
   [[ ${CFG[ORDS]} == Y ]] && p "grafana/ords/awrcap_module.sql"
   [[ ${CFG[APEX]} == Y ]] && p "apex/install.sql (workspace ${CFG[APEX_WORKSPACE]}, app ${CFG[APEX_APP_ID]})"
   [[ ${CFG[RUN_TESTS]} == Y ]] && p "test/run_test.sql$([[ ${CFG[TRAIN_ML]} == Y ]] && echo ' + test/run_test_ml.sql')"
@@ -469,8 +468,7 @@ EOF
 
 PROMPT ==== install.sh: install_jobs.sql ====
 DEFINE report_dir       = '${CFG[REPORT_DIR]}'
-DEFINE refresh_interval = '${CFG[REFRESH_INTERVAL]}'
-DEFINE retrain_interval = '${CFG[RETRAIN_INTERVAL]}'
+DEFINE nightly_interval = '${CFG[NIGHTLY_INTERVAL]}'
 @@install_jobs.sql
 $STRICT
 EOF
@@ -478,7 +476,7 @@ EOF
 BEGIN
     FOR j IN (SELECT job_name FROM all_scheduler_jobs
               WHERE  owner = '&cap_target'
-              AND    job_name IN ('CAP_REFRESH_JOB', 'CAP_ML_RETRAIN', 'CAP_REPORT_SPOOL_JOB')) LOOP
+              AND    job_name = 'CAP_NIGHTLY_JOB') LOOP
         DBMS_SCHEDULER.ENABLE('"&cap_target"."' || j.job_name || '"');
         DBMS_OUTPUT.PUT_LINE('  enabled ' || j.job_name);
     END LOOP;

@@ -157,7 +157,7 @@ the preflight gate, the install, the Tier 2 models and the scheduler jobs
 
 2. **The repository**, any 19c database or PDB that can reach each target's
    listener: an owner with CREATE DATABASE LINK instead of AWR grants, the
-   suite in `deploy_mode=repository`, and five scheduler jobs, disabled.
+   suite in `deploy_mode=repository`, and two scheduler jobs, disabled.
 
    ```bash
    ./install.sh --profile repository   # --set CONTAINER=<PDB> for an owner in a PDB
@@ -173,9 +173,10 @@ the preflight gate, the install, the Tier 2 models and the scheduler jobs
    SQL> EXEC cap_repo.collect('CDB1')
    ```
 
-4. **Turn on the jobs**: `CAP_COLLECT_JOB` (hourly copy), `CAP_PURGE_JOB`
-   (daily retention purge) and the usual refresh / retrain jobs
-   (`EXEC DBMS_SCHEDULER.ENABLE('C##AWRCAP.CAP_COLLECT_JOB')`, ...).
+4. **Turn on the jobs**: `CAP_COLLECT_JOB` (hourly copy) and `CAP_NIGHTLY_JOB`
+   (retention purge, retrain, refresh and alert file, one after the other).
+   Run `EXEC DBMS_SCHEDULER.ENABLE('C##AWRCAP.CAP_COLLECT_JOB')`, then the
+   same for `CAP_NIGHTLY_JOB`.
 
 5. **Report** on every target, or one:
    `report/run_report.sh "/ as sysdba" --schema C##AWRCAP --html [--target CDB1]`.
@@ -360,7 +361,7 @@ not read SUCCEEDED. `CAPF_ESM_HEALTH` / `CAPF_ESM_HEALTH_SUMMARY` show ok,
 failed and stale models; both report headers print the counts and
 `CAPR_ALERTS` raises `MODEL_HEALTH`. For a daily `DBMS_SCHEDULER` retrain,
 run the opt-in `@install_jobs.sql` (see *Preflight & scheduler jobs* below);
-it creates `CAP_ML_RETRAIN` disabled.
+its `CAP_NIGHTLY_JOB`, created disabled, retrains before each refresh.
 
 The ESM point compared with Tier 1 is the model's furthest step, at most +30
 days on 19c, and it counts only while the model is at most
@@ -523,7 +524,7 @@ you and what the report says can never disagree.
 ### Results layer: alert state, acknowledgement, digest
 
 `CAPR_ALERTS` is evaluated live, so it has no memory. `cap_results.refresh`
-(run it from the opt-in `CAP_REFRESH_JOB`, or by hand) records a run in
+(run it from the opt-in `CAP_NIGHTLY_JOB`, or by hand) records a run in
 `CAP_RUN`, copies `CAPR_FIT` into `CAP_FIT_HIST` and merges `CAPR_ALERTS` by
 `state_key` into `CAP_ALERT_STATE`, writing a `CAP_ALERT_EVENT` for each
 change: `NEW`, `ESCALATED`, `DEESCALATED`, `RESOLVED` (after
@@ -626,9 +627,10 @@ create privileges, AWR retention, snapshot interval and newest snapshot age
 per dbid, and a readiness table (days of history each feature needs vs days
 available). If the suite is installed it adds invalid `CAP*` objects, the
 deploy mode, `suite_version`, the fit-quality mix, `CAP_CFG_CHECK`, the results
-layer (last run, failed or running runs, the refresh job, open vs acked
-states, retired dbids) and the live seam-contract check over
-`CAPV_CONTRACT`; in repository mode also the collect and purge jobs and, per
+layer (last run, failed or running runs, the nightly job and the steps its
+last run failed, open vs acked states, retired dbids) and the live
+seam-contract check over `CAPV_CONTRACT`; in repository mode also the collect
+job and, per
 registered target, its link, collect health and days copied. It creates
 nothing and every probe is exception-wrapped.
 Doctor takes the deploy mode from the install, assumes local before one, or
@@ -642,11 +644,27 @@ current schema (`CURRENT_SCHEMA`).
 
 | job | default schedule | runs |
 |-----|------------------|------|
-| `CAP_REFRESH_JOB` | daily 01:30 (`DEFINE refresh_interval`) | `cap_results.refresh`: run history, alert state, events |
-| `CAP_ML_RETRAIN` | daily 02:00 (`DEFINE retrain_interval`) | `cap_forecast_ml.train_all` |
-| `CAP_REPORT_SPOOL_JOB` | daily 03:00 | `cap_report_spool(p_dir)` |
+| `CAP_NIGHTLY_JOB` | daily 01:00 (`DEFINE nightly_interval`) | `cap_nightly(steps, dir)`: the night's steps one after the other, in one session |
 | `CAP_COLLECT_JOB` | hourly at :05 (`DEFINE collect_interval`) | repository mode only: `cap_repo.collect` |
-| `CAP_PURGE_JOB` | daily 01:00 | repository mode only: `cap_repo.purge`, copies older than `repo_retention_days` |
+
+`cap_nightly` runs its steps in this fixed order:
+
+| step | calls | default |
+|------|-------|---------|
+| `PURGE` | `cap_repo.purge`: copies older than `repo_retention_days` | repository mode only |
+| `RETRAIN` | `cap_forecast_ml.train_all` | every install |
+| `REFRESH` | `cap_results.refresh`: run history, alert state, events; after `RETRAIN`, so it records tonight's models | every install |
+| `SPOOL` | `cap_report_spool(dir)` | when the directory object exists at install time |
+
+`DEFINE nightly_steps = 'REFRESH SPOOL'` picks the steps (blank-separated;
+the order stays fixed). A failed step is rolled back and the later steps still
+run. The run then ends `FAILED` with ORA-20080, which names every failed step,
+and the run's `OUTPUT` column in `USER_SCHEDULER_JOB_RUN_DETAILS` holds each
+step's outcome and seconds. An unknown step name raises ORA-20081. One job
+cannot overlap itself, so on a large fleet the refresh never runs beside the
+retrain. `CAP_COLLECT_JOB` runs beside the nightly job. Re-running
+`install_jobs.sql` on an older install drops the four fixed-time jobs the
+nightly job replaced.
 
 `cap_report_spool` writes `<dir>/cap_alerts.txt` through `UTL_FILE`: a
 pollable snapshot (header with timestamp, data-through, the last refresh run
@@ -662,12 +680,10 @@ DIRECTORY` / `GRANT READ, WRITE` DDL if it is missing. Override its name with
 ```sql
 @doctor.sql                                    -- before anything else
 @install_jobs.sql                              -- opt-in, jobs land disabled
-EXEC DBMS_SCHEDULER.ENABLE('CAP_REFRESH_JOB')
-EXEC DBMS_SCHEDULER.ENABLE('CAP_ML_RETRAIN')
-EXEC DBMS_SCHEDULER.ENABLE('CAP_REPORT_SPOOL_JOB')
+EXEC DBMS_SCHEDULER.ENABLE('CAP_NIGHTLY_JOB')
 EXEC DBMS_SCHEDULER.ENABLE('CAP_COLLECT_JOB')  -- repository mode only
-EXEC DBMS_SCHEDULER.ENABLE('CAP_PURGE_JOB')    -- repository mode only
-@uninstall_jobs.sql                            -- drops the jobs + the procedure
+EXEC cap_nightly('RETRAIN REFRESH SPOOL', 'CAP_REPORTS')  -- the night, by hand
+@uninstall_jobs.sql                            -- drops the jobs + both procedures
 ```
 
 ## Testing

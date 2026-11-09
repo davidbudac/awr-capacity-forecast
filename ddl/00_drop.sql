@@ -92,7 +92,8 @@ DECLARE
         'CAPV_SNAPSHOT',
         'CAP_REPO_SOURCE',
         'CAP_CFG_CHECK',
-        'CAP_CFG'
+        'CAP_CFG',
+        'CAP_SCOPE'
     );
 BEGIN
     FOR i IN 1 .. v_views.COUNT LOOP

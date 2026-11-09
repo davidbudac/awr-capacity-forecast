@@ -2,52 +2,64 @@
 -- install_jobs.sql -- OPT-IN DBMS_SCHEDULER automation for the suite.
 -- =====================================================================
 -- NOT part of install.sql. Run it separately, in the schema that owns the
--- suite, only if you want the background jobs below (the last two only in
+-- suite, only if you want the background jobs below (CAP_COLLECT_JOB only in
 -- repository mode, where package CAP_REPO exists):
 --
---   CAP_REFRESH_JOB   daily (01:30) cap_results.refresh -- snapshot CAPR_FIT
---                     and CAPR_ALERTS into the results tables (CAP_RUN,
---                     CAP_FIT_HIST, CAP_ALERT_STATE, CAP_ALERT_EVENT), so
---                     pollers get NEW / RESOLVED events and the reports and
---                     CAPR_ALERTS_LATEST read the last run instead of the
---                     view chain. The schedule is the refresh_interval
---                     DEFINE. A failed refresh ends FAILED and leaves a
---                     FAILED row in CAP_RUN with the error stack.
---   CAP_ML_RETRAIN    daily (02:00) cap_forecast_ml.train_all -- refresh
---                     the Tier 2 OML ESM models against the latest AWR days.
---                     Needs CREATE MINING MODEL. The schedule is the
---                     retrain_interval DEFINE (a DBMS_SCHEDULER calendar
---                     string). Daily, not weekly, because of the freshness
---                     gate: CAPF_COMPARE drops a model older than
---                     esm_max_age_days (7), and until then compares an ESM
---                     value dated up to a week before the REGR one. A run
---                     ends FAILED (ORA-20060) when any forecast model failed
---                     to build; the reason is in CAPF_ESM_HEALTH.last_error.
---   CAP_REPORT_SPOOL_JOB
---                     daily (03:00) cap_report_spool(<dir>) -- writes an
---                     alert-snapshot text file into a directory object. With
---                     a refresh run on record it lists the OPEN, not acked
---                     alerts of CAPR_ALERTS_LATEST plus the last run's
---                     events; with none it evaluates CAPR_ALERTS live.
+--   CAP_NIGHTLY_JOB   daily (01:00) cap_nightly -- the night's work, one step
+--                     after the other in one session (M24.12), so no step
+--                     starts while another runs, whatever the fleet size:
+--                       PURGE    cap_repo.purge (repository mode): delete the
+--                                copies older than repo_retention_days
+--                       RETRAIN  cap_forecast_ml.train_all: the Tier 2 OML
+--                                ESM models against the latest AWR days.
+--                                Needs CREATE MINING MODEL. Nightly because
+--                                CAPF_COMPARE drops a model older than
+--                                esm_max_age_days (7)
+--                       REFRESH  cap_results.refresh: snapshot CAPR_FIT and
+--                                CAPR_ALERTS into the results tables, so
+--                                pollers get NEW / RESOLVED events and the
+--                                SNAPSHOT reports and CAPR_ALERTS_LATEST read
+--                                tonight's run, with tonight's models
+--                       SPOOL    cap_report_spool(<dir>): the alert snapshot
+--                                file (below)
+--                     The schedule is the nightly_interval DEFINE; the
+--                     steps, in that order, the nightly_steps DEFINE (default
+--                     all four, PURGE only in repository mode, SPOOL only
+--                     when the directory object exists). A failed step does
+--                     not stop the later ones: the run ends FAILED
+--                     (ORA-20080) naming each failed step, every step's
+--                     outcome and seconds are in the run's OUTPUT
+--                     (ALL_SCHEDULER_JOB_RUN_DETAILS), and the step's own
+--                     record says why (CAP_RUN, CAPF_ESM_HEALTH.last_error,
+--                     CAP_COLLECT_LOG).
 --   CAP_COLLECT_JOB   hourly (:05) cap_repo.collect -- copy every enabled
 --                     target's new snapshots into CAP_H_*. The schedule is
 --                     the collect_interval DEFINE. A run ends FAILED
 --                     (ORA-20070) when any target failed; the reason is in
---                     CAP_COLLECT_LOG and CAPR_TARGETS.
---   CAP_PURGE_JOB     daily (01:00) cap_repo.purge -- delete the copies older
---                     than repo_retention_days, before the 01:30 refresh.
+--                     CAP_COLLECT_LOG and CAPR_TARGETS. It runs beside the
+--                     nightly job: it only inserts above the high-water
+--                     mark, which no nightly step reads past.
+--
+-- The night is one job, not one per step at fixed times: on a fleet the
+-- refresh alone grows by about 70 s per target (2 vCPUs), so past about 25
+-- targets a 01:30 refresh still ran when the 02:00 retrain started and both
+-- needed a session's PGA at once (docs/reference.html#fleet-size). Scheduler
+-- job incompatibilities keep jobs apart but not in order (verified 19.27);
+-- a chain needs Rules Engine privileges. Re-running this script on an older
+-- install drops the jobs this one replaced (CAP_REFRESH_JOB, CAP_ML_RETRAIN,
+-- CAP_REPORT_SPOOL_JOB, CAP_PURGE_JOB).
 --
 -- Session labels. The procedure a job calls sets MODULE 'AWRCAP/<procedure>'
 -- and ACTION its step. Each job_action first sets CLIENT_IDENTIFIER to the
 -- job name (the scheduler resets it between runs, verified 19c). So
 -- V$SESSION and ASH (CLIENT_ID) show which job is running what, and
--- DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_REFRESH_JOB') traces that job.
+-- DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_NIGHTLY_JOB') traces that job.
 --
 -- Why the "_JOB" suffix: DBMS_SCHEDULER jobs live in the SAME schema
--- namespace as procedures, so a job called CAP_REPORT_SPOOL beside a
--- procedure of that name fails with ORA-27477 "already exists" (verified on
--- 19c). The procedure keeps the plain name -- it is the thing you call by
--- hand -- and the job takes the suffix.
+-- namespace as procedures, so a job called CAP_NIGHTLY beside a procedure of
+-- that name fails with ORA-27477 "already exists" (verified on 19c with
+-- CAP_REPORT_SPOOL). The procedure keeps the plain name -- it is the thing
+-- you call by hand -- and the job takes the suffix.
 --
 -- ALL JOBS ARE CREATED DISABLED. Nothing runs until you enable them (the
 -- closing PROMPT block shows how). Re-running this script is idempotent: it
@@ -63,10 +75,10 @@
 -- Usage:
 --   sqlplus / as sysdba
 --   SQL> DEFINE report_dir = 'MY_DIR'    -- optional; default CAP_REPORTS
---   SQL> DEFINE retrain_interval = 'FREQ=WEEKLY;BYDAY=SUN;BYHOUR=2'
---                                        -- optional; default daily 02:00
---   SQL> DEFINE refresh_interval = 'FREQ=HOURLY;BYMINUTE=15'
---                                        -- optional; default daily 01:30
+--   SQL> DEFINE nightly_interval = 'FREQ=DAILY;BYHOUR=22'
+--                                        -- optional; default daily 01:00
+--   SQL> DEFINE nightly_steps = 'REFRESH SPOOL'
+--                                        -- optional; default above
 --   SQL> DEFINE collect_interval = 'FREQ=MINUTELY;INTERVAL=30'
 --                                        -- optional; default hourly at :05
 --   SQL> @install_jobs.sql
@@ -78,7 +90,7 @@
 -- Read-only against AWR, as ever: the jobs only read the CAP views and write
 -- to CAP_ML_MODEL, the results tables and the OS file. In repository mode
 -- the collect job SELECTs over each target's link and writes the CAP_H_*
--- copies, CAP_TARGET_DBID and CAP_COLLECT_LOG; the purge job deletes old
+-- copies, CAP_TARGET_DBID and CAP_COLLECT_LOG; the PURGE step deletes old
 -- copies and log rows.
 --
 -- Remove everything with @uninstall_jobs.sql.
@@ -102,12 +114,9 @@ SET TERMOUT OFF
 COLUMN report_dir NEW_VALUE report_dir NOPRINT
 SELECT CAST(NULL AS VARCHAR2(30)) AS report_dir FROM dual WHERE 1 = 0;
 SELECT UPPER(NVL('&report_dir', 'CAP_REPORTS')) AS report_dir FROM dual;
-COLUMN retrain_interval NEW_VALUE retrain_interval NOPRINT
-SELECT CAST(NULL AS VARCHAR2(200)) AS retrain_interval FROM dual WHERE 1 = 0;
-SELECT NVL('&retrain_interval', 'FREQ=DAILY;BYHOUR=2;BYMINUTE=0;BYSECOND=0') AS retrain_interval FROM dual;
-COLUMN refresh_interval NEW_VALUE refresh_interval NOPRINT
-SELECT CAST(NULL AS VARCHAR2(200)) AS refresh_interval FROM dual WHERE 1 = 0;
-SELECT NVL('&refresh_interval', 'FREQ=DAILY;BYHOUR=1;BYMINUTE=30;BYSECOND=0') AS refresh_interval FROM dual;
+COLUMN nightly_interval NEW_VALUE nightly_interval NOPRINT
+SELECT CAST(NULL AS VARCHAR2(200)) AS nightly_interval FROM dual WHERE 1 = 0;
+SELECT NVL('&nightly_interval', 'FREQ=DAILY;BYHOUR=1;BYMINUTE=0;BYSECOND=0') AS nightly_interval FROM dual;
 COLUMN collect_interval NEW_VALUE collect_interval NOPRINT
 SELECT CAST(NULL AS VARCHAR2(200)) AS collect_interval FROM dual WHERE 1 = 0;
 SELECT NVL('&collect_interval', 'FREQ=HOURLY;BYMINUTE=5;BYSECOND=0') AS collect_interval FROM dual;
@@ -119,6 +128,16 @@ FROM   all_objects
 WHERE  owner       = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
   AND  object_name = 'CAP_REPO'
   AND  object_type = 'PACKAGE';
+-- Default steps: PURGE where there are copies, SPOOL where its directory
+-- object is.
+COLUMN nightly_steps NEW_VALUE nightly_steps NOPRINT
+SELECT CAST(NULL AS VARCHAR2(200)) AS nightly_steps FROM dual WHERE 1 = 0;
+SELECT UPPER(NVL(TRIM('&nightly_steps'),
+           TRIM(CASE WHEN '&repo_mode' = 'Y' THEN 'PURGE ' END || 'RETRAIN REFRESH'
+                || CASE WHEN EXISTS (SELECT 1 FROM all_directories
+                                     WHERE  directory_name = '&report_dir')
+                        THEN ' SPOOL' END))) AS nightly_steps
+FROM   dual;
 SET TERMOUT ON
 
 PROMPT
@@ -126,8 +145,8 @@ PROMPT ============================================================
 PROMPT  AWR Capacity Forecast -- scheduler jobs (opt-in)
 PROMPT ============================================================
 PROMPT  report_dir = &report_dir  (directory object for the alert snapshot)
-PROMPT  retrain    = &retrain_interval  (CAP_ML_RETRAIN schedule)
-PROMPT  refresh    = &refresh_interval  (CAP_REFRESH_JOB schedule)
+PROMPT  nightly    = &nightly_interval  (CAP_NIGHTLY_JOB schedule)
+PROMPT  steps      = &nightly_steps  (in this order)
 PROMPT  collect    = &collect_interval  (CAP_COLLECT_JOB schedule, repository mode)
 PROMPT
 
@@ -151,8 +170,8 @@ BEGIN
 
     IF v_n = 0 THEN
         DBMS_OUTPUT.PUT_LINE('  [WARN] directory object &report_dir does not exist.');
-        DBMS_OUTPUT.PUT_LINE('         CAP_REPORT_SPOOL will fail with ORA-29280 until'
-                             || ' you create it:');
+        DBMS_OUTPUT.PUT_LINE('         CAP_REPORT_SPOOL fails with ORA-29280, and the nightly'
+                             || ' job leaves out its SPOOL step, until you create it:');
         DBMS_OUTPUT.PUT_LINE('           CREATE OR REPLACE DIRECTORY &report_dir AS'
                              || ' ''/path/on/the/db/server'';');
         DBMS_OUTPUT.PUT_LINE('           GRANT READ, WRITE ON DIRECTORY &report_dir TO '
@@ -324,6 +343,75 @@ EXCEPTION
 END cap_report_spool;
 /
 
+PROMPT -- creating procedure cap_nightly ...
+
+CREATE OR REPLACE PROCEDURE cap_nightly (p_steps IN VARCHAR2 DEFAULT 'RETRAIN REFRESH SPOOL',
+                                         p_dir   IN VARCHAR2 DEFAULT 'CAP_REPORTS')
+AUTHID DEFINER
+AS
+    -- The night's work in a fixed order, each step after the previous one
+    -- has ended (M24.12): PURGE (cap_repo.purge), RETRAIN
+    -- (cap_forecast_ml.train_all), REFRESH (cap_results.refresh), SPOOL
+    -- (cap_report_spool(p_dir)). p_steps names the steps to run, any order,
+    -- blank-separated; the order stays this one. A failed step is rolled
+    -- back and the later steps still run; at the end ORA-20080 names every
+    -- failed step. Each step's outcome and seconds go to DBMS_OUTPUT, which
+    -- the scheduler keeps as the run's OUTPUT. cap_repo exists only in
+    -- repository mode, hence the dynamic call.
+    TYPE t_steps IS TABLE OF VARCHAR2(10);
+    c_order  CONSTANT t_steps := t_steps('PURGE', 'RETRAIN', 'REFRESH', 'SPOOL');
+    l_steps  VARCHAR2(400) := ' ' || UPPER(TRIM(p_steps)) || ' ';
+    l_failed VARCHAR2(4000);
+    l_t0     PLS_INTEGER;
+    l_mod    VARCHAR2(64);
+    l_act    VARCHAR2(64);
+
+    FUNCTION secs RETURN VARCHAR2 IS
+    BEGIN
+        RETURN TO_CHAR(ROUND((DBMS_UTILITY.GET_TIME - l_t0) / 100)) || ' s';
+    END secs;
+BEGIN
+    DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
+    DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_nightly', NULL);
+    FOR w IN (SELECT REGEXP_SUBSTR(TRIM(l_steps), '[^ ]+', 1, LEVEL) AS step
+              FROM   dual
+              CONNECT BY LEVEL <= REGEXP_COUNT(TRIM(l_steps), '[^ ]+')) LOOP
+        IF w.step NOT MEMBER OF c_order THEN
+            RAISE_APPLICATION_ERROR(-20081, 'cap_nightly: unknown step ' || w.step
+                                            || ' (PURGE, RETRAIN, REFRESH, SPOOL)');
+        END IF;
+    END LOOP;
+    FOR i IN 1 .. c_order.COUNT LOOP
+        CONTINUE WHEN INSTR(l_steps, ' ' || c_order(i) || ' ') = 0;
+        DBMS_APPLICATION_INFO.SET_ACTION(c_order(i));
+        l_t0 := DBMS_UTILITY.GET_TIME;
+        BEGIN
+            CASE c_order(i)
+                WHEN 'PURGE'   THEN EXECUTE IMMEDIATE 'BEGIN cap_repo.purge; END;';
+                WHEN 'RETRAIN' THEN cap_forecast_ml.train_all;
+                WHEN 'REFRESH' THEN cap_results.refresh;
+                WHEN 'SPOOL'   THEN cap_report_spool(p_dir);
+            END CASE;
+            DBMS_OUTPUT.PUT_LINE(RPAD(c_order(i), 8) || 'OK in ' || secs);
+        EXCEPTION
+            WHEN OTHERS THEN
+                ROLLBACK;
+                DBMS_OUTPUT.PUT_LINE(RPAD(c_order(i), 8) || 'FAILED after ' || secs || ': ' || SQLERRM);
+                l_failed := SUBSTR(l_failed || CASE WHEN l_failed IS NOT NULL THEN '; ' END
+                                   || c_order(i) || ': ' || SQLERRM, 1, 1800);
+        END;
+    END LOOP;
+    DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+    IF l_failed IS NOT NULL THEN
+        RAISE_APPLICATION_ERROR(-20080, 'cap_nightly: ' || l_failed);
+    END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_APPLICATION_INFO.SET_MODULE(l_mod, l_act);
+        RAISE;
+END cap_nightly;
+/
+
 -- Report (but do not fail on) a procedure that could not compile -- e.g. when
 -- CAPR_ALERTS is missing because the suite is not installed in this schema.
 DECLARE
@@ -332,20 +420,21 @@ BEGIN
     -- ALL_OBJECTS + owner, not USER_OBJECTS: USER_* follows the session user,
     -- not CURRENT_SCHEMA, so it would look in the wrong schema whenever you
     -- installed with ALTER SESSION SET CURRENT_SCHEMA.
-    SELECT MAX(status) INTO v_status
-    FROM   all_objects
-    WHERE  owner       = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
-      AND  object_name = 'CAP_REPORT_SPOOL'
-      AND  object_type = 'PROCEDURE';
-
-    IF v_status IS NULL THEN
-        DBMS_OUTPUT.PUT_LINE('  [WARN] procedure CAP_REPORT_SPOOL was not created.');
-    ELSIF v_status = 'INVALID' THEN
-        DBMS_OUTPUT.PUT_LINE('  [WARN] procedure CAP_REPORT_SPOOL is INVALID '
-                             || '(are CAPR_ALERTS and ddl/60 installed in this schema?).');
-    ELSE
-        DBMS_OUTPUT.PUT_LINE('  [ OK ] procedure CAP_REPORT_SPOOL is VALID.');
-    END IF;
+    FOR p IN (SELECT 'CAP_REPORT_SPOOL' AS name FROM dual UNION ALL SELECT 'CAP_NIGHTLY' FROM dual) LOOP
+        SELECT MAX(status) INTO v_status
+        FROM   all_objects
+        WHERE  owner       = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+          AND  object_name = p.name
+          AND  object_type = 'PROCEDURE';
+        IF v_status IS NULL THEN
+            DBMS_OUTPUT.PUT_LINE('  [WARN] procedure ' || p.name || ' was not created.');
+        ELSIF v_status = 'INVALID' THEN
+            DBMS_OUTPUT.PUT_LINE('  [WARN] procedure ' || p.name || ' is INVALID '
+                                 || '(is the suite, ddl/60 included, installed in this schema?).');
+        ELSE
+            DBMS_OUTPUT.PUT_LINE('  [ OK ] procedure ' || p.name || ' is VALID.');
+        END IF;
+    END LOOP;
 END;
 /
 
@@ -367,66 +456,37 @@ DECLARE
             END IF;
     END drop_job;
 BEGIN
+    drop_job('CAP_NIGHTLY_JOB');
+    drop_job('CAP_COLLECT_JOB');
+    -- Replaced by CAP_NIGHTLY_JOB (M24.12).
     drop_job('CAP_REFRESH_JOB');
     drop_job('CAP_ML_RETRAIN');
     drop_job('CAP_REPORT_SPOOL_JOB');
-    drop_job('CAP_COLLECT_JOB');
     drop_job('CAP_PURGE_JOB');
 END;
 /
 
 BEGIN
-    -- Results layer: one refresh run per schedule tick. A failure re-raises,
-    -- so the job run reads FAILED in the scheduler log as well as in CAP_RUN.
+    -- The night's work, step after step (see cap_nightly). A failed step
+    -- fails the run, after the remaining steps have run.
     DBMS_SCHEDULER.CREATE_JOB(
-        job_name        => 'CAP_REFRESH_JOB',
+        job_name        => 'CAP_NIGHTLY_JOB',
         job_type        => 'PLSQL_BLOCK',
-        job_action      => 'BEGIN DBMS_SESSION.SET_IDENTIFIER(''CAP_REFRESH_JOB''); cap_results.refresh; END;',
+        job_action      => 'BEGIN DBMS_SESSION.SET_IDENTIFIER(''CAP_NIGHTLY_JOB''); '
+                           || 'cap_nightly(''&nightly_steps'', ''&report_dir''); END;',
         start_date      => SYSTIMESTAMP,
-        repeat_interval => '&refresh_interval',
+        repeat_interval => '&nightly_interval',
         enabled         => FALSE,
         auto_drop       => FALSE,
-        comments        => 'AWR capacity: results layer refresh (cap_results.refresh)');
-    DBMS_OUTPUT.PUT_LINE('  created CAP_REFRESH_JOB   (disabled, &refresh_interval)');
-END;
-/
-
-BEGIN
-    -- Tier 2 retrain (see the header for why daily). train_all(p_top_n)
-    -- defaults to the top 20 capacity-critical series, which is what the
-    -- report shows, and refreshes their backtest twins too.
-    DBMS_SCHEDULER.CREATE_JOB(
-        job_name        => 'CAP_ML_RETRAIN',
-        job_type        => 'PLSQL_BLOCK',
-        job_action      => 'BEGIN DBMS_SESSION.SET_IDENTIFIER(''CAP_ML_RETRAIN''); cap_forecast_ml.train_all; END;',
-        start_date      => SYSTIMESTAMP,
-        repeat_interval => '&retrain_interval',
-        enabled         => FALSE,
-        auto_drop       => FALSE,
-        comments        => 'AWR capacity: OML ESM retrain (cap_forecast_ml.train_all)');
-    DBMS_OUTPUT.PUT_LINE('  created CAP_ML_RETRAIN    (disabled, &retrain_interval)');
-END;
-/
-
-BEGIN
-    -- Daily alert snapshot to <report_dir>/cap_alerts.txt.
-    DBMS_SCHEDULER.CREATE_JOB(
-        job_name        => 'CAP_REPORT_SPOOL_JOB',
-        job_type        => 'PLSQL_BLOCK',
-        job_action      => 'BEGIN DBMS_SESSION.SET_IDENTIFIER(''CAP_REPORT_SPOOL_JOB''); cap_report_spool(''&report_dir''); END;',
-        start_date      => SYSTIMESTAMP,
-        repeat_interval => 'FREQ=DAILY;BYHOUR=3;BYMINUTE=0;BYSECOND=0',
-        enabled         => FALSE,
-        auto_drop       => FALSE,
-        comments        => 'AWR capacity: daily CAPR_ALERTS snapshot via UTL_FILE');
-    DBMS_OUTPUT.PUT_LINE('  created CAP_REPORT_SPOOL_JOB (disabled, FREQ=DAILY 03:00)');
+        comments        => 'AWR capacity: the nightly steps in order (cap_nightly: &nightly_steps)');
+    DBMS_OUTPUT.PUT_LINE('  created CAP_NIGHTLY_JOB   (disabled, &nightly_interval: &nightly_steps)');
 END;
 /
 
 BEGIN
     IF '&repo_mode' = 'N' THEN
-        DBMS_OUTPUT.PUT_LINE('  CAP_COLLECT_JOB and CAP_PURGE_JOB not created: no package CAP_REPO'
-                             || ' here (repository mode only).');
+        DBMS_OUTPUT.PUT_LINE('  CAP_COLLECT_JOB not created: no package CAP_REPO here'
+                             || ' (repository mode only).');
         RETURN;
     END IF;
     DBMS_SCHEDULER.CREATE_JOB(
@@ -439,16 +499,6 @@ BEGIN
         auto_drop       => FALSE,
         comments        => 'AWR capacity: copy the targets'' AWR (cap_repo.collect)');
     DBMS_OUTPUT.PUT_LINE('  created CAP_COLLECT_JOB   (disabled, &collect_interval)');
-    DBMS_SCHEDULER.CREATE_JOB(
-        job_name        => 'CAP_PURGE_JOB',
-        job_type        => 'PLSQL_BLOCK',
-        job_action      => 'BEGIN DBMS_SESSION.SET_IDENTIFIER(''CAP_PURGE_JOB''); cap_repo.purge; END;',
-        start_date      => SYSTIMESTAMP,
-        repeat_interval => 'FREQ=DAILY;BYHOUR=1;BYMINUTE=0;BYSECOND=0',
-        enabled         => FALSE,
-        auto_drop       => FALSE,
-        comments        => 'AWR capacity: delete copies older than repo_retention_days (cap_repo.purge)');
-    DBMS_OUTPUT.PUT_LINE('  created CAP_PURGE_JOB     (disabled, FREQ=DAILY 01:00)');
 END;
 /
 
@@ -461,30 +511,27 @@ COLUMN repeat_interval FORMAT A44
 SELECT job_name, enabled, repeat_interval
 FROM   all_scheduler_jobs
 WHERE  owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
-  AND  job_name IN ('CAP_REFRESH_JOB', 'CAP_ML_RETRAIN', 'CAP_REPORT_SPOOL_JOB',
-                    'CAP_COLLECT_JOB', 'CAP_PURGE_JOB')
+  AND  job_name IN ('CAP_NIGHTLY_JOB', 'CAP_COLLECT_JOB')
 ORDER  BY job_name;
 SET FEEDBACK OFF
 
 PROMPT
 PROMPT ============================================================
 PROMPT  Jobs installed, DISABLED. To turn them on:
-PROMPT    EXEC DBMS_SCHEDULER.ENABLE('CAP_REFRESH_JOB')
-PROMPT    EXEC DBMS_SCHEDULER.ENABLE('CAP_ML_RETRAIN')
-PROMPT    EXEC DBMS_SCHEDULER.ENABLE('CAP_REPORT_SPOOL_JOB')
+PROMPT    EXEC DBMS_SCHEDULER.ENABLE('CAP_NIGHTLY_JOB')
 BEGIN
     IF '&repo_mode' = 'Y' THEN
         DBMS_OUTPUT.PUT_LINE('    EXEC DBMS_SCHEDULER.ENABLE(''CAP_COLLECT_JOB'')');
-        DBMS_OUTPUT.PUT_LINE('    EXEC DBMS_SCHEDULER.ENABLE(''CAP_PURGE_JOB'')');
     END IF;
 END;
 /
-PROMPT  To run one once, right now:
-PROMPT    EXEC DBMS_SCHEDULER.RUN_JOB('CAP_REPORT_SPOOL_JOB')
-PROMPT  Or write the snapshot by hand, no job needed:
+PROMPT  To run the night once, right now, in this session:
+PROMPT    SET SERVEROUTPUT ON
+PROMPT    EXEC cap_nightly('&nightly_steps', '&report_dir')
+PROMPT  Or write the alert snapshot alone, no job needed:
 PROMPT    EXEC cap_report_spool('&report_dir')
-PROMPT  To check results:
-PROMPT    SELECT job_name, status, error#, actual_start_date
+PROMPT  To check results (OUTPUT holds each step's outcome and seconds):
+PROMPT    SELECT job_name, status, actual_start_date, run_duration, output
 PROMPT      FROM user_scheduler_job_run_details ORDER BY log_date DESC;
 PROMPT  To remove everything again:
 PROMPT    @uninstall_jobs.sql

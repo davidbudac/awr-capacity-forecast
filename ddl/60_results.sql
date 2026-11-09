@@ -834,9 +834,17 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
         l_err   VARCHAR2(4000);
         l_mod   VARCHAR2(64);
         l_act   VARCHAR2(64);
+        l_scope NUMBER;
     BEGIN
         DBMS_APPLICATION_INFO.READ_MODULE(l_mod, l_act);
         DBMS_APPLICATION_INFO.SET_MODULE('AWRCAP/cap_results.refresh', 'lock');
+        -- A run reads every database. A scope an aborted report left in this
+        -- session (CAP_SCOPE) would hide the other targets, and their alerts
+        -- would resolve.
+        SELECT scope_dbid INTO l_scope FROM cap_scope;
+        IF l_scope IS NOT NULL THEN
+            DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL);
+        END IF;
         l_back := CASE WHEN l_asof < TRUNC(l_now) THEN 'Y' ELSE 'N' END;
         -- Serialise first, backdated runs included: the lock is held from
         -- run_id allocation to the final COMMIT, so run_id order is commit

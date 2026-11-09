@@ -221,6 +221,29 @@ FROM   cap_config;
 COMMENT ON TABLE cap_cfg IS 'One row, one NUMBER column per CAP_CONFIG knob (column name = knob name). NULL = the knob row is missing.';
 
 -- =====================================================================
+-- CAP_SCOPE (M24.11) -- the database this session reads, one row.
+-- =====================================================================
+-- scope_dbid is the dbid a report driver scoped the session to, NULL for
+-- every database. Every AWR read of the seam (ddl/10, 12, 13) keeps only
+-- dbid = NVL(scope_dbid, dbid), so a report scoped to one target computes
+-- every view above the seam over that target alone: the fleet-wide ranks,
+-- windows and materialized subqueries above it would otherwise stop a dbid
+-- predicate from reaching the copies. The seam repeats this expression
+-- inline, which parses cheaper than a subquery on this view; run_test.sql
+-- proves the two agree. report/scope.sql sets the session's CLIENT_INFO to
+-- 'AWRCAP dbid=<n>' (no privilege, no package state, visible in V$SESSION)
+-- and each driver clears it at its end. Any other CLIENT_INFO reads NULL.
+-- A writer (cap_results.refresh, the cap_forecast_ml trainers) clears a
+-- scope it finds, left by an aborted report: it always reads every
+-- database.
+CREATE OR REPLACE VIEW cap_scope AS
+SELECT TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'),
+                               '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)) AS scope_dbid
+FROM   dual;
+
+COMMENT ON TABLE cap_scope IS 'One row: the dbid this session is scoped to (CLIENT_INFO ''AWRCAP dbid=<n>'', set by report/scope.sql), NULL = every database. The seam reads only that dbid.';
+
+-- =====================================================================
 -- CAP_CFG_CHECK -- one row per knob: value, OK / MISSING / BAD, reason.
 -- =====================================================================
 -- A cross-knob rule is reported on the knob named first in it.
