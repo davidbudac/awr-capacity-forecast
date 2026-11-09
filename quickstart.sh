@@ -28,15 +28,16 @@ command -v sqlplus >/dev/null 2>&1 || {
 mkdir -p reports
 
 defs=""
-define() {   # define NAME VALUE PATTERN WHAT
-  [[ -z $2 ]] && return 0
-  [[ $2 =~ $3 ]] || { echo "quickstart: $4" >&2; exit 2; }
-  defs+="DEFINE $1 = '$2'"$'\n'
+define() {
+  local name=$1 value=$2 pattern=$3 what=$4
+  [[ -z $value ]] && return 0
+  [[ $value =~ $pattern ]] || { echo "quickstart: $what" >&2; exit 2; }
+  defs+="DEFINE $name = '$value'"$'\n'
 }
-name='^[A-Za-z][A-Za-z0-9_$#]{0,127}$'
-define owner        "${CAP_OWNER:-}"        "$name"        "CAP_OWNER must be a plain SQL name"
-define reader       "${CAP_READER:-}"       "$name"        "CAP_READER must be a plain SQL name"
-define container    "${CAP_CONTAINER:-}"    "$name"        "CAP_CONTAINER must be a plain SQL name"
+sql_name='^[A-Za-z][A-Za-z0-9_$#]{0,127}$'
+define owner        "${CAP_OWNER:-}"        "$sql_name"    "CAP_OWNER must be a plain SQL name"
+define reader       "${CAP_READER:-}"       "$sql_name"    "CAP_READER must be a plain SQL name"
+define container    "${CAP_CONTAINER:-}"    "$sql_name"    "CAP_CONTAINER must be a plain SQL name"
 define self_connect "${CAP_SELF_CONNECT:-}" "^[^\"'&]+$"   "CAP_SELF_CONNECT may not contain quotes or &"
 
 [[ $# -eq 0 ]] && set -- / as sysdba

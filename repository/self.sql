@@ -18,10 +18,8 @@
 -- A target not registered yet: cap_repo.add_target over the loopback link
 -- (named after the global name where GLOBAL_NAMES = TRUE). One registered
 -- by an earlier run with the same reader and address: its link is rebuilt
--- with cap_repo.set_link_password when it no longer answers, which it stops
--- doing once target/self.sql gives the reader a new password. The run before
--- doctor.sql therefore lets doctor probe a working link on a re-run. Then
--- cap_repo.collect. The calls are dynamic so this compiles without the suite.
+-- with cap_repo.set_link_password when it no longer answers. Then
+-- cap_repo.collect.
 --
 SET APPINFO OFF
 SET APPINFO "AWRCAP/repository/self.sql"

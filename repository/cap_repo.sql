@@ -242,9 +242,6 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         WHEN OTHERS THEN NULL;
     END drop_link;
 
-    -- CAP_<name>, or <global name>@CAP_<name> (a connection qualifier) where
-    -- GLOBAL_NAMES = TRUE refuses a link not named after the target's global
-    -- name. Returns the link it made; a failure leaves no link behind.
     FUNCTION owned_link(p_name IN VARCHAR2, p_connect IN VARCHAR2, p_user IN VARCHAR2,
                         p_password IN VARCHAR2, p_global_name IN VARCHAR2) RETURN VARCHAR2 IS
         v_link VARCHAR2(128) := 'CAP_' || p_name;
@@ -330,18 +327,18 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
     -- Copy one DBID up to the target's newest snapshot. FALSE = it failed.
     FUNCTION collect_dbid(t IN cap_target%ROWTYPE, p_dbid IN NUMBER,
                           p_chunk IN PLS_INTEGER) RETURN BOOLEAN IS
-        v_min    NUMBER;
-        v_max    NUMBER;
-        v_prev   NUMBER;
-        v_n_max  NUMBER;
-        v_n_prev NUMBER;
-        v_held   VARCHAR2(200);
-        v_hwm    NUMBER;
-        v_end    NUMBER;
-        v_first  NUMBER;
-        v_rows   NUMBER := 0;
-        v_t0     PLS_INTEGER := DBMS_UTILITY.GET_TIME;
-        v_sql    VARCHAR2(4000);
+        v_min         NUMBER;
+        v_max         NUMBER;
+        v_prev        NUMBER;
+        v_inst_newest NUMBER;
+        v_inst_before NUMBER;
+        v_held        VARCHAR2(200);
+        v_hwm         NUMBER;
+        v_end         NUMBER;
+        v_first       NUMBER;
+        v_rows        NUMBER := 0;
+        v_t0          PLS_INTEGER := DBMS_UTILITY.GET_TIME;
+        v_sql         VARCHAR2(4000);
 
         FUNCTION secs RETURN NUMBER IS
         BEGIN
@@ -354,18 +351,17 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
                           || ' FROM (SELECT snap_id, COUNT(DISTINCT instance_number) AS n_inst,'
                           || ' ROW_NUMBER() OVER (ORDER BY snap_id DESC) AS rn'
                           || ' FROM dba_hist_snapshot@' || t.db_link || ' WHERE dbid = :1 GROUP BY snap_id)'
-            INTO v_min, v_max, v_prev, v_n_max, v_n_prev USING p_dbid;
+            INTO v_min, v_max, v_prev, v_inst_newest, v_inst_before USING p_dbid;
         IF v_max IS NULL THEN
             ROLLBACK;
             log_event(t.target_name, p_dbid, 'NOTHING', p_secs => secs,
                       p_msg => 'no snapshots for this DBID on the target any more');
             RETURN TRUE;
         END IF;
-        -- RAC: one instance can finish snap_id N before another. Facts are
-        -- copied once, above the high-water mark, so a half-copied N would
-        -- never be completed; N waits for the next collect instead.
-        IF v_n_max < v_n_prev THEN
-            v_held := 'snap_id ' || v_max || ' held back: ' || v_n_max || ' of ' || v_n_prev
+        -- Facts are copied once, above the high-water mark, so a snapshot
+        -- one RAC instance has not finished yet would lose its rows for good.
+        IF v_inst_newest < v_inst_before THEN
+            v_held := 'snap_id ' || v_max || ' held back: ' || v_inst_newest || ' of ' || v_inst_before
                       || ' instances have completed it';
             v_max  := v_prev;
         END IF;

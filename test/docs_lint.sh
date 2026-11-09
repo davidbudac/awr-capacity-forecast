@@ -143,16 +143,11 @@ hits=$(git grep -n -I -i -E \
   "${not_wh[@]}")
 report "tracked files without a retired warehouse-mode token" "$(git ls-files "${not_wh[@]}" | grep -c .)" "$hits"
 
-# ---- 9. retired local mode -----------------------------------------------------
-# Same exemptions as check 8. The allow list holds only lines that exist because
-# the mode is gone: install.sql's abort, doctor.sql's test for an installed local
-# seam (it WARNs with the upgrade path) and repository/seam.sql's note of its
-# former name.
+# ---- 9. retired local mode -------------------------------------------------------
 not_local=(-- . ':!PLAN.md' ':!bench' ':!test/docs_lint.sh')
 local_ok=(
   "^install\.sql:[0-9]+: .*'deploy_mode = local is retired \(M25\)"
   "^doctor\.sql:[0-9]+: +ELSIF v_deploy_mode = 'local' THEN\$"
-  "^repository/seam\.sql:[0-9]+:-- was ddl/10_seam_local\.sql, local mode's seam"
 )
 hits=$(git grep -n -I -i -E \
   "deploy_mode[\"']? *= *[\"']?local\b|owner_mode|10_seam_local" \

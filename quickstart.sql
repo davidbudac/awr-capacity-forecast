@@ -2,17 +2,7 @@
 -- quickstart.sql -- zero-to-first-report in one run.
 -- =====================================================================
 -- The suite reads this database's AWR over a loopback DB link, as a
--- repository reads any target's. Runs, in order:
---   1. target/self.sql      the read-only reader with a random password
---                           (target/prepare.sql, target/check.sql), then
---                           into the PDB the suite lives in
---   2. create_owner.sql     the schema-only suite owner (NO AUTHENTICATION),
---                           then repository/self.sql, which on a re-run
---                           rebuilds the link the new password broke
---   3. doctor.sql           preflight checklist (read-only; PASS/WARN/FAIL)
---   4. install.sql          deploy_mode = repository, into that owner
---   5. repository/self.sql  register this database as its target, collect
---   6. report/report.sql    the first text report -> reports/cap_report_*.txt
+-- repository reads any target's.
 --
 -- Usage -- from the REPO ROOT (the @@ includes resolve from the outermost
 -- caller on 19c), as SYSDBA in CDB$ROOT or in a non-CDB:

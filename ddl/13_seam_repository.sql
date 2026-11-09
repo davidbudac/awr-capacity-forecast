@@ -9,8 +9,8 @@
 -- target (repository/cap_repo.sql pulls them over a DB link) into CAP_H_*
 -- tables of the same shape. The seam views below are seam.sql's with every
 -- dba_hist_<x> renamed cap_h_<x>; the notes on every view live in seam.sql.
--- A view of repository/seam_overrides.sql replaces seam.sql's (CAPV_TARGET
--- reads the target registry), so cap_repo.sql is included before the seam.
+-- CAPV_TARGET reads the target registry, so cap_repo.sql is included before
+-- the seam.
 --
 SET DEFINE OFF
 

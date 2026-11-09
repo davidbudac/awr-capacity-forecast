@@ -3738,10 +3738,7 @@ BEGIN
         -- are dropped and re-created inside this block. NUMBER columns are
         -- compared at 12 decimals: two plans of one view (the INSERT's and
         -- this SELECT's) can differ in the 38th digit (CAPR_FORECAST_POINTS'
-        -- CPU REGR knots, 19.27). The clock columns (SYSDATE minus a stored
-        -- time, as test/parity_fingerprint.sql skips them) are left out: the
-        -- refresh stored CAPR_COVERAGE.age_hours minutes before this reads
-        -- the view, and on a busy host that crossed its 0.1 h rounding.
+        -- CPU REGR knots, 19.27).
         DECLARE
             l_views SYS.ODCIVARCHAR2LIST := cap_results.snap_views;
             l_cols  VARCHAR2(32767);

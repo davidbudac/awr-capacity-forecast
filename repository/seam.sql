@@ -3,10 +3,7 @@
 -- =====================================================================
 -- Never installed itself. repository/build.py turns it into
 -- ddl/13_seam_repository.sql by renaming every dba_hist_<x> to cap_h_<x>,
--- the copies a repository pulls from its targets, so these views keep the
--- AWR names they mean and their notes stay next to them. Up to M25 this file
--- was ddl/10_seam_local.sql, local mode's seam over the installing
--- database's own DBA_HIST_* views.
+-- the copies a repository pulls from its targets.
 --
 -- These thirteen views (plus the CAPV_CONTRACT diagnostic at the bottom) are
 -- the ONLY place the analytics touch AWR data. Everything downstream
@@ -217,31 +214,53 @@ LEFT  JOIN (SELECT dbid, con_dbid, MAX(pdb_name) AS con_name
   ON  p.dbid = k.dbid AND p.con_dbid = k.con_dbid;
 
 -- --------------------------------------------------------------------
--- CAPV_TARGET (M24.6) -- what the suite measures and how it is fed: one row
--- per (target, dbid). This version, over the AWR it reads, names each dbid
--- by its db_name and the host of its newest startup, fed LOCAL, the collect
--- columns (address .. n_gaps) NULL. ddl/13 never gets it: build.py puts
--- repository/seam_overrides.sql's version, over CAP_TARGET and
--- CAP_COLLECT_LOG, in its place, and --check requires every override to
--- replace a view defined here. Same columns and types in every seam file.
--- --------------------------------------------------------------------
+-- CAPV_TARGET (M24.6) -- what the suite measures and how it is fed, from the
+-- registry of repository/cap_repo.sql (included before the seam): one row
+-- per registered target and DBID (dbid NULL until the first DBID is
+-- found), fed LINK, with the collect health from CAP_COLLECT_LOG. Only log
+-- rows since the target was added count, so a removed and re-added target
+-- starts clean. An ERROR logged with dbid NULL (the link failed before any
+-- DBID was reached) applies to every DBID of the target. n_gaps counts GAP
+-- rows: snapshots the target purged before they were copied. The health
+-- columns are scalar subqueries, not joins, because the optimizer drops an
+-- unselected one: CAPR_CONTAINER, which every report view joins and which
+-- reads only target_name, never touches the log (verified 19.27).
+-- Scoped (the CAP_SCOPE expression) like every seam view, NULL-safe: a
+-- target with no DBID yet is in no database's scope.
 CREATE OR REPLACE VIEW capv_target AS
-SELECT CAST(MAX(db_name) AS VARCHAR2(30))       AS target_name,
-       dbid                                     AS dbid,
-       CAST('LOCAL' AS VARCHAR2(10))            AS feed,
-       CAST(MAX(host_name) KEEP (DENSE_RANK LAST ORDER BY startup_time NULLS FIRST)
-            AS VARCHAR2(64))                    AS host_name,
-       CAST(NULL AS VARCHAR2(4000))             AS address,
-       CAST(NULL AS VARCHAR2(128))              AS db_link,
-       CAST('Y' AS VARCHAR2(1))                 AS enabled,
-       CAST(NULL AS NUMBER)                     AS collected_snap_id,
-       CAST(NULL AS DATE)                       AS last_ok_at,
-       CAST(NULL AS DATE)                       AS last_error_at,
-       CAST(NULL AS VARCHAR2(4000))             AS last_error,
-       CAST(NULL AS NUMBER)                     AS n_gaps
-FROM   dba_hist_database_instance
-WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
-GROUP  BY dbid;
+SELECT CAST(t.target_name AS VARCHAR2(30))      AS target_name,
+       d.dbid                                   AS dbid,
+       CAST('LINK' AS VARCHAR2(10))             AS feed,
+       CAST(h.host_name AS VARCHAR2(64))        AS host_name,
+       CAST(t.connect_string AS VARCHAR2(4000)) AS address,
+       CAST(t.db_link AS VARCHAR2(128))         AS db_link,
+       CAST(t.enabled AS VARCHAR2(1))           AS enabled,
+       d.last_snap_id                           AS collected_snap_id,
+       (SELECT MAX(g.logged_at) FROM cap_collect_log g
+        WHERE  g.target_name = t.target_name AND g.dbid = d.dbid
+          AND  g.status IN ('OK', 'NOTHING') AND g.logged_at >= t.added_at) AS last_ok_at,
+       (SELECT MAX(g.logged_at) FROM cap_collect_log g
+        WHERE  g.target_name = t.target_name AND (g.dbid = d.dbid OR g.dbid IS NULL)
+          AND  g.status = 'ERROR' AND g.logged_at >= t.added_at)            AS last_error_at,
+       (SELECT CAST(MAX(g.message) KEEP (DENSE_RANK LAST ORDER BY g.logged_at, g.log_id)
+                    AS VARCHAR2(4000))
+        FROM   cap_collect_log g
+        WHERE  g.target_name = t.target_name AND (g.dbid = d.dbid OR g.dbid IS NULL)
+          AND  g.status = 'ERROR' AND g.logged_at >= t.added_at)            AS last_error,
+       (SELECT COUNT(*) FROM cap_collect_log g
+        WHERE  g.target_name = t.target_name AND g.dbid = d.dbid
+          AND  g.status = 'GAP' AND g.logged_at >= t.added_at)              AS n_gaps
+FROM   cap_target t
+LEFT   JOIN cap_target_dbid d
+  ON   d.target_id = t.target_id
+LEFT   JOIN (SELECT dbid,
+                    MAX(host_name) KEEP (DENSE_RANK LAST ORDER BY startup_time NULLS FIRST) AS host_name
+             FROM   dba_hist_database_instance
+             WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
+             GROUP  BY dbid) h
+  ON   h.dbid = d.dbid
+WHERE  TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)) IS NULL
+   OR  d.dbid = TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1));
 
 -- --------------------------------------------------------------------
 -- CAPV_RESOURCE_LIMIT (M11.1) -- per-instance resource high-water marks vs

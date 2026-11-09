@@ -75,8 +75,8 @@ made 2026-11-07:
   copy lacks fails the install compile, and `build.py --check` fails on a
   stale ddl/13, on a copy filter that drops a literal the seam filters on,
   and when the seam or `target/prepare.sql` name other views than the
-  manifest. `CAPV_TARGET` is the one view that differs by design
-  (`repository/seam_overrides.sql`): it reads the registry.
+  manifest. `CAPV_TARGET` also reads the registry tables of
+  `repository/cap_repo.sql`, which ddl/13 includes before the seam.
 - **Three copy kinds.** Facts (F) are appended per snap_id window above the
   DBID's high-water mark. Dimensions (D: tablespace, datafile, PDB and
   database instance, ASM diskgroup) are MERGEd null-safe on their key. One
@@ -277,10 +277,10 @@ bullet).
   collect health from `CAP_COLLECT_LOG` (newest good collect, newest error
   of the dbid or of the whole target, purge gaps). Fixture mode names the
   target after the AWR `db_name`. The repository
-  version reads the registry, so it is not seam.sql's with the rename:
-  `repository/seam_overrides.sql` holds it and `repository/build.py` puts it
-  in ddl/13 in place of seam.sql's. `CAPR_CONTAINER.db_pdb` and every report
-  header take their database name from it.
+  version reads the registry. Until M25 it lived in
+  `repository/seam_overrides.sql` and replaced local mode's version in
+  ddl/13; with one seam left it sits in seam.sql. `CAPR_CONTAINER.db_pdb` and
+  every report header take their database name from it.
 - `CAPV_RESOURCE_LIMIT` / `CAPV_SYSSTAT` (M11).
   `DBA_HIST_RESOURCE_LIMIT` (filtered to `processes` / `sessions`) has a
   `CON_DBID` column, but in `CDB$ROOT` its rows are root-only (verified on

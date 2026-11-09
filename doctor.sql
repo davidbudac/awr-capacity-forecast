@@ -21,9 +21,7 @@
 -- the copies hold, the install, the config, the results layer, the jobs and
 -- the targets. A measured database is checked where it runs, by
 -- target/check.sql (pack access, AWR retention and interval, the reader's
--- grants, container visibility). Those were sections 2, 3, 5 and 6 here
--- until M25, so the remaining sections keep their numbers: the docs and
--- CAP_CFG_CHECK cite section 7.
+-- grants, container visibility).
 --
 -- Section 10 checks CAP_NIGHTLY_JOB, its last run and the nightly steps that
 -- run failed, and in repository mode CAP_COLLECT_JOB. In repository mode
@@ -80,10 +78,10 @@ DECLARE
     v_session   VARCHAR2(128) := SYS_CONTEXT('USERENV', 'SESSION_USER');
 
     v_installed     BOOLEAN     := FALSE;
-    v_deploy_mode   VARCHAR2(30);           -- repository | fixture | local (retired)
+    v_deploy_mode   VARCHAR2(30);
     v_seam_refs     VARCHAR2(200);
     v_intended      VARCHAR2(30) := :cap_doctor_mode_v;   -- caller's DEFINE, or NULL
-    v_mode          VARCHAR2(30);           -- the one the checks follow
+    v_check_mode    VARCHAR2(30);
 
     -- knobs: CAP_CFG when installed, else the shipped defaults (05_config)
     v_knob_src      VARCHAR2(60) := 'shipped defaults (suite not installed here)';
@@ -166,8 +164,6 @@ DECLARE
         RETURN NVL(knob_raw(p_name), p_default);
     END knob;
 
-    -- Count distinct days behind a dynamic aggregate query. Returns NULL when
-    -- the query cannot run (missing object / grant) and sets p_err.
     FUNCTION count_days(p_sql IN VARCHAR2, p_err OUT VARCHAR2) RETURN NUMBER IS
         v_n NUMBER;
     BEGIN
@@ -179,8 +175,6 @@ DECLARE
             RETURN NULL;
     END count_days;
 
-    -- Does the current schema hold p_priv DIRECTLY? 1 yes, 0 no, NULL when no
-    -- dictionary view we can read answers the question.
     FUNCTION direct_sys_priv(p_priv IN VARCHAR2) RETURN NUMBER IS
         v_n NUMBER;
     BEGIN
@@ -301,8 +295,8 @@ BEGIN
             END IF;
         END LOOP;
     END IF;
-    v_mode := COALESCE(v_intended, v_deploy_mode, 'repository');
-    IF v_mode = 'repository' THEN
+    v_check_mode := COALESCE(v_intended, v_deploy_mode, 'repository');
+    IF v_check_mode = 'repository' THEN
         v_privs.EXTEND;
         v_privs(v_privs.LAST) := 'CREATE DATABASE LINK';
     END IF;
@@ -376,7 +370,7 @@ BEGIN
     -- cap_repo (repository mode) creates its DB links with the owner's
     -- DIRECT privileges too. Without it, register targets over links the
     -- DBA made (cap_repo.add_target p_db_link).
-    IF v_mode = 'repository' AND v_schema <> 'SYS' THEN
+    IF v_check_mode = 'repository' AND v_schema <> 'SYS' THEN
         DECLARE
             v_g NUMBER := direct_sys_priv('CREATE DATABASE LINK');
         BEGIN
@@ -424,7 +418,7 @@ BEGIN
             note('Not installed here yet: the days are counted in CAPV_SNAPSHOT once the');
             note('copies are collected. On a target, target/check.sql shows its AWR history.');
         ELSIF v_avail IS NULL THEN
-            note('No history could be counted (' || NVL(v_e, CASE WHEN v_mode = 'repository'
+            note('No history could be counted (' || NVL(v_e, CASE WHEN v_check_mode = 'repository'
                  THEN 'nothing copied yet: EXEC cap_repo.collect' ELSE 'no snapshot rows' END) || ').');
         END IF;
     END;
@@ -658,7 +652,7 @@ BEGIN
             EXCEPTION
                 WHEN OTHERS THEN emit('INFO', 'nightly steps', 'cannot read the job run OUTPUT: ' || err);
             END;
-            IF v_mode = 'repository' THEN
+            IF v_check_mode = 'repository' THEN
                 job_check('CAP_COLLECT_JOB', 'install_jobs.sql; until then nothing is copied'
                                              || ' unless you EXEC cap_repo.collect');
             END IF;
@@ -723,7 +717,7 @@ BEGIN
     -- 11. Repository targets (installed, repository mode): per target the
     -- link, the collect health and the days copied per DBID.
     -- =================================================================
-    IF v_installed AND v_mode = 'repository' THEN
+    IF v_installed AND v_check_mode = 'repository' THEN
         hdr('11. Repository targets (CAPR_TARGETS; links probed by cap_repo.ping)');
         DECLARE
             c_max     CONSTANT PLS_INTEGER := 50;
@@ -755,8 +749,6 @@ BEGIN
                 RETURN SUBSTR(REGEXP_SUBSTR(p_txt, '[^' || CHR(10) || ']+'), 1, 120);
             END line1;
 
-            -- An expired reader fails every collect with ORA-28001, so warn
-            -- while there is time to rotate it.
             PROCEDURE expiry(p_name IN VARCHAR2) IS
                 v_exp   DATE;
                 v_user  VARCHAR2(128);
@@ -888,13 +880,13 @@ BEGIN
     DBMS_OUTPUT.PUT_LINE('  ' || n_pass || ' PASS / ' || n_warn || ' WARN / '
                          || n_fail || ' FAIL');
 
-    IF v_mode = 'repository' AND NOT v_installed THEN
+    IF v_check_mode = 'repository' AND NOT v_installed THEN
         note('Not installed here yet. Next: install.sql (deploy_mode = repository), then');
         note('cap_repo.add_target and cap_repo.collect. Check each target: @target/check.sql.');
-    ELSIF v_mode = 'repository' THEN
+    ELSIF v_check_mode = 'repository' THEN
         note('The data comes from the CAP_H_* copies (cap_repo.collect); check 11 covers');
         note('what feeds them. Check each target where it runs: @target/check.sql.');
-    ELSIF v_mode = 'fixture' THEN
+    ELSIF v_check_mode = 'fixture' THEN
         note('The data comes from the CAP_FIXTURE_* tables (test/fixture_install.sql).');
     END IF;
     IF n_fail = 0 AND n_warn = 0 THEN

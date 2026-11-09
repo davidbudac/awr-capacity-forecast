@@ -18,8 +18,6 @@
 -- unless self_connect gives one. The reader gets a new random password,
 -- held only in this session (bind :cap_self_pw), then target/prepare.sql
 -- and target/check.sql run, and the session ends in the suite's container.
--- repository/self.sql, run there after install.sql, registers the target
--- with that password, or updates the link of one registered before.
 --
 -- Leaves defined: cap_container, cap_self_name (the target name, from
 -- DB_UNIQUE_NAME), cap_self_connect, cap_self_gname (the global name, for a

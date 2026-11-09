@@ -239,9 +239,6 @@ END;
 
 PROMPT
 SET DEFINE '&'
--- A fresh repository has no target yet, so its first step is registering one,
--- unless target/self.sql ran in this session (the standalone path), whose
--- repository/self.sql registers this database next.
 -- TERMOUT OFF because a NOPRINT-only SELECT still prints blank lines.
 SET TERMOUT OFF
 COLUMN cap_self_in NEW_VALUE cap_self_name NOPRINT

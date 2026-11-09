@@ -621,9 +621,8 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
 - **Fleet identity (M24.6).** `CAPV_TARGET` (one row per target and dbid:
   name, `feed`, AWR host, and in repository mode link, `enabled`, high-water
   mark and collect health from `CAP_COLLECT_LOG` since `added_at`) is in
-  every seam; the repository version is `repository/seam_overrides.sql`,
-  which build.py puts in ddl/13 in place of seam.sql's (`--check` fails on an
-  override seam.sql lacks), so ddl/13 includes `cap_repo.sql` before the seam.
+  every seam; seam.sql's reads the registry, so ddl/13 includes
+  `cap_repo.sql` before the seam.
   `CAPR_CONTAINER.target_name` (last column) names `db_pdb`; `CAPR_TARGETS`
   adds freshness and `collect_state`. `report/scope.sql` gives all four
   drivers their scope and Database / Host / file stem from it, and resolves a

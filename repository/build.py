@@ -15,9 +15,7 @@ which rows are worth copying. From it this script writes, in one file:
     which repository/cap_repo.sql executes over each target's DB link;
   * the include of repository/cap_repo.sql (the registry the seam reads);
   * the CAPV_* seam: repository/seam.sql (the seam written over DBA_HIST_*,
-    never installed itself) with every dba_hist_<x> renamed cap_h_<x>,
-    except the views repository/seam_overrides.sql defines, which replace
-    seam.sql's.
+    never installed itself) with every dba_hist_<x> renamed cap_h_<x>.
 
 and, as test/repo_copy_check.sql, the check that each copy still equals its
 source over the target's link (test/dbmint_copy_check.sh runs it).
@@ -33,7 +31,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SEAM = ROOT / "repository" / "seam.sql"
-OVERRIDES = ROOT / "repository" / "seam_overrides.sql"
 OUT = ROOT / "ddl" / "13_seam_repository.sql"
 COPY_CHECK = ROOT / "test" / "repo_copy_check.sql"
 PREPARE = ROOT / "target" / "prepare.sql"
@@ -226,7 +223,6 @@ def source_view():
 
 
 def row_text(src):
-    """One string per row, for printing a differing row."""
     parts = []
     for c, t in src.cols:
         if t == TS:
@@ -263,8 +259,6 @@ COPY_CHECK_HEAD = """\
 -- there only a source row missing from the copy is a difference; copy-only
 -- rows are listed as kept. A stale copy of a keyed row still shows as its
 -- source row missing.
--- Equal copies under the same seam text (ddl/13 is repository/seam.sql renamed, checked
--- by build.py --check) give the same CAPV_* views.
 -- Prints "COPYCHECK <target> dbid=<n> <source> ..." per source and DBID, its
 -- first 10 differing rows, and one closing line
 --   COPYCHECK-RESULT EQUAL | DIFFERENT | MOVED | FAILED ...
@@ -504,26 +498,10 @@ def view_blocks(lines):
     return out
 
 
-def overrides():
-    return view_blocks(strip_comments(OVERRIDES.read_text()))
-
-
 def renamed_seam():
-    """seam.sql below its header, comment lines dropped, dba_hist_<x> -> cap_h_<x>,
-    and each view of seam_overrides.sql in place of seam.sql's view of that name."""
     text = SEAM.read_text()
-    over = overrides()
-    out, skip = [], False
-    for line in strip_comments(text[text.index("SET DEFINE OFF"):]):
-        m = CREATE_VIEW.match(line)
-        if m and m.group(1).lower() in over:
-            out += over[m.group(1).lower()]
-            skip = True
-        if skip:
-            skip = not line.rstrip().endswith(";")
-            continue
-        out.append(re.sub(r"\bdba_hist_(\w+)", r"cap_h_\1", line, flags=re.I))
-    return out
+    return [re.sub(r"\bdba_hist_(\w+)", r"cap_h_\1", line, flags=re.I)
+            for line in strip_comments(text[text.index("SET DEFINE OFF"):])]
 
 
 def seam_sources():
@@ -532,11 +510,6 @@ def seam_sources():
 
 
 def filter_drift():
-    """Literals a seam.sql view filters on that a copy's filter would drop.
-
-    Per CREATE VIEW of seam.sql: every quoted literal (bar regex patterns) must
-    appear in the manifest filter of each filtered source the view reads, or
-    the copies would hold fewer rows than the seam reads."""
     sql = "\n".join(l.split("--")[0] for l in SEAM.read_text().splitlines())
     # The session scope (CAP_SCOPE, M24.11) is no row filter of a source.
     sql = re.sub(r"SYS_CONTEXT\('USERENV', *'CLIENT_INFO'\)", "", sql, flags=re.I)
@@ -571,8 +544,8 @@ def render():
         "-- target (repository/cap_repo.sql pulls them over a DB link) into CAP_H_*",
         "-- tables of the same shape. The seam views below are seam.sql's with every",
         "-- dba_hist_<x> renamed cap_h_<x>; the notes on every view live in seam.sql.",
-        "-- A view of repository/seam_overrides.sql replaces seam.sql's (CAPV_TARGET",
-        "-- reads the target registry), so cap_repo.sql is included before the seam.",
+        "-- CAPV_TARGET reads the target registry, so cap_repo.sql is included before",
+        "-- the seam.",
         "--",
         "SET DEFINE OFF",
         "",
@@ -594,14 +567,6 @@ def problems():
         out.append(f"target/prepare.sql grants differ from the manifest: {sorted(set(granted(PREPARE)) ^ want)}")
     out += filter_drift()
     seam = set(view_blocks(strip_comments(SEAM.read_text())))
-    over = overrides()
-    if set(over) - seam:
-        out.append(f"repository/seam_overrides.sql defines {sorted(set(over) - seam)}, which repository/seam.sql does not")
-    in_views = {l for lines in over.values() for l in lines}
-    if any(l.strip() and l not in in_views for l in strip_comments(OVERRIDES.read_text())):
-        out.append("repository/seam_overrides.sql has text outside a CREATE OR REPLACE VIEW")
-    if any(re.search(r"\bdba_hist_", l, flags=re.I) for lines in over.values() for l in lines):
-        out.append("repository/seam_overrides.sql reads DBA_HIST_* (the seam reads the cap_h_* copies)")
     capv = lambda names: {n for n in names if n.startswith("capv_")}
     generated = capv(view_blocks(render().splitlines()))
     if generated != capv(seam):

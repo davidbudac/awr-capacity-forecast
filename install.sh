@@ -293,7 +293,6 @@ normalise() {
   return 0
 }
 
-# skip_key KEY: 0 when KEY does not apply to the role (summary, saved profile)
 skip_key() {
   case ${CFG[ROLE]} in
     target)     [[ ! " ROLE CONNECT CONTAINER READER " =~ " $1 " ]] ;;
@@ -361,8 +360,6 @@ save_profile() {
 
 # ---------------------------------------------------------------- driver
 
-# The jobs JOBS_ENABLE turns on. A repository's CAP_COLLECT_JOB waits for its
-# targets; standalone registered its one target in the same run.
 enable_jobs() {
   if [[ ${CFG[ROLE]} == standalone ]]; then echo "CAP_NIGHTLY_JOB CAP_COLLECT_JOB"; else echo "CAP_NIGHTLY_JOB"; fi
 }

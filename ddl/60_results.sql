@@ -661,7 +661,7 @@ CREATE OR REPLACE PACKAGE cap_results AUTHID DEFINER AS
     PROCEDURE reset;
 
     -- repository | fixture (unknown otherwise), read from what CAPV_SNAPSHOT
-    -- depends on. CAP_RUN keeps the 'local' rows of runs before M25.
+    -- depends on.
     FUNCTION deploy_mode RETURN VARCHAR2;
 
     -- Every procedure above labels its session MODULE 'AWRCAP/cap_results.<name>'
