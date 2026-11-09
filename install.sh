@@ -333,6 +333,7 @@ steps() {
   [[ ${CFG[INTO]} == schema ]] && p "CURRENT_SCHEMA = ${CFG[OWNER]:-default owner}"
   [[ ${CFG[FIXTURE_DATA]} == test ]] && p "test/fixture_install.sql"
   [[ ${CFG[FIXTURE_DATA]} == demo ]] && p "test/demo_fixture.sql"
+  [[ ${CFG[ROLE]} == standalone ]] && p "repository/self.sql: on an existing install, rebuild the link if the new password broke it, collect"
   [[ ${CFG[DOCTOR]} == Y ]] && p "doctor.sql ($([[ ${CFG[FORCE_INSTALL]} == Y ]] && echo 'a FAIL is reported, install goes on' || echo 'a FAIL stops before install'))"
   p "install.sql (deploy_mode = $(deploy_mode))"
   [[ ${CFG[ROLE]} == standalone ]] && p "repository/self.sql: register this database as its own target (or refresh its link), collect"
@@ -469,6 +470,13 @@ EOF
     test) printf '\nPROMPT ==== install.sh: test/fixture_install.sql ====\n@@test/fixture_install.sql\n%s\n' "$STRICT" ;;
     demo) printf '\nPROMPT ==== install.sh: test/demo_fixture.sql ====\n@@test/demo_fixture.sql\n%s\n' "$STRICT" ;;
   esac
+
+  [[ ${CFG[ROLE]} == standalone ]] && cat <<EOF
+
+PROMPT ==== install.sh: repository/self.sql (an existing install: refresh the link first) ====
+@@repository/self.sql
+$STRICT
+EOF
 
   if [[ ${CFG[DOCTOR]} == Y ]]; then
     cat <<EOF

@@ -6,7 +6,9 @@
 --   1. target/self.sql      the read-only reader with a random password
 --                           (target/prepare.sql, target/check.sql), then
 --                           into the PDB the suite lives in
---   2. create_owner.sql     the schema-only suite owner (NO AUTHENTICATION)
+--   2. create_owner.sql     the schema-only suite owner (NO AUTHENTICATION),
+--                           then repository/self.sql, which on a re-run
+--                           rebuilds the link the new password broke
 --   3. doctor.sql           preflight checklist (read-only; PASS/WARN/FAIL)
 --   4. install.sql          deploy_mode = repository, into that owner
 --   5. repository/self.sql  register this database as its target, collect
@@ -80,6 +82,10 @@ SET DEFINE '&'
 SET FEEDBACK OFF
 WHENEVER SQLERROR EXIT FAILURE
 ALTER SESSION SET CURRENT_SCHEMA = &owner;
+@@repository/self.sql
+SET DEFINE '&'
+SET FEEDBACK OFF
+WHENEVER SQLERROR EXIT FAILURE
 
 PROMPT
 PROMPT ==== [3/6] preflight -- doctor.sql ====
