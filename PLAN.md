@@ -1060,7 +1060,7 @@ Decided 2026-11-09:
       the replay gave 59 of 59 lines equal (58 knobs and the row),
       CAP_CFG_CHECK all OK. A replay naming a knob the release lacks
       printed "not replayed: knob tbspc_min_hist" and applied the rest.
-- [ ] **M25.7 Retire local mode.** Move ddl/10 to `repository/seam.sql`
+- [x] **M25.7 Retire local mode.** Move ddl/10 to `repository/seam.sql`
       and update every reference. install.sql: `deploy_mode = local` aborts
       before any DDL and names the upgrade path (uninstall here, standalone
       into a PDB), as warehouse mode did in M24.9. create_owner.sql:
@@ -1083,6 +1083,33 @@ Decided 2026-11-09:
       the root schema, C##CAPLOC holds no DBA_HIST grant and no
       CONTAINER_DATA, the new owner's CAP_CFG equals C##CAPLOC's, and the
       new install's fingerprints equal CAPX2's.
+      Done 2026-11-09: ddl/10 is `repository/seam.sql` (build.py's SEAM;
+      its header says it is never installed). Both create_owner.sql and
+      uninstall.sql include the new `revoke_local_grants.sql`, which finds
+      the owner's SELECT grants on SYS.DBA_HIST_* and V_$PARAMETER in
+      DBA_TAB_PRIVS (no list to keep in step with the manifest) and its
+      CONTAINER_DATA, revokes them as SYSDBA (CONTAINER=ALL for a common
+      grant, from CDB$ROOT only) and prints them otherwise. build.py no
+      longer proves create_owner's grants: it grants no DBA_HIST view, and a
+      revoke list that followed the manifest would miss what an older owner
+      was given. New `test/lint_dba_hist.sh` (code, comments aside, outside
+      repository/, target/, test/, bench/ and the generated ddl/13; a read
+      planted in report/drill_cpu.sql failed it), run by
+      dbmint_harness.sh, dbmint_copy_check.sh and dbmint_scale.sh. On
+      dbmint: `deploy_mode = local` aborted in CAPM2 with 146 objects and
+      the same last DDL time before and after; uninstall.sql in C##CAPLOC
+      (two knobs set off default) wrote a 2-knob replay file, revoked 19
+      SELECT grants and CONTAINER_DATA and left 0 objects, and a second run
+      did nothing; standalone into CAPM6 collected 165k rows; with both at
+      snap_id 4024 and default config, CAPM6 and CAPX2 fingerprinted equal
+      on the 12 CAPV views and the 52 stack views; the replay set 2 knobs
+      and CAPM6's CAP_CONFIG then equals C##CAPLOC's but for
+      reader_expiry_warn_days, which M25.5 added after C##CAPLOC was
+      installed; CAPX2 re-installed through install.sh with 0 INVALID and
+      suite_version 25, copy check EQUAL; fixture harness on CAPX1 passed,
+      once run_test.sql's SNAPSHOT-table check stopped comparing the clock
+      columns: CAPR_COVERAGE.age_hours, stored by the refresh minutes
+      earlier, crossed its 0.1 h rounding while the VM was busy.
 - [ ] **M25.8 Docs.** start.html keeps "Measure one database" and "Measure
       a fleet" as two paths of one install; the first is the second with
       the repository as its own target. Also: reference.html (modes,
