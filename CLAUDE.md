@@ -155,15 +155,18 @@ removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
 `test/lint_snapshot_reads.sh` and `test/lint_dba_hist.sh` (plus build.py
 --check and the two offline report tests), syncs and runs the whole fixture
 harness on dbmint.
+README.md shows diagrams as `docs/diagrams/readme/*.svg`, standalone copies
+of inline SVGs from the docs pages made by `docs/diagrams/readme_svgs.py`
+(its `DIAGRAMS` map names page and diagram): edit the page's SVG, rerun it.
 `test/docs_lint.sh` checks the docs against the DDL (knobs, object index,
 alert kinds, no assertion counts, no "generated" claim, every `CREATE TABLE`
 in ddl/ + repository/ plus `CAP_H_*` named in reference.html#tables and in
 the "Persisted tables" bullet above, every `profiles/*.env` in
 reference.html#installer and install.sh's `--profile` help, no token of
-the retired warehouse mode, and none of the retired local mode (its
+the retired warehouse mode, none of the retired local mode (its
 deploy_mode value, create_owner's former mode define, ddl/10's old file
 name) outside PLAN.md, bench/ and the allow-listed lines that reject or
-explain it).
+explain it, and README diagrams current).
 `install.sh` is the guided / silent installer for every role (one SQL*Plus
 driver per run, log in `reports/install_<ts>.log`); `profiles/*.env` are its
 answer files: `standalone` (this database as its own target: the reader
