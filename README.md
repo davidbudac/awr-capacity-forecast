@@ -28,11 +28,12 @@ threshold and robust z, and the `drill_*` scripts print the fit arithmetic.
 
 ## How it works
 
-![Local AWR, AWR copied from targets, or test fixtures feed the CAPV seam; CAPD daily rollups feed CAPF forecasts and CAPA anomalies, which meet in the CAPR report views](docs/diagrams/readme/dataflow.svg)
+![Each target's AWR, copied over a database link, or test fixtures feed the CAPV seam; CAPD daily rollups feed CAPF forecasts and CAPA anomalies, which meet in the CAPR report views](docs/diagrams/readme/dataflow.svg)
 
-- Only the `CAPV_` seam reads `DBA_HIST_*`. One install file maps it to local
-  AWR, a repository's copies, or the test fixtures; everything above is the
-  same SQL.
+- Every measured database is a target: a repository copies its `DBA_HIST_*`
+  over a DB link, also when the repository measures itself. Only the `CAPV_`
+  seam reads the copies (or the test fixtures); everything above is the same
+  SQL.
 - **Tier 1**: SQL linear fit (least squares, or Theil-Sen / drift on demand),
   anchored at today's value. **Tier 2** (optional): OML exponential
   smoothing as a second opinion, at most +30 days on 19c.
@@ -42,27 +43,30 @@ Details: [How it works](https://davidbudac.github.io/awr-capacity-forecast/conce
 
 ## Install
 
-![Path A: the suite runs on the measured database and reads its own AWR. Path B: each target gets only a read-only reader; a repository copies their AWR hourly over a DB link and runs the suite on the copies](docs/diagrams/readme/deploy.svg)
+![Path A: the suite lives in a PDB of the measured database and copies its own AWR over a loopback DB link. Path B: each target gets only a read-only reader; a repository copies their AWR hourly over a DB link and runs the suite on the copies](docs/diagrams/readme/deploy.svg)
 
 ### One database
 
-On the database host, as SYSDBA in `CDB$ROOT`:
+On the database host, as SYSDBA in `CDB$ROOT` (or a non-CDB):
 
 ```bash
 git clone https://github.com/davidbudac/awr-capacity-forecast.git
 cd awr-capacity-forecast
-./quickstart.sh            # preflight + install + first report in reports/
+./quickstart.sh            # reader + owner + install + collect + first report in reports/
 ```
 
-As `/ as sysdba` this installs into SYS, which suits a trial.
+It creates the read-only reader `C##AWRRDR` and the schema-only owner
+`AWRCAP` in the one open PDB, registers this database as its own target over
+a loopback DB link and copies its AWR. It needs SYSDBA and never installs
+into SYS.
 
 AWR keeps 8 days by default, so the first report says `INSUFFICIENT_HISTORY`.
-Raise retention once:
-`EXEC DBMS_WORKLOAD_REPOSITORY.MODIFY_SNAPSHOT_SETTINGS(retention => 90*24*60);`
+The copies keep 400 days and grow with every collect, so schedule the hourly
+collect (`CAP_COLLECT_JOB`).
 
-For a lasting install, `./install.sh --profile standalone` creates a
-dedicated owner, installs, trains the Tier 2 models and creates the
-scheduler jobs (disabled). `./install.sh` alone runs a wizard.
+For a lasting install, `./install.sh --profile standalone` does the same,
+trains the Tier 2 models and creates the scheduler jobs (disabled).
+`./install.sh` alone runs a wizard.
 
 ### A fleet
 
@@ -168,9 +172,10 @@ More: [Testing](https://davidbudac.github.io/awr-capacity-forecast/testing.html)
 
 ## Requirements and caveats
 
-- Oracle 19c or newer. Local mode needs the Diagnostics Pack and **direct**
-  SELECT grants on the `DBA_HIST_*` views (`create_owner.sql` sets them up).
-  Tier 2 needs `CREATE MINING MODEL`.
+- Oracle 19c or newer. Each target needs the Diagnostics Pack and a reader
+  with **direct** SELECT grants on the `DBA_HIST_*` views (`target/prepare.sql`
+  sets it up). The repository owner needs CREATE DATABASE LINK
+  (`create_owner.sql`). Tier 2 needs `CREATE MINING MODEL`.
 - Forecasts need history: at least 14 days, and the default training window
   is 90.
 - PGA: about 1.5 GB per concurrent suite session (refresh, a report driver),

@@ -27,7 +27,9 @@
 #   CAP_OWNER_PW  password for a new owner (empty: NO AUTHENTICATION, the
 #                 schema-only user you install into as SYSDBA)
 #   CAP_READER_PW password for the read-only reader (ROLE=target; required,
-#                 the repository's DB link logs in with it)
+#                 the repository's DB link logs in with it). ROLE=standalone
+#                 needs none: the run gives the reader a random password that
+#                 never leaves the SQL*Plus session.
 #
 # The answers become one SQL*Plus driver, written next to this script (the @@
 # includes resolve relative to the outermost script) with mode 600, run with
@@ -42,21 +44,22 @@ cd "$HERE"
 #   kind: yn, choice:a/b/c, list:a/b/c (comma list or none), name (SQL
 #   identifier or empty), text (no quotes or newlines), int
 KEYS=(
-"ROLE|standalone|choice:standalone/target/repository/fixture|What this database is: standalone (the suite reads its own AWR), target (only a read-only AWR reader for a repository), repository (the suite reads AWR copied from registered targets), fixture (test data)"
+"ROLE|standalone|choice:standalone/target/repository/fixture|What this database is: standalone (the suite here, reading this database as its own target), target (only a read-only AWR reader for a repository), repository (the suite reads AWR copied from registered targets), fixture (test data)"
 "CONNECT|/ as sysdba|text|SQL*Plus connect string (no password; '/ as sysdba' for OS auth)"
-"CONTAINER||name|Container to switch to after connecting (empty = stay where you land, e.g. CDB\$ROOT)"
+"CONTAINER||name|Container to switch to after connecting (empty = stay where you land, e.g. CDB\$ROOT). Standalone: the PDB the suite lives in (empty = the one open PDB)"
 "INTO|self|choice:self/schema|Install into the connected schema (self) or into another schema via CURRENT_SCHEMA (schema)"
-"OWNER||name|Owner schema (empty = C##AWRCAP in CDB\$ROOT, AWRCAP elsewhere)"
+"OWNER||name|Owner schema (empty = C##AWRCAP in CDB\$ROOT, AWRCAP elsewhere, e.g. in the standalone PDB)"
 "OWNER_CREATE|N|yn|Create or refresh that owner with create_owner.sql (needs SYSDBA)"
 "OWNER_TS||name|Owner default tablespace (empty = the database default)"
 "OWNER_QUOTA|1G|text|Owner quota on that tablespace (e.g. 1G, UNLIMITED)"
-"READER|C##AWRRDR|name|Read-only AWR reader to create on the target (the repository's DB link connects as it)"
+"READER||name|Read-only AWR reader to create on the target, the user the repository's DB link connects as (empty = C##AWRRDR in a CDB, AWRRDR in a non-CDB)"
+"SELF_CONNECT||text|Standalone: the address the loopback link connects to (empty = //localhost:<listener port>/<the root's default service>)"
 "FIXTURE_DATA|test|choice:none/test/demo|Fixture data to load first: none (keep existing), test (assertion fixture), demo (150-day ECOMPRD story)"
 "DOCTOR|Y|yn|Run the doctor.sql preflight before installing"
 "FORCE_INSTALL|N|yn|Install even when doctor reports FAIL lines"
 "TRAIN_ML|N|yn|Train the Tier 2 OML ESM models now (needs CREATE MINING MODEL)"
 "JOBS|N|yn|Create the DBMS_SCHEDULER jobs (CAP_NIGHTLY_JOB: purge, retrain, refresh, alert spool in order; repository: hourly collect)"
-"JOBS_ENABLE|N|yn|Enable CAP_NIGHTLY_JOB right away (jobs are created disabled; CAP_COLLECT_JOB stays off until targets are added)"
+"JOBS_ENABLE|N|yn|Enable the jobs right away (they are created disabled): CAP_NIGHTLY_JOB, and for standalone CAP_COLLECT_JOB too (a repository enables it once targets are added)"
 "REPORT_DIR|CAP_REPORTS|name|Directory object the alert-spool job writes to"
 "NIGHTLY_INTERVAL|FREQ=DAILY;BYHOUR=1;BYMINUTE=0;BYSECOND=0|text|CAP_NIGHTLY_JOB calendar string"
 "ORDS|N|yn|Publish the ORDS REST module awrcap (Grafana / Prometheus feed; needs ORDS in this database)"
@@ -80,7 +83,7 @@ die() { echo "install.sh: $*" >&2; exit 2; }
 # ROLE -> install.sql deploy_mode (target installs no suite)
 deploy_mode() {
   case ${CFG[ROLE]} in
-    standalone) echo local ;;
+    standalone) echo repository ;;
     target)     echo none ;;
     *)          echo "${CFG[ROLE]}" ;;
   esac
@@ -182,7 +185,8 @@ Nothing touches the database until you confirm the summary.
 EOF
   section "Role"
   cat <<EOF
-  standalone  the suite on this database, reading its own AWR
+  standalone  the suite on this database, reading its own AWR over a loopback DB link
+              (this database is its own target; the suite goes into a PDB)
   target      no suite: a read-only AWR reader that a repository database pulls from
   repository  the suite here, reading AWR copied from the targets you register
   fixture     test data instead of AWR (assertion harness, demo)
@@ -205,14 +209,25 @@ EOF
     return 0
   fi
 
+  if [[ ${CFG[ROLE]} == standalone ]]; then
+    section "This database as its own target"
+    echo "  Connect as SYSDBA in CDB\$ROOT (or a non-CDB). The run creates the reader there with a"
+    echo "  random password, then installs the suite into a dedicated owner in the PDB (CONTAINER)."
+    ask READER; ask SELF_CONNECT
+  fi
+
   section "Where the suite lives"
-  cat <<EOF
+  if [[ ${CFG[ROLE]} == standalone ]]; then
+    CFG[INTO]=schema
+  else
+    cat <<EOF
   self    install into the schema you connect as (SYS for '/ as sysdba': fine for
           a first look, but everything ends up in the dictionary schema)
   schema  a dedicated owner, the production path; installed as SYSDBA through
           ALTER SESSION SET CURRENT_SCHEMA
 EOF
-  ask INTO
+    ask INTO
+  fi
   if [[ ${CFG[INTO]} == schema ]]; then
     ask OWNER; ask OWNER_CREATE
     if [[ ${CFG[OWNER_CREATE]} == Y ]]; then
@@ -258,9 +273,11 @@ normalise() {
       CFG[$k]=${DEFAULT[$k]}
     done
     CFG[FIXTURE_DATA]=none; CFG[REPORTS]=none
-  else
+  elif [[ ${CFG[ROLE]} != standalone ]]; then
     CFG[READER]=${DEFAULT[READER]}
   fi
+  [[ ${CFG[ROLE]} == standalone ]] || CFG[SELF_CONNECT]=""
+  [[ ${CFG[ROLE]} == standalone ]] && CFG[INTO]=schema
   if [[ ${CFG[INTO]} == self ]]; then CFG[OWNER]=""; CFG[OWNER_CREATE]=N; fi
   [[ ${CFG[OWNER_CREATE]} == Y ]] || { CFG[OWNER_TS]=""; CFG[OWNER_QUOTA]=${DEFAULT[OWNER_QUOTA]}; }
   [[ ${CFG[ROLE]} == fixture ]] || { CFG[FIXTURE_DATA]=none; CFG[RUN_TESTS]=N; }
@@ -268,18 +285,27 @@ normalise() {
   [[ ${CFG[JOBS]} == Y ]] || CFG[JOBS_ENABLE]=N
   [[ ${CFG[ORDS]} == Y ]] || CFG[ORDS_ALIAS]=""
   [[ -n ${CFG[REPORTS]} ]] || CFG[REPORTS]=none
-  if [[ ${CFG[OWNER_CREATE]} == Y && ${CFG[CONNECT],,} != *"as sysdba"* ]]; then
+  if [[ ${CFG[ROLE]} == standalone && ${CFG[CONNECT],,} != *"as sysdba"* ]]; then
+    echo "install.sh: note: ROLE=standalone needs a SYSDBA connection (target/self.sql stops otherwise)" >&2
+  elif [[ ${CFG[OWNER_CREATE]} == Y && ${CFG[CONNECT],,} != *"as sysdba"* ]]; then
     echo "install.sh: note: OWNER_CREATE=Y needs SYSDBA (or CREATE USER + GRANT ANY [OBJECT] PRIVILEGE)" >&2
   fi
   return 0
+}
+
+skip_key() {
+  case ${CFG[ROLE]} in
+    target)     [[ ! " ROLE CONNECT CONTAINER READER " =~ " $1 " ]] ;;
+    standalone) [[ $1 == INTO ]] ;;
+    *)          [[ $1 == READER || $1 == SELF_CONNECT ]] ;;
+  esac
 }
 
 summary() {
   local k
   printf '\nPlan%s\n' "${PROFILE_NAME:+ (profile $PROFILE_NAME)}"
   for k in "${ORDER[@]}"; do
-    [[ ${CFG[ROLE]} == target && ! " ROLE CONNECT CONTAINER READER " =~ " $k " ]] && continue
-    [[ ${CFG[ROLE]} != target && $k == READER ]] && continue
+    skip_key "$k" && continue
     printf '  %-17s %s\n' "$k" "${CFG[$k]:-<empty>}"
   done
   [[ ${CFG[OWNER_CREATE]} == Y ]] && printf '  %-17s %s\n' "owner password" "$([[ -n ${CAP_OWNER_PW:-} ]] && echo set || echo 'none (NO AUTHENTICATION)')"
@@ -291,9 +317,14 @@ summary() {
 steps() {
   local n=1
   p() { echo "$n. $*"; n=$((n + 1)); }
-  p "connect as '${CFG[CONNECT]}'${CFG[CONTAINER]:+, container ${CFG[CONTAINER]}}"
+  if [[ ${CFG[ROLE]} == standalone ]]; then
+    p "connect as '${CFG[CONNECT]}'"
+    p "target/self.sql: reader ${CFG[READER]:-(default name)} with a random password (target/prepare.sql, target/check.sql), then switch to the PDB ${CFG[CONTAINER]:-(the one open PDB)}"
+  else
+    p "connect as '${CFG[CONNECT]}'${CFG[CONTAINER]:+, container ${CFG[CONTAINER]}}"
+  fi
   if [[ ${CFG[ROLE]} == target ]]; then
-    p "target/prepare.sql (reader ${CFG[READER]})"
+    p "target/prepare.sql (reader ${CFG[READER]:-(default name)})"
     p "target/check.sql"
     return 0
   fi
@@ -301,10 +332,12 @@ steps() {
   [[ ${CFG[INTO]} == schema ]] && p "CURRENT_SCHEMA = ${CFG[OWNER]:-default owner}"
   [[ ${CFG[FIXTURE_DATA]} == test ]] && p "test/fixture_install.sql"
   [[ ${CFG[FIXTURE_DATA]} == demo ]] && p "test/demo_fixture.sql"
+  [[ ${CFG[ROLE]} == standalone ]] && p "repository/self.sql: on an existing install, rebuild the link if the new password broke it, collect"
   [[ ${CFG[DOCTOR]} == Y ]] && p "doctor.sql ($([[ ${CFG[FORCE_INSTALL]} == Y ]] && echo 'a FAIL is reported, install goes on' || echo 'a FAIL stops before install'))"
   p "install.sql (deploy_mode = $(deploy_mode))"
+  [[ ${CFG[ROLE]} == standalone ]] && p "repository/self.sql: register this database as its own target (or refresh its link), collect"
   [[ ${CFG[TRAIN_ML]} == Y ]] && p "cap_forecast_ml.train_all"
-  [[ ${CFG[JOBS]} == Y ]] && p "install_jobs.sql$([[ ${CFG[JOBS_ENABLE]} == Y ]] && echo ', then enable CAP_NIGHTLY_JOB')"
+  [[ ${CFG[JOBS]} == Y ]] && p "install_jobs.sql$([[ ${CFG[JOBS_ENABLE]} == Y ]] && echo ", then enable $(enable_jobs)")"
   [[ ${CFG[ORDS]} == Y ]] && p "grafana/ords/awrcap_module.sql"
   [[ ${CFG[APEX]} == Y ]] && p "apex/install.sql (workspace ${CFG[APEX_WORKSPACE]}, app ${CFG[APEX_APP_ID]})"
   [[ ${CFG[RUN_TESTS]} == Y ]] && p "test/run_test.sql$([[ ${CFG[TRAIN_ML]} == Y ]] && echo ' + test/run_test_ml.sql')"
@@ -318,8 +351,7 @@ save_profile() {
     echo "# saved by install.sh on $(date '+%Y-%m-%d %H:%M')"
     echo "# replay: ./install.sh --profile $f"
     for k in "${ORDER[@]}"; do
-      [[ ${CFG[ROLE]} == target && ! " ROLE CONNECT CONTAINER READER " =~ " $k " ]] && continue
-      [[ ${CFG[ROLE]} != target && $k == READER ]] && continue
+      skip_key "$k" && continue
       echo "$k=${CFG[$k]}"
     done
   } > "$f"
@@ -327,6 +359,10 @@ save_profile() {
 }
 
 # ---------------------------------------------------------------- driver
+
+enable_jobs() {
+  if [[ ${CFG[ROLE]} == standalone ]]; then echo "CAP_NIGHTLY_JOB CAP_COLLECT_JOB"; else echo "CAP_NIGHTLY_JOB"; fi
+}
 
 # Re-asserted before every step: several included scripts leave
 # WHENEVER SQLERROR CONTINUE or SET DEFINE OFF behind.
@@ -356,7 +392,20 @@ CONNECT $conn
 SET APPINFO OFF
 SET APPINFO "AWRCAP/install.sh"
 EOF
-  [[ -n ${CFG[CONTAINER]} ]] && echo "ALTER SESSION SET CONTAINER = ${CFG[CONTAINER]};"
+  if [[ ${CFG[ROLE]} == standalone ]]; then
+    cat <<EOF
+
+PROMPT ==== install.sh: target/self.sql (this database as its own target) ====
+DEFINE container    = '${CFG[CONTAINER]}'
+DEFINE reader       = '${CFG[READER]}'
+DEFINE self_connect = '${CFG[SELF_CONNECT]}'
+@@target/self.sql
+$STRICT
+SET SERVEROUTPUT ON SIZE UNLIMITED FORMAT WRAPPED
+EOF
+  elif [[ -n ${CFG[CONTAINER]} ]]; then
+    echo "ALTER SESSION SET CONTAINER = ${CFG[CONTAINER]};"
+  fi
 
   if [[ ${CFG[ROLE]} == target ]]; then
     cat <<EOF
@@ -398,10 +447,9 @@ DEFINE owner       = '&cap_owner'
 DEFINE owner_pw    = '$opw'
 DEFINE owner_ts    = '${CFG[OWNER_TS]}'
 DEFINE owner_quota = '${CFG[OWNER_QUOTA]}'
-DEFINE owner_mode  = '$([[ ${CFG[ROLE]} == repository ]] && echo repository || echo local)'
 @@create_owner.sql
 $STRICT
-UNDEFINE owner owner_pw owner_ts owner_quota owner_mode
+UNDEFINE owner owner_pw owner_ts owner_quota
 EOF
   fi
   [[ ${CFG[INTO]} == schema ]] && echo "ALTER SESSION SET CURRENT_SCHEMA = &cap_owner;"
@@ -418,6 +466,13 @@ EOF
     test) printf '\nPROMPT ==== install.sh: test/fixture_install.sql ====\n@@test/fixture_install.sql\n%s\n' "$STRICT" ;;
     demo) printf '\nPROMPT ==== install.sh: test/demo_fixture.sql ====\n@@test/demo_fixture.sql\n%s\n' "$STRICT" ;;
   esac
+
+  [[ ${CFG[ROLE]} == standalone ]] && cat <<EOF
+
+PROMPT ==== install.sh: repository/self.sql (an existing install: refresh the link first) ====
+@@repository/self.sql
+$STRICT
+EOF
 
   if [[ ${CFG[DOCTOR]} == Y ]]; then
     cat <<EOF
@@ -446,6 +501,12 @@ DEFINE deploy_mode = '$(deploy_mode)'
 @@install.sql
 $STRICT
 EOF
+  [[ ${CFG[ROLE]} == standalone ]] && cat <<EOF
+
+PROMPT ==== install.sh: repository/self.sql ====
+@@repository/self.sql
+$STRICT
+EOF
 
   # A model that fails to build keeps the previous one and raises ORA-20060
   # after the batch: report it, do not abort the rest of the install.
@@ -472,11 +533,11 @@ DEFINE nightly_interval = '${CFG[NIGHTLY_INTERVAL]}'
 @@install_jobs.sql
 $STRICT
 EOF
-    [[ ${CFG[JOBS_ENABLE]} == Y ]] && cat <<'EOF'
+    [[ ${CFG[JOBS_ENABLE]} == Y ]] && cat <<EOF
 BEGIN
     FOR j IN (SELECT job_name FROM all_scheduler_jobs
               WHERE  owner = '&cap_target'
-              AND    job_name = 'CAP_NIGHTLY_JOB') LOOP
+              AND    job_name IN ($(enable_jobs | sed "s/[A-Z_]\{1,\}/'&'/g; s/ /, /g"))) LOOP
         DBMS_SCHEDULER.ENABLE('"&cap_target"."' || j.job_name || '"');
         DBMS_OUTPUT.PUT_LINE('  enabled ' || j.job_name);
     END LOOP;

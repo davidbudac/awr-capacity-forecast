@@ -42,7 +42,7 @@
 </style>
 <rect x="0" y="0" width="760" height="300" style="fill:var(--bg)"/>
 <title id="dd-deploy-title">Where the suite runs, path A and path B</title>
-<desc id="dd-deploy-desc">Path A installs the suite on the measured database, where it reads its own AWR. Path B leaves each target with only a read-only reader; one repository database copies their AWR over a database link every hour and runs the suite on the copies.</desc>
+<desc id="dd-deploy-desc">Path A installs the suite in a PDB of the measured database, which copies its own AWR over a loopback database link. Path B leaves each target with only a read-only reader; one repository database copies their AWR over a database link every hour and runs the suite on the copies.</desc>
 <defs><marker id="dd-deploy-mk-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-link" points="0 0, 8 3, 0 6"/></marker>
 <marker id="dd-deploy-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker></defs>
 <rect class="paper" width="760" height="300"/>
@@ -68,12 +68,12 @@
 <rect class="tag" x="36" y="46" width="28" height="12" rx="2"/>
 <text class="eb" x="50" y="55" text-anchor="middle" style="letter-spacing:.08em">DB</text>
 <text class="nm" x="122" y="76" text-anchor="middle">Measured database</text>
-<text class="sub" x="122" y="90" text-anchor="middle">deploy_mode = local</text>
-<path class="e" d="M122 152 L122 132" marker-end="url(#dd-deploy-mk)"/>
-<text class="al" x="132" y="145">SELECT</text>
+<text class="sub" x="122" y="90" text-anchor="middle">its own target</text>
+<path class="e-link" d="M122 152 L122 132" marker-end="url(#dd-deploy-mk-link)"/>
+<text class="al-link" x="132" y="145">LOOPBACK LINK</text>
 <rect class="n-focal" x="40" y="104" width="164" height="24" rx="4"/>
 <text class="nm-acc" x="48" y="120">Suite</text>
-<text class="sub" x="196" y="119" text-anchor="end">CAP_* objects</text>
+<text class="sub" x="196" y="119" text-anchor="end">PDB owner</text>
 <rect class="n-store" x="40" y="152" width="164" height="24" rx="4"/>
 <text class="nm" x="48" y="168">AWR</text>
 <text class="sub" x="196" y="167" text-anchor="end">DBA_HIST_*</text>

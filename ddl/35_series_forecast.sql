@@ -57,7 +57,7 @@
 --                     of redo the FRA holds at today's rate. The log stream
 --                     is shared, so the rate is the SUM of cur_val over the
 --                     dbid's current (is_current = 'Y') REDO_GB_DAY rows, one
---                     per container in local mode, and every REDO row of the
+--                     per container of a CDB, and every REDO row of the
 --                     dbid carries the same number. NULL when either side is
 --                     NULL or 0. It is an upper bound: the FRA also holds
 --                     flashback logs and backups.

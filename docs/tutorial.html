@@ -208,8 +208,8 @@
       </figure>
 
       <p>A view's prefix names its layer. Only <span class="inline">CAPV_</span> views read
-        <span class="inline">DBA_HIST_*</span>, so the layers above run unchanged on local AWR, a
-        repository's copies of other databases' AWR or the test fixture.</p>
+        <span class="inline">DBA_HIST_*</span>-shaped data, so the layers above run unchanged on a
+        repository's copies of its targets' AWR (its own database's included) or the test fixture.</p>
 
       <!-- ===================== 2. INSTALL ===================== -->
       <div class="section-head" id="install" data-min="2">
@@ -219,7 +219,8 @@
 
       <p>You need Oracle Database 19c or newer with the Diagnostics Pack (AWR is part of it),
         <span class="inline">sqlplus</span>, and a <span class="inline">sysdba</span> connection to
-        <span class="inline">CDB$ROOT</span>, where AWR history lives. On the database host:</p>
+        <span class="inline">CDB$ROOT</span>, where AWR history lives. The suite will live in a PDB and
+        read that AWR over a loopback database link. On the database host:</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">DB host · bash</span><span class="term__tag in">you run</span></div>
@@ -228,27 +229,37 @@ cd awr-capacity-forecast
 ./quickstart.sh                      <span class="c-cmt"># sqlplus / as sysdba, CDB$ROOT</span></pre>
       </div>
 
-      <p><span class="inline">quickstart.sh</span> runs three scripts.
-        <span class="inline">doctor.sql</span>: read-only preflight of grants, retention and history
-        per source; a FAIL line stops the quickstart before install.
-        <span class="inline">install.sql</span>: creates the views and packages in the current schema.
-        <span class="inline">report/report.sql</span>: spools the first report. End of output:</p>
+      <p><span class="inline">quickstart.sh</span> runs six steps.
+        <span class="inline">target/self.sql</span>: the read-only reader <span class="inline">C##AWRRDR</span>
+        in the root, with a random password the session keeps to itself, and a check of its grants
+        and AWR retention. <span class="inline">create_owner.sql</span>: the schema-only owner
+        <span class="inline">AWRCAP</span> in the PDB. <span class="inline">doctor.sql</span>: read-only
+        preflight of that owner; a FAIL line stops the quickstart before install.
+        <span class="inline">install.sql</span>: the views and packages in the owner.
+        <span class="inline">repository/self.sql</span>: registers this database as its own target and
+        copies its AWR. <span class="inline">report/report.sql</span>: spools the first report. Excerpt
+        of the output:</p>
 
       <div class="term">
         <div class="term__bar"><span class="term__title">output</span><span class="term__tag">expect</span></div>
-<pre>  <span class="c-pass">All CAP* objects valid in schema SYS.</span>
+<pre>  <span class="c-pass">All CAP* objects valid in schema AWRCAP.</span>
+
 ============================================================
- Install complete (deploy_mode = local, schema = SYS).
-============================================================
+Install complete (deploy_mode = repository, schema = AWRCAP).
 ...
-Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
+  target CDB1 registered over link CAP_CDB1; containers visible: CDB$ROOT, PDB$SEED, PDB1
+  CDB1 DBID 1234567890: snap_id 1..4023, 164998 rows (3.8 s)
+...
+Report written to: reports/cap_report_CDB1_202611090823.txt</pre>
       </div>
 
       <div class="callout warn">
         <span class="ico">!</span>
-        <p><strong>A fresh database reports INSUFFICIENT_HISTORY.</strong> Stock AWR keeps 8 days; a
-        forecast needs <span class="inline">min_train_days</span> (14) daily points. Raising retention
-        is optional and is the only change the suite asks of Oracle.</p>
+        <p><strong>A fresh database reports INSUFFICIENT_HISTORY.</strong> Stock AWR keeps 8 days, so the
+        first copy holds 8 days; a forecast needs <span class="inline">min_train_days</span> (14) daily
+        points. The copies grow with every collect (the hourly <span class="inline">CAP_COLLECT_JOB</span>
+        of <span class="inline">install_jobs.sql</span>) and outlive AWR's own retention. Raising
+        retention is optional and gives the next collect more at once.</p>
       </div>
 
       <div class="term in">
@@ -256,26 +267,25 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
 <pre><span class="c-prompt">SQL&gt;</span> EXEC DBMS_WORKLOAD_REPOSITORY.MODIFY_SNAPSHOT_SETTINGS(retention =&gt; 90*24*60);</pre>
       </div>
 
-      <p>As <span class="inline">/ as sysdba</span>, the quickstart installs into SYS and
-        <span class="inline">install.sql</span> warns about it. For a lasting install, create a
-        dedicated owner and install into it. Start SQL*Plus in the repository root;
-        <span class="inline">@@</span> includes resolve from there.</p>
+      <p>For a lasting install, <span class="inline">install.sh</span> runs the same steps and adds the
+        Tier 2 models and the scheduler jobs (created disabled). Later reports run in the owner's
+        schema. Start SQL*Plus in the repository root; <span class="inline">@@</span> includes resolve
+        from there.</p>
 
       <div class="term in">
-        <div class="term__bar"><span class="term__title">SQL*Plus · CDB$ROOT</span><span class="term__tag in">production path</span></div>
-<pre>sqlplus / as sysdba
-<span class="c-prompt">SQL&gt;</span> @create_owner.sql                           <span class="c-cmt">-- C##AWRCAP, direct DBA_HIST_* grants</span>
-<span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CURRENT_SCHEMA = C##AWRCAP;
-<span class="c-prompt">SQL&gt;</span> DEFINE deploy_mode = 'local'
-<span class="c-prompt">SQL&gt;</span> @install.sql                                <span class="c-cmt">-- idempotent; keeps knobs you changed</span>
+        <div class="term__bar"><span class="term__title">DB host · bash, then SQL*Plus</span><span class="term__tag in">production path</span></div>
+<pre>./install.sh --profile standalone                    <span class="c-cmt"># idempotent; keeps knobs you changed</span>
+sqlplus / as sysdba
+<span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CONTAINER = PDB1;
+<span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CURRENT_SCHEMA = AWRCAP;
 <span class="c-prompt">SQL&gt;</span> @report/report.sql</pre>
       </div>
 
       <p>The suite writes only to its own <span class="inline">CAP_*</span> tables.
         <span class="inline">@uninstall.sql</span> removes everything.</p>
 
-      <p>To measure many databases from one place, install the suite on a repository database
-        instead and give each measured database only a read-only user
+      <p>To measure many databases from one place, register more targets: give each measured
+        database only a read-only user and add it to a repository
         (<a href="start.html#fleet">Measure a fleet</a>). The rest of this tutorial reads the same
         either way: a fleet report has one row per database and container, as here.</p>
 
@@ -353,10 +363,11 @@ SEV  KIND             DB/PDB               MESSAGE
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">crontab · oracle</span><span class="term__tag in">example</span></div>
-<pre>30 6 * * * . /home/oracle/.bash_profile; /opt/awrcap/report/run_report.sh "/ as sysdba" --html --keep 14 &gt;&gt; /var/log/awrcap_report.log 2&gt;&amp;1</pre>
+<pre>30 6 * * * . /home/oracle/.bash_profile; /opt/awrcap/report/run_report.sh "/ as sysdba" --container PDB1 --schema AWRCAP --html --keep 14 &gt;&gt; /var/log/awrcap_report.log 2&gt;&amp;1</pre>
       </div>
 
-      <p>Add <span class="inline">--schema C##AWRCAP</span> when the suite lives in a dedicated owner,
+      <p><span class="inline">--container</span> and <span class="inline">--schema</span> name where the
+        suite lives (here the standalone default). Add
         <span class="inline">--csv</span> for one CSV per section view, and
         <span class="inline">--scope 3141592653:3141592654</span> to report on one container only, or
         <span class="inline">--target NAME</span> to report on one target by name (<span class="inline">CAPR_TARGETS</span>).

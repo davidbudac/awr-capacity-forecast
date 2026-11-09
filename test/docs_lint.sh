@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # test/docs_lint.sh -- catch documentation drift against the DDL.
-# Bash + grep/awk, git for check 8 and python3 for check 9. Nine checks, each
-# prints one OK / FAIL summary line (6 and 7 one per document they read):
+# Bash + grep/awk, git for checks 8 and 10 and python3 for check 9. Ten
+# checks, each prints one OK / FAIL summary line (6 and 7 one per document
+# they read):
 #   1. every knob the ddl/05 seed MERGE inserts is named in docs/reference.html;
 #   2. every view / table / package / procedure that ddl/, ml/ and repository/ create is
 #      named in the object index of docs/reference.html (id="objects" up to
@@ -23,6 +24,10 @@
 #   9. README.md's diagrams (docs/diagrams/readme/*.svg) match the docs pages
 #      they are copied from (docs/diagrams/readme_svgs.py --check), and every
 #      image README.md names exists.
+#  10. no tracked file but PLAN.md and bench/ names the retired local mode
+#      (M25): its deploy_mode value, create_owner's owner_mode define or
+#      ddl/10's old file name, except the allow-listed lines that exist to
+#      reject or explain it.
 # Exit 1 when any check fails.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -148,5 +153,16 @@ imgs=$(grep -o '](docs/[^)]*\.svg)' README.md | sed 's/^](//; s/)$//')
 missing=$(for f in $imgs; do [ -f "$f" ] || echo "$f (named in README.md)"; done)
 report "README diagrams current (docs/diagrams/readme_svgs.py --check)" \
   "$(ls docs/diagrams/readme/*.svg | grep -c .)" "$stale${stale:+$'\n'}$missing"
+
+# ---- 10. retired local mode ------------------------------------------------------
+not_local=(-- . ':!PLAN.md' ':!bench' ':!test/docs_lint.sh')
+local_ok=(
+  "^install\.sql:[0-9]+: .*'deploy_mode = local is retired \(M25\)"
+  "^doctor\.sql:[0-9]+: +ELSIF v_deploy_mode = 'local' THEN\$"
+)
+hits=$(git grep -n -I -i -E \
+  "deploy_mode[\"']? *= *[\"']?local\b|owner_mode|10_seam_local" \
+  "${not_local[@]}" | grep -v -E "$(IFS='|'; echo "${local_ok[*]}")")
+report "tracked files without a retired local-mode token" "$(git ls-files "${not_local[@]}" | grep -c .)" "$hits"
 
 exit $rc

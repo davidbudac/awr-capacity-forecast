@@ -119,7 +119,7 @@ USING (
     UNION ALL SELECT 'cpu_quality_gate',        1,        'CAPF_CPU_TREND quality gate: 1 = OK when |slope| > slope CI (slope significance), 0 = legacy R2 >= r2_gate.' FROM dual
     UNION ALL SELECT 'cpu_deseason',            1,        'CAPF_CPU_TREND: 1 = subtract the weekday / weekend mean (and add back the window mean) before the fit, 0 = fit the raw daily values.' FROM dual
     UNION ALL SELECT 'stale_days',              3,        'A CAPF_* series whose last_day is more than this many days before the newest day of its daily source (same dbid) reads is_current = N: dropped tablespace, retired DBID, stopped collection.' FROM dual
-    UNION ALL SELECT 'suite_version',          24.13,     'Suite release that built these objects (latest PLAN.md milestone). Set by every install; not a tuning knob.' FROM dual
+    UNION ALL SELECT 'suite_version',          25,        'Suite release that built these objects (latest PLAN.md milestone). Set by every install; not a tuning knob.' FROM dual
     UNION ALL SELECT 'cpu_min_mad_pct_hour',    5,        'M15: cpu_min_mad_pct for HOUR-grain CPU (HOUR_OF_WEEK): hourly values are noisier than daily averages.' FROM dual
     UNION ALL SELECT 'hour_gap_ratio',        1.5,        'M15: an interval <= 0 h or longer than LEAST(cpu_gap_hours, this x the instance''s median interval) is a gap at HOUR grain.' FROM dual
     UNION ALL SELECT 'series_floor_count',     10,        'M15: anomaly threshold floor for COUNT series (PROCESSES/SESSIONS), in sessions/processes.' FROM dual
@@ -135,6 +135,7 @@ USING (
     UNION ALL SELECT 'seg_window_days',        28,        'CAPR_SEGMENT_GROWTH: trailing days (up to the dbid''s newest snapshot) over which segment growth is summed for the "who is filling it" ranking.' FROM dual
     UNION ALL SELECT 'anomaly_hour_grain',      1,        'CAPA_OBS: 1 = score CPU per hour too (HOUR_OF_WEEK), 0 = day grain only: no HOUR rows, so no hourly anomalies, alerts or ring tooltips (cheaper on long hourly AWR).' FROM dual
     UNION ALL SELECT 'repo_retention_days',   400,        'Repository mode: cap_repo.purge deletes the CAP_H_* copies of snapshots that ended more than this many days ago, and older CAP_COLLECT_LOG rows. 0 = keep everything.' FROM dual
+    UNION ALL SELECT 'reader_expiry_warn_days', 30,       'Repository mode: doctor.sql check 11 WARNs when a target reader''s password expires within this many days (its collects fail with ORA-28001 from then on).' FROM dual
 ) s
 ON (c.cfg_name = s.cfg_name)
 WHEN MATCHED THEN
@@ -215,7 +216,8 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'digest_days'            THEN cfg_value END) AS digest_days,
        MAX(CASE WHEN cfg_name = 'seg_window_days'        THEN cfg_value END) AS seg_window_days,
        MAX(CASE WHEN cfg_name = 'anomaly_hour_grain'     THEN cfg_value END) AS anomaly_hour_grain,
-       MAX(CASE WHEN cfg_name = 'repo_retention_days'    THEN cfg_value END) AS repo_retention_days
+       MAX(CASE WHEN cfg_name = 'repo_retention_days'    THEN cfg_value END) AS repo_retention_days,
+       MAX(CASE WHEN cfg_name = 'reader_expiry_warn_days' THEN cfg_value END) AS reader_expiry_warn_days
 FROM   cap_config;
 
 COMMENT ON TABLE cap_cfg IS 'One row, one NUMBER column per CAP_CONFIG knob (column name = knob name). NULL = the knob row is missing.';
@@ -224,11 +226,11 @@ COMMENT ON TABLE cap_cfg IS 'One row, one NUMBER column per CAP_CONFIG knob (col
 -- CAP_SCOPE (M24.11) -- the database this session reads, one row.
 -- =====================================================================
 -- scope_dbid is the dbid a report driver scoped the session to, NULL for
--- every database. Every AWR read of the seam (ddl/10, 12, 13) keeps only
--- dbid = NVL(scope_dbid, dbid), so a report scoped to one target computes
--- every view above the seam over that target alone: the fleet-wide ranks,
--- windows and materialized subqueries above it would otherwise stop a dbid
--- predicate from reaching the copies. The seam repeats this expression
+-- every database. Every AWR read of the seam (repository/seam.sql, ddl/12,
+-- ddl/13) keeps only dbid = NVL(scope_dbid, dbid), so a report scoped to
+-- one target computes every view above the seam over that target alone: the
+-- fleet-wide ranks, windows and materialized subqueries above it would
+-- otherwise stop a dbid predicate from reaching the copies. The seam repeats this expression
 -- inline, which parses cheaper than a subquery on this view; run_test.sql
 -- proves the two agree. report/scope.sql sets the session's CLIENT_INFO to
 -- 'AWRCAP dbid=<n>' (no privilege, no package state, visible in V$SESSION)
@@ -271,7 +273,7 @@ WITH u AS (
                alert_modes_cpu, alert_modes_series, stale_hours,
                data_stale_max_days, resolve_grace_runs, refresh_stale_hours,
                digest_days, seg_window_days, anomaly_hour_grain,
-               repo_retention_days))
+               repo_retention_days, reader_expiry_warn_days))
      ),
      r AS (
         SELECT u.knob, u.value,
@@ -323,6 +325,8 @@ WITH u AS (
                         THEN 'must be a whole number >= 1'
                    WHEN u.knob = 'seg_window_days'     AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
+                   WHEN u.knob = 'reader_expiry_warn_days' AND (u.value <> TRUNC(u.value) OR u.value < 1)
+                        THEN 'must be a whole number >= 1'
                    WHEN u.knob = 'anomaly_hour_grain'  AND u.value NOT IN (0, 1)
                         THEN 'must be 0 (day grain only) or 1 (score hours too)'
                    WHEN u.knob = 'cyclic_min_cliffs'   AND (u.value <> TRUNC(u.value) OR u.value = 1 OR u.value < 0)
@@ -335,8 +339,8 @@ WITH u AS (
                                                              OR (u.value <> 0 AND u.value < c.longest_need))
                         THEN 'must be 0 (keep everything) or a whole number >= ' || c.longest_need
                              || ': the longest history a feature reads (doctor.sql section 7)'
-                   WHEN u.knob = 'suite_version'       AND u.value < 24.13
-                        THEN 'older than this release (24.13): re-run install.sql'
+                   WHEN u.knob = 'suite_version'       AND u.value < 25
+                        THEN 'older than this release (25): re-run install.sql'
                END AS reason
         FROM   u
         CROSS  JOIN (SELECT g.*,

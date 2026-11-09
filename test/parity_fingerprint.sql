@@ -5,8 +5,9 @@
 --   @test/parity_fingerprint.sql stack
 --
 -- Prints "FP <view> <rows> <hash>" for every view of the current schema in
--- the layer, sorted by name, so two installs over the same AWR (local mode in
--- CDB$ROOT, repository mode over a link to it) can be compared with diff.
+-- the layer, sorted by name, so two installs over the same AWR (two
+-- repositories that collect one target, e.g. a standalone install and
+-- another schema registered to the same root) can be compared with diff.
 --   seam   the CAPV_* views but CAPV_CONTRACT and CAPV_TARGET; a view with a
 --          SNAP_ID column counts only rows with snap_id <= cut, so a snapshot
 --          that lands between the two runs does not show up as a difference.
@@ -14,8 +15,8 @@
 --          Only equal when both installs see the same snapshots, so run both
 --          right after a collect and check that CAPV_SNAPSHOT's newest
 --          snap_id matches.
--- CAPV_TARGET and CAPR_TARGETS describe how each install is fed (LOCAL or a
--- LINK, its address and collect log), so they differ by design.
+-- CAPV_TARGET and CAPR_TARGETS describe how each install is fed (its link,
+-- address, reader and collect log), so they differ by design.
 -- The hash is order-free: SUM over rows of ORA_HASH of the row's column
 -- hashes. Numbers are hashed at nine significant digits, so two plans that
 -- add up the same values in a different order still agree. LOB columns are

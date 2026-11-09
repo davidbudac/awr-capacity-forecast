@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Getting started — AWR Capacity Forecast</title>
-<meta name="description" content="Two ways to deploy: install the suite on the database it measures, or prepare targets and measure a fleet from one repository database.">
+<meta name="description" content="Two ways to deploy one install: a database as its own target over a loopback link, or a fleet of targets measured from one repository database.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23b06a0d'/><path d='M16 8L24 23L8 23Z' fill='%23fff'/></svg>">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
@@ -53,22 +53,24 @@
       <section class="hero" id="start">
         <span class="eyebrow">Getting started</span>
         <h1>Install and first report</h1>
-        <p class="lead">Two ways to deploy. Measure one database by installing the suite on it, where
-          it reads its own AWR. Or measure a fleet: each measured database gets only a read-only
-          user, and one repository database copies their AWR and runs the suite for all of them.
-          Nothing is written to AWR either way.</p>
+        <p class="lead">Two ways to deploy one install. The suite always copies AWR over a database
+          link and runs on the copies. Measure one database by making it its own target: the suite
+          lives in a PDB owner and reads its CDB's AWR over a loopback link. Or measure a fleet: each
+          measured database gets only a read-only user, and one repository database copies their AWR
+          and runs the suite for all of them. Nothing is written to AWR either way.</p>
       </section>
 
       <div class="track-pick">
         <div class="track-card a">
           <div class="tk">Path A</div>
           <h4><a href="#one">Measure one database</a></h4>
-          <p><span class="inline">quickstart.sh</span> runs the preflight, installs the views and
-            spools the first capacity report, in one run on the measured database.</p>
+          <p><span class="inline">quickstart.sh</span> creates the reader and the suite owner, runs the
+            preflight, installs, copies this database's AWR over a loopback link and spools the first
+            capacity report, in one run on the measured database.</p>
           <div class="meta">
-            <span><b>On the measured database:</b> the whole suite, in one schema</span>
-            <span><b>History:</b> what its AWR keeps (8 days on a stock database)</span>
-            <span><b>Time:</b> about a minute</span>
+            <span><b>On the measured database:</b> a reader in the root, the suite in a PDB owner</span>
+            <span><b>History:</b> kept by the suite, 400 days by default; the first copy holds what AWR still has</span>
+            <span><b>Time:</b> a few minutes</span>
           </div>
         </div>
         <div class="track-card b">
@@ -88,7 +90,7 @@
 <div class="dd-scroll">
 <svg class="dd" viewBox="0 0 760 300" role="img" aria-labelledby="dd-deploy-title dd-deploy-desc">
 <title id="dd-deploy-title">Where the suite runs, path A and path B</title>
-<desc id="dd-deploy-desc">Path A installs the suite on the measured database, where it reads its own AWR. Path B leaves each target with only a read-only reader; one repository database copies their AWR over a database link every hour and runs the suite on the copies.</desc>
+<desc id="dd-deploy-desc">Path A installs the suite in a PDB of the measured database, which copies its own AWR over a loopback database link. Path B leaves each target with only a read-only reader; one repository database copies their AWR over a database link every hour and runs the suite on the copies.</desc>
 <defs><marker id="dd-deploy-mk-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-link" points="0 0, 8 3, 0 6"/></marker>
 <marker id="dd-deploy-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker></defs>
 <rect class="paper" width="760" height="300"/>
@@ -114,12 +116,12 @@
 <rect class="tag" x="36" y="46" width="28" height="12" rx="2"/>
 <text class="eb" x="50" y="55" text-anchor="middle" style="letter-spacing:.08em">DB</text>
 <text class="nm" x="122" y="76" text-anchor="middle">Measured database</text>
-<text class="sub" x="122" y="90" text-anchor="middle">deploy_mode = local</text>
-<path class="e" d="M122 152 L122 132" marker-end="url(#dd-deploy-mk)"/>
-<text class="al" x="132" y="145">SELECT</text>
+<text class="sub" x="122" y="90" text-anchor="middle">its own target</text>
+<path class="e-link" d="M122 152 L122 132" marker-end="url(#dd-deploy-mk-link)"/>
+<text class="al-link" x="132" y="145">LOOPBACK LINK</text>
 <rect class="n-focal" x="40" y="104" width="164" height="24" rx="4"/>
 <text class="nm-acc" x="48" y="120">Suite</text>
-<text class="sub" x="196" y="119" text-anchor="end">CAP_* objects</text>
+<text class="sub" x="196" y="119" text-anchor="end">PDB owner</text>
 <rect class="n-store" x="40" y="152" width="164" height="24" rx="4"/>
 <text class="nm" x="48" y="168">AWR</text>
 <text class="sub" x="196" y="167" text-anchor="end">DBA_HIST_*</text>
@@ -184,7 +186,8 @@
       <div class="section-head" id="one">
         <span class="eyebrow">Path A</span>
         <h2>Measure one database</h2>
-        <p>The suite runs on the measured database and reads its AWR in <span class="inline">CDB$ROOT</span>.</p>
+        <p>The suite runs in a PDB of the measured database and copies the CDB's AWR over a loopback
+          database link, the way a repository reads any target.</p>
       </div>
 
       <div class="steps">
@@ -207,10 +210,14 @@ cd awr-capacity-forecast</pre>
           <div class="step__rail"><div class="step__n">2</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Run the quickstart</h4>
-            <p>Runs the read-only preflight, installs every object into the current schema and
-              spools the first report. Re-runnable. On a preflight FAIL it stops before installing;
-              fix and re-run, or <span class="inline">DEFINE force_install = Y</span> in SQL*Plus to
-              install anyway.</p>
+            <p>Creates the read-only reader <span class="inline">C##AWRRDR</span> (with a random password
+              that never leaves the session) and the schema-only owner <span class="inline">AWRCAP</span> in
+              the one open PDB, runs the read-only preflight, installs, registers this database as its own
+              target, copies its AWR and spools the first report. Needs SYSDBA. Re-runnable: a re-run
+              reuses the reader, the owner and the target. On a preflight FAIL it stops before
+              installing; fix and re-run, or <span class="inline">DEFINE force_install = Y</span> in
+              SQL*Plus to install anyway. With more than one open PDB, name one:
+              <span class="inline">CAP_CONTAINER=PDB1 ./quickstart.sh</span>.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">DB host · bash</span><span class="term__tag in">you run</span></div>
@@ -227,12 +234,17 @@ cd awr-capacity-forecast</pre>
             <div class="term">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">output</span><span class="term__tag">expect</span></div>
-<pre>  <span class="c-pass">All CAP* objects valid in schema SYS.</span>
+<pre>  <span class="c-pass">All CAP* objects valid in schema AWRCAP.</span>
+
 ============================================================
- Install complete (deploy_mode = local, schema = SYS).
-============================================================
+Install complete (deploy_mode = repository, schema = AWRCAP).
 ...
-Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
+==== [5/6] register and collect -- repository/self.sql ====
+...
+  target CDB1 registered over link CAP_CDB1; containers visible: CDB$ROOT, PDB$SEED, PDB1
+  CDB1 DBID 1234567890: snap_id 1..4023, 164998 rows (3.8 s)
+...
+Report written to: reports/cap_report_CDB1_202611090823.txt</pre>
             </div>
           </div>
         </div>
@@ -253,7 +265,10 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
               <a href="demo/cap_report_demo.txt" target="_blank" rel="noopener">text report</a>
               (both drivers run against a fictional e-commerce database with 150 days of designed
               history). Later reports: <span class="inline">@report/report.sql</span> from the
-              repository directory. <a href="usage.html">Usage</a> covers each section.</p>
+              repository directory, in the owner's schema (<code>ALTER SESSION SET CONTAINER = PDB1</code>,
+              then <code>ALTER SESSION SET CURRENT_SCHEMA = AWRCAP</code>), or
+              <span class="inline">report/run_report.sh "/ as sysdba" --container PDB1 --schema AWRCAP</span>.
+              <a href="usage.html">Usage</a> covers each section.</p>
           </div>
         </div>
 
@@ -261,9 +276,19 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
 
       <div class="callout warn">
         <span class="ico">!</span>
-        <p><strong>INSUFFICIENT_HISTORY on a fresh database.</strong> Stock AWR keeps 8 days; a
-        forecast needs at least 14 daily points. Raising retention (optional, the only change to
-        Oracle on this page) fills the forecasts in over the following weeks.</p>
+        <p><strong>INSUFFICIENT_HISTORY on a fresh database.</strong> Stock AWR keeps 8 days, so the
+        first copy holds 8 days, and a forecast needs at least 14 daily points. The copies grow with
+        every collect: schedule the hourly one, and the forecasts fill in over the following weeks.
+        Raising AWR retention (optional) gives the next collect more at once.</p>
+      </div>
+
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">SQL*Plus · the suite owner</span><span class="term__tag in">once</span></div>
+<pre><span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CONTAINER = PDB1;
+<span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CURRENT_SCHEMA = AWRCAP;
+<span class="c-prompt">SQL&gt;</span> @install_jobs.sql                               <span class="c-cmt">-- jobs created disabled</span>
+<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('AWRCAP.CAP_COLLECT_JOB')   <span class="c-cmt">-- hourly at :05</span></pre>
       </div>
 
       <div class="term in">
@@ -277,17 +302,20 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
           <caption><span class="inline">quickstart.sql</span>, step by step</caption>
           <thead><tr><th scope="col">Step</th><th scope="col">Script</th><th scope="col">Does</th></tr></thead>
           <tbody>
-            <tr><td class="num">1</td><td><span class="inline">doctor.sql</span></td><td class="def">Read-only preflight: target schema, Diagnostics Pack, <span class="inline">DBA_HIST_*</span> grants, privileges, AWR retention, history per source and the features it supports. Prints a PASS / WARN / FAIL checklist.</td></tr>
-            <tr><td class="num">2</td><td><span class="inline">install.sql</span></td><td class="def">Creates the views, seven small tables and two packages in the current schema, local mode. As <span class="inline">/ as sysdba</span> that schema is SYS (the installer warns). Idempotent; re-running keeps changed knob values. Exits with an error if any object is invalid. Skipped when step 1 reported a FAIL.</td></tr>
-            <tr><td class="num">3</td><td><span class="inline">report/report.sql</span></td><td class="def">The read-only text report, spooled to <span class="inline">reports/</span>.</td></tr>
+            <tr><td class="num">1</td><td><span class="inline">target/self.sql</span></td><td class="def">In <span class="inline">CDB$ROOT</span>: picks the PDB, gives the reader a random password, runs <span class="inline">target/prepare.sql</span> (the reader's grants and <code>CONTAINER_DATA</code>) and <span class="inline">target/check.sql</span> (Diagnostics Pack, AWR retention, the grants), then switches to the PDB.</td></tr>
+            <tr><td class="num">2</td><td><span class="inline">create_owner.sql</span></td><td class="def">The schema-only owner <span class="inline">AWRCAP</span>, with <code>CREATE DATABASE LINK</code> and no AWR grant.</td></tr>
+            <tr><td class="num">3</td><td><span class="inline">doctor.sql</span></td><td class="def">Read-only preflight of the owner: schema, privileges, the features the history supports. Prints a PASS / WARN / FAIL checklist.</td></tr>
+            <tr><td class="num">4</td><td><span class="inline">install.sql</span></td><td class="def">Creates the views, tables and packages in the owner, <span class="inline">deploy_mode = repository</span>. Idempotent; re-running keeps changed knob values. Exits with an error if any object is invalid. Skipped when step 3 reported a FAIL.</td></tr>
+            <tr><td class="num">5</td><td><span class="inline">repository/self.sql</span></td><td class="def">Registers this database as target <span class="inline">CDB1</span> over <code>//localhost:&lt;listener port&gt;/&lt;the root's default service&gt;</code> (or rebuilds the link of one an earlier run registered) and copies its AWR.</td></tr>
+            <tr><td class="num">6</td><td><span class="inline">report/report.sql</span></td><td class="def">The read-only text report, spooled to <span class="inline">reports/</span>.</td></tr>
           </tbody>
         </table>
       </div>
 
-      <p><strong>A permanent install.</strong> The quickstart installs into SYS. For the lasting
-        setup, <span class="inline">install.sh</span> creates a dedicated owner
-        (<span class="inline">C##AWRCAP</span>), runs the preflight, installs, trains the Tier 2
-        models and creates the scheduler jobs, disabled:</p>
+      <p><strong>A permanent install.</strong> <span class="inline">install.sh</span> runs the same steps
+        and also trains the Tier 2 models and creates the scheduler jobs, disabled
+        (<span class="inline">CAP_COLLECT_JOB</span> hourly, <span class="inline">CAP_NIGHTLY_JOB</span> at
+        01:00). <code>--set JOBS_ENABLE=Y</code> turns both on:</p>
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">DB host · bash</span><span class="term__tag in">you run</span></div>
@@ -345,8 +373,9 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
                 <span class="term__title">output</span><span class="term__tag">expect</span></div>
 <pre>  Reader C##AWRRDR is ready. Register this target on the repository
   (as the suite owner there). Check the address against lsnrctl status:
-    EXEC cap_repo.add_target('CDB1', '//db-prod-01.example.com:1521/cdb1', 'C##AWRRDR', '&lt;password&gt;')
-    EXEC cap_repo.collect</pre>
+    EXEC cap_repo.add_target('CDB1', '//db-prod-01.example.com:1521/cdb1', 'C##AWRRDR', '&lt;password&gt;', p_global_name =&gt; 'CDB1.EXAMPLE.COM')
+    EXEC cap_repo.collect
+  The global name CDB1.EXAMPLE.COM names the link only where the repository runs with GLOBAL_NAMES = TRUE.</pre>
             </div>
           </div>
         </div>
@@ -356,8 +385,8 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
           <div class="step__body">
             <h4>Install the repository</h4>
             <p>On the repository database, as SYSDBA. The profile creates the owner
-              <span class="inline">C##AWRCAP</span> with <code>CREATE DATABASE LINK</code> instead of
-              AWR grants, runs the preflight, installs <span class="inline">deploy_mode = repository</span>
+              <span class="inline">C##AWRCAP</span> with <code>CREATE DATABASE LINK</code> and no AWR
+              grant, runs the preflight, installs <span class="inline">deploy_mode = repository</span>
               and creates the two scheduler jobs, disabled. Add
               <span class="inline">--set CONTAINER=&lt;PDB&gt;</span> to install into a PDB, where the
               owner is <span class="inline">AWRCAP</span>.</p>
@@ -383,7 +412,7 @@ Report written to: reports/cap_report_CDB1_202609221410.txt</pre>
 <pre>sqlplus / as sysdba
 <span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CURRENT_SCHEMA = C##AWRCAP;
 <span class="c-prompt">SQL&gt;</span> SET SERVEROUTPUT ON
-<span class="c-prompt">SQL&gt;</span> EXEC cap_repo.add_target('CDB1', '//db-prod-01.example.com:1521/cdb1', 'C##AWRRDR', '&lt;reader password&gt;')
+<span class="c-prompt">SQL&gt;</span> EXEC cap_repo.add_target('CDB1', '//db-prod-01.example.com:1521/cdb1', 'C##AWRRDR', '&lt;reader password&gt;', p_global_name =&gt; 'CDB1.EXAMPLE.COM')
 <span class="c-prompt">SQL&gt;</span> EXEC cap_repo.collect('CDB1')</pre>
             </div>
             <div class="term">
