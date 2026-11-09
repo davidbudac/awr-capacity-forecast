@@ -324,14 +324,18 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
     -- Copy one DBID up to the target's newest snapshot. FALSE = it failed.
     FUNCTION collect_dbid(t IN cap_target%ROWTYPE, p_dbid IN NUMBER,
                           p_chunk IN PLS_INTEGER) RETURN BOOLEAN IS
-        v_min   NUMBER;
-        v_max   NUMBER;
-        v_hwm   NUMBER;
-        v_end   NUMBER;
-        v_first NUMBER;
-        v_rows  NUMBER := 0;
-        v_t0    PLS_INTEGER := DBMS_UTILITY.GET_TIME;
-        v_sql   VARCHAR2(4000);
+        v_min    NUMBER;
+        v_max    NUMBER;
+        v_prev   NUMBER;
+        v_n_max  NUMBER;
+        v_n_prev NUMBER;
+        v_held   VARCHAR2(200);
+        v_hwm    NUMBER;
+        v_end    NUMBER;
+        v_first  NUMBER;
+        v_rows   NUMBER := 0;
+        v_t0     PLS_INTEGER := DBMS_UTILITY.GET_TIME;
+        v_sql    VARCHAR2(4000);
 
         FUNCTION secs RETURN NUMBER IS
         BEGIN
@@ -339,14 +343,25 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         END secs;
     BEGIN
         DBMS_APPLICATION_INFO.SET_ACTION(SUBSTR(t.target_name || ' ' || p_dbid, 1, 32));
-        EXECUTE IMMEDIATE 'SELECT MIN(snap_id), MAX(snap_id) FROM dba_hist_snapshot@'
-                          || t.db_link || ' WHERE dbid = :1'
-            INTO v_min, v_max USING p_dbid;
+        EXECUTE IMMEDIATE 'SELECT MIN(snap_id), MAX(snap_id), MAX(CASE WHEN rn = 2 THEN snap_id END),'
+                          || ' MAX(CASE WHEN rn = 1 THEN n_inst END), MAX(CASE WHEN rn = 2 THEN n_inst END)'
+                          || ' FROM (SELECT snap_id, COUNT(DISTINCT instance_number) AS n_inst,'
+                          || ' ROW_NUMBER() OVER (ORDER BY snap_id DESC) AS rn'
+                          || ' FROM dba_hist_snapshot@' || t.db_link || ' WHERE dbid = :1 GROUP BY snap_id)'
+            INTO v_min, v_max, v_prev, v_n_max, v_n_prev USING p_dbid;
         IF v_max IS NULL THEN
             ROLLBACK;
             log_event(t.target_name, p_dbid, 'NOTHING', p_secs => secs,
                       p_msg => 'no snapshots for this DBID on the target any more');
             RETURN TRUE;
+        END IF;
+        -- RAC: one instance can finish snap_id N before another. Facts are
+        -- copied once, above the high-water mark, so a half-copied N would
+        -- never be completed; N waits for the next collect instead.
+        IF v_n_max < v_n_prev THEN
+            v_held := 'snap_id ' || v_max || ' held back: ' || v_n_max || ' of ' || v_n_prev
+                      || ' instances have completed it';
+            v_max  := v_prev;
         END IF;
 
         LOOP
@@ -414,11 +429,11 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         UPDATE cap_target_dbid SET last_collect = SYSDATE WHERE dbid = p_dbid;
         COMMIT;
         log_event(t.target_name, p_dbid, CASE WHEN v_first IS NULL THEN 'NOTHING' ELSE 'OK' END,
-                  v_first, CASE WHEN v_first IS NOT NULL THEN v_max END, v_rows, secs);
+                  v_first, CASE WHEN v_first IS NOT NULL THEN v_max END, v_rows, secs, v_held);
         say(t.target_name || ' DBID ' || p_dbid || ': '
             || CASE WHEN v_first IS NULL THEN 'up to date at snap_id ' || v_max
                     ELSE 'snap_id ' || v_first || '..' || v_max || ', ' || v_rows || ' rows' END
-            || ' (' || secs || ' s)');
+            || ' (' || secs || ' s)' || CASE WHEN v_held IS NOT NULL THEN '; ' || v_held END);
         RETURN TRUE;
     EXCEPTION
         WHEN OTHERS THEN

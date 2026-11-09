@@ -974,6 +974,17 @@ Decided 2026-11-09:
       on the next run once it has as many. Check: on single-instance CAPX2
       the window is unchanged (copy check 0, fingerprints equal before and
       after). RAC stays untested, and the docs say so.
+      Done 2026-11-09: collect_dbid's MIN/MAX snapshot query now also
+      returns the instance counts of the newest two snap_ids (one remote
+      query, as before), and a held-back snap_id is named in the collect's
+      output and its CAP_COLLECT_LOG message. The rule over synthetic
+      snapshot sets: 2/2/1 instances copies through the middle one; 2/2,
+      1/1 and a single snapshot copy everything; 2 then 1 then 1 (an
+      instance gone for good) holds back once, then copies through. Checked
+      on single-instance CAPM1 instead of CAPX2 (same layout, no shared
+      reader): after collect the high-water mark equals the target's newest
+      snap_id (4019), the log message stays empty, and the copy check is
+      EQUAL (17 sources, 163,401 rows).
 - [ ] **M25.5 doctor without DBA_HIST.** Sections 2, 3, 5 and 6 check the
       measured database, which is target/check.sql's job now (the standalone
       path runs it, M25.2). doctor keeps the repository side and keeps
