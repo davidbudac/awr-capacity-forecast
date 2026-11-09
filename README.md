@@ -147,7 +147,7 @@ the preflight gate, the install, the Tier 2 models and the scheduler jobs
 
 1. **Each target**, as SYSDBA in `CDB$ROOT` (or a non-CDB), from a clone of
    this repository: create the read-only reader `C##AWRRDR` (CREATE SESSION,
-   direct SELECT on the seventeen `DBA_HIST_*` views, `CONTAINER_DATA = ALL`)
+   direct SELECT on the twenty-eight `DBA_HIST_*` views, `CONTAINER_DATA = ALL`)
    and check it. It ends by printing the `add_target` line for step 3.
 
    ```bash

@@ -350,6 +350,7 @@ DECLARE
              WHEN p_kind = 'CPU' AND p_series = 'DB_CPU_SEC' THEN 'DB CPU seconds'
              WHEN p_kind = 'SERIES' AND p_series = 'DB_SIZE_GB'  THEN 'Database size'
              WHEN p_kind = 'SERIES' AND p_series = 'REDO_GB_DAY' THEN 'Redo per day'
+             WHEN p_kind = 'SERIES' AND p_series = 'PGA_ALLOC_GB' THEN 'PGA allocated'
              WHEN p_kind = 'SERIES' AND p_series LIKE 'UNDO_PEAK:%' THEN 'Undo peak ' || SUBSTR(p_series, 11)
              WHEN p_kind = 'SERIES' AND p_series LIKE 'TEMP_PEAK:%' THEN 'Temp peak ' || SUBSTR(p_series, 11)
              ELSE p_series
@@ -472,6 +473,9 @@ DECLARE
         a.sent   := CASE WHEN f.series IN ('SESSIONS', 'PROCESSES')
                          THEN 'Raise ' || ts || ' above ' || num(f.limit_value) || ' or find what holds '
                               || LOWER(f.series) || ' open.'
+                         WHEN f.series = 'PGA_ALLOC_GB'
+                         THEN 'Raise pga_aggregate_limit above ' || num(f.limit_value)
+                              || ' GiB or find the sessions that allocate the PGA.'
                          WHEN a.kind = 'SERIES_LIMIT'
                          THEN 'Make room for ' || lbl_h(a.fit_ix) || ' before it reaches ' || fx0(sat_pct) || '% of '
                               || num(f.limit_value) || unit_sfx(f.unit) || '.'

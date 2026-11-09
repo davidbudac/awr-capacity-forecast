@@ -1,5 +1,5 @@
 --
--- ddl/00_drop.sql -- idempotent teardown of all CAP_* / CAPV_ / CAPD_ / CAPF_ / CAPA_ objects.
+-- ddl/00_drop.sql -- idempotent teardown of all CAP_* / CAPV_ / CAPD_ / CAPF_ / CAPA_ / CAPM_ objects.
 -- =====================================================================
 -- Drops the views (reverse dependency order), their SNAPSHOT cache tables
 -- (<view>_S) and the two ESM types. The persisted tables stay (see the NOTE
@@ -52,6 +52,16 @@ DECLARE
         'CAPR_FRESHNESS',
         'CAPR_ANOMALIES',
         'CAPR_CONTAINER',
+        'CAPM_VERDICT',
+        'CAPM_EVIDENCE',
+        'CAPM_SGA_BALANCE',
+        'CAPM_AREA',
+        'CAPM_PGA_LIMIT',
+        'CAPM_ADVICE',
+        'CAPM_DELTA',
+        'CAPM_ADV_SRC',
+        'CAPM_INST',
+        'CAPM_SNAP',
         'CAPF_SERIES_FORECAST',
         'CAPD_SERIES_DAILY',
         'CAPF_BACKTEST',
@@ -90,6 +100,17 @@ DECLARE
         'CAPV_PARAMETER',
         'CAPV_ASM_DISKGROUP',
         'CAPV_SEG_STAT',
+        'CAPV_PGASTAT',
+        'CAPV_MEM_COMP',
+        'CAPV_WORKAREA_HSTGRM',
+        'CAPV_PGA_ADVICE',
+        'CAPV_SGA_ADVICE',
+        'CAPV_CACHE_ADVICE',
+        'CAPV_SHPOOL_ADVICE',
+        'CAPV_SGASTAT',
+        'CAPV_LIBRARYCACHE',
+        'CAPV_ROWCACHE',
+        'CAPV_SYSTEM_EVENT',
         'CAPV_SNAPSHOT',
         'CAP_REPO_SOURCE',
         'CAP_CFG_CHECK',

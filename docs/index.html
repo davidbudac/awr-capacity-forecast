@@ -259,7 +259,7 @@
             <tr><td><code>CREATE SESSION, CREATE TABLE, CREATE VIEW, CREATE TYPE, CREATE PROCEDURE</code></td><td>install</td></tr>
             <tr><td><code>CREATE MINING MODEL</code></td><td>Tier 2 only</td></tr>
             <tr><td><code>CREATE JOB</code></td><td>the optional scheduler jobs</td></tr>
-            <tr><td><code>SELECT</code> on <code>DBA_HIST_SNAPSHOT, _TBSPC_SPACE_USAGE, _TABLESPACE, _DATAFILE, _OSSTAT, _SYS_TIME_MODEL, _CON_SYS_TIME_MODEL, _SYSSTAT, _CON_SYSSTAT, _PDB_INSTANCE, _DATABASE_INSTANCE, _RESOURCE_LIMIT, _PARAMETER, _ASM_DISKGROUP, _ASM_DISKGROUP_STAT, _SEG_STAT, _SEG_STAT_OBJ, _WR_CONTROL</code></td><td>reading AWR</td></tr>
+            <tr><td><code>SELECT</code> on <code>DBA_HIST_SNAPSHOT, _TBSPC_SPACE_USAGE, _TABLESPACE, _DATAFILE, _OSSTAT, _SYS_TIME_MODEL, _CON_SYS_TIME_MODEL, _SYSSTAT, _CON_SYSSTAT, _PDB_INSTANCE, _DATABASE_INSTANCE, _RESOURCE_LIMIT, _PARAMETER, _ASM_DISKGROUP, _ASM_DISKGROUP_STAT, _SEG_STAT, _SEG_STAT_OBJ, _PGASTAT, _MEM_DYNAMIC_COMP, _SQL_WORKAREA_HSTGRM, _PGA_TARGET_ADVICE, _SGA_TARGET_ADVICE, _DB_CACHE_ADVICE, _SHARED_POOL_ADVICE, _SGASTAT, _LIBRARYCACHE, _ROWCACHE_SUMMARY, _SYSTEM_EVENT, _WR_CONTROL</code></td><td>reading AWR</td></tr>
             <tr><td><code>SELECT</code> on <code>V_$PARAMETER</code></td><td><span class="inline">doctor.sql</span> preflight</td></tr>
             <tr><td><code>QUOTA 1G</code> on the default permanent tablespace</td><td>the tables and models</td></tr>
           </tbody>
@@ -288,7 +288,7 @@
       <h3 id="fleet-impact">In a fleet</h3>
       <p>A measured database that a repository collects from gets one read-only common user,
         <span class="inline">C##AWRRDR</span>, with <code>CREATE SESSION</code>, direct
-        <code>SELECT</code> on the seventeen <code>DBA_HIST_*</code> views and
+        <code>SELECT</code> on the twenty-eight <code>DBA_HIST_*</code> views and
         <code>CONTAINER_DATA = ALL</code>. No tables, packages, jobs or models, and its AWR settings
         stay as they are. Its load is the hourly collect: one <code>SELECT</code> per copied view over
         a database link, for the snapshots taken since the last one. The forecasting, the reports and

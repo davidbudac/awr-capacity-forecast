@@ -1401,13 +1401,13 @@ BEGIN
 
         -- Single instance: the worst instance IS the fleet (the main fixture).
         SELECT COUNT(*) INTO v_n FROM capf_series_forecast
-         WHERE dbid = v_dbid AND series IN ('SESSIONS', 'PROCESSES')
+         WHERE dbid = v_dbid AND series IN ('SESSIONS', 'PROCESSES', 'PGA_ALLOC_GB')
            AND worst_inst = 1 AND worst_inst_pct = pct_of_limit;
-        chk_int('single instance: worst_inst_pct = pct_of_limit, instance 1', v_n, 2);
+        chk_int('single instance: worst_inst_pct = pct_of_limit, instance 1', v_n, 3);
         SELECT COUNT(*) INTO v_n FROM capf_series_forecast
-         WHERE dbid = v_dbid AND series NOT IN ('SESSIONS', 'PROCESSES')
+         WHERE dbid = v_dbid AND series NOT IN ('SESSIONS', 'PROCESSES', 'PGA_ALLOC_GB')
            AND (worst_inst_pct IS NOT NULL OR worst_inst IS NOT NULL);
-        chk_int('worst instance is NULL off PROCESSES / SESSIONS', v_n, 0);
+        chk_int('worst instance is NULL off PROCESSES / SESSIONS / PGA_ALLOC_GB', v_n, 0);
 
         DELETE FROM cap_fixture_resource_limit WHERE dbid = c_rac;
         DELETE FROM cap_fixture_snapshot       WHERE dbid = c_rac;
@@ -1660,7 +1660,7 @@ BEGIN
             AND (covered_sec IS NOT NULL OR is_complete <> 'Y' OR unit <> 'GIB');
         chk_int('ASM / TEMP / UNDO series: unit GIB, covered_sec NULL, is_complete Y', v_n, 0);
         -- The anomaly engine scores only the series in its registry (sreg in
-        -- CAPA_OBS: the four M11 names), so the new series are never scored:
+        -- CAPA_OBS: the four M11 names and PGA_ALLOC_GB), so these are never scored:
         -- no observation, no SERIES_ANOM, no verdict on their points.
         SELECT COUNT(*) INTO v_n FROM capa_obs
           WHERE kind = 'SERIES'
@@ -1725,6 +1725,937 @@ BEGIN
     EXCEPTION
         WHEN OTHERS THEN
             fail('seam-extension block raised ' || SQLERRM);
+    END;
+
+    -- M25: CAPV_PGASTAT, the PGA_ALLOC_GB series and the PGA_LIMIT verdict
+    -- (CAPM_*). Closed forms recorded by fixture_install.sql.
+    DECLARE
+        d_last   DATE   := meta_d('LAST_DAY');
+        d_base   DATE   := meta_d('BASE_DAY');
+        d_hwm    DATE   := meta_d('PGA_HWM_AT');
+        n_snaps  NUMBER := 2 * (meta_d('LAST_DAY') - meta_d('BASE_DAY') + 1) - 1;
+        n_latest NUMBER := 2001 + 2 * (meta_d('LAST_DAY') - meta_d('BASE_DAY'));
+        n_gib    CONSTANT NUMBER := 1073741824;
+        n_mib    CONSTANT NUMBER := 1048576;
+        n_lim    NUMBER := meta_n('PGA_LIMIT_GIB');
+        v_ws     DATE;
+        v_we     DATE;
+        v_st     DATE;
+        v_ht     DATE;
+        v_mode   VARCHAR2(10);
+        v_grade  VARCHAR2(30);
+        v_reason VARCHAR2(30);
+        v_xram   VARCHAR2(1);
+        v_txt    VARCHAR2(400);
+        v_sug    NUMBER;
+        v_days   NUMBER;
+        v_nev    NUMBER;
+        v_npr    NUMBER;
+        v_lim    NUMBER;
+        v_samp   NUMBER;
+        v_hwm    NUMBER;
+        v_over   NUMBER;
+        v_sga    NUMBER;
+        v_ram    NUMBER;
+        v_con    NUMBER;
+        v_dt_m   DATE;
+        PROCEDURE verdict IS
+        BEGIN
+            SELECT grade, reason, suggested_bytes, exceeds_host_ram, mem_mode, n_days,
+                   n_evidence, n_pressure
+              INTO v_grade, v_reason, v_sug, v_xram, v_mode, v_days, v_nev, v_npr
+              FROM capm_verdict
+             WHERE dbid = v_dbid AND instance_number = 1 AND area = 'PGA_LIMIT';
+        END;
+    BEGIN
+        DBMS_OUTPUT.PUT_LINE('=== M25 CAPV_PGASTAT ===');
+        SELECT COUNT(*) INTO v_n FROM capv_pgastat;
+        chk_int('CAPV_PGASTAT rows (6 names x every snapshot + the sparse over-allocation rows)',
+                v_n, meta_n('MEM_PGASTAT_ROWS'));
+        SELECT COUNT(*) INTO v_n FROM capv_pgastat
+         WHERE stat_name IN ('total PGA allocated', 'maximum PGA allocated');
+        chk_int('CAPV_PGASTAT the two PGA_LIMIT names on every snapshot', v_n, 2 * n_snaps);
+        SELECT COUNT(*) INTO v_n FROM capv_pgastat
+         WHERE stat_name NOT IN ('total PGA allocated', 'maximum PGA allocated', 'bytes processed',
+                                 'extra bytes read/written', 'over allocation count',
+                                 'aggregate PGA target parameter', 'aggregate PGA auto target')
+            OR con_dbid <> dbid;
+        chk_int('CAPV_PGASTAT carries the fixture''s seven names only, under the root', v_n, 0);
+        SELECT n_rows, n_con_dbid, per_container_expected INTO v_num, v_num2, v_c1
+          FROM capv_contract WHERE source_name = 'PGASTAT';
+        chk_int('CAPV_CONTRACT PGASTAT n_rows', v_num, meta_n('MEM_PGASTAT_ROWS'));
+        chk_int('CAPV_CONTRACT PGASTAT n_con_dbid (instance level)', v_num2, 1);
+        chk_str('CAPV_CONTRACT PGASTAT per_container_expected', v_c1, 'N');
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 PGA_ALLOC_GB series ===');
+        -- Day 60 is the restart day (its 18:00 snapshot only), day 110 the
+        -- high-water mark's advance, which the series does not see.
+        FOR k IN (SELECT 0 AS i FROM dual UNION ALL SELECT 60 FROM dual
+                  UNION ALL SELECT 110 FROM dual UNION ALL SELECT 120 FROM dual) LOOP
+            SELECT value, limit_value, unit INTO v_num, v_num2, v_str
+              FROM capd_series_daily
+             WHERE dbid = v_dbid AND series = 'PGA_ALLOC_GB' AND day_dt = d_base + k.i;
+            chk_close('PGA_ALLOC_GB day ' || k.i || ' = 1 + i/1200 GiB (the 18:00 sample)',
+                      v_num, 1 + k.i / 1200, 0.000001);
+            chk_close('PGA_ALLOC_GB day ' || k.i || ' limit_value (pga_aggregate_limit GiB)',
+                      v_num2, n_lim, 0.000001);
+            chk_str('PGA_ALLOC_GB day ' || k.i || ' unit', v_str, 'GIB');
+        END LOOP;
+        SELECT COUNT(*), COUNT(CASE WHEN covered_sec IS NULL AND is_complete = 'Y'
+                                     AND gap_flag = 'N' THEN 1 END)
+          INTO v_n, v_num
+          FROM capd_series_daily WHERE dbid = v_dbid AND series = 'PGA_ALLOC_GB';
+        chk_int('PGA_ALLOC_GB one row per day', v_n, d_last - d_base + 1);
+        chk_int('PGA_ALLOC_GB level rows: covered_sec NULL, complete, no gap', v_num, v_n);
+        SELECT worst_inst_pct, worst_inst INTO v_num, v_num2
+          FROM capd_series_daily
+         WHERE dbid = v_dbid AND series = 'PGA_ALLOC_GB' AND day_dt = d_last;
+        chk_close('PGA_ALLOC_GB last-day worst_inst_pct (1.1 of 2 GiB)', v_num, 55, 0.000001);
+        chk_int  ('PGA_ALLOC_GB last-day worst_inst', v_num2, 1);
+        SELECT slope_per_day, cur_val, cur_limit, pct_of_limit, quality, days_to_limit, train_n
+          INTO v_num, v_num2, v_num3, v_r2, v_str, v_n, v_days
+          FROM capf_series_forecast WHERE dbid = v_dbid AND series = 'PGA_ALLOC_GB';
+        chk_close('PGA_ALLOC_GB slope 1/1200 GiB/day', v_num, meta_n('PGA_SLOPE'), 0.000001);
+        chk_close('PGA_ALLOC_GB cur_val 1.1 GiB',      v_num2, meta_n('PGA_CUR_GIB'), 0.000001);
+        chk_close('PGA_ALLOC_GB cur_limit 2 GiB',      v_num3, n_lim, 0.000001);
+        chk_close('PGA_ALLOC_GB pct_of_limit 55',      v_r2, 55, 0.000001);
+        chk_str  ('PGA_ALLOC_GB quality (exactly linear)', v_str, 'OK');
+        chk_int  ('PGA_ALLOC_GB train_n = SESSIONS train_n (level series, every day)',
+                  v_days, meta_n('SESS_TRAIN_N'));
+        -- FLOOR((cur_limit x series_sat_pct / 100 - cur_val) / slope): 840 on
+        -- the exact slope; the last digit of REGR_SLOPE's 1/1200 may FLOOR it
+        -- to 839, as for FIX_FILLING's add_by_day.
+        chk_true('PGA_ALLOC_GB days_to_limit = FLOOR((2 x 0.90 - 1.1) x 1200) = 840, or 839 (got '
+                 || v_n || ')', v_n BETWEEN meta_n('PGA_DTL') - 1 AND meta_n('PGA_DTL'));
+        SELECT COUNT(*) INTO v_n FROM capa_obs WHERE kind = 'SERIES' AND series = 'PGA_ALLOC_GB';
+        chk_int('PGA_ALLOC_GB scored by CAPA_OBS on every day', v_n, d_last - d_base + 1);
+        SELECT COUNT(*) INTO v_n FROM capa_anom
+         WHERE kind = 'SERIES' AND series = 'PGA_ALLOC_GB' AND anomaly_flag IS NOT NULL;
+        chk_int('PGA_ALLOC_GB never flags (1/1200 GiB a day under the 0.5 GiB floor)', v_n, 0);
+        snap_alerts;
+        SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE series_key = 'PGA_ALLOC_GB';
+        chk_int('PGA_ALLOC_GB raises no alert (55% of the limit, 840 days out)', v_n, 0);
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_PGA_LIMIT (shipped knobs) ===');
+        SELECT COUNT(*) INTO v_n FROM capm_pga_limit;
+        chk_int('CAPM_PGA_LIMIT one row (one database, one instance)', v_n, 1);
+        SELECT con_dbid, window_start, window_end, n_days, mem_mode, limit_bytes,
+               sampled_peak_bytes, sampled_peak_time, hwm_peak_bytes, hwm_peak_time,
+               n_days_over, sga_bytes, host_ram_bytes
+          INTO v_con, v_ws, v_we, v_days, v_mode, v_lim, v_samp, v_st, v_hwm, v_ht,
+               v_over, v_sga, v_ram
+          FROM capm_pga_limit WHERE dbid = v_dbid AND instance_number = 1;
+        chk_int ('PGA_LIMIT con_dbid = dbid (the root)', v_con, v_dbid);
+        chk_true('PGA_LIMIT window_end = the newest snapshot, last day 18:00', v_we = d_last + 18/24);
+        chk_true('PGA_LIMIT window_start = window_end - 30', v_ws = d_last + 18/24 - 30);
+        chk_int ('PGA_LIMIT n_days (days 91..120)', v_days, 30);
+        chk_str ('PGA_LIMIT mem_mode (memory_target 0, sga_target 4 GiB)', v_mode, 'ASMM');
+        chk_int ('PGA_LIMIT limit_bytes 2 GiB', v_lim, n_lim * n_gib);
+        chk_close('PGA_LIMIT sampled_peak_bytes 1.1 GiB', v_samp, meta_n('PGA_CUR_GIB') * n_gib, 0.000001);
+        chk_true('PGA_LIMIT sampled_peak_time = last day 18:00', v_st = d_last + 18/24);
+        chk_close('PGA_LIMIT hwm_peak_bytes 1.9 GiB', v_hwm, meta_n('PGA_HWM_GIB') * n_gib, 0.000001);
+        chk_true('PGA_LIMIT hwm_peak_time = day ' || meta_n('PGA_HWM_AT') || ' 18:00 (the advance)',
+                 v_ht = d_hwm);
+        chk_int ('PGA_LIMIT n_days_over (no sample reaches 90%)', v_over, 0);
+        chk_int ('PGA_LIMIT sga_bytes 4 GiB', v_sga, 4 * n_gib);
+        chk_int ('PGA_LIMIT host_ram_bytes 16 GiB', v_ram, meta_n('HOST_RAM_GIB') * n_gib);
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_EVIDENCE / CAPM_VERDICT (shipped knobs) ===');
+        SELECT COUNT(*), COUNT(CASE WHEN kind = 'USAGE' THEN 1 END) INTO v_n, v_num
+          FROM capm_evidence WHERE area = 'PGA_LIMIT';
+        chk_int('CAPM_EVIDENCE two PGA_LIMIT signals', v_n, 2);
+        chk_int('CAPM_EVIDENCE PGA_LIMIT signals are kind USAGE', v_num, 2);
+        SELECT value, unit, threshold, direction, observed_at, evidence_text
+          INTO v_num, v_str, v_num2, v_str2, v_dt_m, v_txt
+          FROM capm_evidence WHERE dbid = v_dbid AND area = 'PGA_LIMIT' AND signal = 'PGA_HWM_PEAK_PCT';
+        chk_close('PGA_HWM_PEAK_PCT value 95', v_num, 95, 0.000001);
+        chk_str  ('PGA_HWM_PEAK_PCT unit', v_str, 'PCT');
+        chk_int  ('PGA_HWM_PEAK_PCT threshold = mem_pga_limit_pct', v_num2, 90);
+        chk_str  ('PGA_HWM_PEAK_PCT direction', v_str2, 'PRESSURE');
+        chk_true ('PGA_HWM_PEAK_PCT observed_at = the advance', v_dt_m = d_hwm);
+        chk_true ('PGA_HWM_PEAK_PCT text names 1.90 GiB, 95.00% and 2.00 GiB (got ' || v_txt || ')',
+                  INSTR(v_txt, '1.90 GiB') > 0 AND INSTR(v_txt, '95.00%') > 0 AND INSTR(v_txt, '2.00 GiB') > 0);
+        SELECT value, direction, observed_at INTO v_num, v_str2, v_dt_m
+          FROM capm_evidence WHERE dbid = v_dbid AND area = 'PGA_LIMIT' AND signal = 'PGA_SAMPLED_PEAK_PCT';
+        chk_close('PGA_SAMPLED_PEAK_PCT value 55', v_num, 55, 0.000001);
+        chk_str  ('PGA_SAMPLED_PEAK_PCT direction', v_str2, 'NEUTRAL');
+        chk_true ('PGA_SAMPLED_PEAK_PCT observed_at = last day 18:00', v_dt_m = d_last + 18/24);
+        verdict;
+        chk_str('PGA_LIMIT grade',  v_grade, 'UNDERSIZED');
+        chk_str('PGA_LIMIT reason', v_reason, 'PEAK_NEAR_LIMIT');
+        chk_int('PGA_LIMIT suggested_bytes = CEIL(1.9 GiB x 100 / 90) MiB = 2162 MiB',
+                v_sug, meta_n('PGA_SUGGEST_MIB') * n_mib);
+        chk_str('PGA_LIMIT exceeds_host_ram (4 GiB + 2162 MiB within 80% of 16 GiB)', v_xram, 'N');
+        chk_int('PGA_LIMIT n_evidence', v_nev, 2);
+        chk_int('PGA_LIMIT n_pressure', v_npr, 1);
+        SELECT current_bytes INTO v_num FROM capm_verdict WHERE dbid = v_dbid AND area = 'PGA_LIMIT';
+        chk_int('PGA_LIMIT current_bytes = limit_bytes', v_num, n_lim * n_gib);
+        SELECT COUNT(*) INTO v_n FROM capm_verdict WHERE area = 'PGA_LIMIT' AND grade = 'OVERSIZED';
+        chk_int('PGA_LIMIT is never OVERSIZED', v_n, 0);
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 PGA_LIMIT knob variations ===');
+        BEGIN
+            knob('mem_pga_limit_pct', 96);
+            verdict;
+            chk_str ('mem_pga_limit_pct 96: grade',  v_grade, 'OK');
+            chk_str ('mem_pga_limit_pct 96: reason', v_reason, 'PEAK_BELOW_LIMIT');
+            chk_true('mem_pga_limit_pct 96: suggested_bytes NULL', v_sug IS NULL);
+            chk_true('mem_pga_limit_pct 96: exceeds_host_ram NULL (no suggestion)', v_xram IS NULL);
+            chk_int ('mem_pga_limit_pct 96: n_pressure', v_npr, 0);
+            UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'mem_pga_limit_pct';
+
+            knob('mem_window_days', 5);
+            knob('mem_min_days', 1);
+            SELECT n_days, hwm_peak_bytes, window_start INTO v_days, v_hwm, v_ws
+              FROM capm_pga_limit WHERE dbid = v_dbid AND instance_number = 1;
+            chk_int ('mem_window_days 5: n_days (days 116..120)', v_days, 5);
+            chk_true('mem_window_days 5: the day-110 advance is outside, hwm_peak NULL', v_hwm IS NULL);
+            chk_true('mem_window_days 5: window_start = window_end - 5', v_ws = d_last + 18/24 - 5);
+            verdict;
+            chk_str('mem_window_days 5, mem_min_days 1: grade',  v_grade, 'OK');
+            chk_str('mem_window_days 5, mem_min_days 1: reason', v_reason, 'PEAK_BELOW_LIMIT');
+            chk_int('mem_window_days 5: n_evidence (the sampled signal only)', v_nev, 1);
+            UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'mem_min_days';
+            verdict;
+            chk_str('mem_window_days 5, mem_min_days 7: grade',  v_grade, 'INSUFFICIENT_EVIDENCE');
+            chk_str('mem_window_days 5, mem_min_days 7: reason', v_reason, 'WINDOW_TOO_SHORT');
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'mem_min_days';
+            chk_str('CAP_CFG_CHECK mem_min_days 7 > mem_window_days 5', v_str, 'BAD');
+            UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'mem_window_days';
+
+            knob('mem_max_step', 1.05);
+            verdict;
+            chk_int('mem_max_step 1.05: suggested_bytes = FLOOR(2048 x 1.05) MiB = 2150 MiB',
+                    v_sug, meta_n('PGA_SUGGEST_MIB_STEP105') * n_mib);
+            UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'mem_max_step';
+
+            knob('mem_host_ram_pct', 30);
+            verdict;
+            chk_str('mem_host_ram_pct 30: exceeds_host_ram (4 GiB + 2162 MiB over 4.8 GiB)', v_xram, 'Y');
+            chk_int('mem_host_ram_pct 30: suggested_bytes unchanged', v_sug, meta_n('PGA_SUGGEST_MIB') * n_mib);
+        EXCEPTION
+            WHEN OTHERS THEN
+                UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name LIKE 'mem!_%' ESCAPE '!';
+                COMMIT;
+                RAISE;
+        END;
+        UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name LIKE 'mem!_%' ESCAPE '!';
+        COMMIT;
+        SELECT COUNT(*), COUNT(CASE WHEN status = 'OK' THEN 1 END) INTO v_n, v_num
+          FROM cap_cfg_check WHERE knob LIKE 'mem!_%' ESCAPE '!';
+        chk_int('the mem_ knobs: 5 of the PGA limit, 16 of the advisor areas', v_n, 21);
+        chk_int('the mem_ knobs OK after reset', v_num, v_n);
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 PGA_LIMIT parameter and data variations ===');
+        SAVEPOINT m25_param;
+        BEGIN
+            UPDATE cap_fixture_parameter SET value_num = 4294967296
+             WHERE parameter_name = 'memory_target' AND snap_id = n_latest;
+            verdict;
+            chk_str('memory_target > 0 at the latest snapshot: mem_mode', v_mode, 'AMM');
+            chk_str('memory_target > 0: grade',  v_grade, 'INSUFFICIENT_EVIDENCE');
+            chk_str('memory_target > 0: reason', v_reason, 'AMM');
+            chk_true('memory_target > 0: suggested_bytes NULL', v_sug IS NULL);
+            ROLLBACK TO SAVEPOINT m25_param;
+
+            UPDATE cap_fixture_parameter SET value_num = 0 WHERE parameter_name = 'pga_aggregate_limit';
+            verdict;
+            chk_str ('pga_aggregate_limit 0: grade',  v_grade, 'OK');
+            chk_str ('pga_aggregate_limit 0: reason', v_reason, 'NO_LIMIT');
+            chk_true('pga_aggregate_limit 0: suggested_bytes NULL', v_sug IS NULL);
+            chk_int ('pga_aggregate_limit 0: no evidence row', v_nev, 0);
+            SELECT COUNT(*) INTO v_n FROM capd_series_daily
+             WHERE dbid = v_dbid AND series = 'PGA_ALLOC_GB' AND limit_value IS NOT NULL;
+            chk_int('pga_aggregate_limit 0: PGA_ALLOC_GB limit_value NULL on every day', v_n, 0);
+            SELECT cur_limit, days_to_limit INTO v_num, v_num2
+              FROM capf_series_forecast WHERE dbid = v_dbid AND series = 'PGA_ALLOC_GB';
+            chk_true('pga_aggregate_limit 0: no cur_limit, no days_to_limit', v_num IS NULL AND v_num2 IS NULL);
+            ROLLBACK TO SAVEPOINT m25_param;
+
+            -- A repository target whose reader cannot read DBA_HIST_PGASTAT.
+            DELETE FROM cap_fixture_pgastat;
+            verdict;
+            chk_str('no PGA statistics: grade',  v_grade, 'INSUFFICIENT_EVIDENCE');
+            chk_str('no PGA statistics: reason', v_reason, 'NOT_COLLECTED');
+            chk_int('no PGA statistics: n_days', v_days, 0);
+            SELECT COUNT(*) INTO v_n FROM capd_series_daily WHERE series = 'PGA_ALLOC_GB';
+            chk_int('no PGA statistics: no PGA_ALLOC_GB row', v_n, 0);
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT m25_param; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT m25_param;
+        verdict;
+        chk_str('PGA_LIMIT back to UNDERSIZED after the rollback', v_grade, 'UNDERSIZED');
+    EXCEPTION
+        WHEN OTHERS THEN
+            fail('M25 PGA block raised ' || SQLERRM);
+    END;
+
+    -- M25: the advisor-based areas (PGA_TARGET, BUFFER_CACHE, SHARED_POOL,
+    -- SGA_TOTAL) and SGA_BALANCE. The designed inputs are in the "M25 --
+    -- memory sizing sources" block of fixture_install.sql: an increment of
+    -- a x u seconds a snapshot interval, u = MEM_U, over n intervals whose DB
+    -- time is dbt, is pct(n, a, dbt) percent of DB time.
+    DECLARE
+        d_last   DATE   := meta_d('LAST_DAY');
+        d_base   DATE   := meta_d('BASE_DAY');
+        n_p      NUMBER := meta_n('PARTIAL_DAY');
+        n_u      NUMBER := meta_n('MEM_U');
+        n_dbt    NUMBER := meta_n('MEM_DBT_WIN');
+        n_latest NUMBER := 2001 + 2 * (meta_d('LAST_DAY') - meta_d('BASE_DAY'));
+        n_snaps  NUMBER := 2 * (meta_d('LAST_DAY') - meta_d('BASE_DAY') + 1) - 1;
+        n_gib    CONSTANT NUMBER := 1073741824;
+        n_mib    CONSTANT NUMBER := 1048576;
+        n_all    NUMBER;
+        n_long   NUMBER;
+        v_grade  VARCHAR2(30);
+        v_reason VARCHAR2(30);
+        v_param  VARCHAR2(30);
+        v_mode   VARCHAR2(10);
+        v_xram   VARCHAR2(1);
+        v_cur    NUMBER;
+        v_sug    NUMBER;
+        v_days   NUMBER;
+        v_nev    NUMBER;
+        v_npr    NUMBER;
+        e_val    NUMBER;
+        e_thr    NUMBER;
+        e_dir    VARCHAR2(10);
+        e_kind   VARCHAR2(10);
+        e_unit   VARCHAR2(10);
+        e_at     DATE;
+        e_txt    VARCHAR2(400);
+        a_cover  NUMBER;
+        a_days   NUMBER;
+        a_best   NUMBER;
+        a_bestb  NUMBER;
+        a_grow   NUMBER;
+        a_slack  NUMBER;
+        a_cur    NUMBER;
+        a_thin   VARCHAR2(1);
+        v_exp    NUMBER;
+        v_d      DATE;
+
+        PROCEDURE verdict(p_area VARCHAR2) IS
+        BEGIN
+            SELECT grade, reason, current_bytes, suggested_bytes, suggested_param, exceeds_host_ram,
+                   mem_mode, n_days, n_evidence, n_pressure
+              INTO v_grade, v_reason, v_cur, v_sug, v_param, v_xram, v_mode, v_days, v_nev, v_npr
+              FROM capm_verdict
+             WHERE dbid = v_dbid AND instance_number = 1 AND area = p_area;
+        END;
+        -- One verdict: grade, reason and the suggested size in MiB (NULL = none).
+        PROCEDURE chk_v(p_label VARCHAR2, p_area VARCHAR2, p_grade VARCHAR2, p_reason VARCHAR2,
+                        p_sug_mib NUMBER) IS
+        BEGIN
+            verdict(p_area);
+            chk_str(p_label || ': ' || p_area || ' grade', v_grade, p_grade);
+            chk_str(p_label || ': ' || p_area || ' reason', v_reason, p_reason);
+            IF p_sug_mib IS NULL THEN
+                chk_true(p_label || ': ' || p_area || ' no suggested size (got ' || v_sug || ')', v_sug IS NULL);
+            ELSE
+                chk_int(p_label || ': ' || p_area || ' suggested_bytes ' || p_sug_mib || ' MiB',
+                        v_sug, p_sug_mib * n_mib);
+            END IF;
+        END;
+        PROCEDURE ev(p_signal VARCHAR2) IS
+        BEGIN
+            SELECT value, threshold, direction, kind, unit, observed_at, evidence_text
+              INTO e_val, e_thr, e_dir, e_kind, e_unit, e_at, e_txt
+              FROM capm_evidence
+             WHERE dbid = v_dbid AND instance_number = 1 AND signal = p_signal;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                e_val := NULL; e_thr := NULL; e_dir := 'NOROW'; e_kind := NULL; e_unit := NULL;
+                e_at := NULL; e_txt := NULL;
+        END;
+        -- One evidence row: its value (to the 4 decimals the view keeps) and direction.
+        PROCEDURE chk_e(p_label VARCHAR2, p_signal VARCHAR2, p_val NUMBER, p_dir VARCHAR2) IS
+        BEGIN
+            ev(p_signal);
+            chk_true(p_label || ': ' || p_signal || ' value ' || ROUND(p_val, 4) || ' (got ' || e_val || ')',
+                     ABS(e_val - p_val) <= 0.0001);
+            chk_str(p_label || ': ' || p_signal || ' direction', e_dir, p_dir);
+        END;
+        PROCEDURE area(p_area VARCHAR2) IS
+        BEGIN
+            SELECT cover_hours, n_days, best_gain, best_bytes, grow_bytes, slack_bytes, current_bytes,
+                   advisor_thin
+              INTO a_cover, a_days, a_best, a_bestb, a_grow, a_slack, a_cur, a_thin
+              FROM capm_area
+             WHERE dbid = v_dbid AND instance_number = 1 AND area = p_area;
+        END;
+        -- DB time of the three containers between two snapshots of one startup.
+        FUNCTION dbt(p_from NUMBER, p_to NUMBER) RETURN NUMBER IS
+            x NUMBER;
+        BEGIN
+            SELECT SUM(CASE snap_id WHEN p_to THEN value ELSE -value END) / 1000000 INTO x
+              FROM cap_fixture_time_model
+             WHERE stat_name = 'DB time' AND snap_id IN (p_from, p_to);
+            RETURN x;
+        END;
+        FUNCTION pct(p_n NUMBER, p_a NUMBER, p_dbt NUMBER) RETURN NUMBER IS
+        BEGIN RETURN 100 * p_n * p_a * n_u / p_dbt; END;
+        PROCEDURE reset_knobs IS
+        BEGIN UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name LIKE 'mem!_%' ESCAPE '!'; END;
+    BEGIN
+        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_SNAP / CAPM_DELTA ===');
+        SELECT COUNT(*), COUNT(CASE WHEN in_win = 'Y' THEN 1 END),
+               COUNT(CASE WHEN seg_ok = 'N' THEN 1 END),
+               COUNT(CASE WHEN prev_snap_id IS NULL THEN 1 END)
+          INTO v_n, v_num, v_num2, v_num3
+          FROM capm_snap WHERE dbid = v_dbid;
+        chk_int('CAPM_SNAP one row per snapshot', v_n, n_snaps);
+        chk_int('CAPM_SNAP in_win snapshots (days 91..120, two a day)', v_num, 60);
+        chk_int('CAPM_SNAP every startup is longer than mem_min_uptime_hours', v_num2, 0);
+        chk_int('CAPM_SNAP three startups, each first snapshot without a predecessor', v_num3, 3);
+        SELECT prev_snap_id, ivl_hours, uptime_hours, latest_snap_id INTO v_num, v_num2, v_num3, v_r2
+          FROM capm_snap WHERE dbid = v_dbid AND snap_id = n_latest;
+        chk_int('CAPM_SNAP latest snapshot pairs with the one before', v_num, n_latest - 1);
+        chk_int('CAPM_SNAP ivl_hours 12', v_num2, 12);
+        chk_close('CAPM_SNAP uptime_hours of the current startup (day 60 00:00 to day 120 18:00)',
+                  v_num3, 60.75 * 24, 0.000001);
+        chk_int('CAPM_SNAP latest_snap_id', v_r2, n_latest);
+        SELECT prev_snap_id INTO v_num FROM capm_snap WHERE dbid = v_dbid AND snap_id = 2121;
+        chk_true('CAPM_SNAP the restart day''s snapshot has no predecessor', v_num IS NULL);
+
+        SELECT COUNT(*) INTO v_n FROM capm_delta WHERE dbid = v_dbid AND snap_id IN (2000, 2001 + 2 * n_p, 2121);
+        chk_int('CAPM_DELTA no increment ends on the first snapshot of a startup', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM capm_delta WHERE dbid = v_dbid AND delta < 0;
+        chk_int('CAPM_DELTA no negative increment', v_n, 0);
+        SELECT COUNT(*), MIN(delta), MAX(delta), COUNT(CASE WHEN prev_snap_id = snap_id - 2 THEN 1 END)
+          INTO v_n, v_num, v_num2, v_num3
+          FROM capm_delta
+         WHERE dbid = v_dbid AND metric = 'PGASTAT' AND key = 'over allocation count' AND in_win = 'Y';
+        chk_int('CAPM_DELTA over allocation count: one increment a window day', v_n, 30);
+        chk_true('CAPM_DELTA over allocation count: each is 1', v_num = 1 AND v_num2 = 1);
+        chk_int('CAPM_DELTA over allocation count: paired across the 06:00 snapshot that has no row', v_num3, 30);
+        SELECT delta, prev_snap_id, ivl_hours INTO v_num, v_num2, v_num3
+          FROM capm_delta
+         WHERE dbid = v_dbid AND metric = 'PGASTAT' AND key = 'over allocation count' AND snap_id = 2001 + 2 * 61;
+        chk_int('CAPM_DELTA over allocation count: the first row of a startup counts in full', v_num, 2);
+        chk_int('CAPM_DELTA over allocation count: against the snapshot before it', v_num2, 2000 + 2 * 61);
+        chk_int('CAPM_DELTA over allocation count: over 12 hours', v_num3, 12);
+        SELECT COUNT(*), SUM(delta) INTO v_n, v_num
+          FROM capm_delta WHERE dbid = v_dbid AND metric = 'EVENT' AND key = 'free buffer waits';
+        chk_int('CAPM_DELTA free buffer waits: an increment from its first row on', v_n, n_latest - 2200 + 1);
+        chk_close('CAPM_DELTA free buffer waits: the first row counts in full, 1.2 u', v_num, 1.2 * n_u, 0.000001);
+        SELECT COUNT(DISTINCT key_num), SUM(delta) INTO v_n, v_num
+          FROM capm_delta WHERE dbid = v_dbid AND metric = 'DBTIME' AND in_win = 'Y';
+        chk_int('CAPM_DELTA DBTIME one key per container', v_n, 3);
+        chk_close('CAPM_DELTA DBTIME window sum = the fixture''s DB time', v_num, n_dbt, 0.000001);
+        SELECT COUNT(*) INTO v_n FROM capm_delta
+         WHERE dbid = v_dbid AND metric = 'BUFFER_CACHE' AND snap_id = n_latest;
+        chk_int('CAPM_DELTA buffer cache advisor: the ten sizes of pool 3 (KEEP and 16K left out)', v_n, 10);
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_ADVICE (shipped knobs) ===');
+        FOR r IN (SELECT 'PGA_TARGET' AS a, 8 AS n_rows, 6 AS n_cand, 1024 AS cur FROM dual
+                  UNION ALL SELECT 'BUFFER_CACHE', 10, 8, 2560 FROM dual
+                  UNION ALL SELECT 'SHARED_POOL',   9, 7, 1024 FROM dual
+                  UNION ALL SELECT 'SGA_TOTAL',     7, 6, 4096 FROM dual) LOOP
+            SELECT COUNT(*), COUNT(CASE WHEN is_candidate = 'Y' THEN 1 END),
+                   MAX(current_bytes), COUNT(CASE WHEN is_current = 'Y' THEN 1 END),
+                   MIN(cover_hours), MAX(cover_hours), MIN(n_intervals), MIN(n_days)
+              INTO v_n, v_num, v_num2, v_num3, v_r2, n_aux, v_cur, v_days
+              FROM capm_advice WHERE dbid = v_dbid AND area = r.a;
+            chk_int('CAPM_ADVICE ' || r.a || ' sizes on the latest list', v_n, r.n_rows);
+            chk_int('CAPM_ADVICE ' || r.a || ' candidates inside the step cap', v_num, r.n_cand);
+            chk_int('CAPM_ADVICE ' || r.a || ' current_bytes MiB', v_num2 / n_mib, r.cur);
+            chk_int('CAPM_ADVICE ' || r.a || ' one current row', v_num3, 1);
+            chk_true('CAPM_ADVICE ' || r.a || ' cover_hours 720 on every size', v_r2 = 720 AND n_aux = 720);
+            chk_int('CAPM_ADVICE ' || r.a || ' n_intervals', v_cur, 60);
+            chk_int('CAPM_ADVICE ' || r.a || ' n_days', v_days, 30);
+        END LOOP;
+        SELECT rel_cost, gain, gain_unit, dbtime_sec INTO v_num, v_num2, v_str, v_num3
+          FROM capm_advice WHERE dbid = v_dbid AND area = 'BUFFER_CACHE' AND size_bytes = 1536 * n_mib;
+        chk_close('CAPM_ADVICE cache 1536 MiB rel_cost 2.45 / 2', v_num, 2.45 / 2, 0.000001);
+        chk_close('CAPM_ADVICE cache 1536 MiB gain -0.45 u in percent of DB time', v_num2,
+                  -pct(60, 0.45, n_dbt), 0.000001);
+        chk_str  ('CAPM_ADVICE cache gain_unit', v_str, 'DBTIME_PCT');
+        chk_close('CAPM_ADVICE cache dbtime_sec = the window''s DB time', v_num3, n_dbt, 0.000001);
+        SELECT est_hit_pct, cur_hit_pct, gain, overalloc, gain_unit, is_candidate
+          INTO v_num, v_num2, v_num3, v_r2, v_str, v_c1
+          FROM capm_advice WHERE dbid = v_dbid AND area = 'PGA_TARGET' AND size_bytes = 1.5 * n_gib;
+        chk_close('CAPM_ADVICE PGA 1.5 GiB est_hit_pct 100 x 9000 / 9060', v_num, 100 * 9000 / 9060, 0.000001);
+        chk_close('CAPM_ADVICE PGA 1.5 GiB cur_hit_pct 90', v_num2, 90, 0.000001);
+        chk_close('CAPM_ADVICE PGA 1.5 GiB gain', v_num3, meta_n('MEM_PGA_KNEE_GAIN'), 0.000001);
+        chk_int  ('CAPM_ADVICE PGA 1.5 GiB overalloc 60 x 1', v_r2, 60);
+        chk_str  ('CAPM_ADVICE PGA gain_unit', v_str, 'HIT_PTS');
+        SELECT is_candidate, gain INTO v_c1, v_num
+          FROM capm_advice WHERE dbid = v_dbid AND area = 'PGA_TARGET' AND size_bytes = 3 * n_gib;
+        chk_str  ('CAPM_ADVICE PGA 3 GiB is outside the step cap', v_c1, 'N');
+        SELECT is_candidate, gain INTO v_c1, v_num
+          FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 2560 * n_mib;
+        chk_str  ('CAPM_ADVICE shared pool 2560 MiB is outside the step cap', v_c1, 'N');
+        chk_close('CAPM_ADVICE shared pool 2560 MiB gain 2 u all the same', v_num, pct(60, 2, n_dbt), 0.000001);
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_AREA / CAPM_SGA_BALANCE (shipped knobs) ===');
+        area('PGA_TARGET');
+        chk_close('CAPM_AREA PGA_TARGET best_gain 10 points', a_best, meta_n('MEM_PGA_GAIN'), 0.000001);
+        chk_int  ('CAPM_AREA PGA_TARGET best_bytes 2 GiB', a_bestb, 2 * n_gib);
+        chk_int  ('CAPM_AREA PGA_TARGET grow_bytes (knee 1.5 GiB, no over-allocation from 1.75 GiB)',
+                  a_grow, meta_n('MEM_PGA_SUGGEST_MIB') * n_mib);
+        chk_true ('CAPM_AREA PGA_TARGET no slack size', a_slack IS NULL);
+        chk_str  ('CAPM_AREA PGA_TARGET advisor_thin', a_thin, 'N');
+        area('BUFFER_CACHE');
+        chk_close('CAPM_AREA BUFFER_CACHE best_gain', a_best, meta_n('MEM_CACHE_GAIN'), 0.000001);
+        chk_int  ('CAPM_AREA BUFFER_CACHE slack_bytes', a_slack, meta_n('MEM_CACHE_SLACK_MIB') * n_mib);
+        chk_int  ('CAPM_AREA BUFFER_CACHE cover_hours', a_cover, 720);
+        area('SHARED_POOL');
+        chk_close('CAPM_AREA SHARED_POOL best_gain', a_best, meta_n('MEM_SHP_GAIN'), 0.000001);
+        chk_int  ('CAPM_AREA SHARED_POOL best_bytes 2048 MiB (2560 is outside the cap)', a_bestb, 2048 * n_mib);
+        chk_int  ('CAPM_AREA SHARED_POOL grow_bytes = the knee', a_grow, meta_n('MEM_SHP_KNEE_MIB') * n_mib);
+        chk_true ('CAPM_AREA SHARED_POOL no slack size', a_slack IS NULL);
+        area('SGA_TOTAL');
+        chk_close('CAPM_AREA SGA_TOTAL best_gain', a_best, meta_n('MEM_SGA_GAIN'), 0.000001);
+        chk_int  ('CAPM_AREA SGA_TOTAL best_bytes: the smallest size reaching it', a_bestb, 6144 * n_mib);
+        SELECT COUNT(*) INTO v_n FROM capm_area WHERE dbid = v_dbid;
+        chk_int('CAPM_AREA four advisor areas', v_n, 4);
+        SELECT n_days, n_ops, n_reversals, cache_grows, shpool_forced_grows, sga_forced_grows,
+               cache_bytes, shpool_bytes, floor_bytes
+          INTO v_days, v_num, v_num2, v_num3, v_r2, n_aux, v_cur, v_sug, v_exp
+          FROM capm_sga_balance WHERE dbid = v_dbid AND instance_number = 1;
+        chk_int ('CAPM_SGA_BALANCE n_days', v_days, 30);
+        chk_true('CAPM_SGA_BALANCE nothing was resized',
+                 v_num = 0 AND v_num2 = 0 AND v_num3 = 0 AND v_r2 = 0 AND n_aux = 0);
+        chk_int ('CAPM_SGA_BALANCE cache_bytes', v_cur, 2560 * n_mib);
+        chk_int ('CAPM_SGA_BALANCE shpool_bytes', v_sug, 1024 * n_mib);
+        chk_true('CAPM_SGA_BALANCE no floor without a grow', v_exp IS NULL);
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_EVIDENCE of the advisor areas (shipped knobs) ===');
+        FOR r IN (SELECT 'PGA_TARGET' AS a, 8 AS n FROM dual UNION ALL SELECT 'BUFFER_CACHE', 4 FROM dual
+                  UNION ALL SELECT 'SHARED_POOL', 7 FROM dual UNION ALL SELECT 'SGA_TOTAL', 4 FROM dual
+                  UNION ALL SELECT 'SGA_BALANCE', 2 FROM dual) LOOP
+            SELECT COUNT(*) INTO v_n FROM capm_evidence WHERE dbid = v_dbid AND area = r.a;
+            chk_int('CAPM_EVIDENCE ' || r.a || ' signals', v_n, r.n);
+        END LOOP;
+        SELECT COUNT(*) INTO v_n FROM capm_evidence
+         WHERE kind NOT IN ('USAGE', 'ADVISOR', 'SYMPTOM', 'CONTEXT')
+            OR direction NOT IN ('PRESSURE', 'SLACK', 'NEUTRAL')
+            OR evidence_text IS NULL OR observed_at IS NULL OR value IS NULL;
+        chk_int('CAPM_EVIDENCE every row has a kind, a direction, a value, a time and a sentence', v_n, 0);
+        chk_e('shipped', 'PGA_ADV_HIT_GAIN_PTS', meta_n('MEM_PGA_GAIN'), 'PRESSURE');
+        chk_str ('PGA_ADV_HIT_GAIN_PTS kind', e_kind, 'ADVISOR');
+        chk_str ('PGA_ADV_HIT_GAIN_PTS unit', e_unit, 'PTS');
+        chk_int ('PGA_ADV_HIT_GAIN_PTS threshold = mem_pga_gain_pts', e_thr, 2);
+        chk_true('PGA_ADV_HIT_GAIN_PTS observed_at = the window end', e_at = d_last + 18/24);
+        chk_true('PGA_ADV_HIT_GAIN_PTS text names 10.00 points, 2.00 GiB and 1.00 GiB (got ' || e_txt || ')',
+                 INSTR(e_txt, '10.00 points at 2.00 GiB against the current 1.00 GiB (threshold 2 points)') > 0);
+        chk_e('shipped', 'PGA_ADV_OVERALLOC', meta_n('MEM_PGA_ADV_OVER'), 'PRESSURE');
+        chk_str ('PGA_ADV_OVERALLOC unit', e_unit, 'COUNT');
+        chk_e('shipped', 'PGA_ADV_SHRINK_LOSS_PTS', meta_n('MEM_PGA_NEAR_LOSS'), 'NEUTRAL');
+        chk_true('PGA_ADV_SHRINK_LOSS_PTS text names the nearest smaller size (got ' || e_txt || ')',
+                 INSTR(e_txt, 'loss of 10.00 points at 768 MiB') > 0);
+        chk_e('shipped', 'PGA_MULTIPASS_PCT', meta_n('MEM_PGA_MULTI'), 'PRESSURE');
+        chk_str ('PGA_MULTIPASS_PCT kind', e_kind, 'SYMPTOM');
+        chk_close('PGA_MULTIPASS_PCT threshold = mem_multipass_pct', e_thr, 0.1, 0.000001);
+        chk_e('shipped', 'PGA_ONEPASS_PCT', meta_n('MEM_PGA_ONE'), 'NEUTRAL');
+        chk_e('shipped', 'PGA_OVERALLOC_COUNT', meta_n('MEM_PGA_OAC'), 'PRESSURE');
+        chk_e('shipped', 'PGA_TEMP_IO_DBTIME_PCT', meta_n('MEM_PGA_TEMP'), 'NEUTRAL');
+        chk_e('shipped', 'PGA_AUTO_SHARE_MIN_PCT', 60, 'NEUTRAL');
+        chk_str ('PGA_AUTO_SHARE_MIN_PCT kind', e_kind, 'CONTEXT');
+        chk_true('PGA_AUTO_SHARE_MIN_PCT threshold NULL', e_thr IS NULL);
+        chk_true('PGA_AUTO_SHARE_MIN_PCT observed_at = day 100 06:00 (day 50 is outside the window)',
+                 e_at = meta_d('MEM_PGA_AUTO_MIN'));
+        chk_true('PGA_AUTO_SHARE_MIN_PCT text has no threshold (got ' || e_txt || ')',
+                 INSTR(e_txt, '60.00% at ') > 0 AND INSTR(e_txt, 'threshold') = 0);
+        chk_e('shipped', 'CACHE_ADV_GAIN_DBTIME_PCT', meta_n('MEM_CACHE_GAIN'), 'NEUTRAL');
+        chk_e('shipped', 'CACHE_ADV_SHRINK_LOSS_DBTIME_PCT', meta_n('MEM_CACHE_SLACK_LOSS'), 'SLACK');
+        chk_close('CACHE_ADV_SHRINK_LOSS_DBTIME_PCT threshold = mem_shrink_dbtime_pct', e_thr, 0.5, 0.000001);
+        chk_true('CACHE_ADV_SHRINK_LOSS_DBTIME_PCT text names 1.50 GiB and 2.50 GiB (got ' || e_txt || ')',
+                 INSTR(e_txt, 'of DB time lost at 1.50 GiB against the current 2.50 GiB') > 0);
+        chk_e('shipped', 'CACHE_FREE_BUFFER_WAIT_DBTIME_PCT', meta_n('MEM_CACHE_FBW'), 'NEUTRAL');
+        chk_e('shipped', 'CACHE_GROWS', 0, 'NEUTRAL');
+        chk_e('shipped', 'SHPOOL_ADV_GAIN_DBTIME_PCT', meta_n('MEM_SHP_GAIN'), 'PRESSURE');
+        chk_e('shipped', 'SHPOOL_ADV_SHRINK_LOSS_DBTIME_PCT', meta_n('MEM_SHP_NEAR_LOSS'), 'NEUTRAL');
+        chk_e('shipped', 'SHPOOL_WAIT_DBTIME_PCT', meta_n('MEM_SHP_WAIT'), 'NEUTRAL');
+        chk_e('shipped', 'SHPOOL_RELOAD_PCT', meta_n('MEM_SHP_RELOAD'), 'NEUTRAL');
+        chk_e('shipped', 'SHPOOL_ROWCACHE_MISS_PCT', meta_n('MEM_SHP_MISS'), 'NEUTRAL');
+        chk_e('shipped', 'SHPOOL_FORCED_GROWS', 0, 'NEUTRAL');
+        chk_e('shipped', 'SHPOOL_FREE_MIN_PCT', meta_n('MEM_SHP_FREE_MIN'), 'NEUTRAL');
+        chk_str ('SHPOOL_FREE_MIN_PCT kind', e_kind, 'CONTEXT');
+        chk_int ('SHPOOL_FREE_MIN_PCT threshold = mem_shpool_free_pct', e_thr, 25);
+        chk_true('SHPOOL_FREE_MIN_PCT observed_at = day 105 18:00 (day 40 is outside the window)',
+                 e_at = meta_d('MEM_SHP_FREE_MIN'));
+        chk_e('shipped', 'SGA_ADV_GAIN_DBTIME_PCT', meta_n('MEM_SGA_GAIN'), 'NEUTRAL');
+        chk_e('shipped', 'SGA_ADV_SHRINK_LOSS_DBTIME_PCT', meta_n('MEM_SGA_NEAR_LOSS'), 'NEUTRAL');
+        chk_e('shipped', 'SGA_POOLS_PRESSED', 0, 'NEUTRAL');
+        chk_e('shipped', 'SGA_FORCED_GROWS', 0, 'NEUTRAL');
+        chk_e('shipped', 'SGA_RESIZE_OPS_DAY', 0, 'NEUTRAL');
+        chk_str ('SGA_RESIZE_OPS_DAY unit', e_unit, 'PER_DAY');
+        chk_e('shipped', 'SGA_RESIZE_REVERSALS', 0, 'NEUTRAL');
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_VERDICT of the advisor areas (shipped knobs) ===');
+        SELECT COUNT(*) INTO v_n FROM capm_verdict WHERE dbid = v_dbid;
+        chk_int('CAPM_VERDICT six areas', v_n, 6);
+        chk_v('shipped', 'PGA_TARGET', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', meta_n('MEM_PGA_SUGGEST_MIB'));
+        chk_int('PGA_TARGET current_bytes 1 GiB', v_cur, n_gib);
+        chk_str('PGA_TARGET suggested_param', v_param, 'pga_aggregate_target');
+        chk_str('PGA_TARGET exceeds_host_ram (4 GiB SGA + 1792 MiB within 80% of 16 GiB)', v_xram, 'N');
+        chk_int('PGA_TARGET n_days', v_days, 30);
+        chk_int('PGA_TARGET n_evidence', v_nev, 8);
+        chk_int('PGA_TARGET n_pressure (advisor gain, advisor over-allocation, multi-pass, over-allocations)', v_npr, 4);
+        chk_str('PGA_TARGET mem_mode', v_mode, 'ASMM');
+        chk_v('shipped', 'BUFFER_CACHE', 'OVERSIZED', 'SHRINK_COSTS_LITTLE', meta_n('MEM_CACHE_SLACK_MIB'));
+        chk_int('BUFFER_CACHE current_bytes 2560 MiB', v_cur, 2560 * n_mib);
+        chk_str('BUFFER_CACHE suggested_param', v_param, 'db_cache_size');
+        chk_true('BUFFER_CACHE exceeds_host_ram NULL (a pool row)', v_xram IS NULL);
+        chk_int('BUFFER_CACHE n_pressure', v_npr, 0);
+        chk_v('shipped', 'SHARED_POOL', 'OK', 'ADVISOR_ONLY', NULL);
+        chk_str('SHARED_POOL suggested_param', v_param, 'shared_pool_size');
+        chk_int('SHARED_POOL n_pressure (the advisor gain alone)', v_npr, 1);
+        chk_v('shipped', 'SGA_TOTAL', 'OK', 'SIZED_RIGHT', NULL);
+        chk_int('SGA_TOTAL current_bytes 4 GiB', v_cur, 4 * n_gib);
+        chk_str('SGA_TOTAL suggested_param', v_param, 'sga_target');
+        chk_true('SGA_TOTAL exceeds_host_ram NULL without a suggestion', v_xram IS NULL);
+        chk_v('shipped', 'SGA_BALANCE', 'OK', 'STABLE', NULL);
+        chk_int('SGA_BALANCE current_bytes = sga_target', v_cur, 4 * n_gib);
+        chk_true('SGA_BALANCE names no parameter while stable', v_param IS NULL);
+        chk_true('SGA_BALANCE exceeds_host_ram NULL', v_xram IS NULL);
+        chk_int('SGA_BALANCE n_days', v_days, 30);
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 advisor area knob variations ===');
+        BEGIN
+            -- The knee and the step cap move a suggestion.
+            knob('mem_knee_pct', 99);
+            chk_v('mem_knee_pct 99 (only 2 GiB captures 9.9 points)', 'PGA_TARGET', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 2048);
+            knob('mem_knee_pct', 40);
+            chk_v('mem_knee_pct 40 (knee 1.25 GiB, still over-allocating below 1.75 GiB)', 'PGA_TARGET',
+                  'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1792);
+            reset_knobs;
+            knob('mem_max_step', 1.6);
+            chk_v('mem_max_step 1.6 (no size inside the cap ends the over-allocation: the largest)', 'PGA_TARGET',
+                  'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1536);
+            chk_e('mem_max_step 1.6', 'PGA_ADV_HIT_GAIN_PTS', meta_n('MEM_PGA_KNEE_GAIN'), 'PRESSURE');
+            chk_v('mem_max_step 1.6 (1536 MiB is outside the cap, 1792 is the smallest slack size)', 'BUFFER_CACHE',
+                  'OVERSIZED', 'SHRINK_COSTS_LITTLE', 1792);
+            reset_knobs;
+
+            -- The shrink rule.
+            knob('mem_shrink_dbtime_pct', 0.2);
+            chk_v('mem_shrink_dbtime_pct 0.2 (1792 MiB loses 0.3%)', 'BUFFER_CACHE', 'OVERSIZED', 'SHRINK_COSTS_LITTLE', 2048);
+            chk_e('mem_shrink_dbtime_pct 0.2', 'CACHE_ADV_SHRINK_LOSS_DBTIME_PCT', pct(60, 0.1, n_dbt), 'SLACK');
+            knob('mem_shrink_dbtime_pct', 0.01);
+            chk_v('mem_shrink_dbtime_pct 0.01 (every smaller size loses more)', 'BUFFER_CACHE', 'OK', 'SIZED_RIGHT', NULL);
+            chk_e('mem_shrink_dbtime_pct 0.01: the nearest smaller size', 'CACHE_ADV_SHRINK_LOSS_DBTIME_PCT',
+                  pct(60, 0.05, n_dbt), 'NEUTRAL');
+            reset_knobs;
+            knob('mem_shrink_min_days', 31);
+            chk_v('mem_shrink_min_days 31 (30 sampled days)', 'BUFFER_CACHE', 'OK', 'SHRINK_UNPROVEN', NULL);
+            reset_knobs;
+
+            -- Thin advisor coverage: the window holds 720 hours, the startup 1458.
+            knob('mem_min_uptime_hours', 720);
+            chk_v('mem_min_uptime_hours 720 (coverage is 720)', 'PGA_TARGET', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1792);
+            knob('mem_min_uptime_hours', 721);
+            chk_v('mem_min_uptime_hours 721', 'PGA_TARGET',   'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);
+            chk_int('mem_min_uptime_hours 721: PGA_TARGET symptoms still count (multi-pass, over-allocations)', v_npr, 2);
+            chk_int('mem_min_uptime_hours 721: PGA_TARGET has no ADVISOR row left', v_nev, 5);
+            chk_int('mem_min_uptime_hours 721: PGA_TARGET current_bytes stays', v_cur, n_gib);
+            chk_v('mem_min_uptime_hours 721', 'BUFFER_CACHE', 'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);
+            chk_v('mem_min_uptime_hours 721', 'SHARED_POOL',  'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);
+            chk_v('mem_min_uptime_hours 721', 'SGA_TOTAL',    'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);
+            chk_v('mem_min_uptime_hours 721 (no advisor)', 'SGA_BALANCE', 'OK', 'STABLE', NULL);
+            SELECT COUNT(*) INTO v_n FROM capm_advice WHERE dbid = v_dbid AND is_candidate = 'Y';
+            chk_int('mem_min_uptime_hours 721: no candidate anywhere', v_n, 0);
+            knob('mem_min_uptime_hours', 2000);
+            area('SHARED_POOL');
+            chk_int('mem_min_uptime_hours 2000 (above the 1458 h uptime): no advisor increment counts', a_cover, 0);
+            chk_str('mem_min_uptime_hours 2000: advisor_thin', a_thin, 'Y');
+            chk_v('mem_min_uptime_hours 2000', 'SHARED_POOL', 'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);
+            chk_e('mem_min_uptime_hours 2000: a symptom of a short startup still counts', 'SHPOOL_RELOAD_PCT',
+                  meta_n('MEM_SHP_RELOAD'), 'NEUTRAL');
+            reset_knobs;
+
+            -- Symptoms decide between ADVISOR_ONLY, SYMPTOM_ONLY and UNDERSIZED.
+            knob('mem_symptom_dbtime_pct', 0.03);
+            chk_e('mem_symptom_dbtime_pct 0.03', 'SHPOOL_WAIT_DBTIME_PCT', meta_n('MEM_SHP_WAIT'), 'PRESSURE');
+            chk_v('mem_symptom_dbtime_pct 0.03 (advisor gain and shared pool waits)', 'SHARED_POOL',
+                  'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', meta_n('MEM_SHP_KNEE_MIB'));
+            chk_true('SHARED_POOL UNDERSIZED: exceeds_host_ram NULL (a pool row)', v_xram IS NULL);
+            chk_e('mem_symptom_dbtime_pct 0.03', 'SGA_POOLS_PRESSED', 1, 'NEUTRAL');
+            chk_v('mem_symptom_dbtime_pct 0.03 (free buffer waits 0.02%)', 'BUFFER_CACHE',
+                  'OVERSIZED', 'SHRINK_COSTS_LITTLE', 1536);
+            knob('mem_knee_pct', 70);
+            chk_v('mem_knee_pct 70 (1280 MiB captures 1.1 of 1.5)', 'SHARED_POOL', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1280);
+            knob('mem_knee_pct', 90);
+            knob('mem_symptom_dbtime_pct', 0.01);
+            chk_e('mem_symptom_dbtime_pct 0.01', 'CACHE_FREE_BUFFER_WAIT_DBTIME_PCT', meta_n('MEM_CACHE_FBW'), 'PRESSURE');
+            chk_v('mem_symptom_dbtime_pct 0.01 (a symptom, no advisor gain, so no longer oversized)', 'BUFFER_CACHE',
+                  'OK', 'SYMPTOM_ONLY', NULL);
+            chk_e('mem_symptom_dbtime_pct 0.01', 'SGA_POOLS_PRESSED', 2, 'PRESSURE');
+            chk_v('mem_symptom_dbtime_pct 0.01 (both pools pressed)', 'SGA_TOTAL', 'OK', 'SYMPTOM_ONLY', NULL);
+            reset_knobs;
+            knob('mem_gain_dbtime_pct', 0.25);
+            chk_v('mem_gain_dbtime_pct 0.25 (SGA advisor gain 0.3%, no symptom)', 'SGA_TOTAL', 'OK', 'ADVISOR_ONLY', NULL);
+            knob('mem_gain_dbtime_pct', 2);
+            knob('mem_shpool_free_pct', 10);
+            chk_e('mem_shpool_free_pct 10', 'SHPOOL_FREE_MIN_PCT', meta_n('MEM_SHP_FREE_MIN'), 'SLACK');
+            chk_v('mem_gain_dbtime_pct 2, mem_shpool_free_pct 10 (a CONTEXT row in SLACK decides nothing)',
+                  'SHARED_POOL', 'OK', 'SIZED_RIGHT', NULL);
+            reset_knobs;
+
+            -- Either advisor signal is advisor pressure, any symptom a symptom.
+            knob('mem_pga_gain_pts', 11);
+            chk_e('mem_pga_gain_pts 11', 'PGA_ADV_HIT_GAIN_PTS', meta_n('MEM_PGA_GAIN'), 'NEUTRAL');
+            chk_v('mem_pga_gain_pts 11 (the advisor still over-allocates)', 'PGA_TARGET',
+                  'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1792);
+            knob('mem_multipass_pct', 0.3);
+            knob('mem_onepass_pct', 2);
+            chk_e('mem_multipass_pct 0.3', 'PGA_MULTIPASS_PCT', meta_n('MEM_PGA_MULTI'), 'NEUTRAL');
+            chk_e('mem_onepass_pct 2', 'PGA_ONEPASS_PCT', meta_n('MEM_PGA_ONE'), 'PRESSURE');
+            knob('mem_temp_io_dbtime_pct', 1);
+            chk_e('mem_temp_io_dbtime_pct 1', 'PGA_TEMP_IO_DBTIME_PCT', meta_n('MEM_PGA_TEMP'), 'PRESSURE');
+            knob('mem_reload_pct', 0.4);
+            knob('mem_rowcache_miss_pct', 2);
+            chk_e('mem_reload_pct 0.4', 'SHPOOL_RELOAD_PCT', meta_n('MEM_SHP_RELOAD'), 'PRESSURE');
+            chk_e('mem_rowcache_miss_pct 2', 'SHPOOL_ROWCACHE_MISS_PCT', meta_n('MEM_SHP_MISS'), 'PRESSURE');
+            reset_knobs;
+
+            -- The host memory flag of PGA_TARGET.
+            knob('mem_host_ram_pct', 30);
+            chk_v('mem_host_ram_pct 30', 'PGA_TARGET', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1792);
+            chk_str('mem_host_ram_pct 30: PGA_TARGET exceeds_host_ram (4 GiB + 1792 MiB over 4.8 GiB)', v_xram, 'Y');
+            reset_knobs;
+
+            -- Every restart pulled into the window: 237 intervals over three
+            -- startups, none across a restart. Day 0's snapshots are outside.
+            knob('mem_window_days', 120);
+            n_all := (2 * n_p - 1) + (118 - 2 * n_p) + 120;
+            area('PGA_TARGET');
+            chk_int('mem_window_days 120: PGA_TARGET cover_hours = 237 intervals x 12 h', a_cover, n_all * 12);
+            chk_int('mem_window_days 120: n_days (the restart day ends no interval)', a_days, 119);
+            chk_close('mem_window_days 120: best_gain unchanged', a_best, meta_n('MEM_PGA_GAIN'), 0.000001);
+            chk_e('mem_window_days 120', 'PGA_ADV_OVERALLOC', n_all * 3, 'PRESSURE');
+            chk_e('mem_window_days 120: nothing is subtracted across a restart', 'PGA_OVERALLOC_COUNT',
+                  meta_n('MEM_PGA_OAC_ALL'), 'PRESSURE');
+            chk_e('mem_window_days 120', 'PGA_MULTIPASS_PCT', meta_n('MEM_PGA_MULTI'), 'PRESSURE');
+            chk_e('mem_window_days 120', 'SHPOOL_RELOAD_PCT', meta_n('MEM_SHP_RELOAD'), 'NEUTRAL');
+            chk_e('mem_window_days 120: day 50 is inside now', 'PGA_AUTO_SHARE_MIN_PCT', 30, 'NEUTRAL');
+            chk_e('mem_window_days 120: day 40 is inside now', 'SHPOOL_FREE_MIN_PCT', 100 * 64 / 1024, 'NEUTRAL');
+            area('BUFFER_CACHE');
+            chk_int('mem_window_days 120: BUFFER_CACHE cover_hours', a_cover, n_all * 12);
+            SELECT COUNT(*) INTO v_n FROM capm_delta WHERE dbid = v_dbid AND delta < 0;
+            chk_int('mem_window_days 120: no negative increment', v_n, 0);
+            -- A startup under the minimum uptime: the first one was observed
+            -- for (PARTIAL_DAY + 5) days and 6 hours, under 700 hours.
+            knob('mem_min_uptime_hours', 700);
+            n_long := (118 - 2 * n_p) + 120;
+            SELECT COUNT(DISTINCT startup_time) INTO v_n FROM capm_snap WHERE dbid = v_dbid AND seg_ok = 'N';
+            chk_int('mem_min_uptime_hours 700: one startup is too short', v_n, 1);
+            area('PGA_TARGET');
+            chk_int('mem_min_uptime_hours 700: its intervals leave the advisor coverage', a_cover, n_long * 12);
+            chk_e('mem_min_uptime_hours 700', 'PGA_ADV_OVERALLOC', n_long * 3, 'PRESSURE');
+            chk_e('mem_min_uptime_hours 700: its symptoms still count', 'PGA_OVERALLOC_COUNT',
+                  meta_n('MEM_PGA_OAC_ALL'), 'PRESSURE');
+        EXCEPTION
+            WHEN OTHERS THEN
+                reset_knobs;
+                COMMIT;
+                RAISE;
+        END;
+        reset_knobs;
+        COMMIT;
+
+        DBMS_OUTPUT.PUT_LINE('=== M25 advisor area parameter and data variations ===');
+        SAVEPOINT m25_mem;
+        BEGIN
+            UPDATE cap_fixture_parameter SET value_num = 4294967296
+             WHERE parameter_name = 'memory_target' AND snap_id = n_latest;
+            chk_v('memory_target > 0', 'PGA_TARGET',   'INSUFFICIENT_EVIDENCE', 'AMM', NULL);
+            chk_str('memory_target > 0: mem_mode', v_mode, 'AMM');
+            chk_v('memory_target > 0', 'BUFFER_CACHE', 'INSUFFICIENT_EVIDENCE', 'AMM', NULL);
+            chk_v('memory_target > 0', 'SHARED_POOL',  'INSUFFICIENT_EVIDENCE', 'AMM', NULL);
+            chk_v('memory_target > 0', 'SGA_TOTAL',    'INSUFFICIENT_EVIDENCE', 'AMM', NULL);
+            chk_v('memory_target > 0', 'SGA_BALANCE',  'INSUFFICIENT_EVIDENCE', 'AMM', NULL);
+            ROLLBACK TO SAVEPOINT m25_mem;
+
+            UPDATE cap_fixture_parameter SET value_num = 0
+             WHERE parameter_name = 'sga_target' AND snap_id = n_latest;
+            chk_v('sga_target 0', 'SGA_TOTAL',    'INSUFFICIENT_EVIDENCE', 'MANUAL_SIZING', NULL);
+            chk_str('sga_target 0: mem_mode', v_mode, 'MANUAL');
+            chk_v('sga_target 0', 'SGA_BALANCE',  'INSUFFICIENT_EVIDENCE', 'MANUAL_SIZING', NULL);
+            chk_v('sga_target 0 (graded from its own advisor)', 'BUFFER_CACHE', 'OVERSIZED', 'SHRINK_COSTS_LITTLE', 1536);
+            chk_v('sga_target 0 (graded from its own advisor)', 'SHARED_POOL',  'OK', 'ADVISOR_ONLY', NULL);
+            chk_v('sga_target 0', 'PGA_TARGET',   'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1792);
+            ROLLBACK TO SAVEPOINT m25_mem;
+
+            -- A repository target whose reader cannot read the memory views.
+            DELETE FROM cap_fixture_mem_comp;
+            DELETE FROM cap_fixture_workarea_hstgrm;
+            DELETE FROM cap_fixture_pga_advice;
+            DELETE FROM cap_fixture_sga_advice;
+            DELETE FROM cap_fixture_cache_advice;
+            DELETE FROM cap_fixture_shpool_advice;
+            DELETE FROM cap_fixture_sgastat;
+            DELETE FROM cap_fixture_librarycache;
+            DELETE FROM cap_fixture_rowcache;
+            DELETE FROM cap_fixture_system_event;
+            chk_v('no memory history', 'PGA_TARGET',   'INSUFFICIENT_EVIDENCE', 'NOT_COLLECTED', NULL);
+            chk_true('no memory history: PGA_TARGET current_bytes NULL', v_cur IS NULL);
+            chk_v('no memory history', 'BUFFER_CACHE', 'INSUFFICIENT_EVIDENCE', 'NOT_COLLECTED', NULL);
+            chk_int('no memory history: BUFFER_CACHE has no evidence (free buffer waits cannot be zero unseen)', v_nev, 0);
+            chk_v('no memory history', 'SHARED_POOL',  'INSUFFICIENT_EVIDENCE', 'NOT_COLLECTED', NULL);
+            chk_int('no memory history: SHARED_POOL has no evidence', v_nev, 0);
+            chk_v('no memory history', 'SGA_TOTAL',    'INSUFFICIENT_EVIDENCE', 'NOT_COLLECTED', NULL);
+            chk_int('no memory history: SGA_TOTAL has no evidence', v_nev, 0);
+            chk_v('no memory history', 'SGA_BALANCE',  'INSUFFICIENT_EVIDENCE', 'NOT_COLLECTED', NULL);
+            chk_int('no memory history: SGA_BALANCE n_days', v_days, 0);
+            chk_v('no memory history (PGA statistics are a copy of their own)', 'PGA_LIMIT', 'UNDERSIZED', 'PEAK_NEAR_LIMIT',
+                  meta_n('PGA_SUGGEST_MIB'));
+            ROLLBACK TO SAVEPOINT m25_mem;
+
+            -- The buffer cache advisor restarts its estimates at day 105 06:00
+            -- (snapshot 2210), as it does when the cache is resized: that
+            -- interval's increment is negative and dropped, 59 intervals stay.
+            UPDATE cap_fixture_cache_advice a
+               SET a.estd_physical_read_time = a.estd_physical_read_time -
+                   (SELECT b.estd_physical_read_time FROM cap_fixture_cache_advice b
+                     WHERE b.snap_id = 2209 AND b.bpid = a.bpid AND b.block_size = a.block_size
+                       AND b.size_for_estimate = a.size_for_estimate)
+             WHERE a.bpid = 3 AND a.snap_id >= 2210;
+            v_exp := n_dbt - dbt(2209, 2210);
+            area('BUFFER_CACHE');
+            chk_int('cache advisor reset: cover_hours = 59 intervals x 12 h', a_cover, 708);
+            chk_int('cache advisor reset: n_days', a_days, 30);
+            SELECT n_intervals, est_cost, cur_cost, dbtime_sec INTO v_n, v_num, v_num2, v_num3
+              FROM capm_advice WHERE dbid = v_dbid AND area = 'BUFFER_CACHE' AND size_bytes = 1536 * n_mib;
+            chk_int  ('cache advisor reset: n_intervals', v_n, 59);
+            chk_close('cache advisor reset: est_cost = 59 x 2.45 u', v_num, 59 * 2.45 * n_u, 0.000001);
+            chk_close('cache advisor reset: cur_cost = 59 x 2 u', v_num2, 59 * 2 * n_u, 0.000001);
+            chk_close('cache advisor reset: dbtime_sec = the DB time of the 59 intervals', v_num3, v_exp, 0.000001);
+            chk_e('cache advisor reset', 'CACHE_ADV_SHRINK_LOSS_DBTIME_PCT', pct(59, 0.45, v_exp), 'SLACK');
+            chk_e('cache advisor reset', 'CACHE_ADV_GAIN_DBTIME_PCT', pct(59, 0.2, v_exp), 'NEUTRAL');
+            chk_v('cache advisor reset', 'BUFFER_CACHE', 'OVERSIZED', 'SHRINK_COSTS_LITTLE', 1536);
+            area('SHARED_POOL');
+            chk_int('cache advisor reset: the shared pool advisor keeps its 720 hours', a_cover, 720);
+            ROLLBACK TO SAVEPOINT m25_mem;
+
+            -- The shared pool advisor's list changes mid-window. 1408 MiB is
+            -- listed from day 111 06:00 on (snapshot 2222, 1 u an interval):
+            -- compared over exactly its 19 intervals. 1100 MiB is listed early
+            -- in the window only, 1664 MiB on the last two snapshots only.
+            INSERT INTO cap_fixture_shpool_advice
+            SELECT dbid, con_dbid, instance_number, snap_id, 1408, 1.375, 704, 1000, 0, 1,
+                   (snap_id - 2221) * 1 * n_u, 0.33, 0
+              FROM cap_fixture_shpool_advice
+             WHERE shared_pool_size_for_estimate = 1024 AND snap_id BETWEEN 2222 AND n_latest;
+            INSERT INTO cap_fixture_shpool_advice
+            SELECT dbid, con_dbid, instance_number, snap_id, 1100, 1.0742, 550, 1000, 0, 1,
+                   (snap_id - 2181) * 0.1 * n_u, 0.03, 0
+              FROM cap_fixture_shpool_advice
+             WHERE shared_pool_size_for_estimate = 1024 AND snap_id BETWEEN 2182 AND 2200;
+            INSERT INTO cap_fixture_shpool_advice
+            SELECT dbid, con_dbid, instance_number, snap_id, 1664, 1.625, 832, 1000, 0, 1,
+                   (snap_id - n_latest + 2) * 0.1 * n_u, 0.03, 0
+              FROM cap_fixture_shpool_advice
+             WHERE shared_pool_size_for_estimate = 1024 AND snap_id IN (n_latest - 1, n_latest);
+            v_exp := dbt(2222, n_latest);
+            SELECT cover_hours, n_intervals, est_cost, cur_cost, dbtime_sec, gain, is_candidate
+              INTO v_num, v_n, v_num2, v_num3, v_r2, n_aux, v_c1
+              FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 1408 * n_mib;
+            chk_int  ('shared pool list change: 1408 MiB cover_hours = 19 intervals x 12 h', v_num, 228);
+            chk_int  ('shared pool list change: 1408 MiB n_intervals', v_n, 19);
+            chk_close('shared pool list change: 1408 MiB est_cost = 19 x 1 u', v_num2, 19 * n_u, 0.000001);
+            chk_close('shared pool list change: the current size over the same 19 intervals, 19 x 3 u',
+                      v_num3, 19 * 3 * n_u, 0.000001);
+            chk_close('shared pool list change: dbtime_sec of the 19 intervals', v_r2, v_exp, 0.000001);
+            chk_close('shared pool list change: 1408 MiB gain', n_aux, pct(19, 2, v_exp), 0.000001);
+            chk_str  ('shared pool list change: 1408 MiB is a candidate', v_c1, 'Y');
+            SELECT COUNT(*) INTO v_n FROM capm_advice
+             WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 1100 * n_mib;
+            chk_int('shared pool list change: 1100 MiB left the list, no row', v_n, 0);
+            SELECT cover_hours, is_candidate INTO v_num, v_c1
+              FROM capm_advice WHERE dbid = v_dbid AND area = 'SHARED_POOL' AND size_bytes = 1664 * n_mib;
+            chk_int('shared pool list change: 1664 MiB cover_hours 12', v_num, 12);
+            chk_str('shared pool list change: 1664 MiB is under mem_min_uptime_hours, no candidate', v_c1, 'N');
+            area('SHARED_POOL');
+            chk_close('shared pool list change: best_gain is 1408 MiB''s', a_best, pct(19, 2, v_exp), 0.000001);
+            chk_int  ('shared pool list change: best_bytes', a_bestb, 1408 * n_mib);
+            chk_int  ('shared pool list change: grow_bytes', a_grow, 1408 * n_mib);
+            chk_int  ('shared pool list change: the current size keeps its 720 hours', a_cover, 720);
+            ROLLBACK TO SAVEPOINT m25_mem;
+
+            -- An oscillating SGA. From day 100 06:00 (snapshot 2200) eight
+            -- cycles of three snapshots: the shared pool takes 64 MiB from the
+            -- cache by force, 64 MiB more, then gives 128 MiB back. One more
+            -- shared pool operation at snapshot 2230 changes no size.
+            UPDATE cap_fixture_mem_comp
+               SET current_size = (CASE component WHEN 'shared pool' THEN 1024 ELSE 2560 END
+                                   + CASE component WHEN 'shared pool' THEN 1 ELSE -1 END
+                                     * CASE WHEN snap_id BETWEEN 2200 AND 2223
+                                            THEN DECODE(MOD(snap_id - 2200, 3), 0, 64, 1, 128, 0) ELSE 0 END
+                                  ) * 1048576,
+                   oper_count = LEAST(snap_id - 2199, 24)
+                                + CASE WHEN component = 'shared pool' AND snap_id >= 2230 THEN 1 ELSE 0 END,
+                   last_oper_type = CASE WHEN component = 'shared pool' AND MOD(LEAST(snap_id, 2223) - 2200, 3) < 2
+                                           OR component <> 'shared pool' AND MOD(LEAST(snap_id, 2223) - 2200, 3) = 2
+                                         THEN 'GROW' ELSE 'SHRINK' END,
+                   last_oper_mode = CASE WHEN MOD(LEAST(snap_id, 2223) - 2200, 3) < 2 THEN 'IMMEDIATE' ELSE 'DEFERRED' END
+             WHERE component IN ('shared pool', 'DEFAULT buffer cache') AND snap_id >= 2200;
+            SELECT n_ops, ops_per_day, n_reversals, cache_grows, shpool_forced_grows, sga_forced_grows,
+                   shpool_max_bytes, floor_bytes, floor_param, shpool_forced_at
+              INTO v_num, v_num2, v_num3, v_r2, n_aux, v_cur, v_sug, v_exp, v_param, v_d
+              FROM capm_sga_balance WHERE dbid = v_dbid AND instance_number = 1;
+            chk_int  ('oscillation: n_ops = 24 intervals x 2 pools + 1', v_num, 49);
+            chk_close('oscillation: ops_per_day = 49 / 30', v_num2, 49 / 30, 0.000001);
+            chk_int  ('oscillation: n_reversals = 15 turns a pool + the operation without a net change', v_num3, 31);
+            chk_int  ('oscillation: cache_grows (the give-backs)', v_r2, 8);
+            chk_int  ('oscillation: shpool_forced_grows', n_aux, 16);
+            chk_int  ('oscillation: sga_forced_grows', v_cur, 16);
+            chk_int  ('oscillation: shpool_max_bytes', v_sug, 1152 * n_mib);
+            chk_int  ('oscillation: floor_bytes = the largest size of the pool that grew most often', v_exp, 1152 * n_mib);
+            chk_str  ('oscillation: floor_param', v_param, 'shared_pool_size');
+            chk_true ('oscillation: shpool_forced_at = day 111 06:00, the last forced grow',
+                      v_d = d_base + 111 + 6/24);
+            chk_e('oscillation', 'SGA_RESIZE_REVERSALS', 31, 'PRESSURE');
+            chk_e('oscillation', 'SGA_RESIZE_OPS_DAY', 49 / 30, 'NEUTRAL');
+            chk_v('oscillation', 'SGA_BALANCE', 'THRASHING', 'RESIZE_CHURN', 1152);
+            chk_str('oscillation: SGA_BALANCE suggested_param names the pool to floor', v_param, 'shared_pool_size');
+            chk_true('oscillation: SGA_BALANCE exceeds_host_ram NULL', v_xram IS NULL);
+            chk_e('oscillation', 'SHPOOL_FORCED_GROWS', 16, 'PRESSURE');
+            chk_true('oscillation: SHPOOL_FORCED_GROWS observed_at = the last forced grow', e_at = d_base + 111 + 6/24);
+            chk_e('oscillation', 'CACHE_GROWS', 8, 'PRESSURE');
+            chk_e('oscillation', 'SGA_FORCED_GROWS', 16, 'PRESSURE');
+            chk_e('oscillation', 'SGA_POOLS_PRESSED', 2, 'PRESSURE');
+            chk_v('oscillation (advisor gain and forced grows)', 'SHARED_POOL', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1536);
+            chk_v('oscillation (the cache was grown: not oversized)', 'BUFFER_CACHE', 'OK', 'SYMPTOM_ONLY', NULL);
+            chk_v('oscillation (symptoms, advisor gain 0.3% under the knob)', 'SGA_TOTAL', 'OK', 'SYMPTOM_ONLY', NULL);
+            knob('mem_gain_dbtime_pct', 0.25);
+            chk_v('oscillation, mem_gain_dbtime_pct 0.25', 'SGA_TOTAL', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM',
+                  meta_n('MEM_SGA_KNEE_MIB'));
+            chk_str('SGA_TOTAL UNDERSIZED: exceeds_host_ram (6144 MiB + pga_aggregate_target 1 GiB within 12.8 GiB)', v_xram, 'N');
+            knob('mem_host_ram_pct', 40);
+            chk_v('oscillation, mem_host_ram_pct 40', 'SGA_TOTAL', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 6144);
+            chk_str('SGA_TOTAL UNDERSIZED: exceeds_host_ram (7 GiB over 6.4 GiB)', v_xram, 'Y');
+            knob('mem_resize_reversals', 32);
+            chk_v('oscillation, mem_resize_reversals 32 (1.63 operations a day under 10)', 'SGA_BALANCE', 'OK', 'STABLE', NULL);
+            knob('mem_resize_ops_day', 1.5);
+            chk_e('oscillation, mem_resize_ops_day 1.5', 'SGA_RESIZE_OPS_DAY', 49 / 30, 'PRESSURE');
+            chk_v('oscillation, mem_resize_ops_day 1.5', 'SGA_BALANCE', 'THRASHING', 'RESIZE_CHURN', 1152);
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT m25_mem; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT m25_mem;
+        chk_v('after the rollback', 'BUFFER_CACHE', 'OVERSIZED', 'SHRINK_COSTS_LITTLE', 1536);
+        chk_v('after the rollback', 'SGA_BALANCE',  'OK', 'STABLE', NULL);
+        SELECT COUNT(*) INTO v_n FROM cap_config WHERE cfg_name LIKE 'mem!_%' ESCAPE '!' AND cfg_value <> cfg_default;
+        chk_int('every mem_ knob back at its default', v_n, 0);
+        -- The memory sources feed the verdict views only, and nothing reads a
+        -- verdict view: no series, no anomaly and no alert can come from them.
+        SELECT COUNT(*) INTO v_n FROM all_dependencies
+         WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND referenced_owner = owner
+           AND (referenced_name IN ('CAPV_MEM_COMP', 'CAPV_WORKAREA_HSTGRM', 'CAPV_PGA_ADVICE',
+                                    'CAPV_SGA_ADVICE', 'CAPV_CACHE_ADVICE', 'CAPV_SHPOOL_ADVICE',
+                                    'CAPV_SGASTAT', 'CAPV_LIBRARYCACHE', 'CAPV_ROWCACHE',
+                                    'CAPV_SYSTEM_EVENT')
+                OR referenced_name LIKE 'CAPM!_%' ESCAPE '!')
+           AND name NOT LIKE 'CAPM!_%' ESCAPE '!'
+           AND name <> 'CAPV_CONTRACT';
+        chk_int('only CAPM_ views (and CAPV_CONTRACT) read the memory sources, nothing reads a CAPM_ view', v_n, 0);
+    EXCEPTION
+        WHEN OTHERS THEN
+            fail('M25 memory block raised ' || SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
     END;
 
     DECLARE
@@ -2083,7 +3014,7 @@ BEGIN
                  OR is_complete <> CASE WHEN covered_sec >= 0.80 * 86400 THEN 'Y' ELSE 'N' END);
         chk_int('REDO is_complete agrees with covered_sec on every row', v_n, 0);
         SELECT COUNT(*) INTO v_n FROM capd_series_daily
-          WHERE series IN ('PROCESSES','SESSIONS','DB_SIZE_GB')
+          WHERE series IN ('PROCESSES','SESSIONS','PGA_ALLOC_GB','DB_SIZE_GB')
             AND (covered_sec IS NOT NULL OR is_complete <> 'Y');
         chk_int('level series carry covered_sec NULL, is_complete Y', v_n, 0);
 
@@ -2133,12 +3064,24 @@ BEGIN
 
         DBMS_OUTPUT.PUT_LINE('=== CAPV_CONTRACT ===');
         SELECT COUNT(*) INTO v_n FROM capv_contract;
-        chk_int('CAPV_CONTRACT one row per seam source', v_n, 9);
+        chk_int('CAPV_CONTRACT one row per seam source', v_n, 20);
         SELECT COUNT(*) INTO v_n FROM capv_contract
           WHERE (source_name IN ('TBSPC_USAGE','TIME_MODEL','SYSSTAT','SEG_STAT') AND per_container_expected = 'Y')
              OR (source_name IN ('OSSTAT','RESOURCE_LIMIT','SNAPSHOT',
-                                 'PARAMETER','ASM_DISKGROUP')                AND per_container_expected = 'N');
-        chk_int('CAPV_CONTRACT per_container_expected as specified', v_n, 9);
+                                 'PARAMETER','ASM_DISKGROUP','PGASTAT',
+                                 'MEM_COMP','WORKAREA_HSTGRM','PGA_ADVICE','SGA_ADVICE',
+                                 'CACHE_ADVICE','SHPOOL_ADVICE','SGASTAT','LIBRARYCACHE',
+                                 'ROWCACHE','SYSTEM_EVENT')      AND per_container_expected = 'N');
+        chk_int('CAPV_CONTRACT per_container_expected as specified', v_n, 20);
+        -- M25 memory sources: fixture_install.sql fills all ten.
+        SELECT COUNT(*), NVL(SUM(n_rows), 0) INTO v_n, v_num
+          FROM capv_contract
+         WHERE source_name IN ('MEM_COMP','WORKAREA_HSTGRM','PGA_ADVICE','SGA_ADVICE',
+                               'CACHE_ADVICE','SHPOOL_ADVICE','SGASTAT','LIBRARYCACHE',
+                               'ROWCACHE','SYSTEM_EVENT');
+        chk_int('CAPV_CONTRACT memory sources listed', v_n, 10);
+        chk_int('CAPV_CONTRACT memory sources n_rows (59 a snapshot + the free buffer waits rows)',
+                v_num, meta_n('MEM_SRC_ROWS'));
         -- SEG_STAT: 4 segments on every 18:00 snapshot (121 days), root only.
         SELECT n_rows, n_con_dbid INTO v_num, v_num2
           FROM capv_contract WHERE source_name = 'SEG_STAT';
@@ -2160,10 +3103,11 @@ BEGIN
         chk_int('CAPV_CONTRACT SNAPSHOT max_snap_id', v_num2, 2001 + 2 * (d_last - d_base));
         chk_true('CAPV_CONTRACT SNAPSHOT max_end_time = last day 18:00',
                  v_ts = d_last + 18/24);
-        -- OSSTAT: 4 names on every snapshot but the two of the gap day.
+        -- OSSTAT: 5 names (the 4 CPU ones and M25's PHYSICAL_MEMORY_BYTES)
+        -- on every snapshot but the two of the gap day.
         SELECT n_rows, n_con_dbid INTO v_num, v_num2
           FROM capv_contract WHERE source_name = 'OSSTAT';
-        chk_int('CAPV_CONTRACT OSSTAT n_rows', v_num, 4 * (n_snaps - 2));
+        chk_int('CAPV_CONTRACT OSSTAT n_rows', v_num, 5 * (n_snaps - 2));
         chk_int('CAPV_CONTRACT OSSTAT n_con_dbid (host level)', v_num2, 1);
         -- TIME_MODEL: 3 names, root on the OSSTAT snapshots, FIXPDB1 and
         -- FIXPDB2 on all.
@@ -3514,10 +4458,10 @@ BEGIN
 
     -- suite_version: stamped by every install, BAD when older than this release.
     SELECT suite_version INTO v_num FROM cap_cfg;
-    chk_int('suite_version = 24.13', v_num, 24.13);
-    UPDATE cap_config SET cfg_value = 24 WHERE cfg_name = 'suite_version';
+    chk_int('suite_version = 25.2', v_num, 25.2);
+    UPDATE cap_config SET cfg_value = 24.13 WHERE cfg_name = 'suite_version';
     SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'suite_version';
-    chk_str('CAP_CFG_CHECK suite_version=24 < 24.13', v_str, 'BAD');
+    chk_str('CAP_CFG_CHECK suite_version=24.13 < 25.2', v_str, 'BAD');
     UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'suite_version';
     COMMIT;
 
@@ -3738,7 +4682,9 @@ BEGIN
         -- are dropped and re-created inside this block. NUMBER columns are
         -- compared at 12 decimals: two plans of one view (the INSERT's and
         -- this SELECT's) can differ in the 38th digit (CAPR_FORECAST_POINTS'
-        -- CPU REGR knots, 19.27).
+        -- CPU REGR knots, 19.27). The clock columns (SYSDATE minus a stored
+        -- time, as test/parity_fingerprint.sql skips them) are left out:
+        -- CAPR_COVERAGE.age_hours moves 0.1 every 6 minutes after the refresh.
         DECLARE
             l_views SYS.ODCIVARCHAR2LIST := cap_results.snap_views;
             l_cols  VARCHAR2(32767);
@@ -3755,7 +4701,8 @@ BEGIN
                          WITHIN GROUP (ORDER BY column_id)
                   INTO l_cols
                   FROM all_tab_columns
-                 WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND table_name = l_views(i);
+                 WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND table_name = l_views(i)
+                   AND column_name NOT IN ('AGE_HOURS', 'AGE_DAYS', 'LAST_OK_AGE_HOURS');
                 EXECUTE IMMEDIATE 'SELECT MIN(snap_run_id), MAX(snap_run_id), COUNT(*) FROM ' || l_views(i) || '_S'
                     INTO l_lo, l_hi, l_ns;
                 EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM ' || l_views(i) INTO l_nv;

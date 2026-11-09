@@ -99,6 +99,20 @@
 --                  CRIT), slope negative, LOW_CONFIDENCE.
 --   FIX_UNDO     : UNDO, 4 GiB allocated, autoextend to 10 GiB, peak 3 GiB at
 --                  18:00 every day: UNDO_PEAK 3 of 10 GiB, FLAT.
+--   PGA (M25)    : 'total PGA allocated' 0.5 GiB at 06:00 and 1 + i/1200 GiB
+--                  at 18:00 (PGA_ALLOC_GB exactly linear, 1.1 of 2 GiB = 55%
+--                  on the last day, no alert, no anomaly); 'maximum PGA
+--                  allocated' 1.2 GiB before the day-60 restart, 1.25 GiB
+--                  after it, 1.9 GiB (95% of the limit) from day 110 18:00:
+--                  CAPM_VERDICT PGA_LIMIT UNDERSIZED, suggested 2162 MiB.
+--                  OSSTAT PHYSICAL_MEMORY_BYTES 16 GiB beside the CPU rows.
+--   MEMORY (M25) : the four advisors, component history, work areas, events,
+--                  library and dictionary cache on every snapshot, constant
+--                  increments per interval, counters reset at both restarts:
+--                  PGA_TARGET UNDERSIZED (suggested 1792 MiB), BUFFER_CACHE
+--                  OVERSIZED (suggested 1536 MiB), SHARED_POOL OK /
+--                  ADVISOR_ONLY, SGA_TOTAL OK / SIZED_RIGHT, SGA_BALANCE OK /
+--                  STABLE. See the "M25 -- memory sizing sources" block.
 --
 -- Run this BEFORE @install.sql with deploy_mode=fixture (the seam views need the
 -- tables to exist), then run test/run_test.sql.
@@ -117,7 +131,12 @@ DECLARE
               'CAP_FIXTURE_CONTAINER','CAP_FIXTURE_META',
               'CAP_FIXTURE_RESOURCE_LIMIT','CAP_FIXTURE_SYSSTAT',
               'CAP_FIXTURE_PARAMETER','CAP_FIXTURE_ASM_DISKGROUP',
-              'CAP_FIXTURE_SEG_STAT');
+              'CAP_FIXTURE_SEG_STAT',
+              'CAP_FIXTURE_PGASTAT',
+              'CAP_FIXTURE_MEM_COMP','CAP_FIXTURE_WORKAREA_HSTGRM',
+              'CAP_FIXTURE_PGA_ADVICE','CAP_FIXTURE_SGA_ADVICE','CAP_FIXTURE_CACHE_ADVICE',
+              'CAP_FIXTURE_SHPOOL_ADVICE','CAP_FIXTURE_SGASTAT','CAP_FIXTURE_LIBRARYCACHE',
+              'CAP_FIXTURE_ROWCACHE','CAP_FIXTURE_SYSTEM_EVENT');
 BEGIN
     FOR i IN 1 .. v.COUNT LOOP
         BEGIN EXECUTE IMMEDIATE 'DROP TABLE ' || v(i) || ' PURGE';
@@ -170,6 +189,58 @@ CREATE TABLE cap_fixture_seg_stat (
     tablespace_id NUMBER, tablespace_name VARCHAR2(30), owner VARCHAR2(128),
     object_name VARCHAR2(128), subobject_name VARCHAR2(128), object_type VARCHAR2(18),
     space_used_delta NUMBER, space_allocated_delta NUMBER);
+-- M25: instance PGA statistics (CAPV_PGASTAT): the two PGA_LIMIT names, and
+-- the counters and samples the PGA_TARGET evidence reads.
+CREATE TABLE cap_fixture_pgastat (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
+    stat_name VARCHAR2(64), value NUMBER);
+-- M25: the memory sizing sources, one table per CAPV_ view (columns = the
+-- view's, types = the 19.27 source's). The "M25 -- memory sizing sources"
+-- block below fills them.
+CREATE TABLE cap_fixture_mem_comp (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
+    component VARCHAR2(64), current_size NUMBER, min_size NUMBER, max_size NUMBER,
+    user_specified_size NUMBER, oper_count NUMBER, last_oper_type VARCHAR2(13),
+    last_oper_mode VARCHAR2(9), last_oper_time DATE, granule_size NUMBER);
+CREATE TABLE cap_fixture_workarea_hstgrm (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
+    low_optimal_size NUMBER, high_optimal_size NUMBER, optimal_executions NUMBER,
+    onepass_executions NUMBER, multipasses_executions NUMBER, total_executions NUMBER);
+CREATE TABLE cap_fixture_pga_advice (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
+    pga_target_for_estimate NUMBER, pga_target_factor NUMBER, advice_status VARCHAR2(3),
+    bytes_processed NUMBER, estd_time NUMBER, estd_extra_bytes_rw NUMBER,
+    estd_pga_cache_hit_percentage NUMBER, estd_overalloc_count NUMBER);
+CREATE TABLE cap_fixture_sga_advice (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
+    sga_size NUMBER, sga_size_factor NUMBER, estd_db_time NUMBER,
+    estd_physical_reads NUMBER);
+CREATE TABLE cap_fixture_cache_advice (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER, bpid NUMBER,
+    name VARCHAR2(20), block_size NUMBER, advice_status VARCHAR2(3),
+    size_for_estimate NUMBER, size_factor NUMBER, buffers_for_estimate NUMBER,
+    physical_reads NUMBER, base_physical_reads NUMBER, actual_physical_reads NUMBER,
+    estd_physical_read_time NUMBER);
+CREATE TABLE cap_fixture_shpool_advice (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
+    shared_pool_size_for_estimate NUMBER, shared_pool_size_factor NUMBER,
+    estd_lc_size NUMBER, estd_lc_memory_objects NUMBER, estd_lc_time_saved NUMBER,
+    estd_lc_time_saved_factor NUMBER, estd_lc_load_time NUMBER,
+    estd_lc_load_time_factor NUMBER, estd_lc_memory_object_hits NUMBER);
+CREATE TABLE cap_fixture_sgastat (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
+    pool VARCHAR2(30), name VARCHAR2(64), bytes NUMBER);
+CREATE TABLE cap_fixture_librarycache (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
+    namespace VARCHAR2(15), gets NUMBER, gethits NUMBER, pins NUMBER, pinhits NUMBER,
+    reloads NUMBER, invalidations NUMBER);
+CREATE TABLE cap_fixture_rowcache (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
+    parameter VARCHAR2(32), gets NUMBER, getmisses NUMBER);
+CREATE TABLE cap_fixture_system_event (
+    dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
+    event_name VARCHAR2(64), wait_class VARCHAR2(64), total_waits NUMBER,
+    time_waited_micro NUMBER);
 
 DECLARE
     c_dbid   CONSTANT NUMBER := 42424242;
@@ -1602,6 +1673,361 @@ BEGIN
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('SEG_EVENTS_BYTES',    28 * 1 * c_mib);
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('SEG_LEDGER_BYTES',    28 * 10 * c_mib);
     COMMIT;
+END;
+/
+
+-- =====================================================================
+-- M25 -- PGA statistics (CAPV_PGASTAT) and the host's memory size.
+-- =====================================================================
+-- Both names on every snapshot of the spine (2000+2i ends 06:00, 2001+2i
+-- ends 18:00, no 06:00 snapshot on the restart day), root container only:
+--   total PGA allocated    0.5 GiB at 06:00, 1 + i/1200 GiB at 18:00, so
+--                          PGA_ALLOC_GB is exactly 1 + i/1200 on every day
+--                          (slope 1/1200 GiB/day, R^2 1), 1.1 GiB on the last
+--                          day: 55% of the 2 GiB pga_aggregate_limit
+--                          (CAP_FIXTURE_PARAMETER), far from any alert, and
+--                          days_to_limit = (2 x 0.90 - 1.1) x 1200 = 840.
+--   maximum PGA allocated  1.2 GiB before the day-60 restart; from it
+--                          1.25 GiB up to the 06:00 snapshot of day 110, then
+--                          1.9 GiB from its 18:00 snapshot on. That one
+--                          advance, 10 days back, is inside the 30-day
+--                          mem_window_days window: 95% of the limit.
+-- The partial day's noon restart starts a startup segment too, at the same
+-- 1.2 GiB and outside every window, so it adds no advance.
+--   PHYSICAL_MEMORY_BYTES  16 GiB on every snapshot that carries the CPU
+--                          OSSTAT rows (not the gap day's two).
+-- Closed forms (shipped knobs mem_window_days 30, mem_min_days 7,
+-- mem_pga_limit_pct 90, mem_max_step 2, mem_host_ram_pct 80): window days
+-- 91..120 (n_days 30), sampled peak 1.1 GiB at the last 18:00, high-water
+-- peak 1.9 GiB at day 110 18:00, ASMM (memory_target 0, sga_target 4 GiB),
+-- grade UNDERSIZED / PEAK_NEAR_LIMIT, suggested CEIL(1.9 x 1024 x 100 / 90)
+-- = 2162 MiB (under the 4096 MiB step cap), 4 GiB SGA + 2162 MiB within 80%
+-- of 16 GiB: exceeds_host_ram N.
+DECLARE
+    c_dbid    CONSTANT NUMBER      := 42424242;
+    c_inst    CONSTANT NUMBER      := 1;
+    c_nd      CONSTANT PLS_INTEGER := 120;
+    c_restart CONSTANT PLS_INTEGER := 60;
+    c_hwmday  CONSTANT PLS_INTEGER := 110;
+    c_gib     CONSTANT NUMBER      := 1073741824;
+    v_base    DATE;
+    PROCEDURE pga(p_snap NUMBER, p_tot NUMBER, p_hwm NUMBER) IS
+    BEGIN
+        INSERT INTO cap_fixture_pgastat
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, 'total PGA allocated', p_tot * c_gib);
+        INSERT INTO cap_fixture_pgastat
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, 'maximum PGA allocated', p_hwm * c_gib);
+    END;
+    FUNCTION hwm(p_i PLS_INTEGER, p_evening BOOLEAN) RETURN NUMBER IS
+    BEGIN
+        RETURN CASE WHEN p_i < c_restart THEN 1.2
+                    WHEN p_i < c_hwmday OR (p_i = c_hwmday AND NOT p_evening) THEN 1.25
+                    ELSE 1.9 END;
+    END;
+BEGIN
+    SELECT dval INTO v_base FROM cap_fixture_meta WHERE mkey = 'BASE_DAY';
+    FOR i IN 0 .. c_nd LOOP
+        IF i <> c_restart THEN
+            pga(2000 + 2 * i, 0.5, hwm(i, FALSE));
+        END IF;
+        pga(2001 + 2 * i, 1 + i / 1200, hwm(i, TRUE));
+    END LOOP;
+    INSERT INTO cap_fixture_osstat (dbid, con_dbid, instance_number, snap_id, stat_name, value)
+    SELECT dbid, con_dbid, instance_number, snap_id, 'PHYSICAL_MEMORY_BYTES', 16 * c_gib
+    FROM   cap_fixture_osstat
+    WHERE  stat_name = 'NUM_CPUS';
+
+    DELETE FROM cap_fixture_meta WHERE mkey LIKE 'PGA!_%' ESCAPE '!' OR mkey = 'HOST_RAM_GIB';
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PGA_LIMIT_GIB', 2);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PGA_CUR_GIB',   1 + c_nd / 1200);       -- 1.1
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PGA_SLOPE',     1 / 1200);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PGA_DTL',       (2 * 0.90 - (1 + c_nd / 1200)) * 1200);   -- 840
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PGA_HWM_GIB',   1.9);
+    INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('PGA_HWM_AT', v_base + c_hwmday + 18/24, c_hwmday);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PGA_SUGGEST_MIB', CEIL(1.9 * 1024 * 100 / 90));       -- 2162
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PGA_SUGGEST_MIB_STEP105', FLOOR(2048 * 1.05));      -- 2150
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('HOST_RAM_GIB',  16);
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('PGA fixtures loaded: total PGA 0.5 / 1 + i/1200 GiB, high-water mark 1.2 / 1.25 / 1.9 GiB'
+        || ' (advance at day ' || c_hwmday || ' 18:00), host memory 16 GiB');
+END;
+/
+
+-- =====================================================================
+-- M25 -- memory sizing sources (the advisor areas and SGA_BALANCE).
+-- =====================================================================
+-- Root container, instance 1, every snapshot of the spine. Every counter and
+-- advisor estimate is cumulative since instance startup: on the k-th
+-- snapshot of a startup it reads k x its increment, so it drops at the
+-- partial day's noon restart and at the day-60 restart, and every interval
+-- of one startup carries the same increment. Ratios are therefore the ratios
+-- of the increments, whatever the window.
+--
+-- u = ROUND(DBT_WIN / 6000) seconds, DBT_WIN the DB time of the three
+-- containers over the 60 intervals of the default window (days 91..120). An
+-- advisor or event increment of a x u a snapshot interval is then a percent
+-- of DB time in that window (exactly 100 x 60 x a x u / DBT_WIN).
+--
+-- Parameters (CAP_FIXTURE_PARAMETER): sga_target = sga_max_size = 4 GiB,
+-- pga_aggregate_target 1 GiB, memory_target 0 (ASMM). Host memory 16 GiB.
+--
+--   PGA advisor    sizes 0.5 / 0.75 / 1 / 1.25 / 1.5 / 1.75 / 2 / 3 GiB,
+--                  bytes processed 9000 MiB an interval at every size, extra
+--                  bytes 6000 / 2250 / 1000 / 500 / 60 / 20 / 0 / 0 MiB,
+--                  over-allocations 8 / 5 / 3 / 2 / 1 / 0 / 0 / 0. Estimated
+--                  cache hit 100 x 9000 / (9000 + extra): 90% now, 100% at
+--                  2 GiB, so the best gain is 10 points. The knee (90% of
+--                  it) is 1.5 GiB (99.34%), the smallest size without
+--                  over-allocation 1.75 GiB: suggested 1792 MiB. 3 GiB is
+--                  outside the step cap.
+--   Work areas     two buckets, together 9700 optimal, 280 one-pass and 20
+--                  multi-pass executions an interval: 2.8% and 0.2%.
+--   PGA statistics 'bytes processed' / 'extra bytes read/written' on every
+--                  snapshot. 'over allocation count' is absent until its
+--                  first over-allocation of a startup (day 3, 5 of them;
+--                  two days after the partial restart, 4; day 61, 2) and
+--                  from then on written on the 18:00 snapshots only, one
+--                  more each day: 30 in the default window, 123 with every
+--                  day in the window. 'aggregate PGA auto target' 0.75 of
+--                  the 1 GiB target, 0.6 GiB at day 100 06:00 (0.3 GiB at
+--                  day 50, outside the window).
+--   Cache advisor  DEFAULT pool, id 3, 8 KiB blocks, current 2560 MiB,
+--                  estimated read time in u: 1024 MiB 5, 1280 3, 1536 2.45,
+--                  1792 2.3, 2048 2.1, 2304 2.05, 2560 2, 3072 1.9,
+--                  3840 1.85, 5120 1.8. Best gain 0.2% of DB time (no
+--                  pressure), smallest size losing at most 0.5%: 1536 MiB.
+--                  A KEEP pool (id 1) and a 16 KiB DEFAULT pool (id 7) carry
+--                  huge gains and must be ignored.
+--   Shared pool    current 1024 MiB, load time in u: 512 MiB 9, 768 5,
+--   advisor        896 3.6, 1024 3, 1152 2.4, 1280 1.9, 1536 1.6, 2048 1.5,
+--                  2560 1 (outside the cap). Best gain 1.5%, knee 1536 MiB,
+--                  nearest smaller size loses 0.6% (no slack).
+--   SGA advisor    current 4096 MiB, estimated DB time in u: 2048 MiB 110,
+--                  3072 101, 4096 100, 5120 99.8, 6144 / 7168 / 8192 99.7.
+--                  Best gain 0.3% at 6144 MiB, nearest smaller loses 1%.
+--   Events         direct path read temp 0.4 u + write temp 0.6 u (1% of DB
+--                  time), latch: shared pool 0.01 u + library cache: mutex X
+--                  0.02 u + library cache load lock 0.01 u (0.04%), buffer
+--                  busy waits 3 u (read by no signal). 'free buffer waits'
+--                  has no row until day 100 06:00, then a constant 1.2 u:
+--                  its first row counts in full, 0.02% of DB time.
+--   Library cache  two namespaces, 400 reloads per 100000 pins: 0.4%.
+--   Row cache      two parameters, 1000 misses per 50000 gets: 2%.
+--   SGA statistics shared pool free memory 256 MiB, 128 MiB at day 105
+--                  18:00 (12.5% of the pool; 64 MiB at day 40, outside).
+--   Components     SGA Target 4096, DEFAULT buffer cache 2560, shared pool
+--                  1024, large pool 64, java pool 64, streams pool 0, PGA
+--                  Target 1024 MiB, never resized.
+DECLARE
+    c_dbid    CONSTANT NUMBER      := 42424242;
+    c_inst    CONSTANT NUMBER      := 1;
+    c_nd      CONSTANT PLS_INTEGER := 120;
+    c_restart CONSTANT PLS_INTEGER := 60;
+    c_gib     CONSTANT NUMBER      := 1073741824;
+    c_mib     CONSTANT NUMBER      := 1048576;
+    c_win     CONSTANT PLS_INTEGER := 30;          -- shipped mem_window_days
+    c_fbwday  CONSTANT PLS_INTEGER := 100;         -- 'free buffer waits' first row, 06:00
+    c_autoday CONSTANT PLS_INTEGER := 100;         -- smallest auto target, 06:00
+    c_freeday CONSTANT PLS_INTEGER := 105;         -- smallest shared pool free memory, 18:00
+    c_bp      CONSTANT NUMBER      := 9000;        -- PGA advisor bytes processed, MiB an interval
+    v_base    DATE;
+    v_partial PLS_INTEGER;
+    v_dbt     NUMBER;
+    v_u       NUMBER;
+    k         PLS_INTEGER := 0;                    -- snapshot ordinal within its startup
+    n_snaps   PLS_INTEGER := 0;
+    n_fbw     PLS_INTEGER := 0;
+    n_oac     PLS_INTEGER := 0;
+
+    TYPE num_t IS TABLE OF NUMBER;
+    pga_gib   CONSTANT num_t := num_t(0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3);
+    pga_extra CONSTANT num_t := num_t(6000, 2250, 1000, 500, 60, 20, 0, 0);
+    pga_over  CONSTANT num_t := num_t(8, 5, 3, 2, 1, 0, 0, 0);
+    cache_mb  CONSTANT num_t := num_t(1024, 1280, 1536, 1792, 2048, 2304, 2560, 3072, 3840, 5120);
+    cache_u   CONSTANT num_t := num_t(5, 3, 2.45, 2.3, 2.1, 2.05, 2, 1.9, 1.85, 1.8);
+    shp_mb    CONSTANT num_t := num_t(512, 768, 896, 1024, 1152, 1280, 1536, 2048, 2560);
+    shp_u     CONSTANT num_t := num_t(9, 5, 3.6, 3, 2.4, 1.9, 1.6, 1.5, 1);
+    sga_mb    CONSTANT num_t := num_t(2048, 3072, 4096, 5120, 6144, 7168, 8192);
+    sga_u     CONSTANT num_t := num_t(110, 101, 100, 99.8, 99.7, 99.7, 99.7);
+
+    -- 'over allocation count' on the 18:00 snapshot of day p_i, NULL = no row.
+    FUNCTION oac(p_i PLS_INTEGER) RETURN NUMBER IS
+    BEGIN
+        RETURN CASE WHEN p_i < 3              THEN NULL
+                    WHEN p_i < v_partial      THEN 5 + (p_i - 3)
+                    WHEN p_i < v_partial + 2  THEN NULL
+                    WHEN p_i < c_restart      THEN 4 + (p_i - v_partial - 2)
+                    WHEN p_i = c_restart      THEN NULL
+                    ELSE 2 + (p_i - c_restart - 1) END;
+    END;
+    PROCEDURE pgastat(p_snap NUMBER, p_name VARCHAR2, p_val NUMBER) IS
+    BEGIN
+        INSERT INTO cap_fixture_pgastat VALUES (c_dbid, c_dbid, c_inst, p_snap, p_name, p_val);
+    END;
+    PROCEDURE event(p_snap NUMBER, p_name VARCHAR2, p_class VARCHAR2, p_sec NUMBER) IS
+    BEGIN
+        INSERT INTO cap_fixture_system_event
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, p_name, p_class, k * 10, p_sec * 1000000);
+    END;
+    PROCEDURE comp(p_snap NUMBER, p_name VARCHAR2, p_mib NUMBER, p_user_mib NUMBER) IS
+    BEGIN
+        INSERT INTO cap_fixture_mem_comp
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, p_name, p_mib * c_mib, p_mib * c_mib, p_mib * c_mib,
+                p_user_mib * c_mib, 0, 'STATIC', NULL, NULL, 16 * c_mib);
+    END;
+    PROCEDURE cache(p_snap NUMBER, p_bpid NUMBER, p_name VARCHAR2, p_bs NUMBER,
+                    p_mb NUMBER, p_cur_mb NUMBER, p_u NUMBER) IS
+    BEGIN
+        INSERT INTO cap_fixture_cache_advice
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, p_bpid, p_name, p_bs, 'ON', p_mb, p_mb / p_cur_mb,
+                p_mb * c_mib / p_bs, k * 1000, k * 1000, k * 1000, k * p_u * v_u);
+    END;
+    -- One snapshot: every memory source row it carries.
+    PROCEDURE snap(p_snap NUMBER, p_i PLS_INTEGER, p_evening BOOLEAN) IS
+        v_oac  NUMBER;
+        v_free NUMBER;
+    BEGIN
+        k := k + 1;
+        n_snaps := n_snaps + 1;
+        FOR j IN 1 .. pga_gib.COUNT LOOP
+            INSERT INTO cap_fixture_pga_advice
+            VALUES (c_dbid, c_dbid, c_inst, p_snap, pga_gib(j) * c_gib, pga_gib(j), 'ON',
+                    k * c_bp * c_mib, 0, k * pga_extra(j) * c_mib,
+                    ROUND(100 * c_bp / (c_bp + pga_extra(j))), k * pga_over(j));
+        END LOOP;
+        FOR j IN 1 .. cache_mb.COUNT LOOP
+            cache(p_snap, 3, 'DEFAULT', 8192, cache_mb(j), 2560, cache_u(j));
+        END LOOP;
+        cache(p_snap, 1, 'KEEP',    8192,   64,  64, 50);
+        cache(p_snap, 1, 'KEEP',    8192,  128,  64,  1);
+        cache(p_snap, 7, 'DEFAULT', 16384, 256, 256, 40);
+        cache(p_snap, 7, 'DEFAULT', 16384, 512, 256,  1);
+        FOR j IN 1 .. shp_mb.COUNT LOOP
+            INSERT INTO cap_fixture_shpool_advice
+            VALUES (c_dbid, c_dbid, c_inst, p_snap, shp_mb(j), shp_mb(j) / 1024, shp_mb(j) / 2, 1000,
+                    0, 1, k * shp_u(j) * v_u, shp_u(j) / 3, 0);
+        END LOOP;
+        FOR j IN 1 .. sga_mb.COUNT LOOP
+            INSERT INTO cap_fixture_sga_advice
+            VALUES (c_dbid, c_dbid, c_inst, p_snap, sga_mb(j), sga_mb(j) / 4096, k * sga_u(j) * v_u, k * 1000);
+        END LOOP;
+
+        INSERT INTO cap_fixture_workarea_hstgrm
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, 2097152, 4194303, k * 9000, 0, 0, k * 9000);
+        INSERT INTO cap_fixture_workarea_hstgrm
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, 1073741824, 2147483647, k * 700, k * 280, k * 20, k * 1000);
+
+        pgastat(p_snap, 'bytes processed',                k * c_bp * c_mib);
+        pgastat(p_snap, 'extra bytes read/written',       k * 1000 * c_mib);
+        pgastat(p_snap, 'aggregate PGA target parameter', c_gib);
+        pgastat(p_snap, 'aggregate PGA auto target',
+                CASE WHEN p_i = c_autoday AND NOT p_evening THEN 0.6
+                     WHEN p_i = 50 AND NOT p_evening        THEN 0.3
+                     ELSE 0.75 END * c_gib);
+        v_oac := CASE WHEN p_evening THEN oac(p_i) END;
+        IF v_oac IS NOT NULL THEN
+            pgastat(p_snap, 'over allocation count', v_oac);
+            n_oac := n_oac + 1;
+        END IF;
+
+        event(p_snap, 'direct path read temp',   'User I/O',     k * 0.4  * v_u);
+        event(p_snap, 'direct path write temp',  'User I/O',     k * 0.6  * v_u);
+        event(p_snap, 'latch: shared pool',      'Concurrency',  k * 0.01 * v_u);
+        event(p_snap, 'library cache: mutex X',  'Concurrency',  k * 0.02 * v_u);
+        event(p_snap, 'library cache load lock', 'Concurrency',  k * 0.01 * v_u);
+        event(p_snap, 'buffer busy waits',       'Concurrency',  k * 3    * v_u);
+        IF p_i >= c_fbwday THEN
+            event(p_snap, 'free buffer waits',   'Configuration', 1.2 * v_u);
+            n_fbw := n_fbw + 1;
+        END IF;
+
+        INSERT INTO cap_fixture_librarycache
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, 'SQL AREA', k * 30000, k * 29000, k * 60000, k * 59000, k * 300, 0);
+        INSERT INTO cap_fixture_librarycache
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, 'TABLE/PROCEDURE', k * 20000, k * 19000, k * 40000, k * 39000, k * 100, 0);
+        INSERT INTO cap_fixture_rowcache VALUES (c_dbid, c_dbid, c_inst, p_snap, 'dc_objects',  k * 20000, k * 500);
+        INSERT INTO cap_fixture_rowcache VALUES (c_dbid, c_dbid, c_inst, p_snap, 'dc_segments', k * 30000, k * 500);
+
+        v_free := CASE WHEN p_i = c_freeday AND p_evening THEN 128
+                       WHEN p_i = 40 AND p_evening        THEN 64
+                       ELSE 256 END * c_mib;
+        INSERT INTO cap_fixture_sgastat
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, 'shared pool', 'free memory', v_free);
+        INSERT INTO cap_fixture_sgastat
+        VALUES (c_dbid, c_dbid, c_inst, p_snap, 'large pool', 'free memory', 60 * c_mib);
+
+        comp(p_snap, 'SGA Target',           4096, 4096);
+        comp(p_snap, 'DEFAULT buffer cache', 2560, 0);
+        comp(p_snap, 'shared pool',          1024, 0);
+        comp(p_snap, 'large pool',             64, 0);
+        comp(p_snap, 'java pool',              64, 0);
+        comp(p_snap, 'streams pool',            0, 0);
+        comp(p_snap, 'PGA Target',           1024, 1024);
+    END;
+BEGIN
+    SELECT dval INTO v_base    FROM cap_fixture_meta WHERE mkey = 'BASE_DAY';
+    SELECT nval INTO v_partial FROM cap_fixture_meta WHERE mkey = 'PARTIAL_DAY';
+    -- The window's DB time: no restart and no gap inside it, so the last
+    -- cumulative value minus the one at the window's opening snapshot.
+    SELECT SUM(CASE snap_id WHEN 2001 + 2 * c_nd THEN value ELSE -value END) / 1000000
+      INTO v_dbt
+      FROM cap_fixture_time_model
+     WHERE stat_name = 'DB time'
+       AND snap_id IN (2001 + 2 * c_nd, 2001 + 2 * (c_nd - c_win));
+    v_u := ROUND(v_dbt / (2 * c_win * 100));
+
+    FOR i IN 0 .. c_nd LOOP
+        IF i = c_restart THEN
+            k := 0;
+        ELSE
+            snap(2000 + 2 * i, i, FALSE);
+        END IF;
+        IF i = v_partial THEN k := 0; END IF;
+        snap(2001 + 2 * i, i, TRUE);
+    END LOOP;
+
+    DELETE FROM cap_fixture_meta WHERE mkey LIKE 'MEM!_%' ESCAPE '!';
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_U',       v_u);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_DBT_WIN', v_dbt);
+    -- Seam row counts: 6 PGA statistics on every snapshot plus the sparse
+    -- over-allocation rows; 59 rows a snapshot over the ten memory sources
+    -- (7 components, 2 buckets, 8 + 7 + 14 + 9 advisor sizes, 2 free memory
+    -- rows, 2 namespaces, 2 parameters, 6 events) plus the free buffer waits.
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGASTAT_ROWS', 6 * n_snaps + n_oac);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_SRC_ROWS',     59 * n_snaps + n_fbw);
+    -- PGA_TARGET.
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGA_GAIN',      100 - 100 * c_bp / (c_bp + 1000));          -- 10
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGA_KNEE_GAIN', 100 * c_bp / (c_bp + 60) - 100 * c_bp / (c_bp + 1000));
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGA_NEAR_LOSS', 100 * c_bp / (c_bp + 1000) - 100 * c_bp / (c_bp + 2250));  -- 10
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGA_ADV_OVER',  2 * c_win * 3);                              -- 180
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGA_SUGGEST_MIB', 1792);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGA_MULTI',     100 * 20 / 10000);                           -- 0.2
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGA_ONE',       100 * 280 / 10000);                          -- 2.8
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGA_OAC',       c_win);                                      -- 30
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGA_OAC_ALL',
+        (5 + v_partial - 4) + (4 + c_restart - v_partial - 3) + (2 + c_nd - c_restart - 1));                           -- 123
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_PGA_TEMP',      100 * 2 * c_win * (0.4 + 0.6) * v_u / v_dbt);
+    INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('MEM_PGA_AUTO_MIN', v_base + c_autoday + 6/24, 60);
+    -- BUFFER_CACHE.
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_CACHE_GAIN',       100 * 2 * c_win * (2 - 1.8)  * v_u / v_dbt);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_CACHE_SLACK_LOSS', 100 * 2 * c_win * (2.45 - 2) * v_u / v_dbt);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_CACHE_SLACK_MIB',  1536);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_CACHE_FBW',        100 * 1.2 * v_u / v_dbt);
+    -- SHARED_POOL.
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_SHP_GAIN',      100 * 2 * c_win * (3 - 1.5) * v_u / v_dbt);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_SHP_NEAR_LOSS', 100 * 2 * c_win * (3.6 - 3) * v_u / v_dbt);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_SHP_KNEE_MIB',  1536);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_SHP_WAIT',      100 * 2 * c_win * (0.01 + 0.02 + 0.01) * v_u / v_dbt);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_SHP_RELOAD',    100 * (300 + 100) / (60000 + 40000));        -- 0.4
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_SHP_MISS',      100 * (500 + 500) / (20000 + 30000));        -- 2
+    INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('MEM_SHP_FREE_MIN', v_base + c_freeday + 18/24, 100 * 128 / 1024);  -- 12.5
+    -- SGA_TOTAL.
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_SGA_GAIN',      100 * 2 * c_win * (100 - 99.7) * v_u / v_dbt);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_SGA_NEAR_LOSS', 100 * 2 * c_win * (101 - 100)  * v_u / v_dbt);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('MEM_SGA_KNEE_MIB',  6144);
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Memory fixtures loaded: ' || n_snaps || ' snapshots, u = ' || v_u
+        || ' s (1% of the window''s DB time ' || ROUND(v_dbt) || ' s per interval)');
 END;
 /
 

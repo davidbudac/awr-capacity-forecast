@@ -93,10 +93,11 @@ SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
 FROM   cap_fixture_sysstat
 WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
--- CAPV_PARAMETER / CAPV_ASM_DISKGROUP / CAPV_SEG_STAT over CAP_FIXTURE_PARAMETER /
--- CAP_FIXTURE_ASM_DISKGROUP / CAP_FIXTURE_SEG_STAT (value_num already a NUMBER,
--- group_name without the '+'). test/demo_fixture.sql builds the demo story
--- without these three tables, so a missing table gets a zero-row contract stub
+-- CAPV_PARAMETER / CAPV_ASM_DISKGROUP / CAPV_SEG_STAT / CAPV_PGASTAT and the
+-- memory sources (M25) over CAP_FIXTURE_<view suffix>, e.g. CAPV_MEM_COMP
+-- over CAP_FIXTURE_MEM_COMP (value_num already a NUMBER, group_name without
+-- the '+'). test/demo_fixture.sql builds the demo story
+-- without these tables, so a missing table gets a zero-row contract stub
 -- instead of an INVALID view. The stub columns are typed constants, not
 -- CAST(NULL ...): with NULL join keys, CAPD_DBTIME_DAILY over a zero-row
 -- CAPV_PARAMETER raised ORA-07445 [qksopVisitOpns] (join predicate push-down)
@@ -147,6 +148,144 @@ BEGIN
                  CAST('-' AS VARCHAR2(128)) AS subobject_name, CAST('-' AS VARCHAR2(18)) AS object_type,
                  0 AS space_used_delta, 0 AS space_allocated_delta
           FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_PGASTAT',
+       q'[CREATE OR REPLACE VIEW capv_pgastat AS
+          SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
+          FROM   cap_fixture_pgastat
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_pgastat AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 CAST('-' AS VARCHAR2(64)) AS stat_name, 0 AS value
+          FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_MEM_COMP',
+       q'[CREATE OR REPLACE VIEW capv_mem_comp AS
+          SELECT dbid, con_dbid, instance_number, snap_id, component, current_size,
+                 min_size, max_size, user_specified_size, oper_count, last_oper_type,
+                 last_oper_mode, last_oper_time, granule_size
+          FROM   cap_fixture_mem_comp
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_mem_comp AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 CAST('-' AS VARCHAR2(64)) AS component, 0 AS current_size,
+                 0 AS min_size, 0 AS max_size, 0 AS user_specified_size,
+                 0 AS oper_count, CAST('-' AS VARCHAR2(13)) AS last_oper_type,
+                 CAST('-' AS VARCHAR2(9)) AS last_oper_mode,
+                 DATE '1970-01-01' AS last_oper_time, 0 AS granule_size
+          FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_WORKAREA_HSTGRM',
+       q'[CREATE OR REPLACE VIEW capv_workarea_hstgrm AS
+          SELECT dbid, con_dbid, instance_number, snap_id, low_optimal_size,
+                 high_optimal_size, optimal_executions, onepass_executions,
+                 multipasses_executions, total_executions
+          FROM   cap_fixture_workarea_hstgrm
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_workarea_hstgrm AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 0 AS low_optimal_size, 0 AS high_optimal_size, 0 AS optimal_executions,
+                 0 AS onepass_executions, 0 AS multipasses_executions,
+                 0 AS total_executions
+          FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_PGA_ADVICE',
+       q'[CREATE OR REPLACE VIEW capv_pga_advice AS
+          SELECT dbid, con_dbid, instance_number, snap_id, pga_target_for_estimate,
+                 pga_target_factor, advice_status, bytes_processed, estd_time,
+                 estd_extra_bytes_rw, estd_pga_cache_hit_percentage,
+                 estd_overalloc_count
+          FROM   cap_fixture_pga_advice
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_pga_advice AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 0 AS pga_target_for_estimate, 0 AS pga_target_factor,
+                 CAST('-' AS VARCHAR2(3)) AS advice_status, 0 AS bytes_processed,
+                 0 AS estd_time, 0 AS estd_extra_bytes_rw,
+                 0 AS estd_pga_cache_hit_percentage, 0 AS estd_overalloc_count
+          FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_SGA_ADVICE',
+       q'[CREATE OR REPLACE VIEW capv_sga_advice AS
+          SELECT dbid, con_dbid, instance_number, snap_id, sga_size, sga_size_factor,
+                 estd_db_time, estd_physical_reads
+          FROM   cap_fixture_sga_advice
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_sga_advice AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 0 AS sga_size, 0 AS sga_size_factor, 0 AS estd_db_time,
+                 0 AS estd_physical_reads
+          FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_CACHE_ADVICE',
+       q'[CREATE OR REPLACE VIEW capv_cache_advice AS
+          SELECT dbid, con_dbid, instance_number, snap_id, bpid, name, block_size,
+                 advice_status, size_for_estimate, size_factor, buffers_for_estimate,
+                 physical_reads, base_physical_reads, actual_physical_reads,
+                 estd_physical_read_time
+          FROM   cap_fixture_cache_advice
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_cache_advice AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 0 AS bpid, CAST('-' AS VARCHAR2(20)) AS name, 0 AS block_size,
+                 CAST('-' AS VARCHAR2(3)) AS advice_status, 0 AS size_for_estimate,
+                 0 AS size_factor, 0 AS buffers_for_estimate, 0 AS physical_reads,
+                 0 AS base_physical_reads, 0 AS actual_physical_reads,
+                 0 AS estd_physical_read_time
+          FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_SHPOOL_ADVICE',
+       q'[CREATE OR REPLACE VIEW capv_shpool_advice AS
+          SELECT dbid, con_dbid, instance_number, snap_id,
+                 shared_pool_size_for_estimate, shared_pool_size_factor, estd_lc_size,
+                 estd_lc_memory_objects, estd_lc_time_saved, estd_lc_time_saved_factor,
+                 estd_lc_load_time, estd_lc_load_time_factor,
+                 estd_lc_memory_object_hits
+          FROM   cap_fixture_shpool_advice
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_shpool_advice AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 0 AS shared_pool_size_for_estimate, 0 AS shared_pool_size_factor,
+                 0 AS estd_lc_size, 0 AS estd_lc_memory_objects,
+                 0 AS estd_lc_time_saved, 0 AS estd_lc_time_saved_factor,
+                 0 AS estd_lc_load_time, 0 AS estd_lc_load_time_factor,
+                 0 AS estd_lc_memory_object_hits
+          FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_SGASTAT',
+       q'[CREATE OR REPLACE VIEW capv_sgastat AS
+          SELECT dbid, con_dbid, instance_number, snap_id, pool, name, bytes
+          FROM   cap_fixture_sgastat
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_sgastat AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 CAST('-' AS VARCHAR2(30)) AS pool, CAST('-' AS VARCHAR2(64)) AS name,
+                 0 AS bytes
+          FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_LIBRARYCACHE',
+       q'[CREATE OR REPLACE VIEW capv_librarycache AS
+          SELECT dbid, con_dbid, instance_number, snap_id, namespace, gets, gethits,
+                 pins, pinhits, reloads, invalidations
+          FROM   cap_fixture_librarycache
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_librarycache AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 CAST('-' AS VARCHAR2(15)) AS namespace, 0 AS gets, 0 AS gethits,
+                 0 AS pins, 0 AS pinhits, 0 AS reloads, 0 AS invalidations
+          FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_ROWCACHE',
+       q'[CREATE OR REPLACE VIEW capv_rowcache AS
+          SELECT dbid, con_dbid, instance_number, snap_id, parameter, gets, getmisses
+          FROM   cap_fixture_rowcache
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_rowcache AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 CAST('-' AS VARCHAR2(32)) AS parameter, 0 AS gets, 0 AS getmisses
+          FROM   dual WHERE 1 = 0]');
+    mk('CAP_FIXTURE_SYSTEM_EVENT',
+       q'[CREATE OR REPLACE VIEW capv_system_event AS
+          SELECT dbid, con_dbid, instance_number, snap_id, event_name, wait_class,
+                 total_waits, time_waited_micro
+          FROM   cap_fixture_system_event
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_system_event AS
+          SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
+                 CAST('-' AS VARCHAR2(64)) AS event_name,
+                 CAST('-' AS VARCHAR2(64)) AS wait_class, 0 AS total_waits,
+                 0 AS time_waited_micro
+          FROM   dual WHERE 1 = 0]');
 END;
 /
 
@@ -156,8 +295,10 @@ END;
 -- snapshot end time. per_container_expected = 'Y' where the contract wants
 -- one series per container (TBSPC_USAGE, TIME_MODEL, SYSSTAT, SEG_STAT) and 'N' where
 -- the source is host / instance / spine level (OSSTAT, RESOURCE_LIMIT,
--- PARAMETER, ASM_DISKGROUP, SNAPSHOT), so n_con_dbid = 1 against a 'Y' means
--- the per-PDB series are missing. SEG_STAT is per container too. ASM_DISKGROUP
+-- PARAMETER, ASM_DISKGROUP, PGASTAT, the memory sources, SNAPSHOT), so n_con_dbid = 1 against a 'Y' means
+-- the per-PDB series are missing. SEG_STAT is per container too. SGASTAT
+-- keeps the source's con_dbid but is 'N': its free memory rows are
+-- instance wide on 19.27. ASM_DISKGROUP
 -- has n_rows = 0 on a database without ASM, and a stub above on a fixture
 -- without its table. A diagnostic for doctor.sql: it full-scans every
 -- source, and no analytic view selects from it. The body reads only CAPV_*
@@ -174,6 +315,17 @@ WITH src AS (
         UNION ALL SELECT 'PARAMETER',      dbid, con_dbid, snap_id FROM capv_parameter
         UNION ALL SELECT 'ASM_DISKGROUP',  dbid, con_dbid, snap_id FROM capv_asm_diskgroup
         UNION ALL SELECT 'SEG_STAT',       dbid, con_dbid, snap_id FROM capv_seg_stat
+        UNION ALL SELECT 'PGASTAT',        dbid, con_dbid, snap_id FROM capv_pgastat
+        UNION ALL SELECT 'MEM_COMP',       dbid, con_dbid, snap_id FROM capv_mem_comp
+        UNION ALL SELECT 'WORKAREA_HSTGRM', dbid, con_dbid, snap_id FROM capv_workarea_hstgrm
+        UNION ALL SELECT 'PGA_ADVICE',     dbid, con_dbid, snap_id FROM capv_pga_advice
+        UNION ALL SELECT 'SGA_ADVICE',     dbid, con_dbid, snap_id FROM capv_sga_advice
+        UNION ALL SELECT 'CACHE_ADVICE',   dbid, con_dbid, snap_id FROM capv_cache_advice
+        UNION ALL SELECT 'SHPOOL_ADVICE',  dbid, con_dbid, snap_id FROM capv_shpool_advice
+        UNION ALL SELECT 'SGASTAT',        dbid, con_dbid, snap_id FROM capv_sgastat
+        UNION ALL SELECT 'LIBRARYCACHE',   dbid, con_dbid, snap_id FROM capv_librarycache
+        UNION ALL SELECT 'ROWCACHE',       dbid, con_dbid, snap_id FROM capv_rowcache
+        UNION ALL SELECT 'SYSTEM_EVENT',   dbid, con_dbid, snap_id FROM capv_system_event
      ),
      per_con AS (
         SELECT source_name, dbid, con_dbid,
@@ -199,6 +351,17 @@ WITH src AS (
         UNION ALL SELECT 'PARAMETER',      'N' FROM dual
         UNION ALL SELECT 'ASM_DISKGROUP',  'N' FROM dual
         UNION ALL SELECT 'SEG_STAT',       'Y' FROM dual
+        UNION ALL SELECT 'PGASTAT',        'N' FROM dual
+        UNION ALL SELECT 'MEM_COMP',       'N' FROM dual
+        UNION ALL SELECT 'WORKAREA_HSTGRM', 'N' FROM dual
+        UNION ALL SELECT 'PGA_ADVICE',     'N' FROM dual
+        UNION ALL SELECT 'SGA_ADVICE',     'N' FROM dual
+        UNION ALL SELECT 'CACHE_ADVICE',   'N' FROM dual
+        UNION ALL SELECT 'SHPOOL_ADVICE',  'N' FROM dual
+        UNION ALL SELECT 'SGASTAT',        'N' FROM dual
+        UNION ALL SELECT 'LIBRARYCACHE',   'N' FROM dual
+        UNION ALL SELECT 'ROWCACHE',       'N' FROM dual
+        UNION ALL SELECT 'SYSTEM_EVENT',   'N' FROM dual
      )
 SELECT k.source_name,
        NVL(SUM(p.n_rows), 0)        AS n_rows,

@@ -13,12 +13,15 @@
 -- reaches SAT% of the limit.
 --
 PROMPT
-PROMPT == 7. FIXED-CEILING SERIES (processes / sessions / redo / DB size / ASM / TEMP / UNDO) ==
+PROMPT == 7. FIXED-CEILING SERIES (processes / sessions / PGA / redo / DB size / ASM / TEMP / UNDO) ==
 PROMPT     PROCESSES, SESSIONS  peak concurrency (AWR max_utilization, a
 PROMPT                          high-water mark since instance startup) against
 PROMPT                          the init parameter. RAC: summed over instances,
 PROMPT                          and INST_PCT is the worst instance's percent of
 PROMPT                          its own limit (SERIES_NEARLIMIT judges the larger).
+PROMPT     PGA_ALLOC_GB         the day's highest sampled PGA allocation, GiB,
+PROMPT                          against pga_aggregate_limit (no ceiling when 0).
+PROMPT                          RAC: summed, INST_PCT as for SESSIONS.
 PROMPT     REDO_GB_DAY          redo written per day, GiB. No ceiling -- it is a
 PROMPT                          trend for FRA / archive-destination sizing.
 PROMPT                          FRA_DAYS = days of redo db_recovery_file_dest_size

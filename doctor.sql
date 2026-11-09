@@ -17,8 +17,9 @@
 -- Section 10 checks CAP_NIGHTLY_JOB, its last run and the nightly steps that
 -- run failed, and in repository mode CAP_COLLECT_JOB. In repository mode
 -- section 11 checks every registered target: its link,
--- its collect health (state, freshness, gaps) and the days copied against
--- section 7's needs. The link is probed through cap_repo.ping, which only
+-- its collect health (state, freshness, gaps), whether its memory history
+-- (each optional CAP_H_* copy) holds rows, and the days copied against section 7's
+-- needs. The link is probed through cap_repo.ping, which only
 -- SELECTs over it: a private DB link resolves for the session user, so only
 -- the owner's definer's-rights code can use it when doctor runs as SYSDBA.
 --
@@ -100,6 +101,7 @@ DECLARE
     v_shift_base    NUMBER := 28;
     v_holdout       NUMBER := 28;
     v_esm_step      NUMBER := 30;
+    v_mem_window    NUMBER := 30;
 
     TYPE t_names IS TABLE OF VARCHAR2(40);
     -- Exactly the FROM targets of ddl/10_seam_local.sql.
@@ -120,7 +122,18 @@ DECLARE
         'DBA_HIST_ASM_DISKGROUP_STAT',
         'DBA_HIST_ASM_DISKGROUP',
         'DBA_HIST_SEG_STAT',
-        'DBA_HIST_SEG_STAT_OBJ');
+        'DBA_HIST_SEG_STAT_OBJ',
+        'DBA_HIST_PGASTAT',
+        'DBA_HIST_MEM_DYNAMIC_COMP',
+        'DBA_HIST_SQL_WORKAREA_HSTGRM',
+        'DBA_HIST_PGA_TARGET_ADVICE',
+        'DBA_HIST_SGA_TARGET_ADVICE',
+        'DBA_HIST_DB_CACHE_ADVICE',
+        'DBA_HIST_SHARED_POOL_ADVICE',
+        'DBA_HIST_SGASTAT',
+        'DBA_HIST_LIBRARYCACHE',
+        'DBA_HIST_ROWCACHE_SUMMARY',
+        'DBA_HIST_SYSTEM_EVENT');
 
     v_privs t_names := t_names(
         'CREATE TABLE',
@@ -356,6 +369,7 @@ BEGIN
         v_shift_base := knob('shift_baseline_days',   v_shift_base);
         v_holdout    := knob('backtest_holdout_days', v_holdout);
         v_esm_step   := knob('esm_prediction_step',   v_esm_step);
+        v_mem_window := knob('mem_window_days',       v_mem_window);
 
         FOR r IN (SELECT referenced_name
                   FROM   all_dependencies
@@ -377,6 +391,7 @@ BEGIN
     add_need('backtest (backtest_holdout_days+min_train_days)',  v_holdout + v_min_train);
     add_need('ESM +' || LEAST(30, v_esm_step) || ' horizon (4 x step, 19c cap 30)',
              4 * LEAST(30, v_esm_step));
+    add_need('memory verdict window (mem_window_days)',          v_mem_window);
 
     -- =================================================================
     -- 1. Target schema
@@ -1082,6 +1097,9 @@ BEGIN
             v_tag     VARCHAR2(60);
             v_ping    VARCHAR2(4000);
             v_days    NUMBER;
+            v_pga     NUMBER;
+            v_opt     t_names;
+            v_miss    VARCHAR2(1000);
             v_short   VARCHAR2(1000);
             v_targets PLS_INTEGER := 0;
             v_stale_h NUMBER := knob('stale_hours', 36);
@@ -1110,7 +1128,7 @@ BEGIN
                             EXECUTE IMMEDIATE 'BEGIN :r := cap_repo.ping(:n); END;'
                                 USING OUT v_ping, IN v_name;
                             IF v_ping IS NULL THEN
-                                emit('PASS', 'link ' || v_name, v_link || ' answers; every copied view readable');
+                                emit('PASS', 'link ' || v_name, v_link || ' answers; every required copied view readable');
                             ELSE
                                 emit('WARN', 'link ' || v_name, v_link || ': ' || line1(v_ping));
                             END IF;
@@ -1147,6 +1165,32 @@ BEGIN
                     emit('WARN', 'collect ' || v_tag, v_gaps || ' gap(s): snapshots the target purged'
                          || ' before they were copied; collect more often or raise its AWR retention');
                 END IF;
+
+                -- M25: collect skips an optional source (the memory history)
+                -- the reader cannot read, e.g. one prepared before the source
+                -- joined the copy list. An advisor switched off on the target
+                -- leaves its copy empty too, hence the wording.
+                BEGIN
+                    EXECUTE IMMEDIATE 'SELECT copy_table FROM cap_repo_source'
+                                      || ' WHERE optional = ''Y'' ORDER BY seq'
+                        BULK COLLECT INTO v_opt;
+                    v_miss := NULL;
+                    FOR i IN 1 .. v_opt.COUNT LOOP
+                        EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM ' || v_opt(i)
+                                          || ' WHERE dbid = :d AND ROWNUM = 1'
+                            INTO v_pga USING v_dbid;
+                        IF v_pga = 0 THEN
+                            v_miss := v_miss || CASE WHEN v_miss IS NOT NULL THEN ', ' END || v_opt(i);
+                        END IF;
+                    END LOOP;
+                    IF v_hwm > 0 AND v_miss IS NOT NULL THEN
+                        emit('WARN', 'memory ' || v_tag, 'memory history not collected or not populated'
+                             || ' on the target (no rows in ' || v_miss || '): if its reader lacks'
+                             || ' the grants, re-run target/prepare.sql there');
+                    END IF;
+                EXCEPTION
+                    WHEN OTHERS THEN emit('WARN', 'memory ' || v_tag, 'cannot read the memory copies: ' || err);
+                END;
 
                 BEGIN
                     EXECUTE IMMEDIATE 'SELECT COUNT(DISTINCT TRUNC(end_interval_time))'

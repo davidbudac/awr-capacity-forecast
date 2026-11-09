@@ -46,7 +46,7 @@ This document explains *why* each layer is shaped the way it is. For usage see
 The suite measures one database from inside it (`deploy_mode=local`), or a
 fleet from a repository database (`deploy_mode=repository`). In the fleet
 shape a *target* gets only a read-only common user (`target/prepare.sql`:
-`C##AWRRDR`, `CREATE SESSION`, direct `SELECT` on the seventeen views ddl/10
+`C##AWRRDR`, `CREATE SESSION`, direct `SELECT` on the twenty-eight views ddl/10
 reads, `CONTAINER_DATA = ALL`), and the repository copies those views over
 one DB link per target and runs everything else. The choices, made
 2026-11-07:
@@ -158,12 +158,12 @@ predated M24. M24.9 retired it, so repository mode is the one fleet path;
 
 ## Layer 1 — the seam (`CAPV_*`)
 
-Thirteen views re-present the AWR dictionary in a stable shape. Everything
+Twenty-four views re-present the AWR dictionary in a stable shape. Everything
 downstream depends only on these, so swapping `ddl/10_seam_local.sql` for
 `13` (repository, generated from `10`) or `12` (fixture)
 re-points the whole stack. Every view carries
-`(dbid, con_dbid)` but `CAPV_TARGET`, which is per dbid. A fourteenth view,
-`CAPV_CONTRACT`, describes what the other thirteen present (see the last
+`(dbid, con_dbid)` but `CAPV_TARGET`, which is per dbid. A twenty-fifth view,
+`CAPV_CONTRACT`, describes what the other twenty-four present (see the last
 bullet).
 
 - `DBA_HIST_SNAPSHOT` has no `CON_DBID`, so `CAPV_SNAPSHOT` sets
@@ -185,7 +185,13 @@ bullet).
   imported from one) falls back to the `SYS_` view, where `con_dbid = dbid`.
   The three remaining sources are root-only by nature: `DBA_HIST_OSSTAT`
   (host level), `DBA_HIST_RESOURCE_LIMIT` (instance level) and
-  `DBA_HIST_SNAPSHOT`. Reading the `SYS_` views gave local mode one DB CPU
+  `DBA_HIST_SNAPSHOT`. The memory sizing sources (M25) are instance level
+  too: in `CDB$ROOT` `DBA_HIST_PGASTAT`, `DBA_HIST_MEM_DYNAMIC_COMP`, the work
+  area histogram, the four advisors, the library and dictionary cache
+  summaries and `DBA_HIST_SYSTEM_EVENT` record every row under the root's
+  `con_dbid` (verified on 19.27). `DBA_HIST_SGASTAT` has rows per container,
+  but its `free memory` rows, the only ones `CAPV_SGASTAT` keeps, are all
+  instance wide (`con_id` 0). Reading the `SYS_` views gave local mode one DB CPU
   and redo series per CDB, labelled as the root, so per-PDB `DB_CPU_PCT`,
   `DBCPU_SAT`, the PDB level shift and `host_share_pct` only ever worked on
   fixture data.
@@ -675,6 +681,7 @@ n_samples, covered_sec, is_complete, day_gap, max_interval_hours, gap_flag)` —
 | series | value | limit_value | unit |
 | --- | --- | --- | --- |
 | `PROCESSES` / `SESSIONS` | daily `MAX(max_utilization)` per instance, **summed** across instances | the `processes` / `sessions` parameter, summed across instances | `COUNT` |
+| `PGA_ALLOC_GB` | daily `MAX('total PGA allocated')/2³⁰` per instance (`CAPV_PGASTAT`), **summed** across instances | `pga_aggregate_limit/2³⁰` at the same snapshot, summed; NULL when 0 | `GIB` |
 | `REDO_GB_DAY` | `SUM('redo size' deltas)/2³⁰` for the day | NULL — no ceiling | `GIB_PER_DAY` |
 | `DB_SIZE_GB` | `SUM(used_bytes)/2³⁰` over `CAPD_TBSPC_DAILY` | `SUM(limit_bytes)/2³⁰` | `GIB` |
 | `ASM_DG:+<group>` | `(total_mb − free_mb)/1024` at the day's **last** sample (`CAPV_ASM_DISKGROUP`) | `total_mb/1024` | `GIB` |
@@ -809,6 +816,7 @@ ts)`. Each branch states what is scored, in which unit, and with which floor:
 | `CPU` / `BUSY_PCT`, `DB_CPU_PCT` | HOUR | `CAPD_CPU_HOURLY.value` | same | `PCT` | `mad_k · cpu_min_mad_pct_hour` | `CPU_BUSY` / `DBCPU_BUSY` → `CPU_ANOM` / `DBCPU_ANOM` |
 | `SERIES` / `PROCESSES`, `SESSIONS` | DAY | the level | same | `COUNT` | `series_floor_count` | `SERIES_LEVEL` → `SERIES_ANOM` |
 | `SERIES` / `REDO_GB_DAY` | DAY | the level (GiB/day) | same | `GIB_PER_DAY` | `series_floor_gib` | `SERIES_LEVEL` → `SERIES_ANOM` |
+| `SERIES` / `PGA_ALLOC_GB` | DAY | the level (GiB) | same | `GIB` | `series_floor_gib` | `SERIES_LEVEL` → `SERIES_ANOM` |
 | `SERIES` / `DB_SIZE_GB` | DAY | growth, GiB moved ÷ `day_gap` | GiB moved | `GIB_PER_DAY` | `series_floor_gib` | `SERIES_GROWTH` → `SERIES_ANOM` |
 
 The M11 rows come from an inline `sreg` registry (series, LEVEL or RATE basis,

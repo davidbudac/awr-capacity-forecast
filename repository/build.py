@@ -18,7 +18,8 @@ which rows are worth copying. From it this script writes, in one file:
     views repository/seam_overrides.sql defines, which replace ddl/10's.
 
 --check also proves that the views ddl/10 reads, the views target/prepare.sql
-grants and the first seventeen create_owner.sql grants are the manifest's,
+grants and the first create_owner.sql grants (as many as the manifest has
+sources) are the manifest's,
 and that ddl/13 defines exactly ddl/10's CAPV_* views.
 """
 import re
@@ -35,6 +36,7 @@ CREATE_OWNER = ROOT / "create_owner.sql"
 
 N = "NUMBER"
 TS = "TIMESTAMP(3)"
+DT = "DATE"
 
 
 def v(n):
@@ -50,6 +52,9 @@ class Source:
             distinct row". scope names the fact whose chunk rows decide which
             dimension rows to pull (SEG_STAT_OBJ is too big to pull whole).
     filter: rows not worth copying. It must keep every row ddl/10 keeps.
+    optional: a target's reader may lack the grant (it was prepared before
+            the view joined the manifest): probe warns instead of failing,
+            and collect skips the source and copies the rest.
     """
     name: str
     kind: str
@@ -57,9 +62,22 @@ class Source:
     key: list = field(default_factory=list)
     filter: str = ""
     scope: str = ""
+    optional: bool = False
 
 
 TIME_NAMES = "stat_name IN ('DB CPU','DB time','background cpu time')"
+KEYS = [("dbid", N), ("con_dbid", N), ("instance_number", N), ("snap_id", N)]
+# The memory pressure events ddl/10's CAPV_SYSTEM_EVENT reads, one per line
+# so the pull statement keeps its lines short.
+MEM_EVENTS = ("event_name IN (\n             "
+              + ",\n             ".join(f"'{e}'" for e in (
+                  "free buffer waits", "write complete waits", "buffer busy waits",
+                  "latch: cache buffers lru chain", "latch: shared pool",
+                  "library cache: mutex X", "library cache load lock", "library cache lock",
+                  "cursor: pin S wait on X", "SGA: allocation forcing component growth",
+                  "latch: row cache objects", "row cache lock", "row cache mutex",
+                  "direct path read temp", "direct path write temp"))
+              + ")")
 
 SOURCES = [
     Source("SNAPSHOT", "F", [("dbid", N), ("instance_number", N), ("snap_id", N),
@@ -101,6 +119,56 @@ SOURCES = [
     Source("SEG_STAT", "F", [("dbid", N), ("con_dbid", N), ("instance_number", N),
                              ("snap_id", N), ("ts#", N), ("obj#", N), ("dataobj#", N),
                              ("space_used_delta", N), ("space_allocated_delta", N)]),
+    # Every name, unlike ddl/10's two: the later PGA evidence reads others,
+    # and a copy cannot be backfilled once the target's AWR has aged out.
+    Source("PGASTAT", "F", [("dbid", N), ("con_dbid", N), ("instance_number", N),
+                            ("snap_id", N), ("name", v(64)), ("value", N)],
+           optional=True),
+    # The memory sizing sources (M25), optional like PGASTAT. Only SGASTAT
+    # (per container) copies con_id, for ddl/10's PDB$SEED filter.
+    Source("MEM_DYNAMIC_COMP", "F", KEYS + [
+               ("component", v(64)), ("current_size", N), ("min_size", N), ("max_size", N),
+               ("user_specified_size", N), ("oper_count", N), ("last_oper_type", v(13)),
+               ("last_oper_mode", v(9)), ("last_oper_time", DT), ("granule_size", N)],
+           optional=True),
+    Source("SQL_WORKAREA_HSTGRM", "F", KEYS + [
+               ("low_optimal_size", N), ("high_optimal_size", N), ("optimal_executions", N),
+               ("onepass_executions", N), ("multipasses_executions", N), ("total_executions", N)],
+           optional=True),
+    Source("PGA_TARGET_ADVICE", "F", KEYS + [
+               ("pga_target_for_estimate", N), ("pga_target_factor", N), ("advice_status", v(3)),
+               ("bytes_processed", N), ("estd_time", N), ("estd_extra_bytes_rw", N),
+               ("estd_pga_cache_hit_percentage", N), ("estd_overalloc_count", N)],
+           optional=True),
+    Source("SGA_TARGET_ADVICE", "F", KEYS + [
+               ("sga_size", N), ("sga_size_factor", N), ("estd_db_time", N),
+               ("estd_physical_reads", N)],
+           optional=True),
+    Source("DB_CACHE_ADVICE", "F", KEYS + [
+               ("bpid", N), ("name", v(20)), ("block_size", N), ("advice_status", v(3)),
+               ("size_for_estimate", N), ("size_factor", N), ("buffers_for_estimate", N),
+               ("physical_reads", N), ("base_physical_reads", N), ("actual_physical_reads", N),
+               ("estd_physical_read_time", N)],
+           optional=True),
+    Source("SHARED_POOL_ADVICE", "F", KEYS + [
+               ("shared_pool_size_for_estimate", N), ("shared_pool_size_factor", N),
+               ("estd_lc_size", N), ("estd_lc_memory_objects", N), ("estd_lc_time_saved", N),
+               ("estd_lc_time_saved_factor", N), ("estd_lc_load_time", N),
+               ("estd_lc_load_time_factor", N), ("estd_lc_memory_object_hits", N)],
+           optional=True),
+    Source("SGASTAT", "F", [("dbid", N), ("con_dbid", N), ("con_id", N), ("instance_number", N),
+                            ("snap_id", N), ("pool", v(30)), ("name", v(64)), ("bytes", N)],
+           filter="name = 'free memory'", optional=True),
+    Source("LIBRARYCACHE", "F", KEYS + [
+               ("namespace", v(15)), ("gets", N), ("gethits", N), ("pins", N), ("pinhits", N),
+               ("reloads", N), ("invalidations", N)],
+           optional=True),
+    Source("ROWCACHE_SUMMARY", "F", KEYS + [("parameter", v(32)), ("gets", N), ("getmisses", N)],
+           optional=True),
+    Source("SYSTEM_EVENT", "F", KEYS + [
+               ("event_name", v(64)), ("wait_class", v(64)), ("total_waits", N),
+               ("time_waited_micro", N)],
+           filter=MEM_EVENTS, optional=True),
     Source("TABLESPACE", "D", [("dbid", N), ("con_dbid", N), ("ts#", N), ("tsname", v(30)),
                                ("contents", v(30)), ("block_size", N)],
            key=["dbid", "con_dbid", "ts#"]),
@@ -130,6 +198,18 @@ def names(src):
     return [c for c, _ in src.cols]
 
 
+def column_list(cols):
+    """cols comma-separated, continued on a new line past 160 characters."""
+    lines, cur = [], ""
+    for c in cols:
+        if cur and len(cur) + len(c) + 2 > 160:
+            lines.append(cur + ",")
+            cur = c
+        else:
+            cur = f"{cur}, {c}" if cur else c
+    return f"{NL}  ".join(lines + [cur])
+
+
 def pull_sql(src):
     """The statement cap_repo runs for one chunk.
 
@@ -137,7 +217,7 @@ def pull_sql(src):
     D binds (:1 dbid); with a scope (:1 dbid, :2 dbid, :3 after, :4 through).
     """
     cols = names(src)
-    clist = ", ".join(cols)
+    clist = column_list(cols)
     remote = f"dba_hist_{src.name.lower()}{LINK}"
     if src.kind == "F":
         where = "dbid = :1 AND snap_id > :2 AND snap_id <= :3"
@@ -210,12 +290,15 @@ def tables_block():
 
 def source_view():
     out = ["-- One row per copied source: the finished pull statement and its bind shape.",
+           "-- optional = 'Y': a reader without the grant is warned about, not failed.",
            "CREATE OR REPLACE VIEW cap_repo_source AS"]
     rows = []
     for i, s in enumerate(SOURCES, 1):
         kind = "S" if s.scope else s.kind
+        opt = "Y" if s.optional else "N"
         rows.append(f"SELECT {i} AS seq, '{s.name}' AS source_name, '{kind}' AS kind,"
-                    f" 'CAP_H_{s.name}' AS copy_table,\n       {sql_q(pull_sql(s))} AS pull_sql FROM dual")
+                    f" '{opt}' AS optional, 'CAP_H_{s.name}' AS copy_table,\n"
+                    f"       {sql_q(pull_sql(s))} AS pull_sql FROM dual")
     out.append("\nUNION ALL\n".join(rows) + ";")
     return out
 
@@ -347,7 +430,7 @@ def problems():
     if PREPARE.exists() and set(granted(PREPARE)) != want:
         out.append(f"target/prepare.sql grants differ from the manifest: {sorted(set(granted(PREPARE)) ^ want)}")
     if set(granted(CREATE_OWNER, len(want))) != want:
-        out.append("create_owner.sql: its first seventeen DBA_HIST grants are not the manifest's views")
+        out.append(f"create_owner.sql: its first {len(want)} DBA_HIST grants are not the manifest's views")
     out += filter_drift()
     local = set(view_blocks(strip_comments(LOCAL_SEAM.read_text())))
     over = overrides()

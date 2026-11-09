@@ -7,7 +7,7 @@
 --   SQL> @target/check.sql
 --
 -- One PASS / WARN / FAIL line per check: the container, the reader account
--- and its password expiry, its direct grants on the seventeen DBA_HIST_* views, CONTAINER_DATA (CDB),
+-- and its password expiry, its direct grants on the twenty-eight DBA_HIST_* views, CONTAINER_DATA (CDB),
 -- the Diagnostics Pack setting, STATISTICS_LEVEL, AWR retention / interval and
 -- how fresh the newest snapshot is. Exits non-zero when a FAIL line printed.
 -- The proof that the repository can read through its link is
@@ -58,7 +58,12 @@ DECLARE
         'DBA_HIST_RESOURCE_LIMIT', 'DBA_HIST_SYSSTAT', 'DBA_HIST_CON_SYSSTAT',
         'DBA_HIST_PARAMETER', 'DBA_HIST_ASM_DISKGROUP_STAT', 'DBA_HIST_SEG_STAT',
         'DBA_HIST_TABLESPACE', 'DBA_HIST_DATAFILE', 'DBA_HIST_PDB_INSTANCE',
-        'DBA_HIST_DATABASE_INSTANCE', 'DBA_HIST_ASM_DISKGROUP', 'DBA_HIST_SEG_STAT_OBJ');
+        'DBA_HIST_DATABASE_INSTANCE', 'DBA_HIST_ASM_DISKGROUP', 'DBA_HIST_SEG_STAT_OBJ',
+        'DBA_HIST_PGASTAT',
+        'DBA_HIST_MEM_DYNAMIC_COMP', 'DBA_HIST_SQL_WORKAREA_HSTGRM',
+        'DBA_HIST_PGA_TARGET_ADVICE', 'DBA_HIST_SGA_TARGET_ADVICE', 'DBA_HIST_DB_CACHE_ADVICE',
+        'DBA_HIST_SHARED_POOL_ADVICE', 'DBA_HIST_SGASTAT', 'DBA_HIST_LIBRARYCACHE',
+        'DBA_HIST_ROWCACHE_SUMMARY', 'DBA_HIST_SYSTEM_EVENT');
 
     PROCEDURE emit(p_lvl VARCHAR2, p_what VARCHAR2, p_txt VARCHAR2) IS
     BEGIN

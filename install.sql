@@ -120,6 +120,9 @@ EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/35_series_forecast')
 PROMPT -- [40] anomalies (CAPA_*) ...
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/40_anomaly_views')
 @@ddl/40_anomaly_views.sql
+PROMPT -- [42] memory verdicts (CAPM_SNAP .. CAPM_ADVICE, the area facts, CAPM_EVIDENCE, CAPM_VERDICT) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/42_memory_views')
+@@ddl/42_memory_views.sql
 PROMPT -- [45] integration/report layer (CAPR_CONTAINER, CAPR_ANOMALIES, CAPR_SEVERITY, CAPR_FIT, sections) ...
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/45_report_views')
 @@ddl/45_report_views.sql

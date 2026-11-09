@@ -100,8 +100,9 @@ CREATE OR REPLACE PACKAGE cap_repo AUTHID DEFINER AS
     --                                    (dropped again by remove_target);
     --   p_db_link                        use a link of this schema the DBA
     --                                    made (wallet, proxy), kept on remove.
-    -- Every copied view is probed over the link first; a view the reader
-    -- cannot see fails the call (ORA-20072) and leaves nothing behind.
+    -- Every copied view is probed over the link first; a required view the
+    -- reader cannot see fails the call (ORA-20072) and leaves nothing
+    -- behind. An optional one (CAP_REPO_SOURCE.optional = 'Y') is a warning.
     -- Copies nothing yet: run collect.
     PROCEDURE add_target(p_name     IN VARCHAR2,
                          p_connect  IN VARCHAR2 DEFAULT NULL,
@@ -112,7 +113,10 @@ CREATE OR REPLACE PACKAGE cap_repo AUTHID DEFINER AS
     -- Copy every snapshot not copied yet, for one target or (NULL) every
     -- enabled one. The first collect of a DBID backfills what the target
     -- still holds. A failing target is logged and the rest go on; afterwards
-    -- ORA-20070 names how many failed (details in CAP_COLLECT_LOG).
+    -- ORA-20070 names how many failed (details in CAP_COLLECT_LOG). An
+    -- optional view the reader cannot read is skipped with a [WARN] line
+    -- per target and named in the OK row's message; the rest is copied and
+    -- the high-water mark moves on, so that view's copy has a hole.
     PROCEDURE collect(p_name        IN VARCHAR2    DEFAULT NULL,
                       p_chunk_snaps IN PLS_INTEGER DEFAULT 500);
 
@@ -135,7 +139,7 @@ CREATE OR REPLACE PACKAGE cap_repo AUTHID DEFINER AS
     PROCEDURE purge(p_days IN NUMBER DEFAULT NULL);
 
     -- NULL when the target's link answers and its reader can read every
-    -- copied view, else the error text. Never raises; rolls back the
+    -- required copied view, else the error text. Never raises; rolls back the
     -- caller's transaction (the remote SELECT opens a distributed one).
     FUNCTION ping(p_name IN VARCHAR2) RETURN VARCHAR2;
 
@@ -213,27 +217,39 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         WHEN OTHERS THEN NULL;   -- not open, or a transaction still uses it
     END close_link;
 
-    -- Fail unless the link answers and the reader can see every copied view.
+    -- Fail unless the link answers and the reader can see every required
+    -- copied view. An unreadable optional view (CAP_REPO_SOURCE.optional) is
+    -- a warning: collect skips it.
     PROCEDURE probe(p_link IN VARCHAR2) IS
-        v_n       NUMBER;
-        v_missing VARCHAR2(4000);
+        v_n        NUMBER;
+        v_missing  VARCHAR2(4000);
+        v_optional VARCHAR2(4000);
     BEGIN
         EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM dual@' || p_link INTO v_n;
         label_remote(p_link);
-        FOR s IN (SELECT source_name FROM cap_repo_source ORDER BY seq) LOOP
+        FOR s IN (SELECT source_name, optional FROM cap_repo_source ORDER BY seq) LOOP
             BEGIN
                 EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM dba_hist_' || LOWER(s.source_name)
                                   || '@' || p_link || ' WHERE 1 = 0' INTO v_n;
             EXCEPTION
                 WHEN OTHERS THEN
-                    v_missing := SUBSTR(v_missing || CASE WHEN v_missing IS NOT NULL THEN ', ' END
-                                        || 'DBA_HIST_' || s.source_name, 1, 3000);
+                    IF s.optional = 'Y' THEN
+                        v_optional := SUBSTR(v_optional || CASE WHEN v_optional IS NOT NULL THEN ', ' END
+                                             || 'DBA_HIST_' || s.source_name, 1, 3000);
+                    ELSE
+                        v_missing := SUBSTR(v_missing || CASE WHEN v_missing IS NOT NULL THEN ', ' END
+                                            || 'DBA_HIST_' || s.source_name, 1, 3000);
+                    END IF;
             END;
         END LOOP;
         ROLLBACK;
         IF v_missing IS NOT NULL THEN
             RAISE_APPLICATION_ERROR(-20072, 'the reader behind link ' || p_link
                 || ' cannot read ' || v_missing || '. Run target/prepare.sql on the target.');
+        END IF;
+        IF v_optional IS NOT NULL THEN
+            say('[WARN] the reader behind link ' || p_link || ' cannot read ' || v_optional
+                || ': not copied until target/prepare.sql is re-run on the target');
         END IF;
     END probe;
 
@@ -266,8 +282,11 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
     END discover;
 
     -- Copy one DBID up to the target's newest snapshot. FALSE = it failed.
+    -- p_skipped lists the optional views (DBA_HIST_<x>, comma-separated) the
+    -- target's reader cannot read: their pull is skipped, not failed, and a
+    -- view once listed is not tried again in this collect.
     FUNCTION collect_dbid(t IN cap_target%ROWTYPE, p_dbid IN NUMBER,
-                          p_chunk IN PLS_INTEGER) RETURN BOOLEAN IS
+                          p_chunk IN PLS_INTEGER, p_skipped IN OUT VARCHAR2) RETURN BOOLEAN IS
         v_min   NUMBER;
         v_max   NUMBER;
         v_hwm   NUMBER;
@@ -339,14 +358,30 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
             v_end   := LEAST(v_max, GREATEST(v_hwm, v_min - 1) + p_chunk);
             v_first := NVL(v_first, v_hwm + 1);
 
-            FOR s IN (SELECT kind, pull_sql FROM cap_repo_source ORDER BY seq) LOOP
+            FOR s IN (SELECT source_name, kind, optional, pull_sql
+                      FROM cap_repo_source ORDER BY seq) LOOP
+                CONTINUE WHEN s.optional = 'Y'
+                          AND INSTR(', ' || p_skipped || ',', ', DBA_HIST_' || s.source_name || ',') > 0;
                 v_sql := REPLACE(s.pull_sql, '{LINK}', t.db_link);
-                CASE s.kind
-                    WHEN 'F' THEN EXECUTE IMMEDIATE v_sql USING p_dbid, v_hwm, v_end;
-                    WHEN 'D' THEN EXECUTE IMMEDIATE v_sql USING p_dbid;
-                    WHEN 'S' THEN EXECUTE IMMEDIATE v_sql USING p_dbid, p_dbid, v_hwm, v_end;
-                END CASE;
-                v_rows := v_rows + SQL%ROWCOUNT;
+                BEGIN
+                    CASE s.kind
+                        WHEN 'F' THEN EXECUTE IMMEDIATE v_sql USING p_dbid, v_hwm, v_end;
+                        WHEN 'D' THEN EXECUTE IMMEDIATE v_sql USING p_dbid;
+                        WHEN 'S' THEN EXECUTE IMMEDIATE v_sql USING p_dbid, p_dbid, v_hwm, v_end;
+                    END CASE;
+                    v_rows := v_rows + SQL%ROWCOUNT;
+                EXCEPTION
+                    -- ORA-00942 / ORA-01031 (over the link: + ORA-02063): the
+                    -- reader lacks the grant. The failed statement alone is
+                    -- rolled back; the chunk goes on without this view.
+                    WHEN OTHERS THEN
+                        IF s.optional = 'Y' AND SQLCODE IN (-942, -1031) THEN
+                            p_skipped := SUBSTR(p_skipped || CASE WHEN p_skipped IS NOT NULL THEN ', ' END
+                                                || 'DBA_HIST_' || s.source_name, 1, 1000);
+                        ELSE
+                            RAISE;
+                        END IF;
+                END;
             END LOOP;
 
             UPDATE cap_target_dbid
@@ -358,7 +393,9 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         UPDATE cap_target_dbid SET last_collect = SYSDATE WHERE dbid = p_dbid;
         COMMIT;
         log_event(t.target_name, p_dbid, CASE WHEN v_first IS NULL THEN 'NOTHING' ELSE 'OK' END,
-                  v_first, CASE WHEN v_first IS NOT NULL THEN v_max END, v_rows, secs);
+                  v_first, CASE WHEN v_first IS NOT NULL THEN v_max END, v_rows, secs,
+                  CASE WHEN p_skipped IS NOT NULL
+                       THEN 'not copied (the reader cannot read them): ' || p_skipped END);
         say(t.target_name || ' DBID ' || p_dbid || ': '
             || CASE WHEN v_first IS NULL THEN 'up to date at snap_id ' || v_max
                     ELSE 'snap_id ' || v_first || '..' || v_max || ', ' || v_rows || ' rows' END
@@ -456,6 +493,7 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         v_seen   PLS_INTEGER := 0;
         v_t      cap_target%ROWTYPE;
         t        cap_target%ROWTYPE;
+        v_skip   VARCHAR2(1000);
         l_mod   VARCHAR2(64);
         l_act   VARCHAR2(64);
     BEGIN
@@ -493,12 +531,18 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
                     close_link(t.db_link);
                     CONTINUE;
             END;
+            v_skip := NULL;
             FOR d IN (SELECT dbid FROM cap_target_dbid
                       WHERE  target_id = t.target_id ORDER BY dbid) LOOP
-                IF NOT collect_dbid(t, d.dbid, p_chunk_snaps) THEN
+                IF NOT collect_dbid(t, d.dbid, p_chunk_snaps, v_skip) THEN
                     v_fail := v_fail + 1;
                 END IF;
             END LOOP;
+            IF v_skip IS NOT NULL THEN
+                say('[WARN] ' || t.target_name || ': ' || v_skip || ' not copied, the reader'
+                    || ' cannot read it. Re-run target/prepare.sql on the target; the copy'
+                    || ' starts at the next collect after that (no backfill).');
+            END IF;
             close_link(t.db_link);
         END LOOP;
 

@@ -2,8 +2,8 @@
 -- ddl/35_series_forecast.sql -- CAPF_SERIES_FORECAST: fixed-ceiling series (M11).
 -- =====================================================================
 -- The Tier 1 (pure-SQL OLS) forecast for CAPD_SERIES_DAILY, i.e. for
--- PROCESSES / SESSIONS (M11.1), REDO_GB_DAY (M11.2), DB_SIZE_GB (M11.3) and
--- the ASM_DG / TEMP_PEAK / UNDO_PEAK series. One row per
+-- PROCESSES / SESSIONS (M11.1), REDO_GB_DAY (M11.2), DB_SIZE_GB (M11.3),
+-- PGA_ALLOC_GB (M25) and the ASM_DG / TEMP_PEAK / UNDO_PEAK series. One row per
 -- (dbid, con_dbid, series).
 --
 -- It is deliberately the SAME arithmetic as CAPF_CPU_TREND -- REGR_* fit over
@@ -62,7 +62,7 @@
 --                     NULL or 0. It is an upper bound: the FRA also holds
 --                     flashback logs and backups.
 --
--- RAC (PROCESSES / SESSIONS, NULL on every other series): worst_inst_pct /
+-- RAC (PROCESSES / SESSIONS / PGA_ALLOC_GB, NULL on every other series): worst_inst_pct /
 -- worst_inst are the last day's highest per-instance percent of that
 -- instance's own limit and its instance_number (ddl/25), 1 decimal like
 -- pct_of_limit, which stays the fleet figure (summed use over summed limits).

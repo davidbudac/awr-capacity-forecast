@@ -109,6 +109,7 @@ WITH pt AS (
                    WHEN 'BYTES_PER_DAY' THEN TO_CHAR(p.expected / 1048576, 'FM999999990.0') || ' MiB/day'
                    WHEN 'PCT'           THEN TO_CHAR(p.expected, 'FM9999990.0') || '%'
                    WHEN 'COUNT'         THEN TO_CHAR(p.expected, 'FM99999999990')
+                   WHEN 'GIB'           THEN TO_CHAR(p.expected, 'FM9999990.00') || ' GiB'
                    ELSE                      TO_CHAR(p.expected, 'FM9999990.00') || ' GiB/day'
                END                                                            AS expected_txt,
                CASE p.anomaly_kind
@@ -128,6 +129,7 @@ WITH pt AS (
                    WHEN 'DBCPU_BUSY' THEN 'DB CPU ' || TO_CHAR(p.value, 'FM990.0') || '% of logical CPUs'
                    ELSE p.series || ' at '
                         || CASE p.unit WHEN 'COUNT' THEN TO_CHAR(p.value, 'FM99999999990')
+                                       WHEN 'GIB'   THEN TO_CHAR(p.value, 'FM9999990.00') || ' GiB'
                                        ELSE TO_CHAR(p.value, 'FM9999990.00') || ' GiB/day' END
                END                                                            AS subject,
                CASE p.baseline_mode
@@ -904,10 +906,10 @@ LEFT   JOIN capr_container c
 
 -- --------------------------------------------------------------------
 -- CAPR_SERIES_ANOMALIES (M15) -- report section 7b: every flagged (day,
--- baseline mode) of an M11 series. PROCESSES / SESSIONS / REDO_GB_DAY are
--- scored on their level, DB_SIZE_GB on its daily growth (value GiB/day,
--- raw_value the GiB moved since the previous row). unit is CAPA_OBS's
--- (COUNT / GIB_PER_DAY). days_ago is measured from the database's last
+-- baseline mode) of an M11 series. PROCESSES / SESSIONS / REDO_GB_DAY /
+-- PGA_ALLOC_GB are scored on their level, DB_SIZE_GB on its daily growth
+-- (value GiB/day, raw_value the GiB moved since the previous row). unit is
+-- CAPA_OBS's (COUNT / GIB_PER_DAY / GIB). days_ago is measured from the database's last
 -- collected CAPD_SERIES_DAILY day.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_series_anomalies AS

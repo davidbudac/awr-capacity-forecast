@@ -77,6 +77,48 @@ BEGIN
         'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
         'ts# NUMBER', 'obj# NUMBER', 'dataobj# NUMBER', 'space_used_delta NUMBER',
         'space_allocated_delta NUMBER'));
+    ensure('cap_h_pgastat', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
+        'name VARCHAR2(64 CHAR)', 'value NUMBER'));
+    ensure('cap_h_mem_dynamic_comp', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
+        'component VARCHAR2(64 CHAR)', 'current_size NUMBER', 'min_size NUMBER', 'max_size NUMBER',
+        'user_specified_size NUMBER', 'oper_count NUMBER', 'last_oper_type VARCHAR2(13 CHAR)', 'last_oper_mode VARCHAR2(9 CHAR)',
+        'last_oper_time DATE', 'granule_size NUMBER'));
+    ensure('cap_h_sql_workarea_hstgrm', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
+        'low_optimal_size NUMBER', 'high_optimal_size NUMBER', 'optimal_executions NUMBER', 'onepass_executions NUMBER',
+        'multipasses_executions NUMBER', 'total_executions NUMBER'));
+    ensure('cap_h_pga_target_advice', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
+        'pga_target_for_estimate NUMBER', 'pga_target_factor NUMBER', 'advice_status VARCHAR2(3 CHAR)', 'bytes_processed NUMBER',
+        'estd_time NUMBER', 'estd_extra_bytes_rw NUMBER', 'estd_pga_cache_hit_percentage NUMBER', 'estd_overalloc_count NUMBER'));
+    ensure('cap_h_sga_target_advice', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
+        'sga_size NUMBER', 'sga_size_factor NUMBER', 'estd_db_time NUMBER', 'estd_physical_reads NUMBER'));
+    ensure('cap_h_db_cache_advice', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
+        'bpid NUMBER', 'name VARCHAR2(20 CHAR)', 'block_size NUMBER', 'advice_status VARCHAR2(3 CHAR)',
+        'size_for_estimate NUMBER', 'size_factor NUMBER', 'buffers_for_estimate NUMBER', 'physical_reads NUMBER',
+        'base_physical_reads NUMBER', 'actual_physical_reads NUMBER', 'estd_physical_read_time NUMBER'));
+    ensure('cap_h_shared_pool_advice', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
+        'shared_pool_size_for_estimate NUMBER', 'shared_pool_size_factor NUMBER', 'estd_lc_size NUMBER', 'estd_lc_memory_objects NUMBER',
+        'estd_lc_time_saved NUMBER', 'estd_lc_time_saved_factor NUMBER', 'estd_lc_load_time NUMBER', 'estd_lc_load_time_factor NUMBER',
+        'estd_lc_memory_object_hits NUMBER'));
+    ensure('cap_h_sgastat', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'con_id NUMBER', 'instance_number NUMBER',
+        'snap_id NUMBER', 'pool VARCHAR2(30 CHAR)', 'name VARCHAR2(64 CHAR)', 'bytes NUMBER'));
+    ensure('cap_h_librarycache', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
+        'namespace VARCHAR2(15 CHAR)', 'gets NUMBER', 'gethits NUMBER', 'pins NUMBER',
+        'pinhits NUMBER', 'reloads NUMBER', 'invalidations NUMBER'));
+    ensure('cap_h_rowcache_summary', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
+        'parameter VARCHAR2(32 CHAR)', 'gets NUMBER', 'getmisses NUMBER'));
+    ensure('cap_h_system_event', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'instance_number NUMBER', 'snap_id NUMBER',
+        'event_name VARCHAR2(64 CHAR)', 'wait_class VARCHAR2(64 CHAR)', 'total_waits NUMBER', 'time_waited_micro NUMBER'));
     ensure('cap_h_tablespace', SYS.ODCIVARCHAR2LIST(
         'dbid NUMBER', 'con_dbid NUMBER', 'ts# NUMBER', 'tsname VARCHAR2(30 CHAR)',
         'contents VARCHAR2(30 CHAR)', 'block_size NUMBER'));
@@ -97,74 +139,164 @@ END;
 /
 
 -- One row per copied source: the finished pull statement and its bind shape.
+-- optional = 'Y': a reader without the grant is warned about, not failed.
 CREATE OR REPLACE VIEW cap_repo_source AS
-SELECT 1 AS seq, 'SNAPSHOT' AS source_name, 'F' AS kind, 'CAP_H_SNAPSHOT' AS copy_table,
+SELECT 1 AS seq, 'SNAPSHOT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_SNAPSHOT' AS copy_table,
        q'~INSERT INTO cap_h_snapshot (dbid, instance_number, snap_id, startup_time, begin_interval_time, end_interval_time)
            SELECT dbid, instance_number, snap_id, startup_time, begin_interval_time, end_interval_time
            FROM dba_hist_snapshot@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
-SELECT 2 AS seq, 'TBSPC_SPACE_USAGE' AS source_name, 'F' AS kind, 'CAP_H_TBSPC_SPACE_USAGE' AS copy_table,
+SELECT 2 AS seq, 'TBSPC_SPACE_USAGE' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_TBSPC_SPACE_USAGE' AS copy_table,
        q'~INSERT INTO cap_h_tbspc_space_usage (dbid, con_dbid, snap_id, tablespace_id, tablespace_size, tablespace_maxsize, tablespace_usedsize)
            SELECT dbid, con_dbid, snap_id, tablespace_id, tablespace_size, tablespace_maxsize, tablespace_usedsize
            FROM dba_hist_tbspc_space_usage@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
-SELECT 3 AS seq, 'OSSTAT' AS source_name, 'F' AS kind, 'CAP_H_OSSTAT' AS copy_table,
+SELECT 3 AS seq, 'OSSTAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_OSSTAT' AS copy_table,
        q'~INSERT INTO cap_h_osstat (dbid, con_dbid, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
            FROM dba_hist_osstat@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name IN ('BUSY_TIME','IDLE_TIME','IOWAIT_TIME','NUM_CPUS','NUM_CPU_CORES','PHYSICAL_MEMORY_BYTES'))~' AS pull_sql FROM dual
 UNION ALL
-SELECT 4 AS seq, 'SYS_TIME_MODEL' AS source_name, 'F' AS kind, 'CAP_H_SYS_TIME_MODEL' AS copy_table,
+SELECT 4 AS seq, 'SYS_TIME_MODEL' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_SYS_TIME_MODEL' AS copy_table,
        q'~INSERT INTO cap_h_sys_time_model (dbid, con_dbid, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
            FROM dba_hist_sys_time_model@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name IN ('DB CPU','DB time','background cpu time'))~' AS pull_sql FROM dual
 UNION ALL
-SELECT 5 AS seq, 'CON_SYS_TIME_MODEL' AS source_name, 'F' AS kind, 'CAP_H_CON_SYS_TIME_MODEL' AS copy_table,
+SELECT 5 AS seq, 'CON_SYS_TIME_MODEL' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_CON_SYS_TIME_MODEL' AS copy_table,
        q'~INSERT INTO cap_h_con_sys_time_model (dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value
            FROM dba_hist_con_sys_time_model@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name IN ('DB CPU','DB time','background cpu time'))~' AS pull_sql FROM dual
 UNION ALL
-SELECT 6 AS seq, 'RESOURCE_LIMIT' AS source_name, 'F' AS kind, 'CAP_H_RESOURCE_LIMIT' AS copy_table,
+SELECT 6 AS seq, 'RESOURCE_LIMIT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_RESOURCE_LIMIT' AS copy_table,
        q'~INSERT INTO cap_h_resource_limit (dbid, con_dbid, instance_number, snap_id, resource_name, current_utilization, max_utilization, limit_value)
            SELECT dbid, con_dbid, instance_number, snap_id, resource_name, current_utilization, max_utilization, limit_value
            FROM dba_hist_resource_limit@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (resource_name IN ('processes','sessions'))~' AS pull_sql FROM dual
 UNION ALL
-SELECT 7 AS seq, 'SYSSTAT' AS source_name, 'F' AS kind, 'CAP_H_SYSSTAT' AS copy_table,
+SELECT 7 AS seq, 'SYSSTAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_SYSSTAT' AS copy_table,
        q'~INSERT INTO cap_h_sysstat (dbid, con_dbid, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
            FROM dba_hist_sysstat@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name = 'redo size')~' AS pull_sql FROM dual
 UNION ALL
-SELECT 8 AS seq, 'CON_SYSSTAT' AS source_name, 'F' AS kind, 'CAP_H_CON_SYSSTAT' AS copy_table,
+SELECT 8 AS seq, 'CON_SYSSTAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_CON_SYSSTAT' AS copy_table,
        q'~INSERT INTO cap_h_con_sysstat (dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value
            FROM dba_hist_con_sysstat@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name = 'redo size')~' AS pull_sql FROM dual
 UNION ALL
-SELECT 9 AS seq, 'PARAMETER' AS source_name, 'F' AS kind, 'CAP_H_PARAMETER' AS copy_table,
+SELECT 9 AS seq, 'PARAMETER' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_PARAMETER' AS copy_table,
        q'~INSERT INTO cap_h_parameter (dbid, con_dbid, instance_number, snap_id, parameter_name, value)
            SELECT dbid, con_dbid, instance_number, snap_id, parameter_name, value
            FROM dba_hist_parameter@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (parameter_name IN ('cpu_count','processes','sessions','db_recovery_file_dest_size','sga_target','sga_max_size','pga_aggregate_target','pga_aggregate_limit','memory_target'))~' AS pull_sql FROM dual
 UNION ALL
-SELECT 10 AS seq, 'ASM_DISKGROUP_STAT' AS source_name, 'F' AS kind, 'CAP_H_ASM_DISKGROUP_STAT' AS copy_table,
+SELECT 10 AS seq, 'ASM_DISKGROUP_STAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_ASM_DISKGROUP_STAT' AS copy_table,
        q'~INSERT INTO cap_h_asm_diskgroup_stat (dbid, con_dbid, snap_id, group_number, total_mb, free_mb)
            SELECT dbid, con_dbid, snap_id, group_number, total_mb, free_mb
            FROM dba_hist_asm_diskgroup_stat@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
-SELECT 11 AS seq, 'SEG_STAT' AS source_name, 'F' AS kind, 'CAP_H_SEG_STAT' AS copy_table,
+SELECT 11 AS seq, 'SEG_STAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_SEG_STAT' AS copy_table,
        q'~INSERT INTO cap_h_seg_stat (dbid, con_dbid, instance_number, snap_id, ts#, obj#, dataobj#, space_used_delta, space_allocated_delta)
            SELECT dbid, con_dbid, instance_number, snap_id, ts#, obj#, dataobj#, space_used_delta, space_allocated_delta
            FROM dba_hist_seg_stat@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
-SELECT 12 AS seq, 'TABLESPACE' AS source_name, 'D' AS kind, 'CAP_H_TABLESPACE' AS copy_table,
+SELECT 12 AS seq, 'PGASTAT' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_PGASTAT' AS copy_table,
+       q'~INSERT INTO cap_h_pgastat (dbid, con_dbid, instance_number, snap_id, name, value)
+           SELECT dbid, con_dbid, instance_number, snap_id, name, value
+           FROM dba_hist_pgastat@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
+UNION ALL
+SELECT 13 AS seq, 'MEM_DYNAMIC_COMP' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_MEM_DYNAMIC_COMP' AS copy_table,
+       q'~INSERT INTO cap_h_mem_dynamic_comp (dbid, con_dbid, instance_number, snap_id, component, current_size, min_size, max_size, user_specified_size, oper_count, last_oper_type, last_oper_mode,
+             last_oper_time, granule_size)
+           SELECT dbid, con_dbid, instance_number, snap_id, component, current_size, min_size, max_size, user_specified_size, oper_count, last_oper_type, last_oper_mode,
+             last_oper_time, granule_size
+           FROM dba_hist_mem_dynamic_comp@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
+UNION ALL
+SELECT 14 AS seq, 'SQL_WORKAREA_HSTGRM' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_SQL_WORKAREA_HSTGRM' AS copy_table,
+       q'~INSERT INTO cap_h_sql_workarea_hstgrm (dbid, con_dbid, instance_number, snap_id, low_optimal_size, high_optimal_size, optimal_executions, onepass_executions, multipasses_executions, total_executions)
+           SELECT dbid, con_dbid, instance_number, snap_id, low_optimal_size, high_optimal_size, optimal_executions, onepass_executions, multipasses_executions, total_executions
+           FROM dba_hist_sql_workarea_hstgrm@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
+UNION ALL
+SELECT 15 AS seq, 'PGA_TARGET_ADVICE' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_PGA_TARGET_ADVICE' AS copy_table,
+       q'~INSERT INTO cap_h_pga_target_advice (dbid, con_dbid, instance_number, snap_id, pga_target_for_estimate, pga_target_factor, advice_status, bytes_processed, estd_time, estd_extra_bytes_rw,
+             estd_pga_cache_hit_percentage, estd_overalloc_count)
+           SELECT dbid, con_dbid, instance_number, snap_id, pga_target_for_estimate, pga_target_factor, advice_status, bytes_processed, estd_time, estd_extra_bytes_rw,
+             estd_pga_cache_hit_percentage, estd_overalloc_count
+           FROM dba_hist_pga_target_advice@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
+UNION ALL
+SELECT 16 AS seq, 'SGA_TARGET_ADVICE' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_SGA_TARGET_ADVICE' AS copy_table,
+       q'~INSERT INTO cap_h_sga_target_advice (dbid, con_dbid, instance_number, snap_id, sga_size, sga_size_factor, estd_db_time, estd_physical_reads)
+           SELECT dbid, con_dbid, instance_number, snap_id, sga_size, sga_size_factor, estd_db_time, estd_physical_reads
+           FROM dba_hist_sga_target_advice@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
+UNION ALL
+SELECT 17 AS seq, 'DB_CACHE_ADVICE' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_DB_CACHE_ADVICE' AS copy_table,
+       q'~INSERT INTO cap_h_db_cache_advice (dbid, con_dbid, instance_number, snap_id, bpid, name, block_size, advice_status, size_for_estimate, size_factor, buffers_for_estimate, physical_reads,
+             base_physical_reads, actual_physical_reads, estd_physical_read_time)
+           SELECT dbid, con_dbid, instance_number, snap_id, bpid, name, block_size, advice_status, size_for_estimate, size_factor, buffers_for_estimate, physical_reads,
+             base_physical_reads, actual_physical_reads, estd_physical_read_time
+           FROM dba_hist_db_cache_advice@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
+UNION ALL
+SELECT 18 AS seq, 'SHARED_POOL_ADVICE' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_SHARED_POOL_ADVICE' AS copy_table,
+       q'~INSERT INTO cap_h_shared_pool_advice (dbid, con_dbid, instance_number, snap_id, shared_pool_size_for_estimate, shared_pool_size_factor, estd_lc_size, estd_lc_memory_objects, estd_lc_time_saved,
+             estd_lc_time_saved_factor, estd_lc_load_time, estd_lc_load_time_factor, estd_lc_memory_object_hits)
+           SELECT dbid, con_dbid, instance_number, snap_id, shared_pool_size_for_estimate, shared_pool_size_factor, estd_lc_size, estd_lc_memory_objects, estd_lc_time_saved,
+             estd_lc_time_saved_factor, estd_lc_load_time, estd_lc_load_time_factor, estd_lc_memory_object_hits
+           FROM dba_hist_shared_pool_advice@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
+UNION ALL
+SELECT 19 AS seq, 'SGASTAT' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_SGASTAT' AS copy_table,
+       q'~INSERT INTO cap_h_sgastat (dbid, con_dbid, con_id, instance_number, snap_id, pool, name, bytes)
+           SELECT dbid, con_dbid, con_id, instance_number, snap_id, pool, name, bytes
+           FROM dba_hist_sgastat@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (name = 'free memory')~' AS pull_sql FROM dual
+UNION ALL
+SELECT 20 AS seq, 'LIBRARYCACHE' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_LIBRARYCACHE' AS copy_table,
+       q'~INSERT INTO cap_h_librarycache (dbid, con_dbid, instance_number, snap_id, namespace, gets, gethits, pins, pinhits, reloads, invalidations)
+           SELECT dbid, con_dbid, instance_number, snap_id, namespace, gets, gethits, pins, pinhits, reloads, invalidations
+           FROM dba_hist_librarycache@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
+UNION ALL
+SELECT 21 AS seq, 'ROWCACHE_SUMMARY' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_ROWCACHE_SUMMARY' AS copy_table,
+       q'~INSERT INTO cap_h_rowcache_summary (dbid, con_dbid, instance_number, snap_id, parameter, gets, getmisses)
+           SELECT dbid, con_dbid, instance_number, snap_id, parameter, gets, getmisses
+           FROM dba_hist_rowcache_summary@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
+UNION ALL
+SELECT 22 AS seq, 'SYSTEM_EVENT' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_SYSTEM_EVENT' AS copy_table,
+       q'~INSERT INTO cap_h_system_event (dbid, con_dbid, instance_number, snap_id, event_name, wait_class, total_waits, time_waited_micro)
+           SELECT dbid, con_dbid, instance_number, snap_id, event_name, wait_class, total_waits, time_waited_micro
+           FROM dba_hist_system_event@{LINK}
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (event_name IN (
+             'free buffer waits',
+             'write complete waits',
+             'buffer busy waits',
+             'latch: cache buffers lru chain',
+             'latch: shared pool',
+             'library cache: mutex X',
+             'library cache load lock',
+             'library cache lock',
+             'cursor: pin S wait on X',
+             'SGA: allocation forcing component growth',
+             'latch: row cache objects',
+             'row cache lock',
+             'row cache mutex',
+             'direct path read temp',
+             'direct path write temp'))~' AS pull_sql FROM dual
+UNION ALL
+SELECT 23 AS seq, 'TABLESPACE' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_H_TABLESPACE' AS copy_table,
        q'~MERGE INTO cap_h_tablespace t
            USING (SELECT DISTINCT dbid, con_dbid, ts#, tsname, contents, block_size
                   FROM dba_hist_tablespace@{LINK}
@@ -174,7 +306,7 @@ SELECT 12 AS seq, 'TABLESPACE' AS source_name, 'D' AS kind, 'CAP_H_TABLESPACE' A
            WHEN NOT MATCHED THEN INSERT (dbid, con_dbid, ts#, tsname, contents, block_size)
                 VALUES (s.dbid, s.con_dbid, s.ts#, s.tsname, s.contents, s.block_size)~' AS pull_sql FROM dual
 UNION ALL
-SELECT 13 AS seq, 'DATAFILE' AS source_name, 'D' AS kind, 'CAP_H_DATAFILE' AS copy_table,
+SELECT 24 AS seq, 'DATAFILE' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_H_DATAFILE' AS copy_table,
        q'~MERGE INTO cap_h_datafile t
            USING (SELECT DISTINCT dbid, con_dbid, ts#, block_size
                   FROM dba_hist_datafile@{LINK}
@@ -183,7 +315,7 @@ SELECT 13 AS seq, 'DATAFILE' AS source_name, 'D' AS kind, 'CAP_H_DATAFILE' AS co
            WHEN NOT MATCHED THEN INSERT (dbid, con_dbid, ts#, block_size)
                 VALUES (s.dbid, s.con_dbid, s.ts#, s.block_size)~' AS pull_sql FROM dual
 UNION ALL
-SELECT 14 AS seq, 'PDB_INSTANCE' AS source_name, 'D' AS kind, 'CAP_H_PDB_INSTANCE' AS copy_table,
+SELECT 25 AS seq, 'PDB_INSTANCE' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_H_PDB_INSTANCE' AS copy_table,
        q'~MERGE INTO cap_h_pdb_instance t
            USING (SELECT DISTINCT dbid, con_dbid, pdb_name
                   FROM dba_hist_pdb_instance@{LINK}
@@ -192,7 +324,7 @@ SELECT 14 AS seq, 'PDB_INSTANCE' AS source_name, 'D' AS kind, 'CAP_H_PDB_INSTANC
            WHEN NOT MATCHED THEN INSERT (dbid, con_dbid, pdb_name)
                 VALUES (s.dbid, s.con_dbid, s.pdb_name)~' AS pull_sql FROM dual
 UNION ALL
-SELECT 15 AS seq, 'DATABASE_INSTANCE' AS source_name, 'D' AS kind, 'CAP_H_DATABASE_INSTANCE' AS copy_table,
+SELECT 26 AS seq, 'DATABASE_INSTANCE' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_H_DATABASE_INSTANCE' AS copy_table,
        q'~MERGE INTO cap_h_database_instance t
            USING (SELECT DISTINCT dbid, instance_number, startup_time, db_name, host_name
                   FROM dba_hist_database_instance@{LINK}
@@ -202,7 +334,7 @@ SELECT 15 AS seq, 'DATABASE_INSTANCE' AS source_name, 'D' AS kind, 'CAP_H_DATABA
            WHEN NOT MATCHED THEN INSERT (dbid, instance_number, startup_time, db_name, host_name)
                 VALUES (s.dbid, s.instance_number, s.startup_time, s.db_name, s.host_name)~' AS pull_sql FROM dual
 UNION ALL
-SELECT 16 AS seq, 'ASM_DISKGROUP' AS source_name, 'D' AS kind, 'CAP_H_ASM_DISKGROUP' AS copy_table,
+SELECT 27 AS seq, 'ASM_DISKGROUP' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_H_ASM_DISKGROUP' AS copy_table,
        q'~MERGE INTO cap_h_asm_diskgroup t
            USING (SELECT DISTINCT dbid, con_dbid, group_number, name
                   FROM dba_hist_asm_diskgroup@{LINK}
@@ -212,7 +344,7 @@ SELECT 16 AS seq, 'ASM_DISKGROUP' AS source_name, 'D' AS kind, 'CAP_H_ASM_DISKGR
            WHEN NOT MATCHED THEN INSERT (dbid, con_dbid, group_number, name)
                 VALUES (s.dbid, s.con_dbid, s.group_number, s.name)~' AS pull_sql FROM dual
 UNION ALL
-SELECT 17 AS seq, 'SEG_STAT_OBJ' AS source_name, 'S' AS kind, 'CAP_H_SEG_STAT_OBJ' AS copy_table,
+SELECT 28 AS seq, 'SEG_STAT_OBJ' AS source_name, 'S' AS kind, 'N' AS optional, 'CAP_H_SEG_STAT_OBJ' AS copy_table,
        q'~MERGE INTO cap_h_seg_stat_obj t
            USING (SELECT DISTINCT dbid, con_dbid, ts#, obj#, dataobj#, owner, object_name, subobject_name, object_type, tablespace_name
                   FROM dba_hist_seg_stat_obj@{LINK}
@@ -418,6 +550,185 @@ WHERE  parameter_name IN ('cpu_count','processes','sessions',
   AND  NVL(con_dbid, dbid) = dbid
   AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
+CREATE OR REPLACE VIEW capv_pgastat AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       name                     AS stat_name,
+       value                    AS value
+FROM   cap_h_pgastat
+WHERE  name IN ('total PGA allocated','maximum PGA allocated',
+                'total PGA inuse','aggregate PGA target parameter',
+                'aggregate PGA auto target','over allocation count',
+                'bytes processed','extra bytes read/written',
+                'cache hit percentage','maximum PGA used for auto workareas')
+  AND  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+CREATE OR REPLACE VIEW capv_mem_comp AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       component                AS component,
+       current_size             AS current_size,
+       min_size                 AS min_size,
+       max_size                 AS max_size,
+       user_specified_size      AS user_specified_size,
+       oper_count               AS oper_count,
+       last_oper_type           AS last_oper_type,
+       last_oper_mode           AS last_oper_mode,
+       last_oper_time           AS last_oper_time,
+       granule_size             AS granule_size
+FROM   cap_h_mem_dynamic_comp
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+CREATE OR REPLACE VIEW capv_workarea_hstgrm AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       low_optimal_size         AS low_optimal_size,
+       high_optimal_size        AS high_optimal_size,
+       optimal_executions       AS optimal_executions,
+       onepass_executions       AS onepass_executions,
+       multipasses_executions   AS multipasses_executions,
+       total_executions         AS total_executions
+FROM   cap_h_sql_workarea_hstgrm
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+CREATE OR REPLACE VIEW capv_pga_advice AS
+SELECT dbid                           AS dbid,
+       dbid                           AS con_dbid,
+       instance_number                AS instance_number,
+       snap_id                        AS snap_id,
+       pga_target_for_estimate        AS pga_target_for_estimate,
+       pga_target_factor              AS pga_target_factor,
+       advice_status                  AS advice_status,
+       bytes_processed                AS bytes_processed,
+       estd_time                      AS estd_time,
+       estd_extra_bytes_rw            AS estd_extra_bytes_rw,
+       estd_pga_cache_hit_percentage  AS estd_pga_cache_hit_percentage,
+       estd_overalloc_count           AS estd_overalloc_count
+FROM   cap_h_pga_target_advice
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+CREATE OR REPLACE VIEW capv_sga_advice AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       sga_size                 AS sga_size,
+       sga_size_factor          AS sga_size_factor,
+       estd_db_time             AS estd_db_time,
+       estd_physical_reads      AS estd_physical_reads
+FROM   cap_h_sga_target_advice
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+CREATE OR REPLACE VIEW capv_cache_advice AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       bpid                     AS bpid,
+       name                     AS name,
+       block_size               AS block_size,
+       advice_status            AS advice_status,
+       size_for_estimate        AS size_for_estimate,
+       size_factor              AS size_factor,
+       buffers_for_estimate     AS buffers_for_estimate,
+       physical_reads           AS physical_reads,
+       base_physical_reads      AS base_physical_reads,
+       actual_physical_reads    AS actual_physical_reads,
+       estd_physical_read_time  AS estd_physical_read_time
+FROM   cap_h_db_cache_advice
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+CREATE OR REPLACE VIEW capv_shpool_advice AS
+SELECT dbid                           AS dbid,
+       dbid                           AS con_dbid,
+       instance_number                AS instance_number,
+       snap_id                        AS snap_id,
+       shared_pool_size_for_estimate  AS shared_pool_size_for_estimate,
+       shared_pool_size_factor        AS shared_pool_size_factor,
+       estd_lc_size                   AS estd_lc_size,
+       estd_lc_memory_objects         AS estd_lc_memory_objects,
+       estd_lc_time_saved             AS estd_lc_time_saved,
+       estd_lc_time_saved_factor      AS estd_lc_time_saved_factor,
+       estd_lc_load_time              AS estd_lc_load_time,
+       estd_lc_load_time_factor       AS estd_lc_load_time_factor,
+       estd_lc_memory_object_hits     AS estd_lc_memory_object_hits
+FROM   cap_h_shared_pool_advice
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+CREATE OR REPLACE VIEW capv_sgastat AS
+SELECT dbid                     AS dbid,
+       con_dbid                 AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       pool                     AS pool,
+       name                     AS name,
+       bytes                    AS bytes
+FROM   cap_h_sgastat
+WHERE  name = 'free memory'
+  AND  NVL(con_id, 0) <> 2
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+CREATE OR REPLACE VIEW capv_librarycache AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       namespace                AS namespace,
+       gets                     AS gets,
+       gethits                  AS gethits,
+       pins                     AS pins,
+       pinhits                  AS pinhits,
+       reloads                  AS reloads,
+       invalidations            AS invalidations
+FROM   cap_h_librarycache
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+CREATE OR REPLACE VIEW capv_rowcache AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       parameter                AS parameter,
+       gets                     AS gets,
+       getmisses                AS getmisses
+FROM   cap_h_rowcache_summary
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+CREATE OR REPLACE VIEW capv_system_event AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       event_name               AS event_name,
+       wait_class               AS wait_class,
+       total_waits              AS total_waits,
+       time_waited_micro        AS time_waited_micro
+FROM   cap_h_system_event
+WHERE  event_name IN ('free buffer waits','write complete waits','buffer busy waits',
+                      'latch: cache buffers lru chain','latch: shared pool',
+                      'library cache: mutex X','library cache load lock',
+                      'library cache lock','cursor: pin S wait on X',
+                      'SGA: allocation forcing component growth',
+                      'latch: row cache objects','row cache lock','row cache mutex',
+                      'direct path read temp','direct path write temp')
+  AND  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
 CREATE OR REPLACE VIEW capv_asm_diskgroup AS
 SELECT s.dbid                   AS dbid,
        s.dbid                   AS con_dbid,
@@ -464,6 +775,17 @@ WITH src AS (
         UNION ALL SELECT 'PARAMETER',      dbid, con_dbid, snap_id FROM capv_parameter
         UNION ALL SELECT 'ASM_DISKGROUP',  dbid, con_dbid, snap_id FROM capv_asm_diskgroup
         UNION ALL SELECT 'SEG_STAT',       dbid, con_dbid, snap_id FROM capv_seg_stat
+        UNION ALL SELECT 'PGASTAT',        dbid, con_dbid, snap_id FROM capv_pgastat
+        UNION ALL SELECT 'MEM_COMP',       dbid, con_dbid, snap_id FROM capv_mem_comp
+        UNION ALL SELECT 'WORKAREA_HSTGRM', dbid, con_dbid, snap_id FROM capv_workarea_hstgrm
+        UNION ALL SELECT 'PGA_ADVICE',     dbid, con_dbid, snap_id FROM capv_pga_advice
+        UNION ALL SELECT 'SGA_ADVICE',     dbid, con_dbid, snap_id FROM capv_sga_advice
+        UNION ALL SELECT 'CACHE_ADVICE',   dbid, con_dbid, snap_id FROM capv_cache_advice
+        UNION ALL SELECT 'SHPOOL_ADVICE',  dbid, con_dbid, snap_id FROM capv_shpool_advice
+        UNION ALL SELECT 'SGASTAT',        dbid, con_dbid, snap_id FROM capv_sgastat
+        UNION ALL SELECT 'LIBRARYCACHE',   dbid, con_dbid, snap_id FROM capv_librarycache
+        UNION ALL SELECT 'ROWCACHE',       dbid, con_dbid, snap_id FROM capv_rowcache
+        UNION ALL SELECT 'SYSTEM_EVENT',   dbid, con_dbid, snap_id FROM capv_system_event
      ),
      per_con AS (
         SELECT source_name, dbid, con_dbid,
@@ -488,6 +810,17 @@ WITH src AS (
         UNION ALL SELECT 'PARAMETER',      'N' FROM dual
         UNION ALL SELECT 'ASM_DISKGROUP',  'N' FROM dual
         UNION ALL SELECT 'SEG_STAT',       'Y' FROM dual
+        UNION ALL SELECT 'PGASTAT',        'N' FROM dual
+        UNION ALL SELECT 'MEM_COMP',       'N' FROM dual
+        UNION ALL SELECT 'WORKAREA_HSTGRM', 'N' FROM dual
+        UNION ALL SELECT 'PGA_ADVICE',     'N' FROM dual
+        UNION ALL SELECT 'SGA_ADVICE',     'N' FROM dual
+        UNION ALL SELECT 'CACHE_ADVICE',   'N' FROM dual
+        UNION ALL SELECT 'SHPOOL_ADVICE',  'N' FROM dual
+        UNION ALL SELECT 'SGASTAT',        'N' FROM dual
+        UNION ALL SELECT 'LIBRARYCACHE',   'N' FROM dual
+        UNION ALL SELECT 'ROWCACHE',       'N' FROM dual
+        UNION ALL SELECT 'SYSTEM_EVENT',   'N' FROM dual
      )
 SELECT k.source_name,
        NVL(SUM(p.n_rows), 0)        AS n_rows,

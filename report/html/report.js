@@ -171,6 +171,8 @@
       name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },
     { id: 'processes', perContainer: true, title: 'Processes', noun: 'container', match: seriesIs('PROCESSES'),
       name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },
+    { id: 'pga', perContainer: true, title: 'PGA', noun: 'instance', match: seriesIs('PGA_ALLOC_GB'),
+      name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },
     { id: 'redo', perContainer: true, title: 'Redo', noun: 'database', match: seriesIs('REDO_GB_DAY'),
       name: function (f) { return conName(f.dbid, f.con); }, facts: redoFacts },
     { id: 'undo', title: 'Undo', noun: 'tablespace', match: seriesPrefix('UNDO_PEAK:'),

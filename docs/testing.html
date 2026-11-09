@@ -109,7 +109,7 @@
           </thead>
           <tbody>
             <tr><td class="def"><code>CREATE SESSION</code></td><td>connecting</td></tr>
-            <tr><td class="def"><code>CREATE TABLE</code></td><td>the thirteen <span class="inline">CAP_FIXTURE_*</span> tables, plus the seven persisted tables (<span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span> / <span class="inline">CAP_FIT_HIST</span> / <span class="inline">CAP_ALERT_STATE</span> / <span class="inline">CAP_ALERT_EVENT</span>)</td></tr>
+            <tr><td class="def"><code>CREATE TABLE</code></td><td>the twenty-four <span class="inline">CAP_FIXTURE_*</span> tables, plus the seven persisted tables (<span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span> / <span class="inline">CAP_FIT_HIST</span> / <span class="inline">CAP_ALERT_STATE</span> / <span class="inline">CAP_ALERT_EVENT</span>)</td></tr>
             <tr><td class="def"><code>CREATE VIEW</code></td><td>every <span class="inline">CAPV_/CAPD_/CAPF_/CAPA_/CAPR_</span> view</td></tr>
             <tr><td class="def"><code>CREATE PROCEDURE</code></td><td>the <span class="inline">cap_forecast_ml</span> and <span class="inline">cap_results</span> packages</td></tr>
             <tr><td class="def"><code>CREATE TYPE</code></td><td>the pipelined forecast row type used by <span class="inline">get_forecast</span></td></tr>
@@ -481,7 +481,7 @@
         </table>
       </div>
 
-      <h3>The thirteen fixture tables</h3>
+      <h3>The twenty-four fixture tables</h3>
       <div class="tablewrap">
         <table>
           <thead>
@@ -492,12 +492,23 @@
             <tr><td class="def"><code>CAP_FIXTURE_TBSPC_USAGE</code></td><td><code>DBA_HIST_TBSPC_SPACE_USAGE</code> (blocks, not bytes)</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_TABLESPACE</code></td><td><code>DBA_HIST_TABLESPACE</code>: names, contents, <code>block_size</code></td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_DATAFILE</code></td><td><code>DBA_HIST_DATAFILE</code>: block-size fallback only</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_OSSTAT</code></td><td><code>DBA_HIST_OSSTAT</code>: cumulative centiseconds, root only</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_OSSTAT</code></td><td><code>DBA_HIST_OSSTAT</code>: cumulative centiseconds and the CPU counts, root only; <code>PHYSICAL_MEMORY_BYTES</code> 16&nbsp;GiB (M25)</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_TIME_MODEL</code></td><td><code>DBA_HIST_CON_SYS_TIME_MODEL</code>: cumulative microseconds, all three containers</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_RESOURCE_LIMIT</code></td><td><code>DBA_HIST_RESOURCE_LIMIT</code> (M11): <code>processes</code> / <code>sessions</code></td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_SYSSTAT</code></td><td><code>DBA_HIST_CON_SYSSTAT</code> (M11): <code>redo size</code> + one decoy stat</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_PARAMETER</code></td><td><code>DBA_HIST_PARAMETER</code>: nine numeric init parameters, as numbers</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_ASM_DISKGROUP</code></td><td><code>DBA_HIST_ASM_DISKGROUP_STAT</code> + <code>DBA_HIST_ASM_DISKGROUP</code>: diskgroups DATA and FRA</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_PGASTAT</code></td><td><code>DBA_HIST_PGASTAT</code> (M25), root only: <code>total PGA allocated</code> (0.5&nbsp;GiB at 06:00, 1&nbsp;+&nbsp;i/1200&nbsp;GiB at 18:00) and <code>maximum PGA allocated</code> (1.2, 1.25, then 1.9&nbsp;GiB from day 110 18:00); <code>bytes processed</code> and <code>extra bytes read/written</code> on every snapshot; <code>over allocation count</code>, absent until its first use in a startup and then on the 18:00 snapshots only, one more a day; <code>aggregate PGA auto target</code> 0.75 of the 1&nbsp;GiB <code>aggregate PGA target parameter</code>, 0.6&nbsp;GiB once in the window</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_MEM_COMP</code></td><td><code>DBA_HIST_MEM_DYNAMIC_COMP</code> (M25): SGA Target 4096, DEFAULT buffer cache 2560, shared pool 1024, large and java pool 64, streams pool 0, PGA Target 1024&nbsp;MiB on every snapshot, never resized: <code>SGA_BALANCE</code> <code>OK</code> / <code>STABLE</code></td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_WORKAREA_HSTGRM</code></td><td><code>DBA_HIST_SQL_WORKAREA_HSTGRM</code> (M25): two buckets, together 9700 optimal, 280 one-pass and 20 multi-pass executions a snapshot interval (2.8% and 0.2%)</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_PGA_ADVICE</code></td><td><code>DBA_HIST_PGA_TARGET_ADVICE</code> (M25): eight sizes from 0.5 to 3&nbsp;GiB around the 1&nbsp;GiB target. Estimated cache hit 90% now and 100% at 2&nbsp;GiB, over-allocation up to 1.5&nbsp;GiB: <code>PGA_TARGET</code> <code>UNDERSIZED</code>, suggested 1792&nbsp;MiB</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SGA_ADVICE</code></td><td><code>DBA_HIST_SGA_TARGET_ADVICE</code> (M25): seven sizes from 2048 to 8192&nbsp;MiB around 4096. Best gain 0.3% of DB time, the nearest smaller size loses 1%: <code>SGA_TOTAL</code> <code>OK</code> / <code>SIZED_RIGHT</code></td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_CACHE_ADVICE</code></td><td><code>DBA_HIST_DB_CACHE_ADVICE</code> (M25): ten sizes of the DEFAULT pool (id 3) around 2560&nbsp;MiB. Best gain 0.2% of DB time, 1536&nbsp;MiB loses 0.45%: <code>BUFFER_CACHE</code> <code>OVERSIZED</code>, suggested 1536&nbsp;MiB. A KEEP pool and a 16&nbsp;KiB DEFAULT pool with huge gains must be ignored</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SHPOOL_ADVICE</code></td><td><code>DBA_HIST_SHARED_POOL_ADVICE</code> (M25): nine sizes around 1024&nbsp;MiB. Best gain 1.5% of DB time at 2048&nbsp;MiB and no symptom: <code>SHARED_POOL</code> <code>OK</code> / <code>ADVISOR_ONLY</code></td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SGASTAT</code></td><td><code>DBA_HIST_SGASTAT</code> (M25): shared pool free memory 256&nbsp;MiB, 128&nbsp;MiB once in the window (12.5% of the pool), and a large pool row no signal reads</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_LIBRARYCACHE</code></td><td><code>DBA_HIST_LIBRARYCACHE</code> (M25): two namespaces, 400 reloads per 100000 pins (0.4%)</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_ROWCACHE</code></td><td><code>DBA_HIST_ROWCACHE_SUMMARY</code> (M25): two parameters, 1000 misses per 50000 gets (2%)</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SYSTEM_EVENT</code></td><td><code>DBA_HIST_SYSTEM_EVENT</code> (M25): temporary segment direct path I/O at 1% of DB time, shared pool waits at 0.04%, <code>free buffer waits</code> with no row until day 100 (0.02%), and <code>buffer busy waits</code>, which no signal reads</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_SEG_STAT</code></td><td><code>DBA_HIST_SEG_STAT</code> + <code>DBA_HIST_SEG_STAT_OBJ</code>, pre-joined: three segments in <code>FIX_FILLING</code></td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_CONTAINER</code></td><td><code>DBA_HIST_PDB_INSTANCE</code> (M7.2): <code>FIXCDB</code>/<code>CDB$ROOT</code>, <code>FIXCDB</code>/<code>FIXPDB1</code>, <code>FIXCDB</code>/<code>FIXPDB2</code>; covers both <code>db_pdb</code> label branches</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_META</code></td><td>nothing in AWR; the expectations (below)</td></tr>
@@ -677,7 +688,7 @@ sqlplus captest/&lt;password&gt;@localhost:1521/pdb1.world</pre>
           <div class="step__rail"><div class="step__n">3</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Load the fixtures</h4>
-            <p>Creates and fills the thirteen <span class="inline">CAP_FIXTURE_*</span> tables
+            <p>Creates and fills the twenty-four <span class="inline">CAP_FIXTURE_*</span> tables
               (<a href="#fixture">above</a>) and seeds the <span class="inline">CAP_TBSPC_OVERRIDE</span>
               rows. Values are dated relative to today; expected answers go to
               <span class="inline">CAP_FIXTURE_META</span>.</p>

@@ -697,6 +697,7 @@
           <thead><tr><th>Series</th><th>Value</th><th>Ceiling</th></tr></thead>
           <tbody>
             <tr><td><span class="k">PROCESSES</span> / <span class="k">SESSIONS</span></td><td class="def">Day's peak <code>MAX_UTILIZATION</code>, summed across RAC instances. The worst instance's percent of its own limit is kept too; the near-limit alert uses the larger</td><td class="def">Summed init parameters. NULL if any instance reads <code>UNLIMITED</code></td></tr>
+            <tr><td><span class="k">PGA_ALLOC_GB</span></td><td class="def">Day's highest sampled <code>total PGA allocated</code> in GiB, summed across RAC instances, worst instance kept as for <code>SESSIONS</code>. A sample: the high-water mark between snapshots is verdict evidence (<code>CAPM_PGA_LIMIT</code>), not this series</td><td class="def"><code>pga_aggregate_limit</code>, summed. None when it is 0</td></tr>
             <tr><td><span class="k">REDO_GB_DAY</span></td><td class="def">Redo per day in GiB from <code>redo size</code> deltas (one stream per database)</td><td class="def">None; trend only, never an alert</td></tr>
             <tr><td><span class="k">DB_SIZE_GB</span></td><td class="def">Summed used bytes across permanent tablespaces</td><td class="def">Summed tablespace ceilings, with the UNDO/TEMP exclusion and operator overrides</td></tr>
           </tbody>
@@ -752,7 +753,7 @@
             <tr><td><span class="k">Tablespaces</span></td><td class="def">growth rate (delta ÷ days since the last sample)</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>TBSPC_ANOM</code></td></tr>
             <tr><td><span class="k">BUSY_PCT</span></td><td class="def">host busy%, per day and per hour</td><td class="def">all three</td><td class="def"><code>CPU_ANOM</code></td></tr>
             <tr><td><span class="k">DB_CPU_PCT</span></td><td class="def">DB CPU as a percent of the host's CPUs, per container, per day and per hour</td><td class="def">all three</td><td class="def"><code>DBCPU_ANOM</code></td></tr>
-            <tr><td><span class="k">PROCESSES</span> / <span class="k">SESSIONS</span> / <span class="k">REDO_GB_DAY</span></td><td class="def">the daily level</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>SERIES_ANOM</code></td></tr>
+            <tr><td><span class="k">PROCESSES</span> / <span class="k">SESSIONS</span> / <span class="k">PGA_ALLOC_GB</span> / <span class="k">REDO_GB_DAY</span></td><td class="def">the daily level</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>SERIES_ANOM</code></td></tr>
             <tr><td><span class="k">DB_SIZE_GB</span></td><td class="def">daily growth in GiB</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>SERIES_ANOM</code></td></tr>
           </tbody>
         </table>
