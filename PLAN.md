@@ -893,7 +893,7 @@ Decided 2026-11-09:
   to `repository/seam.sql` as build.py's input, so DBA_HIST_* appears only
   under repository/ and target/ (plus test/ and bench/).
 
-- [ ] **M25.0 Probe the unknowns on dbmint before changing anything.**
+- [x] **M25.0 Probe the unknowns on dbmint before changing anything.**
       (a) GLOBAL_NAMES: `ALTER SESSION SET global_names = TRUE`, then
       add_target / collect. ORA-02085 is expected, because link `CAP_<NAME>`
       does not match the target's global name. (b) The connect string from
@@ -902,6 +902,15 @@ Decided 2026-11-09:
       the root's default service. Check: over a link built from it, the
       dbid equals the CDB's and the reader sees every container (3 on
       cdb1).
+      Done 2026-11-09: (a) ping over CAPX2's link under session
+      `global_names = TRUE` returned "ORA-02085: database link
+      CAP_CDB1.WORLD connects to CDB1.WORLD"; a SYS link named
+      `CDB1.WORLD@M25PROBE` answered under it, quoted and unquoted
+      (`dual@CDB1@M25PROBE`), and was dropped again. So M25.3 was needed.
+      (b) The derivation gives `//localhost:1521/cdb1.world` on cdb1
+      (listener port 1521, root service `cdb1.world`, DB_UNIQUE_NAME cdb1,
+      db_domain world); the M25.2 links built from it see CDB$ROOT,
+      PDB$SEED and PDB1.
 - [x] **M25.1 A copy check replaces the parity lever.** With no local
       install left, nothing remains to diff the repository against, so
       prove the copies instead. build.py generates
@@ -989,7 +998,7 @@ Decided 2026-11-09:
       the name still got `CAP_CDB1B`. The copy check over the qualified
       link: EQUAL, 17 sources, 163,401 rows. uninstall.sql left 0 links and
       0 objects.
-- [ ] **M25.4 RAC: no half-copied snapshot.** With one high-water mark per
+- [x] **M25.4 RAC: no half-copied snapshot.** With one high-water mark per
       DBID, a collect can copy a snapshot that one instance has finished and
       another has not. Local mode picked up the late rows on its next read,
       but a copy never will. collect therefore holds back the newest snap_id

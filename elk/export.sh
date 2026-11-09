@@ -4,7 +4,6 @@
 # indexes it as awrcap-capacity). No Elasticsearch access from here.
 #
 #   elk/export.sh --sid cdb1 --container PDB1 --schema CAPDEMO
-#   elk/export.sh --sid cdb1                     # local-mode install in CDB$ROOT
 #
 # Options: --sid SID  --container PDB  --schema OWNER
 #          --source LABEL   (default sid[/container][:schema]; keys the documents)
