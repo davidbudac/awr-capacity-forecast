@@ -60,6 +60,7 @@ DECLARE
     v_svc    VARCHAR2(200) := SYS_CONTEXT('USERENV', 'DB_UNIQUE_NAME')
                               || CASE WHEN SYS_CONTEXT('USERENV', 'DB_DOMAIN') IS NOT NULL
                                       THEN '.' || SYS_CONTEXT('USERENV', 'DB_DOMAIN') END;
+    v_gname  VARCHAR2(4000);
 
     TYPE t_list IS TABLE OF VARCHAR2(40);
     v_obj t_list := t_list(
@@ -114,13 +115,16 @@ BEGIN
         run('ALTER USER ' || v_reader || ' SET CONTAINER_DATA = ALL CONTAINER = CURRENT');
     END IF;
 
+    SELECT global_name INTO v_gname FROM global_name;
     DBMS_OUTPUT.PUT_LINE(' ');
     DBMS_OUTPUT.PUT_LINE('  Reader ' || v_reader || ' is ready. Register this target on the repository');
     DBMS_OUTPUT.PUT_LINE('  (as the suite owner there). Check the address against lsnrctl status:');
     DBMS_OUTPUT.PUT_LINE('    EXEC cap_repo.add_target(''' || UPPER(SYS_CONTEXT('USERENV', 'DB_UNIQUE_NAME'))
                          || ''', ''//' || v_host || ':1521/' || v_svc || ''', '''
-                         || v_reader || ''', ''<password>'')');
+                         || v_reader || ''', ''<password>'', p_global_name => ''' || v_gname || ''')');
     DBMS_OUTPUT.PUT_LINE('    EXEC cap_repo.collect');
+    DBMS_OUTPUT.PUT_LINE('  The global name ' || v_gname || ' names the link only where the repository'
+                         || ' runs with GLOBAL_NAMES = TRUE.');
 END;
 /
 

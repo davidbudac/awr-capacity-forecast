@@ -100,14 +100,19 @@ CREATE OR REPLACE PACKAGE cap_repo AUTHID DEFINER AS
     --                                    (dropped again by remove_target);
     --   p_db_link                        use a link of this schema the DBA
     --                                    made (wallet, proxy), kept on remove.
+    -- Where this database runs with GLOBAL_NAMES = TRUE a link must be named
+    -- after the target's global name (ORA-02085 otherwise), so the link
+    -- becomes <p_global_name>@CAP_<name>; without p_global_name that case
+    -- fails with ORA-20074. target/prepare.sql prints the global name.
     -- Every copied view is probed over the link first; a view the reader
     -- cannot see fails the call (ORA-20072) and leaves nothing behind.
     -- Copies nothing yet: run collect.
-    PROCEDURE add_target(p_name     IN VARCHAR2,
-                         p_connect  IN VARCHAR2 DEFAULT NULL,
-                         p_user     IN VARCHAR2 DEFAULT NULL,
-                         p_password IN VARCHAR2 DEFAULT NULL,
-                         p_db_link  IN VARCHAR2 DEFAULT NULL);
+    PROCEDURE add_target(p_name        IN VARCHAR2,
+                         p_connect     IN VARCHAR2 DEFAULT NULL,
+                         p_user        IN VARCHAR2 DEFAULT NULL,
+                         p_password    IN VARCHAR2 DEFAULT NULL,
+                         p_db_link     IN VARCHAR2 DEFAULT NULL,
+                         p_global_name IN VARCHAR2 DEFAULT NULL);
 
     -- Copy every snapshot not copied yet, for one target or (NULL) every
     -- enabled one. The first collect of a DBID backfills what the target
@@ -151,6 +156,8 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
 
     e_locked EXCEPTION;
     PRAGMA EXCEPTION_INIT(e_locked, -54);
+    e_global_names EXCEPTION;
+    PRAGMA EXCEPTION_INIT(e_global_names, -2085);
 
     PROCEDURE say(p_txt IN VARCHAR2) IS
     BEGIN
@@ -212,6 +219,55 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
     EXCEPTION
         WHEN OTHERS THEN NULL;   -- not open, or a transaction still uses it
     END close_link;
+
+    PROCEDURE create_link(p_link IN VARCHAR2, p_user IN VARCHAR2, p_password IN VARCHAR2,
+                          p_connect IN VARCHAR2) IS
+    BEGIN
+        EXECUTE IMMEDIATE 'CREATE DATABASE LINK ' || p_link || ' CONNECT TO ' || p_user
+                          || ' IDENTIFIED BY "' || p_password || '" USING '''
+                          || p_connect || '''';
+    END create_link;
+
+    PROCEDURE drop_link(p_link IN VARCHAR2) IS
+    BEGIN
+        close_link(p_link);
+        EXECUTE IMMEDIATE 'DROP DATABASE LINK ' || p_link;
+    EXCEPTION
+        WHEN OTHERS THEN NULL;
+    END drop_link;
+
+    -- CAP_<name>, or <global name>@CAP_<name> (a connection qualifier) where
+    -- GLOBAL_NAMES = TRUE refuses a link not named after the target's global
+    -- name. Returns the link it made; a failure leaves no link behind.
+    FUNCTION owned_link(p_name IN VARCHAR2, p_connect IN VARCHAR2, p_user IN VARCHAR2,
+                        p_password IN VARCHAR2, p_global_name IN VARCHAR2) RETURN VARCHAR2 IS
+        v_link VARCHAR2(128) := 'CAP_' || p_name;
+        v_n    NUMBER;
+        v_err  VARCHAR2(4000);
+    BEGIN
+        create_link(v_link, p_user, p_password, p_connect);
+        BEGIN
+            EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM dual@' || v_link INTO v_n;
+            RETURN v_link;
+        EXCEPTION
+            WHEN e_global_names THEN
+                v_err := SQLERRM;
+            WHEN OTHERS THEN
+                ROLLBACK;
+                drop_link(v_link);
+                RAISE;
+        END;
+        ROLLBACK;
+        drop_link(v_link);
+        IF p_global_name IS NULL THEN
+            RAISE_APPLICATION_ERROR(-20074, 'GLOBAL_NAMES is TRUE here, so the link must be'
+                || ' named after the target''s global name: pass p_global_name (target/prepare.sql'
+                || ' prints it). ' || v_err);
+        END IF;
+        v_link := UPPER(p_global_name) || '@' || v_link;
+        create_link(v_link, p_user, p_password, p_connect);
+        RETURN v_link;
+    END owned_link;
 
     -- Fail unless the link answers and the reader can see every copied view.
     PROCEDURE probe(p_link IN VARCHAR2) IS
@@ -373,11 +429,12 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
             RETURN FALSE;
     END collect_dbid;
 
-    PROCEDURE add_target(p_name     IN VARCHAR2,
-                         p_connect  IN VARCHAR2 DEFAULT NULL,
-                         p_user     IN VARCHAR2 DEFAULT NULL,
-                         p_password IN VARCHAR2 DEFAULT NULL,
-                         p_db_link  IN VARCHAR2 DEFAULT NULL) IS
+    PROCEDURE add_target(p_name        IN VARCHAR2,
+                         p_connect     IN VARCHAR2 DEFAULT NULL,
+                         p_user        IN VARCHAR2 DEFAULT NULL,
+                         p_password    IN VARCHAR2 DEFAULT NULL,
+                         p_db_link     IN VARCHAR2 DEFAULT NULL,
+                         p_global_name IN VARCHAR2 DEFAULT NULL) IS
         v_name  cap_target.target_name%TYPE := norm_name(p_name);
         v_link  VARCHAR2(128);
         v_owned VARCHAR2(1);
@@ -407,14 +464,19 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
                 RAISE_APPLICATION_ERROR(-20071, 'p_user must be a plain name, p_password'
                                                 || ' without ", p_connect without a quote');
             END IF;
-            v_link  := 'CAP_' || v_name;
+            IF p_global_name IS NOT NULL AND NOT REGEXP_LIKE(p_global_name,
+                   '^[A-Za-z][A-Za-z0-9_$#]*(\.[A-Za-z][A-Za-z0-9_$#]*)*$')
+               OR LENGTH(p_global_name) + LENGTH('@CAP_' || v_name) > 128 THEN
+                RAISE_APPLICATION_ERROR(-20071, 'p_global_name must be the target''s global'
+                    || ' name as target/prepare.sql prints it (DB_NAME.DOMAIN), not ' || p_global_name);
+            END IF;
             v_owned := 'Y';
-            EXECUTE IMMEDIATE 'CREATE DATABASE LINK ' || v_link || ' CONNECT TO ' || p_user
-                              || ' IDENTIFIED BY "' || p_password || '" USING '''
-                              || p_connect || '''';
         END IF;
 
         BEGIN
+            IF v_owned = 'Y' THEN
+                v_link := owned_link(v_name, p_connect, p_user, p_password, p_global_name);
+            END IF;
             probe(v_link);
             INSERT INTO cap_target (target_name, db_link, link_owned, connect_string, link_user)
             VALUES (v_name, v_link, v_owned, p_connect, UPPER(p_user))
@@ -428,13 +490,8 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         EXCEPTION
             WHEN OTHERS THEN
                 ROLLBACK;
-                IF v_owned = 'Y' THEN
-                    close_link(v_link);
-                    BEGIN
-                        EXECUTE IMMEDIATE 'DROP DATABASE LINK ' || v_link;
-                    EXCEPTION
-                        WHEN OTHERS THEN NULL;
-                    END;
+                IF v_owned = 'Y' AND v_link IS NOT NULL THEN
+                    drop_link(v_link);
                 END IF;
                 RAISE;
         END;
@@ -589,9 +646,7 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         END IF;
         close_link(t.db_link);
         EXECUTE IMMEDIATE 'DROP DATABASE LINK ' || t.db_link;
-        EXECUTE IMMEDIATE 'CREATE DATABASE LINK ' || t.db_link || ' CONNECT TO ' || t.link_user
-                          || ' IDENTIFIED BY "' || p_password || '" USING '''
-                          || t.connect_string || '''';
+        create_link(t.db_link, t.link_user, p_password, t.connect_string);
         probe(t.db_link);
         close_link(t.db_link);
         say('link ' || t.db_link || ' of target ' || t.target_name || ' recreated, probe OK');

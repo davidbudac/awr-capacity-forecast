@@ -943,12 +943,29 @@ Decided 2026-11-09:
       fresh standalone into a throwaway PDB1 owner and `quickstart.sh` both
       end with a report and 0 FAIL, twice in a row; with two open PDBs and
       no `CONTAINER`, both stop before any change.
-- [ ] **M25.3 GLOBAL_NAMES** (only if M25.0a fails). target/prepare.sql
+- [x] **M25.3 GLOBAL_NAMES** (only if M25.0a fails). target/prepare.sql
       prints the target's global name, and the standalone path reads its
       own. add_target takes the global name and, on ORA-02085, creates
       `<global_name>@CAP_<NAME>`, the qualified link name that GLOBAL_NAMES
       accepts. Check: add / collect / ping / set_link_password /
       remove_target / uninstall under `global_names = TRUE`.
+      Done 2026-11-09: M25.0a failed as expected (ORA-02085 from CAPX2's
+      `CAP_CDB1.WORLD`). add_target's new `p_global_name` (default NULL)
+      is used only when the `CAP_<NAME>` link it tries first raises
+      ORA-02085; without it that case fails with ORA-20074, which quotes
+      the ORA-02085 (it names the global name) and leaves no link. The
+      stored name `CDB1.WORLD@CAP_CDB1` works unquoted in every
+      `@link` use, a remote PL/SQL call, CLOSE_DATABASE_LINK and DROP, so
+      no other caller changed and uninstall.sql drops it as it is. target/
+      prepare.sql's add_target line now passes `p_global_name`. On dbmint
+      (throwaway owner CAPM1, reader C##AWRM25) under session
+      `global_names = TRUE`: add without the name refused with 0 links
+      left; add with it, collect (164,406 rows, 1.1 s, 0 links open after),
+      ping, set_link_password, remove (0 links), add again; then under
+      FALSE a collect over the qualified link and a second target without
+      the name still got `CAP_CDB1B`. The copy check over the qualified
+      link: EQUAL, 17 sources, 163,401 rows. uninstall.sql left 0 links and
+      0 objects.
 - [ ] **M25.4 RAC: no half-copied snapshot.** With one high-water mark per
       DBID, a collect can copy a snapshot that one instance has finished and
       another has not. Local mode picked up the late rows on its next read,
