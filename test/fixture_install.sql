@@ -99,20 +99,20 @@
 --                  CRIT), slope negative, LOW_CONFIDENCE.
 --   FIX_UNDO     : UNDO, 4 GiB allocated, autoextend to 10 GiB, peak 3 GiB at
 --                  18:00 every day: UNDO_PEAK 3 of 10 GiB, FLAT.
---   PGA (M25)    : 'total PGA allocated' 0.5 GiB at 06:00 and 1 + i/1200 GiB
+--   PGA (M26)    : 'total PGA allocated' 0.5 GiB at 06:00 and 1 + i/1200 GiB
 --                  at 18:00 (PGA_ALLOC_GB exactly linear, 1.1 of 2 GiB = 55%
 --                  on the last day, no alert, no anomaly); 'maximum PGA
 --                  allocated' 1.2 GiB before the day-60 restart, 1.25 GiB
 --                  after it, 1.9 GiB (95% of the limit) from day 110 18:00:
 --                  CAPM_VERDICT PGA_LIMIT UNDERSIZED, suggested 2162 MiB.
 --                  OSSTAT PHYSICAL_MEMORY_BYTES 16 GiB beside the CPU rows.
---   MEMORY (M25) : the four advisors, component history, work areas, events,
+--   MEMORY (M26) : the four advisors, component history, work areas, events,
 --                  library and dictionary cache on every snapshot, constant
 --                  increments per interval, counters reset at both restarts:
 --                  PGA_TARGET UNDERSIZED (suggested 1792 MiB), BUFFER_CACHE
 --                  OVERSIZED (suggested 1536 MiB), SHARED_POOL OK /
 --                  ADVISOR_ONLY, SGA_TOTAL OK / SIZED_RIGHT, SGA_BALANCE OK /
---                  STABLE. See the "M25 -- memory sizing sources" block.
+--                  STABLE. See the "M26 -- memory sizing sources" block.
 --
 -- Run this BEFORE @install.sql with deploy_mode=fixture (the seam views need the
 -- tables to exist), then run test/run_test.sql.
@@ -189,13 +189,13 @@ CREATE TABLE cap_fixture_seg_stat (
     tablespace_id NUMBER, tablespace_name VARCHAR2(30), owner VARCHAR2(128),
     object_name VARCHAR2(128), subobject_name VARCHAR2(128), object_type VARCHAR2(18),
     space_used_delta NUMBER, space_allocated_delta NUMBER);
--- M25: instance PGA statistics (CAPV_PGASTAT): the two PGA_LIMIT names, and
+-- M26: instance PGA statistics (CAPV_PGASTAT): the two PGA_LIMIT names, and
 -- the counters and samples the PGA_TARGET evidence reads.
 CREATE TABLE cap_fixture_pgastat (
     dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
     stat_name VARCHAR2(64), value NUMBER);
--- M25: the memory sizing sources, one table per CAPV_ view (columns = the
--- view's, types = the 19.27 source's). The "M25 -- memory sizing sources"
+-- M26: the memory sizing sources, one table per CAPV_ view (columns = the
+-- view's, types = the 19.27 source's). The "M26 -- memory sizing sources"
 -- block below fills them.
 CREATE TABLE cap_fixture_mem_comp (
     dbid NUMBER, con_dbid NUMBER, instance_number NUMBER, snap_id NUMBER,
@@ -1677,7 +1677,7 @@ END;
 /
 
 -- =====================================================================
--- M25 -- PGA statistics (CAPV_PGASTAT) and the host's memory size.
+-- M26 -- PGA statistics (CAPV_PGASTAT) and the host's memory size.
 -- =====================================================================
 -- Both names on every snapshot of the spine (2000+2i ends 06:00, 2001+2i
 -- ends 18:00, no 06:00 snapshot on the restart day), root container only:
@@ -1754,7 +1754,7 @@ END;
 /
 
 -- =====================================================================
--- M25 -- memory sizing sources (the advisor areas and SGA_BALANCE).
+-- M26 -- memory sizing sources (the advisor areas and SGA_BALANCE).
 -- =====================================================================
 -- Root container, instance 1, every snapshot of the spine. Every counter and
 -- advisor estimate is cumulative since instance startup: on the k-th

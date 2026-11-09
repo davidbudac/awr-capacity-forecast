@@ -660,7 +660,8 @@ CREATE OR REPLACE PACKAGE cap_results AUTHID DEFINER AS
     -- included. For a fresh start (e.g. after a deploy_mode change) and tests.
     PROCEDURE reset;
 
-    -- local | repository | fixture, read from what CAPV_SNAPSHOT depends on.
+    -- repository | fixture (unknown otherwise), read from what CAPV_SNAPSHOT
+    -- depends on.
     FUNCTION deploy_mode RETURN VARCHAR2;
 
     -- Every procedure above labels its session MODULE 'AWRCAP/cap_results.<name>'
@@ -685,8 +686,6 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
                     THEN 'fixture'
                     WHEN COUNT(CASE WHEN referenced_name LIKE 'CAP\_H\_%' ESCAPE '\' THEN 1 END) > 0
                     THEN 'repository'
-                    WHEN COUNT(*) > 0
-                    THEN 'local'
                     ELSE 'unknown' END
         INTO   v
         FROM   all_dependencies

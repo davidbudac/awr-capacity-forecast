@@ -852,24 +852,328 @@ Decided 2026-11-07:
       the CAPD daily layer once per refresh, which every one of them
       re-derives from the copies.
 
-## M25 — Instance memory sizing (SGA / PGA)
+## M25 — One architecture: every database is a target
+
+Every install is a repository, and every measured database is a target read
+over a DB link. That includes the database the repository lives in, which
+it reads over a loopback link. `deploy_mode=local` retires and `fixture`
+stays for the harness.
+
+Decided 2026-11-09:
+
+- **Why.** Local mode keeps only as much history as the database's own AWR
+  retention: 8 days by default, while ESM needs 120 (M24.7), so local mode
+  forces a retention change on production. Copies keep
+  `repo_retention_days` (400), also when the repository reads its own
+  database. Production runs one seam instead of two, one database grows
+  into a fleet without a reinstall, and no suite object stays in CDB$ROOT.
+- **Analytics lose nothing.** M24.5 diffed local against repository over
+  the same root, and every CAPV and CAPD/CAPF/CAPA/CAPR view was equal.
+  ddl/13 stays the local seam with each `dba_hist_x` renamed to `cap_h_x`.
+- **Accepted costs.** A loopback link needs the listener and a stored reader
+  password (or a wallet), and that password can expire (ORA-28001). A LIVE
+  report sees the last hourly collect, not the last snapshot. A repository
+  that is its own target stores its AWR twice (0.25 MB a day on dbmint).
+  Creating the reader needs SYSDBA, so a plain user can no longer run the
+  quickstart into their own schema.
+- **The owner lives in a PDB by default:** `AWRCAP` in a PDB reads its
+  CDB's root over the loopback link (the CAPX2 layout M24.5 proved), and
+  `AWRCAP` in a non-CDB reads that database. With exactly one open user PDB
+  the installer uses it; otherwise it asks for `CONTAINER`. A root owner
+  (`C##AWRCAP`) stays possible, but nothing defaults to it.
+- **An existing standalone install starts fresh (a breaking upgrade).** Its
+  persisted tables live in the root schema, so the upgrade path is:
+  uninstall it there, install anew in a PDB, collect. Lost: CAP_RUN,
+  CAP_FIT_HIST, the alert state and its acks, CAP_ALERT_EVENT and
+  CAP_ML_MODEL (retrain). The operator's CAP_CONFIG / CAP_TBSPC_OVERRIDE
+  values carry over through a replay file that uninstall.sql writes
+  (M25.6). The first collect copies everything the AWR still holds, so
+  forecasts resume at once on the history the local install saw.
+- **ddl/10 becomes the template.** install.sql no longer runs it. It moves
+  to `repository/seam.sql` as build.py's input, so DBA_HIST_* appears only
+  under repository/ and target/ (plus test/ and bench/).
+
+- [x] **M25.0 Probe the unknowns on dbmint before changing anything.**
+      (a) GLOBAL_NAMES: `ALTER SESSION SET global_names = TRUE`, then
+      add_target / collect. ORA-02085 is expected, because link `CAP_<NAME>`
+      does not match the target's global name. (b) The connect string from
+      a PDB owner to its own root: as SYSDBA in CDB$ROOT, derive
+      `//host:port/service` from `V$LISTENER_NETWORK` (local listener) and
+      the root's default service. Check: over a link built from it, the
+      dbid equals the CDB's and the reader sees every container (3 on
+      cdb1).
+      Done 2026-11-09: (a) ping over CAPX2's link under session
+      `global_names = TRUE` returned "ORA-02085: database link
+      CAP_CDB1.WORLD connects to CDB1.WORLD"; a SYS link named
+      `CDB1.WORLD@M25PROBE` answered under it, quoted and unquoted
+      (`dual@CDB1@M25PROBE`), and was dropped again. So M25.3 was needed.
+      (b) The derivation gives `//localhost:1521/cdb1.world` on cdb1
+      (listener port 1521, root service `cdb1.world`, DB_UNIQUE_NAME cdb1,
+      db_domain world); the M25.2 links built from it see CDB$ROOT,
+      PDB$SEED and PDB1.
+- [x] **M25.1 A copy check replaces the parity lever.** With no local
+      install left, nothing remains to diff the repository against, so
+      prove the copies instead. build.py generates
+      `test/repo_copy_check.sql` from the manifest: per source and DBID,
+      `source@link` under the manifest's filter MINUS the copy, and the
+      reverse, over the collected snap_id window. Dimensions are compared
+      whole, SEG_STAT_OBJ over the copied chunks, and the check exits 5 when
+      a snapshot lands mid-check, as dbmint_parity.sh does. ddl/13 is
+      generated from the same text (`--check`), so equal copies give equal
+      views. Check on CAPX2, while the M24.5 lever still runs: 0 rows, and a
+      copy row deleted by hand shows up as one row.
+      Done 2026-11-09: the check runs in a throwaway definer's-rights
+      procedure (CAP_COPY_CHECK, dropped at the end), and
+      `test/dbmint_copy_check.sh SCHEMA [TARGET] [--collect] [--plant SRC]`
+      runs it. On CAPX2: 17 sources, 163,401 rows equal in 2.8 s. A
+      dimension copy keeps rows the target has purged (the DATABASE_INSTANCE
+      row of an aged-out startup), so there only a source row missing from
+      the copy is a difference; copy-only rows are listed as kept.
+      `--plant OSSTAT` deleted one copy row, uncommitted: reported as
+      exactly that row (src 7398, copy 7397), then rolled back. The M24.5
+      lever's seam pass agreed at the same snap_id (12 CAPV views equal at
+      4019), but its local install no longer runs in CDB$ROOT: since M24.13
+      `build_snap_tables` raises ORA-00600 [KGL-heap-size-exceeded] there
+      (C##CAPLOC kept its seam and packages VALID, snapshot tables partly
+      built). So CDB1 was re-registered in CAPX2 by hand, as the lever does,
+      and the seams compared with `--no-install`.
+- [x] **M25.2 "Measure one database" in one run.** install.sh role
+      `standalone` (and quickstart.sql / .sh) runs as SYSDBA in CDB$ROOT,
+      in this order: target/prepare.sql (the reader gets a random password,
+      never printed); target/check.sql as the gate; pick the PDB (the one
+      open user PDB, else `CONTAINER`; a non-CDB uses itself); in that PDB,
+      create_owner and install; `cap_repo.add_target` over the loopback to
+      the root (M25.0b, overridable with `SELF_CONNECT`); collect; then ML,
+      jobs and reports as before. quickstart stops installing into SYS: it
+      creates the schema-only owner `AWRCAP` (NO AUTHENTICATION) and works
+      under `CURRENT_SCHEMA`. A re-run reuses the reader, the owner and the
+      target, resets the reader's password and updates the link with
+      `set_link_password`. Check: `--dry-run` of every profile; on dbmint a
+      fresh standalone into a throwaway PDB1 owner and `quickstart.sh` both
+      end with a report and 0 FAIL, twice in a row; with two open PDBs and
+      no `CONTAINER`, both stop before any change.
+      Done 2026-11-09: two scripts carry it. `target/self.sql` (root side)
+      refuses a non-SYSDBA session, a PDB session and an ambiguous PDB
+      before it changes anything, derives the target name (DB_UNIQUE_NAME),
+      the loopback address and the global name, generates the password
+      into the bind `:cap_self_pw` (it survives the PL/SQL container
+      switch at the end), and runs prepare.sql and check.sql.
+      `repository/self.sql` (in the owner, after install.sql) calls
+      add_target, or set_link_password when the target exists with the
+      same reader and address, and collects. install.sh's standalone is
+      now deploy_mode repository, forces INTO=schema, keeps READER, adds
+      SELF_CONNECT and with JOBS_ENABLE turns on CAP_COLLECT_JOB too.
+      quickstart.sh passes `CAP_OWNER` / `CAP_READER` / `CAP_CONTAINER` /
+      `CAP_SELF_CONNECT` as DEFINEs. On dbmint (owners CAPM3, CAPM4,
+      reader C##AWRM25): standalone and quickstart.sh each ran twice to a
+      report with 0 FAIL; the first run copied 164,845 rows in 1.3 s over
+      `//localhost:1521/cdb1.world`, the second refreshed the link and found
+      nothing to copy; the copy check on CAPM3 was EQUAL; the password
+      pattern appears in no log. The `--dry-run` drivers of target,
+      repository, fixture-test and demo are byte-identical to before. The
+      two-PDB stop was exercised only by a copy of the check that also
+      counts PDB$SEED (dbmint has one PDB). A re-run's doctor WARNs
+      ORA-01017 on the link, because it runs between the password reset
+      and set_link_password.
+- [x] **M25.3 GLOBAL_NAMES** (only if M25.0a fails). target/prepare.sql
+      prints the target's global name, and the standalone path reads its
+      own. add_target takes the global name and, on ORA-02085, creates
+      `<global_name>@CAP_<NAME>`, the qualified link name that GLOBAL_NAMES
+      accepts. Check: add / collect / ping / set_link_password /
+      remove_target / uninstall under `global_names = TRUE`.
+      Done 2026-11-09: M25.0a failed as expected (ORA-02085 from CAPX2's
+      `CAP_CDB1.WORLD`). add_target's new `p_global_name` (default NULL)
+      is used only when the `CAP_<NAME>` link it tries first raises
+      ORA-02085; without it that case fails with ORA-20074, which quotes
+      the ORA-02085 (it names the global name) and leaves no link. The
+      stored name `CDB1.WORLD@CAP_CDB1` works unquoted in every
+      `@link` use, a remote PL/SQL call, CLOSE_DATABASE_LINK and DROP, so
+      no other caller changed and uninstall.sql drops it as it is. target/
+      prepare.sql's add_target line now passes `p_global_name`. On dbmint
+      (throwaway owner CAPM1, reader C##AWRM25) under session
+      `global_names = TRUE`: add without the name refused with 0 links
+      left; add with it, collect (164,406 rows, 1.1 s, 0 links open after),
+      ping, set_link_password, remove (0 links), add again; then under
+      FALSE a collect over the qualified link and a second target without
+      the name still got `CAP_CDB1B`. The copy check over the qualified
+      link: EQUAL, 17 sources, 163,401 rows. uninstall.sql left 0 links and
+      0 objects.
+- [x] **M25.4 RAC: no half-copied snapshot.** With one high-water mark per
+      DBID, a collect can copy a snapshot that one instance has finished and
+      another has not. Local mode picked up the late rows on its next read,
+      but a copy never will. collect therefore holds back the newest snap_id
+      while it has fewer instances than the snap_id before it, and copies it
+      on the next run once it has as many. Check: on single-instance CAPX2
+      the window is unchanged (copy check 0, fingerprints equal before and
+      after). RAC stays untested, and the docs say so.
+      Done 2026-11-09: collect_dbid's MIN/MAX snapshot query now also
+      returns the instance counts of the newest two snap_ids (one remote
+      query, as before), and a held-back snap_id is named in the collect's
+      output and its CAP_COLLECT_LOG message. The rule over synthetic
+      snapshot sets: 2/2/1 instances copies through the middle one; 2/2,
+      1/1 and a single snapshot copy everything; 2 then 1 then 1 (an
+      instance gone for good) holds back once, then copies through. Checked
+      on single-instance CAPM1 instead of CAPX2 (same layout, no shared
+      reader): after collect the high-water mark equals the target's newest
+      snap_id (4019), the log message stays empty, and the copy check is
+      EQUAL (17 sources, 163,401 rows).
+- [x] **M25.5 doctor without DBA_HIST.** Sections 2, 3, 5 and 6 check the
+      measured database, which is target/check.sql's job now (the standalone
+      path runs it, M25.2). doctor keeps the repository side and keeps
+      sections 7..11 under their numbers, because the docs and
+      CAP_CFG_CHECK cite them. Section 11 adds the reader's password expiry
+      over each link (`USER_USERS@link`): WARN inside the new knob
+      `reader_expiry_warn_days` (30), naming the two statements that rotate
+      it (`ALTER USER ... IDENTIFIED BY` on the target, then
+      `cap_repo.set_link_password`). Check: on dbmint, a reader whose
+      profile expires it in 10 days gets the WARN.
+      Done 2026-11-09: doctor.sql names no DBA_HIST_* view any more. Before
+      install it assumes repository (section 7 prints the needs as INFO,
+      nothing to count yet), section 4 adds CREATE DATABASE LINK, and
+      `cap_doctor_mode = local` is ignored with a note (install.sh's
+      standalone role and quickstart.sql still pass it). An installed local
+      seam (CAPV_SNAPSHOT on a SYS DBA_ view) is a WARN naming the upgrade
+      path. The expiry is read by the new definer's-rights
+      `cap_repo.reader_expiry(p_name)` (NULL = never expires or the link
+      fails, ping says why; rolls back like ping). On dbmint: CAPM1
+      (repository, target CDB1, reader C##AWRM25) 0 FAIL, the reader under
+      DEFAULT read "expires 2027-05-08 (in 179 d)" PASS, and under a
+      throwaway profile `C##M25_EXPIRY` (PASSWORD_LIFE_TIME 10) the WARN
+      "expires 2026-11-19 07:21 (in 9 d), inside reader_expiry_warn_days 30"
+      with both statements; an empty schema (CAPM2) no FAIL and no
+      DBA_HIST error; fixture CAPX1 no FAIL.
+- [x] **M25.6 Carry the operator's config across a reinstall.** Before it
+      drops anything, uninstall.sql spools
+      `reports/cap_config_replay_<schema>_<ts>.sql` and prompts its path.
+      The file holds an UPDATE for each CAP_CONFIG knob whose `cfg_value`
+      differs from `cfg_default` (null-safe, `suite_version` left out) and
+      a MERGE for each CAP_TBSPC_OVERRIDE row. The MERGE takes its columns
+      from ALL_TAB_COLUMNS, so a column added later comes along. Run the
+      file in the new owner after the new install: the seed MERGE has
+      created every key by then, and a knob that no longer exists updates 0
+      rows and is named. The overrides' dbid / con_dbid are the database's
+      own, so they match again once the same database is the target. Check
+      on dbmint: set two knobs and one override, then uninstall, install
+      and replay. CAP_CFG and CAP_TBSPC_OVERRIDE must equal what they were
+      before, and CAP_CFG_CHECK must be all OK.
+      Done 2026-11-09: a PL/SQL block builds the file into a CLOB bind
+      (dynamic SQL, so a half-removed install compiles), and SQL*Plus spools
+      it with `SPOOL &file` or `SPOOL OFF` (a whole command line from a
+      substitution variable is SP2-0734). With nothing to replay no file is
+      written. The file sets DEFINE OFF and replays through a local `knob`
+      procedure; the MERGE renders each column as a literal of its type
+      (quotes doubled, CR/LF as CHR(), NUMBER in TM9). On dbmint (CAPM2):
+      train_days 120, dtf_warn 45 and an override row whose note held a
+      quote, `&`, `;` and a newline; uninstall wrote 3 statements, a second
+      uninstall wrote none and raised nothing, and after a fresh install
+      the replay gave 59 of 59 lines equal (58 knobs and the row),
+      CAP_CFG_CHECK all OK. A replay naming a knob the release lacks
+      printed "not replayed: knob tbspc_min_hist" and applied the rest.
+- [x] **M25.7 Retire local mode.** Move ddl/10 to `repository/seam.sql`
+      and update every reference. install.sql: `deploy_mode = local` aborts
+      before any DDL and names the upgrade path (uninstall here, standalone
+      into a PDB), as warehouse mode did in M24.9. create_owner.sql:
+      `owner_mode` goes; every owner gets CREATE DATABASE LINK and no
+      DBA_HIST grants, and a user that already holds the old local-mode
+      grants (create_owner's DBA_HIST list, CONTAINER_DATA) has them revoked.
+      uninstall.sql revokes them too, so a dropped root install leaves an
+      inert user (as SYSDBA; run as the owner it prints the REVOKEs, since
+      only the grantor can run them). `cap_results.deploy_mode` loses
+      `local` (CAP_RUN keeps its history rows). install.sh drops the role
+      and profile combinations that meant local mode. test/dbmint_parity.sh
+      retires (M25.1 replaced it). suite_version 25. A new lint enforces the
+      golden rule: DBA_HIST_* only under repository/, target/, test/ and
+      bench/. Check: every profile's `--dry-run`; on dbmint the fixture
+      harness passes on CAPX1, a CAPX2 re-install has 0 INVALID, the copy
+      check returns 0, and `deploy_mode = local` aborts without touching
+      any object. End to end, after asking (it drops a root install):
+      uninstall C##CAPLOC, standalone into a throwaway PDB1 owner, replay
+      its config file (M25.6) and collect. Then no CAP object is left in
+      the root schema, C##CAPLOC holds no DBA_HIST grant and no
+      CONTAINER_DATA, the new owner's CAP_CFG equals C##CAPLOC's, and the
+      new install's fingerprints equal CAPX2's.
+      Done 2026-11-09: ddl/10 is `repository/seam.sql` (build.py's SEAM;
+      its header says it is never installed). Both create_owner.sql and
+      uninstall.sql include the new `revoke_local_grants.sql`, which finds
+      the owner's SELECT grants on SYS.DBA_HIST_* and V_$PARAMETER in
+      DBA_TAB_PRIVS (no list to keep in step with the manifest) and its
+      CONTAINER_DATA, revokes them as SYSDBA (CONTAINER=ALL for a common
+      grant, from CDB$ROOT only) and prints them otherwise. build.py no
+      longer proves create_owner's grants: it grants no DBA_HIST view, and a
+      revoke list that followed the manifest would miss what an older owner
+      was given. New `test/lint_dba_hist.sh` (code, comments aside, outside
+      repository/, target/, test/, bench/ and the generated ddl/13; a read
+      planted in report/drill_cpu.sql failed it), run by
+      dbmint_harness.sh, dbmint_copy_check.sh and dbmint_scale.sh. On
+      dbmint: `deploy_mode = local` aborted in CAPM2 with 146 objects and
+      the same last DDL time before and after; uninstall.sql in C##CAPLOC
+      (two knobs set off default) wrote a 2-knob replay file, revoked 19
+      SELECT grants and CONTAINER_DATA and left 0 objects, and a second run
+      did nothing; standalone into CAPM6 collected 165k rows; with both at
+      snap_id 4024 and default config, CAPM6 and CAPX2 fingerprinted equal
+      on the 12 CAPV views and the 52 stack views; the replay set 2 knobs
+      and CAPM6's CAP_CONFIG then equals C##CAPLOC's but for
+      reader_expiry_warn_days, which M25.5 added after C##CAPLOC was
+      installed; CAPX2 re-installed through install.sh with 0 INVALID and
+      suite_version 25, copy check EQUAL; fixture harness on CAPX1 passed,
+      once run_test.sql's SNAPSHOT-table check stopped comparing the clock
+      columns: CAPR_COVERAGE.age_hours, stored by the refresh minutes
+      earlier, crossed its 0.1 h rounding while the VM was busy.
+- [x] **M25.8 Docs.** start.html keeps "Measure one database" and "Measure
+      a fleet" as two paths of one install; the first is the second with
+      the repository as its own target. Also: reference.html (modes,
+      prerequisites, privileges, #installer, #repository), README, the
+      concepts diagram, tutorial, testing.html (copy check, not parity),
+      design.md (the M25 rationale beside M24's) and CLAUDE.md (golden
+      rules, layout, testing levers). The upgrade notes state the break:
+      what a standalone install loses, and the steps that replace it
+      (uninstall, which writes the replay file; standalone into a PDB;
+      replay; collect).
+      docs_lint check 9 (check 10 since main's README-diagram check took 9)
+      fails on `deploy_mode = local`, `owner_mode` or `10_seam_local` in
+      any tracked file except PLAN.md and bench/.
+      Done 2026-11-09: reference.html's "Local mode" section became
+      "Standalone: a database as its own target" (the five scripts in order,
+      by hand and through the installer), doctor's table lost checks 2, 3, 5
+      and 6 and gained CREATE DATABASE LINK and the reader expiry, the
+      deploy-modes, prerequisites, privileges, owner, profiles, cap_repo
+      (`p_global_name`, `reader_expiry`), load-order, upgrade and retention
+      parts follow the code, and suite_version reads 25. index.html,
+      concepts.html and start.html redraw their source diagrams with the
+      loopback link; testing.html's Track B is the standalone smoke with the
+      copy check as its own step and the new AWR-read lint; report examples
+      run in the owner (`--container PDB1 --schema AWRCAP`). Sample output
+      comes from the 2026-11-09 quickstart run into CAPM5 on dbmint,
+      genericised (owner AWRCAP, reader C##AWRRDR, domain example.com, a
+      fake DBID). Check 9 allow-lists three lines by file and text:
+      install.sql's abort, doctor.sql's test for an installed local seam and
+      repository/seam.sql's former-name note. Two lines planted in README.md
+      failed it with exactly those two lines.
+
+Order: M25.0 gates the rest. M25.1 lands before M25.7, while the parity
+lever can still vouch for it, and so does M25.6, which M25.7's end-to-end
+check uses. M25.3 and M25.4 are independent. Nothing on dbmint is dropped
+without asking: M25.7 uninstalls C##CAPLOC only after a yes, and C##AWRRDR
+stays because every loopback uses it.
+
+## M26 — Instance memory sizing (SGA / PGA)
 
 Spec: `docs/specs/memory-sizing.md`. A verdict layer (`UNDERSIZED` / `OK` /
 `OVERSIZED` / `INSUFFICIENT_EVIDENCE` per instance and memory area, with
 evidence and a suggested size), not a forecast. Instance memory only; the
 host's physical memory size is read for one flag. No verdict alerts.
 
-Built first, as one vertical cut across M25.1-M25.3: the `PGA_LIMIT` area
-(suite_version 25.1). `CAPV_PGASTAT` in all three seams with an optional
+Built first, as one vertical cut across M26.1-M26.3: the `PGA_LIMIT` area
+(suite_version 26.1). `CAPV_PGASTAT` in all three seams with an optional
 repository copy (`CAP_H_PGASTAT`, every statistic name; a reader without the
 grant is skipped by collect, not failed), the `PGA_ALLOC_GB` series (named so
 for its GiB unit, not `PGA_ALLOC`) in `CAPD_SERIES_DAILY` and every layer above
 it, `ddl/42_memory_views.sql` (`CAPM_PGA_LIMIT`, `CAPM_EVIDENCE`,
 `CAPM_VERDICT`), the knobs `mem_window_days`, `mem_min_days`,
 `mem_pga_limit_pct`, `mem_max_step`, `mem_host_ram_pct`, fixture rows and
-closed-form assertions. No report section yet (M25.4).
+closed-form assertions. No report section yet (M26.4).
 
-Built second (suite_version 25.2): the advisor-based areas `PGA_TARGET`,
+Built second (suite_version 26.2): the advisor-based areas `PGA_TARGET`,
 `BUFFER_CACHE`, `SHARED_POOL`, `SGA_TOTAL` and `SGA_BALANCE`, by the spec's
 "Detailed rules" section. `ddl/42_memory_views.sql` is now ten views:
 `CAPM_SNAP`, `CAPM_INST`, `CAPM_ADV_SRC`, `CAPM_DELTA` (every counter and
@@ -886,7 +1190,7 @@ full, and a PGA target that over-allocates at every size inside the step cap
 is advised the largest candidate. Not built: per-PDB usage, the history
 table, report sections, the snapshot registry entries, doctor readiness.
 
-Built third (suite_version 25.3), from the first read of the real verdicts:
+Built third (suite_version 26.3), from the first read of the real verdicts:
 two rule changes, both in the spec's "Detailed rules" section. An advisor
 area whose current size has too little advisor history is measured against
 the nearest advised size that has it (`mem_ref_tolerance_pct`,
@@ -900,7 +1204,7 @@ reads `DRIFTING` (buffer cache 256 MiB to 48 MiB under a 1536 MiB
 1056 MiB. `SELECT * FROM capm_verdict` takes about 11 s and 223 MB of PGA in
 local mode.
 
-Fixed in 25.3 after reading those verdicts again. The shared pool suggestion
+Fixed in 26.3 after reading those verdicts again. The shared pool suggestion
 moved from 1776 MiB to 1296 MiB between two snapshots 15 minutes apart: each
 advised size was compared over only the intervals that listed it, the lists
 are ragged, and so every size had its own interval set. Every size is now
@@ -913,7 +1217,7 @@ together, without reducing it. On the real AWR the shared pool reads
 `UNDERSIZED`, 1872 MiB, `exceeds_sga = Y`, beside `SGA_TOTAL` `UNDERSIZED`,
 2688 MiB.
 
-- [ ] **M25.1 Seam.** Fourteen new `CAPV_*` views (component history, resize
+- [ ] **M26.1 Seam.** Fourteen new `CAPV_*` views (component history, resize
       operations, PGA statistics, work area histogram, the PGA / SGA / cache /
       shared pool advisors, SGA statistics, library cache, row cache, buffer
       pool statistics, system events, per-PDB resource metrics) in all three
@@ -928,37 +1232,20 @@ together, without reducing it. On the real AWR the shared pool reads
       `CAPV_SYSTEM_EVENT`) and the wider `CAPV_PGASTAT` filter, optional copies,
       grants, probes, empty fixture tables. Deferred: resize operations, buffer
       pool statistics, per-PDB resource metrics, the memory parameters.
-- [ ] **M25.2 Evidence.** Startup segments inside the window, evidence rows
+- [ ] **M26.2 Evidence.** Startup segments inside the window, evidence rows
       per signal, advisor curves combined across segments, the `PGA_ALLOC_GB`
       series against `pga_aggregate_limit` in `CAPD_SERIES_DAILY` (built). Measure
       refresh time and peak PGA with the scale lever.
-- [ ] **M25.3 Verdicts.** Grades, knee-based suggested sizes, the host memory
+- [ ] **M26.3 Verdicts.** Grades, knee-based suggested sizes, the host memory
       flag, `SGA_BALANCE` (`THRASHING` and a pool floor), per-PDB usage and
       limit verdicts, the persisted history table written by
       `cap_results.refresh`.
-- [ ] **M25.4 Reports.** Text section, HTML cards, briefing lines, CSV,
+- [ ] **M26.4 Reports.** Text section, HTML cards, briefing lines, CSV,
       `report/drill_mem.sql`, docs, a memory chapter in the demo story.
-
-## Backlog
-
-- [ ] **Local mode: `CAPR_FIT` parses past the 500 MB library cache assert.**
-      On cdb1 (19.27, real AWR, three containers) a local-mode install stops
-      in `cap_results.build_snap_tables` with ORA-00600
-      [KGL-heap-size-exceeded]: `EXPLAIN PLAN` of `CAPR_FIT` alone builds a
-      ~580 MB heap against `_kgl_large_heap_assert_threshold` (500 MB). Seen
-      on main before M25 (found 2026-11-09), so a LIVE report or a refresh
-      would fail there too, and `test/dbmint_parity.sh` cannot finish.
-      Repository mode is not affected (the copies are plain tables). Plan:
-      measure the heap per report view and bisect the last merges, then cut
-      how often one statement expands the seam (`CAPR_FIT` reads the
-      forecast views twice, `CAPR_SEVERITY` pulls all three forecast
-      families into every family view, the UNION ALL unpivots re-read the
-      same view), and add a heap budget check to the parity lever. Raising
-      the underscore parameter is a lab unblock only, not the fix.
 
 ## v2 (unchanged)
 
-- [ ] Memory follow-ups to M25: grading AMM instances, verdicts for the
+- [ ] Memory follow-ups to M26: grading AMM instances, verdicts for the
       In-Memory area and minor pools, verdict panels in the dashboards,
       forecasting SGA components.
 - [ ] Cross-DBID series stitching (non-CDB → PDB migrations) keyed on a stable

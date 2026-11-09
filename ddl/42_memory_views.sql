@@ -1,5 +1,5 @@
 --
--- ddl/42_memory_views.sql -- CAPM_* instance memory verdicts (M25).
+-- ddl/42_memory_views.sql -- CAPM_* instance memory verdicts (M26).
 -- =====================================================================
 -- A verdict layer beside forecast and anomaly: per database, instance and
 -- memory area a grade (UNDERSIZED / OK / OVERSIZED / INSUFFICIENT_EVIDENCE,

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Testing — AWR Capacity Forecast</title>
-<meta name="description" content="Fixture self-check against closed-form answers, local smoke test against live AWR, optional swingbench workload.">
+<meta name="description" content="Fixture self-check against closed-form answers, standalone smoke test against live AWR, optional swingbench workload.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23b06a0d'/><path d='M16 8L24 23L8 23Z' fill='%23fff'/></svg>">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
@@ -77,14 +77,15 @@
         </div>
         <div class="track-card b">
           <div class="tk">Track B</div>
-          <h4>Local smoke on cdb1</h4>
-          <p>Run <span class="inline">doctor.sql</span>, install <span class="inline">local</span> mode
-            as <b>sysdba</b> in <b>CDB$ROOT</b>, run the report. On a stock box expect
-            <span class="pill crit">INSUFFICIENT_HISTORY</span> until retention is raised.</p>
+          <h4>Standalone smoke on cdb1</h4>
+          <p>Run <span class="inline">quickstart.sh</span> as <b>sysdba</b> in <b>CDB$ROOT</b>: the
+            database becomes its own target, the suite lands in a PDB owner and copies the CDB's AWR over
+            a loopback link, then the report runs. On a stock box expect
+            <span class="pill crit">INSUFFICIENT_HISTORY</span> until the copies grow.</p>
           <div class="meta">
-            <span><b>Where:</b> cdb1 · / as sysdba · CDB$ROOT</span>
+            <span><b>Where:</b> cdb1 · / as sysdba · CDB$ROOT, suite in PDB1</span>
             <span><b>Proves:</b> it runs end-to-end on your AWR</span>
-            <span><b>Time:</b> ~1 minute (+ retention wait)</span>
+            <span><b>Time:</b> a few minutes (+ the history wait)</span>
           </div>
         </div>
       </div>
@@ -95,7 +96,7 @@
           <tbody>
             <tr><td class="def">SSH to the host</td><td><code>ssh -p &lt;port&gt; oracle@&lt;host&gt;</code></td></tr>
             <tr><td class="def">Env preamble (every sqlplus)</td><td><code>export ORACLE_SID=cdb1; export ORAENV_ASK=NO; . oraenv &gt;/dev/null 2&gt;&amp;1</code></td></tr>
-            <tr><td class="def">Local mode connect</td><td><code>sqlplus / as sysdba</code>&nbsp; (lands in CDB$ROOT, where AWR is)</td></tr>
+            <tr><td class="def">Standalone connect</td><td><code>sqlplus / as sysdba</code>&nbsp; (lands in CDB$ROOT, where AWR is; the suite then lives in PDB1)</td></tr>
             <tr><td class="def">Fixture mode connect</td><td><code>sqlplus captest/&lt;password&gt;@localhost:1521/pdb1.world</code></td></tr>
           </tbody>
         </table>
@@ -492,23 +493,23 @@
             <tr><td class="def"><code>CAP_FIXTURE_TBSPC_USAGE</code></td><td><code>DBA_HIST_TBSPC_SPACE_USAGE</code> (blocks, not bytes)</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_TABLESPACE</code></td><td><code>DBA_HIST_TABLESPACE</code>: names, contents, <code>block_size</code></td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_DATAFILE</code></td><td><code>DBA_HIST_DATAFILE</code>: block-size fallback only</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_OSSTAT</code></td><td><code>DBA_HIST_OSSTAT</code>: cumulative centiseconds and the CPU counts, root only; <code>PHYSICAL_MEMORY_BYTES</code> 16&nbsp;GiB (M25)</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_OSSTAT</code></td><td><code>DBA_HIST_OSSTAT</code>: cumulative centiseconds and the CPU counts, root only; <code>PHYSICAL_MEMORY_BYTES</code> 16&nbsp;GiB (M26)</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_TIME_MODEL</code></td><td><code>DBA_HIST_CON_SYS_TIME_MODEL</code>: cumulative microseconds, all three containers</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_RESOURCE_LIMIT</code></td><td><code>DBA_HIST_RESOURCE_LIMIT</code> (M11): <code>processes</code> / <code>sessions</code></td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_SYSSTAT</code></td><td><code>DBA_HIST_CON_SYSSTAT</code> (M11): <code>redo size</code> + one decoy stat</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_PARAMETER</code></td><td><code>DBA_HIST_PARAMETER</code>: nine numeric init parameters, as numbers</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_ASM_DISKGROUP</code></td><td><code>DBA_HIST_ASM_DISKGROUP_STAT</code> + <code>DBA_HIST_ASM_DISKGROUP</code>: diskgroups DATA and FRA</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_PGASTAT</code></td><td><code>DBA_HIST_PGASTAT</code> (M25), root only: <code>total PGA allocated</code> (0.5&nbsp;GiB at 06:00, 1&nbsp;+&nbsp;i/1200&nbsp;GiB at 18:00) and <code>maximum PGA allocated</code> (1.2, 1.25, then 1.9&nbsp;GiB from day 110 18:00); <code>bytes processed</code> and <code>extra bytes read/written</code> on every snapshot; <code>over allocation count</code>, absent until its first use in a startup and then on the 18:00 snapshots only, one more a day; <code>aggregate PGA auto target</code> 0.75 of the 1&nbsp;GiB <code>aggregate PGA target parameter</code>, 0.6&nbsp;GiB once in the window</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_MEM_COMP</code></td><td><code>DBA_HIST_MEM_DYNAMIC_COMP</code> (M25): SGA Target 4096, DEFAULT buffer cache 2560, shared pool 1024, large and java pool 64, streams pool 0, PGA Target 1024&nbsp;MiB on every snapshot, never resized: <code>SGA_BALANCE</code> <code>OK</code> / <code>STABLE</code></td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_WORKAREA_HSTGRM</code></td><td><code>DBA_HIST_SQL_WORKAREA_HSTGRM</code> (M25): two buckets, together 9700 optimal, 280 one-pass and 20 multi-pass executions a snapshot interval (2.8% and 0.2%)</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_PGA_ADVICE</code></td><td><code>DBA_HIST_PGA_TARGET_ADVICE</code> (M25): eight sizes from 0.5 to 3&nbsp;GiB around the 1&nbsp;GiB target. Estimated cache hit 90% now and 100% at 2&nbsp;GiB, over-allocation up to 1.5&nbsp;GiB: <code>PGA_TARGET</code> <code>UNDERSIZED</code>, suggested 1792&nbsp;MiB</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_SGA_ADVICE</code></td><td><code>DBA_HIST_SGA_TARGET_ADVICE</code> (M25): seven sizes from 2048 to 8192&nbsp;MiB around 4096. Best gain 0.3% of DB time, the nearest smaller size loses 1%: <code>SGA_TOTAL</code> <code>OK</code> / <code>SIZED_RIGHT</code></td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_CACHE_ADVICE</code></td><td><code>DBA_HIST_DB_CACHE_ADVICE</code> (M25): ten sizes of the DEFAULT pool (id 3) around 2560&nbsp;MiB. Best gain 0.2% of DB time, 1536&nbsp;MiB loses 0.45%: <code>BUFFER_CACHE</code> <code>OVERSIZED</code>, suggested 1536&nbsp;MiB. A KEEP pool and a 16&nbsp;KiB DEFAULT pool with huge gains must be ignored</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_SHPOOL_ADVICE</code></td><td><code>DBA_HIST_SHARED_POOL_ADVICE</code> (M25): nine sizes around 1024&nbsp;MiB. Best gain 1.5% of DB time at 2048&nbsp;MiB and no symptom: <code>SHARED_POOL</code> <code>OK</code> / <code>ADVISOR_ONLY</code></td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_SGASTAT</code></td><td><code>DBA_HIST_SGASTAT</code> (M25): shared pool free memory 256&nbsp;MiB, 128&nbsp;MiB once in the window (12.5% of the pool), and a large pool row no signal reads</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_LIBRARYCACHE</code></td><td><code>DBA_HIST_LIBRARYCACHE</code> (M25): two namespaces, 400 reloads per 100000 pins (0.4%)</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_ROWCACHE</code></td><td><code>DBA_HIST_ROWCACHE_SUMMARY</code> (M25): two parameters, 1000 misses per 50000 gets (2%)</td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_SYSTEM_EVENT</code></td><td><code>DBA_HIST_SYSTEM_EVENT</code> (M25): temporary segment direct path I/O at 1% of DB time, shared pool waits at 0.04%, <code>free buffer waits</code> with no row until day 100 (0.02%), and <code>buffer busy waits</code>, which no signal reads</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_PGASTAT</code></td><td><code>DBA_HIST_PGASTAT</code> (M26), root only: <code>total PGA allocated</code> (0.5&nbsp;GiB at 06:00, 1&nbsp;+&nbsp;i/1200&nbsp;GiB at 18:00) and <code>maximum PGA allocated</code> (1.2, 1.25, then 1.9&nbsp;GiB from day 110 18:00); <code>bytes processed</code> and <code>extra bytes read/written</code> on every snapshot; <code>over allocation count</code>, absent until its first use in a startup and then on the 18:00 snapshots only, one more a day; <code>aggregate PGA auto target</code> 0.75 of the 1&nbsp;GiB <code>aggregate PGA target parameter</code>, 0.6&nbsp;GiB once in the window</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_MEM_COMP</code></td><td><code>DBA_HIST_MEM_DYNAMIC_COMP</code> (M26): SGA Target 4096, DEFAULT buffer cache 2560, shared pool 1024, large and java pool 64, streams pool 0, PGA Target 1024&nbsp;MiB on every snapshot, never resized: <code>SGA_BALANCE</code> <code>OK</code> / <code>STABLE</code></td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_WORKAREA_HSTGRM</code></td><td><code>DBA_HIST_SQL_WORKAREA_HSTGRM</code> (M26): two buckets, together 9700 optimal, 280 one-pass and 20 multi-pass executions a snapshot interval (2.8% and 0.2%)</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_PGA_ADVICE</code></td><td><code>DBA_HIST_PGA_TARGET_ADVICE</code> (M26): eight sizes from 0.5 to 3&nbsp;GiB around the 1&nbsp;GiB target. Estimated cache hit 90% now and 100% at 2&nbsp;GiB, over-allocation up to 1.5&nbsp;GiB: <code>PGA_TARGET</code> <code>UNDERSIZED</code>, suggested 1792&nbsp;MiB</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SGA_ADVICE</code></td><td><code>DBA_HIST_SGA_TARGET_ADVICE</code> (M26): seven sizes from 2048 to 8192&nbsp;MiB around 4096. Best gain 0.3% of DB time, the nearest smaller size loses 1%: <code>SGA_TOTAL</code> <code>OK</code> / <code>SIZED_RIGHT</code></td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_CACHE_ADVICE</code></td><td><code>DBA_HIST_DB_CACHE_ADVICE</code> (M26): ten sizes of the DEFAULT pool (id 3) around 2560&nbsp;MiB. Best gain 0.2% of DB time, 1536&nbsp;MiB loses 0.45%: <code>BUFFER_CACHE</code> <code>OVERSIZED</code>, suggested 1536&nbsp;MiB. A KEEP pool and a 16&nbsp;KiB DEFAULT pool with huge gains must be ignored</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SHPOOL_ADVICE</code></td><td><code>DBA_HIST_SHARED_POOL_ADVICE</code> (M26): nine sizes around 1024&nbsp;MiB. Best gain 1.5% of DB time at 2048&nbsp;MiB and no symptom: <code>SHARED_POOL</code> <code>OK</code> / <code>ADVISOR_ONLY</code></td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SGASTAT</code></td><td><code>DBA_HIST_SGASTAT</code> (M26): shared pool free memory 256&nbsp;MiB, 128&nbsp;MiB once in the window (12.5% of the pool), and a large pool row no signal reads</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_LIBRARYCACHE</code></td><td><code>DBA_HIST_LIBRARYCACHE</code> (M26): two namespaces, 400 reloads per 100000 pins (0.4%)</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_ROWCACHE</code></td><td><code>DBA_HIST_ROWCACHE_SUMMARY</code> (M26): two parameters, 1000 misses per 50000 gets (2%)</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SYSTEM_EVENT</code></td><td><code>DBA_HIST_SYSTEM_EVENT</code> (M26): temporary segment direct path I/O at 1% of DB time, shared pool waits at 0.04%, <code>free buffer waits</code> with no row until day 100 (0.02%), and <code>buffer busy waits</code>, which no signal reads</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_SEG_STAT</code></td><td><code>DBA_HIST_SEG_STAT</code> + <code>DBA_HIST_SEG_STAT_OBJ</code>, pre-joined: three segments in <code>FIX_FILLING</code></td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_CONTAINER</code></td><td><code>DBA_HIST_PDB_INSTANCE</code> (M7.2): <code>FIXCDB</code>/<code>CDB$ROOT</code>, <code>FIXCDB</code>/<code>FIXPDB1</code>, <code>FIXCDB</code>/<code>FIXPDB2</code>; covers both <code>db_pdb</code> label branches</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_META</code></td><td>nothing in AWR; the expectations (below)</td></tr>
@@ -858,7 +859,7 @@ All fixture assertions passed.</pre>
               <span class="ico">i</span>
               <p><strong>Steps 1 to 6 on dbmint in one script.</strong>
               <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>
-              runs <span class="inline">test/lint_anom_joins.sh</span>, <span class="inline">test/lint_appinfo.sh</span>, <span class="inline">test/lint_dbid_windows.sh</span> and <span class="inline">test/lint_snapshot_reads.sh</span> first and stops on a violation (exit 4),
+              runs <span class="inline">repository/build.py --check</span>, <span class="inline">test/lint_anom_joins.sh</span>, <span class="inline">test/lint_appinfo.sh</span>, <span class="inline">test/lint_dbid_windows.sh</span>, <span class="inline">test/lint_snapshot_reads.sh</span>, <span class="inline">test/lint_dba_hist.sh</span> and the two offline report tests first and stops on a failure (exit 4),
               rsyncs the checkout to <span class="inline">~/awr_cap_&lt;schema&gt;/</span>, runs the fixture
               install, the install, <span class="inline">run_test.sql</span> and, with
               <span class="inline">--ml</span>, the Tier&nbsp;2 steps as SYSDBA with
@@ -922,6 +923,16 @@ All fixture assertions passed.</pre>
               output unscoped and for dbid 42424242, prints the wall time and peak PGA of each run, and
               fails when a SNAPSHOT run's plans read a fixture table outside the identity lookups of
               <span class="inline">report/scope.sql</span>.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
+              <p><strong>AWR-read lint.</strong>
+              <span class="inline">test/lint_dba_hist.sh</span> fails when SQL, shell or Python code outside
+              <span class="inline">repository/</span>, <span class="inline">target/</span>,
+              <span class="inline">test/</span>, <span class="inline">bench/</span> and the generated
+              <span class="inline">ddl/13_seam_repository.sql</span> names a <code>DBA_HIST_*</code> view
+              (comments aside). Everything else reads the <code>CAPV_*</code> seam. Standalone:
+              <span class="inline">test/lint_dba_hist.sh</span> from the repo root.</p>
             </div>
           </div>
         </div>
@@ -1056,7 +1067,7 @@ All ML assertions passed.</pre>
       <!-- ===================== TRACK B ===================== -->
       <div class="section-head" id="track-b">
         <span class="eyebrow">Track B</span>
-        <h2>Local smoke on cdb1</h2>
+        <h2>Standalone smoke on cdb1</h2>
       </div>
 
       <div class="steps">
@@ -1064,15 +1075,15 @@ All ML assertions passed.</pre>
           <div class="step__rail"><div class="step__n">1</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Connect as sysdba in CDB$ROOT</h4>
-            <p>AWR lives in the root, so local mode installs there. Sync the repo first (Track A
+            <p>AWR lives in the root. The suite installs into a PDB owner and reads that AWR over a
+              loopback database link, as a repository reads any target. Sync the repo first (Track A
               step 1).</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">test box · bash</span><span class="term__tag in">you run</span></div>
 <pre>ssh -p &lt;port&gt; oracle@&lt;host&gt;
 export ORACLE_SID=cdb1; export ORAENV_ASK=NO; . oraenv &gt;/dev/null 2&gt;&amp;1
-cd ~/awr-capacity-forecast
-sqlplus / as sysdba</pre>
+cd ~/awr-capacity-forecast</pre>
             </div>
           </div>
         </div>
@@ -1080,25 +1091,40 @@ sqlplus / as sysdba</pre>
         <div class="step">
           <div class="step__rail"><div class="step__n">2</div><div class="step__line"></div></div>
           <div class="step__body">
-            <h4>Run the preflight</h4>
-            <p><span class="inline">doctor.sql</span> is a read-only PASS/WARN/FAIL checklist. It
-              checks the target schema (WARN on SYS), Diagnostics Pack access and
-              <span class="inline">STATISTICS_LEVEL</span>, SELECT on each of the ten
-              <span class="inline">DBA_HIST_*</span> views the local seam reads plus the target
-              schema's <b>direct</b> grants on them, the
-              <span class="inline">CREATE TABLE/VIEW/PROCEDURE/TYPE/MINING MODEL/JOB</span>
-              privileges, AWR retention and snapshot interval per dbid, how many distinct days each
-              source holds and how old the newest snapshot is, and a readiness table of days needed
-              versus days available per feature. If installed it adds
-              <span class="inline">suite_version</span>, invalid <span class="inline">CAP*</span>
-              objects, the deploy mode, the fit-quality mix and a config check. It closes with the reason
-              forecasts would come back <span class="pill crit">INSUFFICIENT_HISTORY</span>. Every probe is
-              exception-wrapped: a missing privilege prints one WARN line instead of aborting.</p>
+            <h4>Run the quickstart</h4>
+            <p><span class="inline">quickstart.sh</span> runs, in one SQL*Plus session:
+              <span class="inline">target/self.sql</span> (the reader with a random password, then
+              <span class="inline">target/check.sql</span>: container, the reader's grants and
+              <code>CONTAINER_DATA</code>, Diagnostics Pack, <span class="inline">STATISTICS_LEVEL</span>,
+              AWR retention and interval, the newest snapshot), <span class="inline">create_owner.sql</span>
+              in the PDB, <span class="inline">doctor.sql</span> (the owner's privileges and a readiness table
+              of days needed versus days available per feature; a FAIL stops before install),
+              <span class="inline">install.sql</span> (<span class="inline">deploy_mode = repository</span>),
+              <span class="inline">repository/self.sql</span> (registers the database as target
+              <span class="inline">CDB1</span> and copies its AWR) and the text report. On a test box where
+              the default owner and reader are taken, name throwaway ones:</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
-                <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-prompt">SQL&gt;</span> @doctor.sql</pre>
+                <span class="term__title">test box · bash</span><span class="term__tag in">you run</span></div>
+<pre>./quickstart.sh                                             <span class="c-cmt"># AWRCAP in the one open PDB, reader C##AWRRDR</span>
+CAP_OWNER=CAPM5 CAP_READER=C##AWRM25 ./quickstart.sh        <span class="c-cmt"># throwaway owner and reader</span></pre>
             </div>
+            <div class="term">
+              <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+                <span class="term__title">output</span><span class="term__tag out">expect</span></div>
+<pre>  [PASS] grants           SELECT on all 17 DBA_HIST_* views
+  [PASS] container data   ALL: the reader sees every container's AWR rows
+  [PASS] pack access      DIAGNOSTIC+TUNING
+...
+  <span class="c-pass">All CAP* objects valid in schema AWRCAP.</span>
+...
+  target CDB1 registered over link CAP_CDB1; containers visible: CDB$ROOT, PDB$SEED, PDB1
+  CDB1 DBID 1234567890: snap_id 1..4023, 164998 rows (3.8 s)</pre>
+            </div>
+            <p>Every run gives the reader a new password and rebuilds the link of the schema it installs
+              into. Another repository that uses the same reader then needs
+              <span class="inline">cap_repo.set_link_password</span>. <span class="inline">./install.sh
+              --profile standalone</span> runs the same steps plus the Tier&nbsp;2 models and the jobs.</p>
             <div class="callout">
               <span class="ico">i</span>
               <p>Under SYSDBA + <span class="inline">ALTER SESSION SET CURRENT_SCHEMA</span>,
@@ -1112,20 +1138,24 @@ sqlplus / as sysdba</pre>
         <div class="step">
           <div class="step__rail"><div class="step__n">3</div><div class="step__line"></div></div>
           <div class="step__body">
-            <h4>Check Diagnostics Pack</h4>
-            <p>Local mode reads <span class="inline">DBA_HIST_*</span>, which requires the pack. A
-              non-sysdba schema also needs direct (not role) SELECT grants on those views.</p>
+            <h4>Prove the copies</h4>
+            <p><span class="inline">test/dbmint_copy_check.sh &lt;SCHEMA&gt; [TARGET] [--collect] [--plant SOURCE]</span>
+              runs <span class="inline">test/repo_copy_check.sql</span>, which
+              <span class="inline">repository/build.py</span> generates from its manifest. Per target, DBID and
+              source it compares the source over the link, under the manifest's row filter, with the copy
+              both ways: facts over the collected snapshot window, dimensions whole, segment names over the
+              segment statistics' keys. A dimension row the copy keeps after the target purged it is listed
+              as kept, not as a difference. It runs in a throwaway definer's-rights procedure in the
+              repository schema, because a private link resolves only for its owner. Exit 0 when every
+              copy equals its source, 1 on a difference, 5 when a snapshot landed during the check (rerun).
+              <span class="inline">--plant OSSTAT</span> deletes one copy row uncommitted and passes only
+              when exactly that row is reported. Equal copies under the same seam text give the same
+              views.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
-                <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-prompt">SQL&gt;</span> SHOW PARAMETER control_management_pack_access</pre>
-            </div>
-            <div class="term">
-              <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
-                <span class="term__title">output</span><span class="term__tag out">expect</span></div>
-<pre>NAME                               TYPE     VALUE
----------------------------------- -------- ------------------
-control_management_pack_access     string   <span class="c-key">DIAGNOSTIC+TUNING</span></pre>
+                <span class="term__title">workstation · bash</span><span class="term__tag in">you run</span></div>
+<pre>test/dbmint_copy_check.sh CAPM5 --collect
+test/dbmint_copy_check.sh CAPM5 --plant OSSTAT</pre>
             </div>
           </div>
         </div>
@@ -1133,30 +1163,14 @@ control_management_pack_access     string   <span class="c-key">DIAGNOSTIC+TUNIN
         <div class="step">
           <div class="step__rail"><div class="step__n">4</div><div class="step__line"></div></div>
           <div class="step__body">
-            <h4>Install in local mode</h4>
-            <div class="term in">
-              <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
-                <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-prompt">SQL&gt;</span> DEFINE deploy_mode = 'local'
-<span class="c-prompt">SQL&gt;</span> @install.sql</pre>
-            </div>
-            <p>Same output as Track A plus a SYS-target warning, ending in
-              <span class="c-pass" style="font-family:var(--mono);font-size:13px">All CAP* objects valid in schema SYS.</span>
-              An invalid view aborts the closing check with a grant/pack hint. To keep the suite out of
-              SYS, run <span class="inline">@create_owner.sql</span> first and
-              install with <span class="inline">ALTER SESSION SET CURRENT_SCHEMA = C##AWRCAP</span>
-              (see <a href="reference.html#owner">Reference</a>).</p>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="step__rail"><div class="step__n">5</div><div class="step__line"></div></div>
-          <div class="step__body">
             <h4>Run the report</h4>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
-                <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-prompt">SQL&gt;</span> @report/report.sql              <span class="c-cmt">-- defaults, never prompts</span>
+                <span class="term__title">SQL*Plus · the suite owner</span><span class="term__tag in">you run</span></div>
+<pre>sqlplus / as sysdba
+<span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CONTAINER = PDB1;
+<span class="c-prompt">SQL&gt;</span> ALTER SESSION SET CURRENT_SCHEMA = AWRCAP;
+<span class="c-prompt">SQL&gt;</span> @report/report.sql              <span class="c-cmt">-- defaults, never prompts</span>
 <span class="c-prompt">SQL&gt;</span> @report/report.sql 25 60 AUTO   <span class="c-cmt">-- top_n / anomaly_days / show_esm</span>
 <span class="c-prompt">SQL&gt;</span> @report/report_html.sql         <span class="c-cmt">-- same three arguments</span></pre>
             </div>
@@ -1166,17 +1180,19 @@ control_management_pack_access     string   <span class="c-key">DIAGNOSTIC+TUNIN
             <div class="callout warn">
               <span class="ico">!</span>
               <p><strong>Expect INSUFFICIENT_HISTORY on a stock box.</strong> Default AWR retention is
-              <b>8 days</b>, below the 90-day training window. See the
+              <b>8 days</b>, below the 90-day training window, and the first collect copies what AWR holds.
+              The copies then grow with every collect. See the
               <span class="inline">TRAIN_N</span> and <span class="inline">QUALITY</span> columns.</p>
             </div>
           </div>
         </div>
 
         <div class="step">
-          <div class="step__rail"><div class="step__n">6</div><div class="step__line"></div></div>
+          <div class="step__rail"><div class="step__n">5</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Raise retention</h4>
-            <p>Affects future snapshots only; history is not backfilled.</p>
+            <p>Optional: the copies outlive AWR anyway. It affects future snapshots only; history is not
+              backfilled.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
@@ -1190,13 +1206,13 @@ control_management_pack_access     string   <span class="c-key">DIAGNOSTIC+TUNIN
         </div>
 
         <div class="step">
-          <div class="step__rail"><div class="step__n">7</div><div class="step__line"></div></div>
+          <div class="step__rail"><div class="step__n">6</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Optional: train Tier 2, copy the report back</h4>
             <p>With history in place, training ESM populates report section 6.</p>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
-                <span class="term__title">SQL*Plus · sys@CDB$ROOT</span><span class="term__tag in">you run</span></div>
+                <span class="term__title">SQL*Plus · the suite owner</span><span class="term__tag in">you run</span></div>
 <pre><span class="c-prompt">SQL&gt;</span> EXEC cap_forecast_ml.train_all(20);      <span class="c-cmt">-- top-20 tablespaces + CPU</span>
 <span class="c-prompt">SQL&gt;</span> EXEC cap_forecast_ml.train_backtest(20); <span class="c-cmt">-- holdout twins for section 6c</span>
 <span class="c-prompt">SQL&gt;</span> @report/report.sql</pre>

@@ -98,7 +98,9 @@ pushing more concurrency at the VM.
 
 ## Reading the result
 
-Install the toolkit in local mode where AWR lives (sysdba in `CDB$ROOT`), then:
+Install the toolkit standalone on the benched database (`./quickstart.sh` as
+sysdba in `CDB$ROOT`: it copies the CDB's AWR into a PDB owner over a loopback
+link, hourly once `CAP_COLLECT_JOB` is enabled), then, in that owner:
 
 ```sql
 -- did the load reach the seam?

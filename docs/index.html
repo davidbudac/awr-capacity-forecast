@@ -138,13 +138,14 @@
         <h2>Data flow</h2>
       </div>
       <p>All analytics read <span class="inline">CAPV_</span> views shaped like the AWR dictionary;
-        only that layer touches <span class="inline">DBA_HIST_*</span>. One install file maps it to
-        local AWR, AWR copied from a fleet of target databases, or test fixtures. Layers:
+        only that layer touches <span class="inline">DBA_HIST_*</span>-shaped data. One install file maps
+        it to AWR copied from target databases over a database link (the installing database's own
+        included, over a loopback link) or to test fixtures. Layers:
         <span class="inline">CAPV_</span> (source) → <span class="inline">CAPD_</span> (daily) →
         <span class="inline">CAPF_</span> (forecast) / <span class="inline">CAPA_</span> (anomaly) →
         <span class="inline">CAPR_</span> (report). See <a href="concepts.html">How it works</a>.</p>
       <svg class="archflow" viewBox="0 0 860 240" role="img"
-           aria-label="Architecture: local AWR, AWR copied from target databases or test fixtures feed the CAPV seam, then CAPD daily rollups split into CAPF forecasts and CAPA anomalies, which merge into the CAPR report views.">
+           aria-label="Architecture: each target's AWR, copied over a database link, or test fixtures feed the CAPV seam, then CAPD daily rollups split into CAPF forecasts and CAPA anomalies, which merge into the CAPR report views.">
         <defs>
           <marker id="af-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
             <path class="af-head" d="M0 0L10 5L0 10z"/>
@@ -152,14 +153,14 @@
         </defs>
         <rect class="af-src" x="10" y="20" width="150" height="40" rx="6"/>
         <text class="af-name" x="85" y="38" text-anchor="middle">DBA_HIST_*</text>
-        <text class="af-cap" x="85" y="53" text-anchor="middle">local AWR</text>
+        <text class="af-cap" x="85" y="53" text-anchor="middle">each target's AWR</text>
         <rect class="af-src" x="10" y="100" width="150" height="40" rx="6"/>
         <text class="af-name" x="85" y="118" text-anchor="middle">CAP_H_*</text>
-        <text class="af-cap" x="85" y="133" text-anchor="middle">copied from targets</text>
+        <text class="af-cap" x="85" y="133" text-anchor="middle">copies, over a DB link</text>
         <rect class="af-src" x="10" y="180" width="150" height="40" rx="6"/>
         <text class="af-name" x="85" y="198" text-anchor="middle">FIX_*</text>
         <text class="af-cap" x="85" y="213" text-anchor="middle">test fixtures</text>
-        <path class="af-edge" d="M160 40 C 200 40 200 105 235 112" marker-end="url(#af-arr)"/>
+        <path class="af-edge" d="M85 60 L 85 97" marker-end="url(#af-arr)"/>
         <path class="af-edge" d="M160 120 L 235 120" marker-end="url(#af-arr)"/>
         <path class="af-edge" d="M160 200 C 200 200 200 135 235 128" marker-end="url(#af-arr)"/>
         <rect class="af-seam" x="240" y="95" width="110" height="50" rx="6"/>
@@ -210,9 +211,11 @@
 
       <!-- ===================== IMPACT ===================== -->
       <div class="section-head" id="impact">
-        <h2>Impact on the target database</h2>
-        <p>Everything is created in one schema. Nothing is added to SYS, AWR or your application
-          schemas. In a fleet, all of it lands on the repository instead (<a href="#fleet-impact">In a fleet</a>).</p>
+        <h2>Impact on the database</h2>
+        <p>Everything is created in one schema, the suite owner's on the repository: a PDB of the
+          measured database itself when it measures only itself, another database in a fleet. Nothing is
+          added to SYS, AWR or your application schemas. A measured database gets only a read-only user
+          (<a href="#fleet-impact">On a measured database</a>).</p>
       </div>
 
       <h3>What is added</h3>
@@ -248,9 +251,9 @@
 
       <h3>Privileges</h3>
       <p><span class="inline">create_owner.sql</span> (run once as SYSDBA) creates a dedicated owner,
-        <span class="inline">C##AWRCAP</span> in CDB$ROOT or <span class="inline">AWRCAP</span> in a
-        PDB, and grants only the following. Grants are direct because views and definer's-rights
-        packages ignore roles.</p>
+        <span class="inline">AWRCAP</span> in a PDB (or <span class="inline">C##AWRCAP</span> in
+        CDB$ROOT), and grants only the following. Grants are direct because views and definer's-rights
+        packages ignore roles. The owner reads no AWR: it reads the copies it pulls over its links.</p>
       <div class="tablewrap">
         <table>
           <caption>Grants to the owner</caption>
@@ -259,8 +262,7 @@
             <tr><td><code>CREATE SESSION, CREATE TABLE, CREATE VIEW, CREATE TYPE, CREATE PROCEDURE</code></td><td>install</td></tr>
             <tr><td><code>CREATE MINING MODEL</code></td><td>Tier 2 only</td></tr>
             <tr><td><code>CREATE JOB</code></td><td>the optional scheduler jobs</td></tr>
-            <tr><td><code>SELECT</code> on <code>DBA_HIST_SNAPSHOT, _TBSPC_SPACE_USAGE, _TABLESPACE, _DATAFILE, _OSSTAT, _SYS_TIME_MODEL, _CON_SYS_TIME_MODEL, _SYSSTAT, _CON_SYSSTAT, _PDB_INSTANCE, _DATABASE_INSTANCE, _RESOURCE_LIMIT, _PARAMETER, _ASM_DISKGROUP, _ASM_DISKGROUP_STAT, _SEG_STAT, _SEG_STAT_OBJ, _PGASTAT, _MEM_DYNAMIC_COMP, _SQL_WORKAREA_HSTGRM, _PGA_TARGET_ADVICE, _SGA_TARGET_ADVICE, _DB_CACHE_ADVICE, _SHARED_POOL_ADVICE, _SGASTAT, _LIBRARYCACHE, _ROWCACHE_SUMMARY, _SYSTEM_EVENT, _WR_CONTROL</code></td><td>reading AWR</td></tr>
-            <tr><td><code>SELECT</code> on <code>V_$PARAMETER</code></td><td><span class="inline">doctor.sql</span> preflight</td></tr>
+            <tr><td><code>CREATE DATABASE LINK</code></td><td>one link per target, created by <span class="inline">cap_repo.add_target</span></td></tr>
             <tr><td><code>QUOTA 1G</code> on the default permanent tablespace</td><td>the tables and models</td></tr>
           </tbody>
         </table>
@@ -272,21 +274,22 @@
 
       <h3>Reads, writes and load</h3>
       <ul>
-        <li>Reads only the <code>DBA_HIST_*</code> views above. It does not change AWR settings,
-          snapshot interval or retention.</li>
+        <li>Reads AWR only through each target's read-only reader, over a database link: the
+          twenty-eight <code>DBA_HIST_*</code> views it copies. It does not change AWR settings, snapshot
+          interval or retention.</li>
         <li>Writes only its own tables (and OML model tables). No DML or DDL on any other schema.</li>
         <li>Load happens only when a report, <code>cap_results.refresh</code> or a training call runs:
           queries over AWR history, and for Tier 2 one ESM build per series. Nothing runs in the
           background unless you enable the jobs.</li>
-        <li>Licensing: <code>DBA_HIST_*</code> requires the Diagnostics Pack
-          (<span class="inline">doctor.sql</span> checks <code>CONTROL_MANAGEMENT_PACK_ACCESS</code>).
+        <li>Licensing: <code>DBA_HIST_*</code> requires the Diagnostics Pack on every measured database
+          (<span class="inline">target/check.sql</span> checks <code>CONTROL_MANAGEMENT_PACK_ACCESS</code>).
           Oracle Machine Learning has been included with the database license since December 2019.</li>
       </ul>
       <p>Re-running <span class="inline">@install.sql</span> keeps the tables and the models.
         <span class="inline">@uninstall.sql</span> drops every object, the models and the jobs.</p>
 
-      <h3 id="fleet-impact">In a fleet</h3>
-      <p>A measured database that a repository collects from gets one read-only common user,
+      <h3 id="fleet-impact">On a measured database</h3>
+      <p>A measured database, the repository's own one included, gets one read-only common user,
         <span class="inline">C##AWRRDR</span>, with <code>CREATE SESSION</code>, direct
         <code>SELECT</code> on the twenty-eight <code>DBA_HIST_*</code> views and
         <code>CONTAINER_DATA = ALL</code>. No tables, packages, jobs or models, and its AWR settings

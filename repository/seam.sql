@@ -1,22 +1,17 @@
 --
--- ddl/10_seam_local.sql -- CAPV_* portable seam over DBA_HIST_* (LOCAL mode).
+-- repository/seam.sql -- the CAPV_* seam, written over DBA_HIST_*.
 -- =====================================================================
--- These twenty-four views (plus the CAPV_CONTRACT diagnostic at the bottom) are the
--- ONLY place the analytics touch Oracle's AWR dictionary. Everything
--- downstream (CAPD_/CAPF_/CAPA_/report) is written once against CAPV_* and
--- runs byte-identically in local, repository, or fixture mode. Swapping this
--- file for ddl/13_seam_repository.sql (generated from it by
--- repository/build.py) or ddl/12_seam_fixture.sql re-points the same column
--- contract at a different source.
+-- Never installed itself. repository/build.py turns it into
+-- ddl/13_seam_repository.sql by renaming every dba_hist_<x> to cap_h_<x>,
+-- the copies a repository pulls from its targets.
 --
--- LOCAL mode requires the Diagnostics Pack and DIRECT SELECT grants (not via
--- a role) on the DBA_HIST_* views for the installing schema, so the views
--- compile. That includes DBA_HIST_CON_SYS_TIME_MODEL and DBA_HIST_CON_SYSSTAT
--- as well as their SYS_ counterparts. Install where the DBA_HIST rows you
--- want are visible -- for a CDB that is CDB$ROOT (AWR lives at the CDB
--- level).
+-- These twenty-four views (plus the CAPV_CONTRACT diagnostic at the bottom) are
+-- the ONLY place the analytics touch AWR data. Everything downstream
+-- (CAPD_/CAPF_/CAPA_/report) is written once against CAPV_* and runs
+-- byte-identically over ddl/13 (repository) or ddl/12_seam_fixture.sql
+-- (fixture), which re-point the same column contract at a different source.
 --
--- Column contract (identical in all three seam files):
+-- Column contract (identical in every seam file):
 --   * every view carries (dbid, con_dbid), but CAPV_TARGET (per dbid).
 --     DBA_HIST_SNAPSHOT has no CON_DBID column, so CAPV_SNAPSHOT sets
 --     con_dbid := dbid. The tablespace/OS/time
@@ -221,31 +216,53 @@ LEFT  JOIN (SELECT dbid, con_dbid, MAX(pdb_name) AS con_name
   ON  p.dbid = k.dbid AND p.con_dbid = k.con_dbid;
 
 -- --------------------------------------------------------------------
--- CAPV_TARGET (M24.6) -- what the suite measures and how it is fed: one row
--- per (target, dbid). Local mode measures this database, so each dbid is a
--- target named by its AWR db_name, fed LOCAL. host_name is the host of the
--- newest instance startup. The collect columns (address .. n_gaps) are
--- repository-only and NULL here. The repository seam does not copy this
--- view: repository/seam_overrides.sql defines it over CAP_TARGET and
--- CAP_COLLECT_LOG instead. Same columns and types in every seam file.
--- --------------------------------------------------------------------
+-- CAPV_TARGET (M24.6) -- what the suite measures and how it is fed, from the
+-- registry of repository/cap_repo.sql (included before the seam): one row
+-- per registered target and DBID (dbid NULL until the first DBID is
+-- found), fed LINK, with the collect health from CAP_COLLECT_LOG. Only log
+-- rows since the target was added count, so a removed and re-added target
+-- starts clean. An ERROR logged with dbid NULL (the link failed before any
+-- DBID was reached) applies to every DBID of the target. n_gaps counts GAP
+-- rows: snapshots the target purged before they were copied. The health
+-- columns are scalar subqueries, not joins, because the optimizer drops an
+-- unselected one: CAPR_CONTAINER, which every report view joins and which
+-- reads only target_name, never touches the log (verified 19.27).
+-- Scoped (the CAP_SCOPE expression) like every seam view, NULL-safe: a
+-- target with no DBID yet is in no database's scope.
 CREATE OR REPLACE VIEW capv_target AS
-SELECT CAST(MAX(db_name) AS VARCHAR2(30))       AS target_name,
-       dbid                                     AS dbid,
-       CAST('LOCAL' AS VARCHAR2(10))            AS feed,
-       CAST(MAX(host_name) KEEP (DENSE_RANK LAST ORDER BY startup_time NULLS FIRST)
-            AS VARCHAR2(64))                    AS host_name,
-       CAST(NULL AS VARCHAR2(4000))             AS address,
-       CAST(NULL AS VARCHAR2(128))              AS db_link,
-       CAST('Y' AS VARCHAR2(1))                 AS enabled,
-       CAST(NULL AS NUMBER)                     AS collected_snap_id,
-       CAST(NULL AS DATE)                       AS last_ok_at,
-       CAST(NULL AS DATE)                       AS last_error_at,
-       CAST(NULL AS VARCHAR2(4000))             AS last_error,
-       CAST(NULL AS NUMBER)                     AS n_gaps
-FROM   dba_hist_database_instance
-WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
-GROUP  BY dbid;
+SELECT CAST(t.target_name AS VARCHAR2(30))      AS target_name,
+       d.dbid                                   AS dbid,
+       CAST('LINK' AS VARCHAR2(10))             AS feed,
+       CAST(h.host_name AS VARCHAR2(64))        AS host_name,
+       CAST(t.connect_string AS VARCHAR2(4000)) AS address,
+       CAST(t.db_link AS VARCHAR2(128))         AS db_link,
+       CAST(t.enabled AS VARCHAR2(1))           AS enabled,
+       d.last_snap_id                           AS collected_snap_id,
+       (SELECT MAX(g.logged_at) FROM cap_collect_log g
+        WHERE  g.target_name = t.target_name AND g.dbid = d.dbid
+          AND  g.status IN ('OK', 'NOTHING') AND g.logged_at >= t.added_at) AS last_ok_at,
+       (SELECT MAX(g.logged_at) FROM cap_collect_log g
+        WHERE  g.target_name = t.target_name AND (g.dbid = d.dbid OR g.dbid IS NULL)
+          AND  g.status = 'ERROR' AND g.logged_at >= t.added_at)            AS last_error_at,
+       (SELECT CAST(MAX(g.message) KEEP (DENSE_RANK LAST ORDER BY g.logged_at, g.log_id)
+                    AS VARCHAR2(4000))
+        FROM   cap_collect_log g
+        WHERE  g.target_name = t.target_name AND (g.dbid = d.dbid OR g.dbid IS NULL)
+          AND  g.status = 'ERROR' AND g.logged_at >= t.added_at)            AS last_error,
+       (SELECT COUNT(*) FROM cap_collect_log g
+        WHERE  g.target_name = t.target_name AND g.dbid = d.dbid
+          AND  g.status = 'GAP' AND g.logged_at >= t.added_at)              AS n_gaps
+FROM   cap_target t
+LEFT   JOIN cap_target_dbid d
+  ON   d.target_id = t.target_id
+LEFT   JOIN (SELECT dbid,
+                    MAX(host_name) KEEP (DENSE_RANK LAST ORDER BY startup_time NULLS FIRST) AS host_name
+             FROM   dba_hist_database_instance
+             WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)
+             GROUP  BY dbid) h
+  ON   h.dbid = d.dbid
+WHERE  TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)) IS NULL
+   OR  d.dbid = TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1));
 
 -- --------------------------------------------------------------------
 -- CAPV_RESOURCE_LIMIT (M11.1) -- per-instance resource high-water marks vs
@@ -346,7 +363,7 @@ WHERE  parameter_name IN ('cpu_count','processes','sessions',
   AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 -- --------------------------------------------------------------------
--- CAPV_PGASTAT (M25) -- instance PGA statistics per snapshot, in bytes.
+-- CAPV_PGASTAT (M26) -- instance PGA statistics per snapshot, in bytes.
 --   * 'total PGA allocated' is the PGA in use when the snapshot was taken (a
 --     sample). 'maximum PGA allocated' is a HIGH-WATER MARK since instance
 --     startup: it resets at a restart, and only its advances between two
@@ -378,7 +395,7 @@ WHERE  name IN ('total PGA allocated','maximum PGA allocated',
   AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 -- --------------------------------------------------------------------
--- The memory sizing sources (M25). Instance level unless noted: on 19.27 in
+-- The memory sizing sources (M26). Instance level unless noted: on 19.27 in
 -- CDB$ROOT every row is under the root's con_dbid (con_id 0, the system
 -- events con_id 1), so con_dbid := dbid with the NVL(con_dbid, dbid) = dbid
 -- guard of CAPV_PGASTAT. Sizes are bytes, times as the source names them.

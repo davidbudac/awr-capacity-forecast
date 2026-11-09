@@ -15,8 +15,7 @@
 -- The fixture tables already store the post-mapping CAPV columns (bytes stay
 -- blocks, counters stay cumulative, etc.), so these views are thin
 -- pass-throughs -- keeping the fixture data honest to the same contract the
--- local seam presents. Each keeps only the scoped dbid (the CAP_SCOPE
--- expression of ddl/05, inline), as every ddl/10 source read does.
+-- local seam presents.
 --
 SET DEFINE OFF
 
@@ -94,7 +93,7 @@ FROM   cap_fixture_sysstat
 WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 -- CAPV_PARAMETER / CAPV_ASM_DISKGROUP / CAPV_SEG_STAT / CAPV_PGASTAT and the
--- memory sources (M25) over CAP_FIXTURE_<view suffix>, e.g. CAPV_MEM_COMP
+-- memory sources (M26) over CAP_FIXTURE_<view suffix>, e.g. CAPV_MEM_COMP
 -- over CAP_FIXTURE_MEM_COMP (value_num already a NUMBER, group_name without
 -- the '+'). test/demo_fixture.sql builds the demo story
 -- without these tables, so a missing table gets a zero-row contract stub

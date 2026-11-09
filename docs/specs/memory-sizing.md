@@ -1,6 +1,6 @@
 # Spec: instance memory sizing (SGA / PGA)
 
-Status: ready for implementation. Milestone M25 in PLAN.md.
+Status: ready for implementation. Milestone M26 in PLAN.md.
 Decided in a design session on 2026-11-09. Facts marked "verified" were read
 from a 19.27 CDB (ASMM, one instance, three containers).
 

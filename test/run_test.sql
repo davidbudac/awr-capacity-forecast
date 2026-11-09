@@ -1727,7 +1727,7 @@ BEGIN
             fail('seam-extension block raised ' || SQLERRM);
     END;
 
-    -- M25: CAPV_PGASTAT, the PGA_ALLOC_GB series and the PGA_LIMIT verdict
+    -- M26: CAPV_PGASTAT, the PGA_ALLOC_GB series and the PGA_LIMIT verdict
     -- (CAPM_*). Closed forms recorded by fixture_install.sql.
     DECLARE
         d_last   DATE   := meta_d('LAST_DAY');
@@ -1768,7 +1768,7 @@ BEGIN
              WHERE dbid = v_dbid AND instance_number = 1 AND area = 'PGA_LIMIT';
         END;
     BEGIN
-        DBMS_OUTPUT.PUT_LINE('=== M25 CAPV_PGASTAT ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 CAPV_PGASTAT ===');
         SELECT COUNT(*) INTO v_n FROM capv_pgastat;
         chk_int('CAPV_PGASTAT rows (6 names x every snapshot + the sparse over-allocation rows)',
                 v_n, meta_n('MEM_PGASTAT_ROWS'));
@@ -1787,7 +1787,7 @@ BEGIN
         chk_int('CAPV_CONTRACT PGASTAT n_con_dbid (instance level)', v_num2, 1);
         chk_str('CAPV_CONTRACT PGASTAT per_container_expected', v_c1, 'N');
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 PGA_ALLOC_GB series ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 PGA_ALLOC_GB series ===');
         -- Day 60 is the restart day (its 18:00 snapshot only), day 110 the
         -- high-water mark's advance, which the series does not see.
         FOR k IN (SELECT 0 AS i FROM dual UNION ALL SELECT 60 FROM dual
@@ -1836,7 +1836,7 @@ BEGIN
         SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE series_key = 'PGA_ALLOC_GB';
         chk_int('PGA_ALLOC_GB raises no alert (55% of the limit, 840 days out)', v_n, 0);
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_PGA_LIMIT (shipped knobs) ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 CAPM_PGA_LIMIT (shipped knobs) ===');
         SELECT COUNT(*) INTO v_n FROM capm_pga_limit;
         chk_int('CAPM_PGA_LIMIT one row (one database, one instance)', v_n, 1);
         SELECT con_dbid, window_start, window_end, n_days, mem_mode, limit_bytes,
@@ -1860,7 +1860,7 @@ BEGIN
         chk_int ('PGA_LIMIT sga_bytes 4 GiB', v_sga, 4 * n_gib);
         chk_int ('PGA_LIMIT host_ram_bytes 16 GiB', v_ram, meta_n('HOST_RAM_GIB') * n_gib);
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_EVIDENCE / CAPM_VERDICT (shipped knobs) ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 CAPM_EVIDENCE / CAPM_VERDICT (shipped knobs) ===');
         SELECT COUNT(*), COUNT(CASE WHEN kind = 'USAGE' THEN 1 END) INTO v_n, v_num
           FROM capm_evidence WHERE area = 'PGA_LIMIT';
         chk_int('CAPM_EVIDENCE two PGA_LIMIT signals', v_n, 2);
@@ -1893,7 +1893,7 @@ BEGIN
         SELECT COUNT(*) INTO v_n FROM capm_verdict WHERE area = 'PGA_LIMIT' AND grade = 'OVERSIZED';
         chk_int('PGA_LIMIT is never OVERSIZED', v_n, 0);
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 PGA_LIMIT knob variations ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 PGA_LIMIT knob variations ===');
         BEGIN
             knob('mem_pga_limit_pct', 96);
             verdict;
@@ -1946,7 +1946,7 @@ BEGIN
         chk_int('the mem_ knobs: 5 of the PGA limit, 18 of the advisor areas', v_n, 23);
         chk_int('the mem_ knobs OK after reset', v_num, v_n);
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 PGA_LIMIT parameter and data variations ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 PGA_LIMIT parameter and data variations ===');
         SAVEPOINT m25_param;
         BEGIN
             UPDATE cap_fixture_parameter SET value_num = 4294967296
@@ -1988,11 +1988,11 @@ BEGIN
         chk_str('PGA_LIMIT back to UNDERSIZED after the rollback', v_grade, 'UNDERSIZED');
     EXCEPTION
         WHEN OTHERS THEN
-            fail('M25 PGA block raised ' || SQLERRM);
+            fail('M26 PGA block raised ' || SQLERRM);
     END;
 
-    -- M25: the advisor-based areas (PGA_TARGET, BUFFER_CACHE, SHARED_POOL,
-    -- SGA_TOTAL) and SGA_BALANCE. The designed inputs are in the "M25 --
+    -- M26: the advisor-based areas (PGA_TARGET, BUFFER_CACHE, SHARED_POOL,
+    -- SGA_TOTAL) and SGA_BALANCE. The designed inputs are in the "M26 --
     -- memory sizing sources" block of fixture_install.sql: an increment of
     -- a x u seconds a snapshot interval, u = MEM_U, over n intervals whose DB
     -- time is dbt, is pct(n, a, dbt) percent of DB time.
@@ -2102,7 +2102,7 @@ BEGIN
         PROCEDURE reset_knobs IS
         BEGIN UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name LIKE 'mem!_%' ESCAPE '!'; END;
     BEGIN
-        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_SNAP / CAPM_DELTA ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 CAPM_SNAP / CAPM_DELTA ===');
         SELECT COUNT(*), COUNT(CASE WHEN in_win = 'Y' THEN 1 END),
                COUNT(CASE WHEN seg_ok = 'N' THEN 1 END),
                COUNT(CASE WHEN prev_snap_id IS NULL THEN 1 END)
@@ -2151,7 +2151,7 @@ BEGIN
          WHERE dbid = v_dbid AND metric = 'BUFFER_CACHE' AND snap_id = n_latest;
         chk_int('CAPM_DELTA buffer cache advisor: the ten sizes of pool 3 (KEEP and 16K left out)', v_n, 10);
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_ADVICE (shipped knobs) ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 CAPM_ADVICE (shipped knobs) ===');
         FOR r IN (SELECT 'PGA_TARGET' AS a, 8 AS n_rows, 6 AS n_cand, 1024 AS cur FROM dual
                   UNION ALL SELECT 'BUFFER_CACHE', 10, 8, 2560 FROM dual
                   UNION ALL SELECT 'SHARED_POOL',   9, 7, 1024 FROM dual
@@ -2200,7 +2200,7 @@ BEGIN
         chk_str  ('CAPM_ADVICE shared pool 2560 MiB is outside the step cap', v_c1, 'N');
         chk_close('CAPM_ADVICE shared pool 2560 MiB gain 2 u all the same', v_num, pct(60, 2, n_dbt), 0.000001);
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_AREA / CAPM_SGA_BALANCE (shipped knobs) ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 CAPM_AREA / CAPM_SGA_BALANCE (shipped knobs) ===');
         area('PGA_TARGET');
         chk_close('CAPM_AREA PGA_TARGET best_gain 10 points', a_best, meta_n('MEM_PGA_GAIN'), 0.000001);
         chk_int  ('CAPM_AREA PGA_TARGET best_bytes 2 GiB', a_bestb, 2 * n_gib);
@@ -2239,7 +2239,7 @@ BEGIN
         chk_true('CAPM_SGA_BALANCE cache_min_bytes / shpool_min_bytes',
                  v_cur = 2560 * n_mib AND v_sug = 1024 * n_mib);
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_EVIDENCE of the advisor areas (shipped knobs) ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 CAPM_EVIDENCE of the advisor areas (shipped knobs) ===');
         FOR r IN (SELECT 'PGA_TARGET' AS a, 8 AS n FROM dual UNION ALL SELECT 'BUFFER_CACHE', 4 FROM dual
                   UNION ALL SELECT 'SHARED_POOL', 7 FROM dual UNION ALL SELECT 'SGA_TOTAL', 4 FROM dual
                   UNION ALL SELECT 'SGA_BALANCE', 3 FROM dual) LOOP
@@ -2309,7 +2309,7 @@ BEGIN
                  e_txt = 'Neither the buffer cache nor the shared pool is below its largest size of the window,'
                          || ' a shift of 0.00% of sga_target (threshold 10%).');
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 CAPM_VERDICT of the advisor areas (shipped knobs) ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 CAPM_VERDICT of the advisor areas (shipped knobs) ===');
         SELECT COUNT(*) INTO v_n FROM capm_verdict WHERE dbid = v_dbid;
         chk_int('CAPM_VERDICT six areas', v_n, 6);
         chk_v('shipped', 'PGA_TARGET', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', meta_n('MEM_PGA_SUGGEST_MIB'));
@@ -2342,7 +2342,7 @@ BEGIN
         chk_true('SGA_BALANCE exceeds_sga NULL', v_xsga IS NULL);
         chk_int('SGA_BALANCE n_days', v_days, 30);
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 advisor area knob variations ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 advisor area knob variations ===');
         BEGIN
             -- The knee and the step cap move a suggestion.
             knob('mem_knee_pct', 99);
@@ -2501,7 +2501,7 @@ BEGIN
         reset_knobs;
         COMMIT;
 
-        DBMS_OUTPUT.PUT_LINE('=== M25 advisor area parameter and data variations ===');
+        DBMS_OUTPUT.PUT_LINE('=== M26 advisor area parameter and data variations ===');
         SAVEPOINT m25_mem;
         BEGIN
             UPDATE cap_fixture_parameter SET value_num = 4294967296
@@ -2964,7 +2964,7 @@ BEGIN
         chk_int('only CAPM_ views (and CAPV_CONTRACT) read the memory sources, nothing reads a CAPM_ view', v_n, 0);
     EXCEPTION
         WHEN OTHERS THEN
-            fail('M25 memory block raised ' || SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
+            fail('M26 memory block raised ' || SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
     END;
 
     DECLARE
@@ -3382,7 +3382,7 @@ BEGIN
                                  'CACHE_ADVICE','SHPOOL_ADVICE','SGASTAT','LIBRARYCACHE',
                                  'ROWCACHE','SYSTEM_EVENT')      AND per_container_expected = 'N');
         chk_int('CAPV_CONTRACT per_container_expected as specified', v_n, 20);
-        -- M25 memory sources: fixture_install.sql fills all ten.
+        -- M26 memory sources: fixture_install.sql fills all ten.
         SELECT COUNT(*), NVL(SUM(n_rows), 0) INTO v_n, v_num
           FROM capv_contract
          WHERE source_name IN ('MEM_COMP','WORKAREA_HSTGRM','PGA_ADVICE','SGA_ADVICE',
@@ -3412,7 +3412,7 @@ BEGIN
         chk_int('CAPV_CONTRACT SNAPSHOT max_snap_id', v_num2, 2001 + 2 * (d_last - d_base));
         chk_true('CAPV_CONTRACT SNAPSHOT max_end_time = last day 18:00',
                  v_ts = d_last + 18/24);
-        -- OSSTAT: 5 names (the 4 CPU ones and M25's PHYSICAL_MEMORY_BYTES)
+        -- OSSTAT: 5 names (the 4 CPU ones and M26's PHYSICAL_MEMORY_BYTES)
         -- on every snapshot but the two of the gap day.
         SELECT n_rows, n_con_dbid INTO v_num, v_num2
           FROM capv_contract WHERE source_name = 'OSSTAT';
@@ -4767,10 +4767,10 @@ BEGIN
 
     -- suite_version: stamped by every install, BAD when older than this release.
     SELECT suite_version INTO v_num FROM cap_cfg;
-    chk_int('suite_version = 25.3', v_num, 25.3);
+    chk_int('suite_version = 26.3', v_num, 26.3);
     UPDATE cap_config SET cfg_value = 24.13 WHERE cfg_name = 'suite_version';
     SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'suite_version';
-    chk_str('CAP_CFG_CHECK suite_version=24.13 < 25.3', v_str, 'BAD');
+    chk_str('CAP_CFG_CHECK suite_version=24.13 < 26.3', v_str, 'BAD');
     UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'suite_version';
     COMMIT;
 

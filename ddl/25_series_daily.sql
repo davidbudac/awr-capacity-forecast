@@ -15,7 +15,7 @@
 --                'redo size' counter deltas). unit GIB_PER_DAY. NO limit --
 --                FRA / archive-destination sizing is an operator decision, so
 --                the series is a trend, not a days-to-limit.
---   PGA_ALLOC_GB (M25) the day's highest sampled 'total PGA allocated'
+--   PGA_ALLOC_GB (M26) the day's highest sampled 'total PGA allocated'
 --                (CAPV_PGASTAT) in GiB, against pga_aggregate_limit
 --                (CAPV_PARAMETER at the same snapshot; 0 = no limit = NULL).
 --                unit GIB. A sample: PGA allocated between two snapshots is
@@ -121,7 +121,7 @@ WITH snap AS (
         SELECT dbid, instance_number, snap_id, end_interval_time, startup_time
         FROM   capv_snapshot
      ),
-     -- ------- PROCESSES / SESSIONS (M11.1), PGA_ALLOC_GB (M25) -------
+     -- ------- PROCESSES / SESSIONS (M11.1), PGA_ALLOC_GB (M26) -------
      -- One row per snapshot and instance: the sampled level and the
      -- instance's ceiling at that snapshot.
      rl AS (

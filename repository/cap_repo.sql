@@ -100,15 +100,20 @@ CREATE OR REPLACE PACKAGE cap_repo AUTHID DEFINER AS
     --                                    (dropped again by remove_target);
     --   p_db_link                        use a link of this schema the DBA
     --                                    made (wallet, proxy), kept on remove.
+    -- Where this database runs with GLOBAL_NAMES = TRUE a link must be named
+    -- after the target's global name (ORA-02085 otherwise), so the link
+    -- becomes <p_global_name>@CAP_<name>; without p_global_name that case
+    -- fails with ORA-20074. target/prepare.sql prints the global name.
     -- Every copied view is probed over the link first; a required view the
     -- reader cannot see fails the call (ORA-20072) and leaves nothing
     -- behind. An optional one (CAP_REPO_SOURCE.optional = 'Y') is a warning.
     -- Copies nothing yet: run collect.
-    PROCEDURE add_target(p_name     IN VARCHAR2,
-                         p_connect  IN VARCHAR2 DEFAULT NULL,
-                         p_user     IN VARCHAR2 DEFAULT NULL,
-                         p_password IN VARCHAR2 DEFAULT NULL,
-                         p_db_link  IN VARCHAR2 DEFAULT NULL);
+    PROCEDURE add_target(p_name        IN VARCHAR2,
+                         p_connect     IN VARCHAR2 DEFAULT NULL,
+                         p_user        IN VARCHAR2 DEFAULT NULL,
+                         p_password    IN VARCHAR2 DEFAULT NULL,
+                         p_db_link     IN VARCHAR2 DEFAULT NULL,
+                         p_global_name IN VARCHAR2 DEFAULT NULL);
 
     -- Copy every snapshot not copied yet, for one target or (NULL) every
     -- enabled one. The first collect of a DBID backfills what the target
@@ -143,6 +148,12 @@ CREATE OR REPLACE PACKAGE cap_repo AUTHID DEFINER AS
     -- caller's transaction (the remote SELECT opens a distributed one).
     FUNCTION ping(p_name IN VARCHAR2) RETURN VARCHAR2;
 
+    -- When the reader's password expires on the target (USER_USERS over the
+    -- link; doctor.sql check 11 warns ahead of it). NULL when it never
+    -- expires or the link cannot answer (ping says why). Never raises; rolls
+    -- back the caller's transaction as ping does.
+    FUNCTION reader_expiry(p_name IN VARCHAR2) RETURN DATE;
+
     -- Every procedure above labels its session MODULE 'AWRCAP/cap_repo.<name>'
     -- (collect: ACTION = the target and DBID it copies) and puts the caller's
     -- MODULE / ACTION back when it returns or raises. The target's session
@@ -155,6 +166,8 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
 
     e_locked EXCEPTION;
     PRAGMA EXCEPTION_INIT(e_locked, -54);
+    e_global_names EXCEPTION;
+    PRAGMA EXCEPTION_INIT(e_global_names, -2085);
 
     PROCEDURE say(p_txt IN VARCHAR2) IS
     BEGIN
@@ -216,6 +229,52 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
     EXCEPTION
         WHEN OTHERS THEN NULL;   -- not open, or a transaction still uses it
     END close_link;
+
+    PROCEDURE create_link(p_link IN VARCHAR2, p_user IN VARCHAR2, p_password IN VARCHAR2,
+                          p_connect IN VARCHAR2) IS
+    BEGIN
+        EXECUTE IMMEDIATE 'CREATE DATABASE LINK ' || p_link || ' CONNECT TO ' || p_user
+                          || ' IDENTIFIED BY "' || p_password || '" USING '''
+                          || p_connect || '''';
+    END create_link;
+
+    PROCEDURE drop_link(p_link IN VARCHAR2) IS
+    BEGIN
+        close_link(p_link);
+        EXECUTE IMMEDIATE 'DROP DATABASE LINK ' || p_link;
+    EXCEPTION
+        WHEN OTHERS THEN NULL;
+    END drop_link;
+
+    FUNCTION owned_link(p_name IN VARCHAR2, p_connect IN VARCHAR2, p_user IN VARCHAR2,
+                        p_password IN VARCHAR2, p_global_name IN VARCHAR2) RETURN VARCHAR2 IS
+        v_link VARCHAR2(128) := 'CAP_' || p_name;
+        v_n    NUMBER;
+        v_err  VARCHAR2(4000);
+    BEGIN
+        create_link(v_link, p_user, p_password, p_connect);
+        BEGIN
+            EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM dual@' || v_link INTO v_n;
+            RETURN v_link;
+        EXCEPTION
+            WHEN e_global_names THEN
+                v_err := SQLERRM;
+            WHEN OTHERS THEN
+                ROLLBACK;
+                drop_link(v_link);
+                RAISE;
+        END;
+        ROLLBACK;
+        drop_link(v_link);
+        IF p_global_name IS NULL THEN
+            RAISE_APPLICATION_ERROR(-20074, 'GLOBAL_NAMES is TRUE here, so the link must be'
+                || ' named after the target''s global name: pass p_global_name (target/prepare.sql'
+                || ' prints it). ' || v_err);
+        END IF;
+        v_link := UPPER(p_global_name) || '@' || v_link;
+        create_link(v_link, p_user, p_password, p_connect);
+        RETURN v_link;
+    END owned_link;
 
     -- Fail unless the link answers and the reader can see every required
     -- copied view. An unreadable optional view (CAP_REPO_SOURCE.optional) is
@@ -287,14 +346,18 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
     -- view once listed is not tried again in this collect.
     FUNCTION collect_dbid(t IN cap_target%ROWTYPE, p_dbid IN NUMBER,
                           p_chunk IN PLS_INTEGER, p_skipped IN OUT VARCHAR2) RETURN BOOLEAN IS
-        v_min   NUMBER;
-        v_max   NUMBER;
-        v_hwm   NUMBER;
-        v_end   NUMBER;
-        v_first NUMBER;
-        v_rows  NUMBER := 0;
-        v_t0    PLS_INTEGER := DBMS_UTILITY.GET_TIME;
-        v_sql   VARCHAR2(4000);
+        v_min         NUMBER;
+        v_max         NUMBER;
+        v_prev        NUMBER;
+        v_inst_newest NUMBER;
+        v_inst_before NUMBER;
+        v_held        VARCHAR2(200);
+        v_hwm         NUMBER;
+        v_end         NUMBER;
+        v_first       NUMBER;
+        v_rows        NUMBER := 0;
+        v_t0          PLS_INTEGER := DBMS_UTILITY.GET_TIME;
+        v_sql         VARCHAR2(4000);
 
         FUNCTION secs RETURN NUMBER IS
         BEGIN
@@ -302,14 +365,24 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         END secs;
     BEGIN
         DBMS_APPLICATION_INFO.SET_ACTION(SUBSTR(t.target_name || ' ' || p_dbid, 1, 32));
-        EXECUTE IMMEDIATE 'SELECT MIN(snap_id), MAX(snap_id) FROM dba_hist_snapshot@'
-                          || t.db_link || ' WHERE dbid = :1'
-            INTO v_min, v_max USING p_dbid;
+        EXECUTE IMMEDIATE 'SELECT MIN(snap_id), MAX(snap_id), MAX(CASE WHEN rn = 2 THEN snap_id END),'
+                          || ' MAX(CASE WHEN rn = 1 THEN n_inst END), MAX(CASE WHEN rn = 2 THEN n_inst END)'
+                          || ' FROM (SELECT snap_id, COUNT(DISTINCT instance_number) AS n_inst,'
+                          || ' ROW_NUMBER() OVER (ORDER BY snap_id DESC) AS rn'
+                          || ' FROM dba_hist_snapshot@' || t.db_link || ' WHERE dbid = :1 GROUP BY snap_id)'
+            INTO v_min, v_max, v_prev, v_inst_newest, v_inst_before USING p_dbid;
         IF v_max IS NULL THEN
             ROLLBACK;
             log_event(t.target_name, p_dbid, 'NOTHING', p_secs => secs,
                       p_msg => 'no snapshots for this DBID on the target any more');
             RETURN TRUE;
+        END IF;
+        -- Facts are copied once, above the high-water mark, so a snapshot
+        -- one RAC instance has not finished yet would lose its rows for good.
+        IF v_inst_newest < v_inst_before THEN
+            v_held := 'snap_id ' || v_max || ' held back: ' || v_inst_newest || ' of ' || v_inst_before
+                      || ' instances have completed it';
+            v_max  := v_prev;
         END IF;
 
         LOOP
@@ -394,12 +467,14 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         COMMIT;
         log_event(t.target_name, p_dbid, CASE WHEN v_first IS NULL THEN 'NOTHING' ELSE 'OK' END,
                   v_first, CASE WHEN v_first IS NOT NULL THEN v_max END, v_rows, secs,
-                  CASE WHEN p_skipped IS NOT NULL
-                       THEN 'not copied (the reader cannot read them): ' || p_skipped END);
+                  CASE WHEN v_held IS NOT NULL AND p_skipped IS NOT NULL THEN v_held || '; ' END
+                  || CASE WHEN p_skipped IS NOT NULL
+                          THEN 'not copied (the reader cannot read them): ' || p_skipped
+                          ELSE v_held END);
         say(t.target_name || ' DBID ' || p_dbid || ': '
             || CASE WHEN v_first IS NULL THEN 'up to date at snap_id ' || v_max
                     ELSE 'snap_id ' || v_first || '..' || v_max || ', ' || v_rows || ' rows' END
-            || ' (' || secs || ' s)');
+            || ' (' || secs || ' s)' || CASE WHEN v_held IS NOT NULL THEN '; ' || v_held END);
         RETURN TRUE;
     EXCEPTION
         WHEN OTHERS THEN
@@ -410,11 +485,12 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
             RETURN FALSE;
     END collect_dbid;
 
-    PROCEDURE add_target(p_name     IN VARCHAR2,
-                         p_connect  IN VARCHAR2 DEFAULT NULL,
-                         p_user     IN VARCHAR2 DEFAULT NULL,
-                         p_password IN VARCHAR2 DEFAULT NULL,
-                         p_db_link  IN VARCHAR2 DEFAULT NULL) IS
+    PROCEDURE add_target(p_name        IN VARCHAR2,
+                         p_connect     IN VARCHAR2 DEFAULT NULL,
+                         p_user        IN VARCHAR2 DEFAULT NULL,
+                         p_password    IN VARCHAR2 DEFAULT NULL,
+                         p_db_link     IN VARCHAR2 DEFAULT NULL,
+                         p_global_name IN VARCHAR2 DEFAULT NULL) IS
         v_name  cap_target.target_name%TYPE := norm_name(p_name);
         v_link  VARCHAR2(128);
         v_owned VARCHAR2(1);
@@ -444,14 +520,19 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
                 RAISE_APPLICATION_ERROR(-20071, 'p_user must be a plain name, p_password'
                                                 || ' without ", p_connect without a quote');
             END IF;
-            v_link  := 'CAP_' || v_name;
+            IF p_global_name IS NOT NULL AND NOT REGEXP_LIKE(p_global_name,
+                   '^[A-Za-z][A-Za-z0-9_$#]*(\.[A-Za-z][A-Za-z0-9_$#]*)*$')
+               OR LENGTH(p_global_name) + LENGTH('@CAP_' || v_name) > 128 THEN
+                RAISE_APPLICATION_ERROR(-20071, 'p_global_name must be the target''s global'
+                    || ' name as target/prepare.sql prints it (DB_NAME.DOMAIN), not ' || p_global_name);
+            END IF;
             v_owned := 'Y';
-            EXECUTE IMMEDIATE 'CREATE DATABASE LINK ' || v_link || ' CONNECT TO ' || p_user
-                              || ' IDENTIFIED BY "' || p_password || '" USING '''
-                              || p_connect || '''';
         END IF;
 
         BEGIN
+            IF v_owned = 'Y' THEN
+                v_link := owned_link(v_name, p_connect, p_user, p_password, p_global_name);
+            END IF;
             probe(v_link);
             INSERT INTO cap_target (target_name, db_link, link_owned, connect_string, link_user)
             VALUES (v_name, v_link, v_owned, p_connect, UPPER(p_user))
@@ -465,13 +546,8 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         EXCEPTION
             WHEN OTHERS THEN
                 ROLLBACK;
-                IF v_owned = 'Y' THEN
-                    close_link(v_link);
-                    BEGIN
-                        EXECUTE IMMEDIATE 'DROP DATABASE LINK ' || v_link;
-                    EXCEPTION
-                        WHEN OTHERS THEN NULL;
-                    END;
+                IF v_owned = 'Y' AND v_link IS NOT NULL THEN
+                    drop_link(v_link);
                 END IF;
                 RAISE;
         END;
@@ -633,9 +709,7 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         END IF;
         close_link(t.db_link);
         EXECUTE IMMEDIATE 'DROP DATABASE LINK ' || t.db_link;
-        EXECUTE IMMEDIATE 'CREATE DATABASE LINK ' || t.db_link || ' CONNECT TO ' || t.link_user
-                          || ' IDENTIFIED BY "' || p_password || '" USING '''
-                          || t.connect_string || '''';
+        create_link(t.db_link, t.link_user, p_password, t.connect_string);
         probe(t.db_link);
         close_link(t.db_link);
         say('link ' || t.db_link || ' of target ' || t.target_name || ' recreated, probe OK');
@@ -736,6 +810,23 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         END IF;
         RETURN v_err;
     END ping;
+
+    FUNCTION reader_expiry(p_name IN VARCHAR2) RETURN DATE IS
+        t     cap_target%ROWTYPE;
+        v_exp DATE;
+    BEGIN
+        BEGIN
+            t := get_target(p_name);
+            EXECUTE IMMEDIATE 'SELECT expiry_date FROM user_users@' || t.db_link INTO v_exp;
+        EXCEPTION
+            WHEN OTHERS THEN v_exp := NULL;
+        END;
+        ROLLBACK;
+        IF t.db_link IS NOT NULL THEN
+            close_link(t.db_link);
+        END IF;
+        RETURN v_exp;
+    END reader_expiry;
 
 END cap_repo;
 /

@@ -3,7 +3,7 @@
 -- =====================================================================
 -- The Tier 1 (pure-SQL OLS) forecast for CAPD_SERIES_DAILY, i.e. for
 -- PROCESSES / SESSIONS (M11.1), REDO_GB_DAY (M11.2), DB_SIZE_GB (M11.3),
--- PGA_ALLOC_GB (M25) and the ASM_DG / TEMP_PEAK / UNDO_PEAK series. One row per
+-- PGA_ALLOC_GB (M26) and the ASM_DG / TEMP_PEAK / UNDO_PEAK series. One row per
 -- (dbid, con_dbid, series).
 --
 -- It is deliberately the SAME arithmetic as CAPF_CPU_TREND -- REGR_* fit over
@@ -57,7 +57,7 @@
 --                     of redo the FRA holds at today's rate. The log stream
 --                     is shared, so the rate is the SUM of cur_val over the
 --                     dbid's current (is_current = 'Y') REDO_GB_DAY rows, one
---                     per container in local mode, and every REDO row of the
+--                     per container of a CDB, and every REDO row of the
 --                     dbid carries the same number. NULL when either side is
 --                     NULL or 0. It is an upper bound: the FRA also holds
 --                     flashback logs and backups.

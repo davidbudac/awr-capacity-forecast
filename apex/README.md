@@ -161,7 +161,7 @@ already have for the suite. Put ORDS behind TLS outside a lab.
   line from the config value.
 - **Host CPU is a root-container series.** OSSTAT records under the CDB's
   own `con_dbid`, so with a PDB selected the host CPU chart shows its CDB
-  root's rows (the same host) rather than nothing. Local mode reads per-PDB
+  root's rows (the same host) rather than nothing. The seam reads per-PDB
   DB CPU and redo from the `DBA_HIST_CON_*` views (`CAPV_TIME_MODEL`,
   `CAPV_SYSSTAT`); sessions and processes stay CDB-wide under the root (see
   `CLAUDE.md`).

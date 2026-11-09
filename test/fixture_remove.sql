@@ -2,8 +2,8 @@
 -- test/fixture_remove.sql -- drop the CAP_FIXTURE_* tables.
 -- =====================================================================
 -- Run after testing to remove the synthetic tables. The CAPV_* seam views
--- created over them (fixture mode) are left as-is; re-install in local mode
--- (or run uninstall.sql) to fully clean up.
+-- created over them (fixture mode) are left as-is; re-install in repository
+-- mode (or run uninstall.sql) to fully clean up.
 --
 SET APPINFO OFF
 SET APPINFO "AWRCAP/test/fixture_remove.sql"

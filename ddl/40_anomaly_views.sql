@@ -46,7 +46,7 @@ SET DEFINE OFF
 -- scored and HOW:
 --   kind / series  TBSPC / tablespace; CPU / BUSY_PCT (host, OSSTAT) and
 --                  DB_CPU_PCT (per container); SERIES / the M11 names and
---                  PGA_ALLOC_GB (M25).
+--                  PGA_ALLOC_GB (M26).
 --   grain / ts     DAY rows carry day_dt; HOUR rows (CPU only) the END-hour
 --                  bucket of CAPD_CPU_HOURLY.
 --   value          the number the baselines compare: TBSPC the gap-normalised

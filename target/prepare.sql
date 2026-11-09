@@ -36,11 +36,13 @@ SET SERVEROUTPUT ON SIZE UNLIMITED FORMAT WRAPPED
 WHENEVER SQLERROR EXIT FAILURE
 
 SET TERMOUT OFF
-COLUMN cap_r_in NEW_VALUE reader    NOPRINT
-COLUMN cap_w_in NEW_VALUE reader_pw NOPRINT
-SELECT NULL AS cap_r_in, NULL AS cap_w_in FROM dual WHERE 1 = 0;
+COLUMN cap_r_in NEW_VALUE reader        NOPRINT
+COLUMN cap_w_in NEW_VALUE reader_pw     NOPRINT
+COLUMN cap_n_in NEW_VALUE cap_self_name NOPRINT
+SELECT NULL AS cap_r_in, NULL AS cap_w_in, NULL AS cap_n_in FROM dual WHERE 1 = 0;
 COLUMN cap_r_in CLEAR
 COLUMN cap_w_in CLEAR
+COLUMN cap_n_in CLEAR
 SET TERMOUT ON
 
 PROMPT
@@ -60,6 +62,8 @@ DECLARE
     v_svc    VARCHAR2(200) := SYS_CONTEXT('USERENV', 'DB_UNIQUE_NAME')
                               || CASE WHEN SYS_CONTEXT('USERENV', 'DB_DOMAIN') IS NOT NULL
                                       THEN '.' || SYS_CONTEXT('USERENV', 'DB_DOMAIN') END;
+    v_gname  VARCHAR2(4000);
+    v_port   VARCHAR2(10);
 
     TYPE t_list IS TABLE OF VARCHAR2(40);
     v_obj t_list := t_list(
@@ -120,12 +124,21 @@ BEGIN
     END IF;
 
     DBMS_OUTPUT.PUT_LINE(' ');
+    IF '&cap_self_name' IS NOT NULL THEN
+        DBMS_OUTPUT.PUT_LINE('  Reader ' || v_reader || ' is ready for this database''s own repository.');
+        RETURN;
+    END IF;
+    SELECT global_name INTO v_gname FROM global_name;
+    SELECT NVL(MIN(REGEXP_SUBSTR(value, '\(PORT=([0-9]+)\)', 1, 1, 'i', 1)), '1521') INTO v_port
+    FROM   v$listener_network WHERE type = 'LOCAL LISTENER';
     DBMS_OUTPUT.PUT_LINE('  Reader ' || v_reader || ' is ready. Register this target on the repository');
     DBMS_OUTPUT.PUT_LINE('  (as the suite owner there). Check the address against lsnrctl status:');
     DBMS_OUTPUT.PUT_LINE('    EXEC cap_repo.add_target(''' || UPPER(SYS_CONTEXT('USERENV', 'DB_UNIQUE_NAME'))
-                         || ''', ''//' || v_host || ':1521/' || v_svc || ''', '''
-                         || v_reader || ''', ''<password>'')');
+                         || ''', ''//' || v_host || ':' || v_port || '/' || v_svc || ''', '''
+                         || v_reader || ''', ''<password>'', p_global_name => ''' || v_gname || ''')');
     DBMS_OUTPUT.PUT_LINE('    EXEC cap_repo.collect');
+    DBMS_OUTPUT.PUT_LINE('  The global name ' || v_gname || ' names the link only where the repository'
+                         || ' runs with GLOBAL_NAMES = TRUE.');
 END;
 /
 
