@@ -146,12 +146,16 @@ valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
 `test/lint_anom_joins.sh`, `test/lint_appinfo.sh`, `test/lint_dbid_windows.sh`
 and `test/lint_snapshot_reads.sh`, syncs and runs the whole fixture harness on dbmint.
+README.md shows diagrams as `docs/diagrams/readme/*.svg`, standalone copies
+of inline SVGs from the docs pages made by `docs/diagrams/readme_svgs.py`
+(its `DIAGRAMS` map names page and diagram): edit the page's SVG, rerun it.
 `test/docs_lint.sh` checks the docs against the DDL (knobs, object index,
 alert kinds, no assertion counts, no "generated" claim, every `CREATE TABLE`
 in ddl/ + repository/ plus `CAP_H_*` named in reference.html#tables and in
 the "Persisted tables" bullet above, every `profiles/*.env` in
-reference.html#installer and install.sh's `--profile` help, and no token of
-the retired warehouse mode in a tracked file outside PLAN.md and bench/).
+reference.html#installer and install.sh's `--profile` help, no token of
+the retired warehouse mode in a tracked file outside PLAN.md and bench/, and
+README diagrams current).
 `install.sh` is the guided / silent installer for every role (one SQL*Plus
 driver per run, log in `reports/install_<ts>.log`); `profiles/*.env` are its
 answer files: `standalone` (dedicated owner, ML, jobs), `target`,

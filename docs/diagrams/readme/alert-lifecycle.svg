@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="170" class="dg" viewBox="0 0 640 170" role="img" aria-label="Alert states written by cap_results.refresh: NEW, then ESCALATED or DEESCALATED as severity changes, RESOLVED after resolve_grace_runs missed runs, REOPENED if it returns.">
+<style>
+.dg{--bg:#ffffff;--surface:#f8f9fb;--surface-2:#f1f3f6;--surface-3:#e8ebf0;--text:#111827;--muted:#4b5563;--faint:#8a93a1;--border:#e3e6eb;--border-strong:#cfd4dc;--accent:#2f5bea;--accent-soft:#eaf0ff;--accent-text:#2249c4;--ok:#1f7a4d;--warn:#9a6700;--crit:#c0392b;--ok-bg:#e6f4ec;--warn-bg:#fff5da;--crit-bg:#fdecea;--code-bg:#0f172a;--code-bar:#162036;--code-fg:#d6deea;--code-border:#1f2b45;--mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace;--sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;--r:10px}
+.dg .g{stroke:var(--border);stroke-width:1}
+.dg .ax{stroke:var(--border-strong);stroke-width:1;fill:none}
+.dg .ln{fill:none;stroke:var(--text);stroke-width:1.7;stroke-linejoin:round;stroke-linecap:round}
+.dg .fc{fill:none;stroke:var(--accent);stroke-width:1.8;stroke-dasharray:6 4;stroke-linecap:round}
+.dg .alt{fill:none;stroke:var(--faint);stroke-width:1.5;stroke-dasharray:3 3}
+.dg .band{fill:var(--accent);opacity:.14;stroke:none}
+.dg .zone{fill:var(--surface);stroke:var(--border)}
+.dg .soft{fill:var(--accent-soft);stroke:none}
+.dg .ceil{fill:none;stroke:var(--crit);stroke-width:1.3;stroke-dasharray:5 4}
+.dg .pt{fill:var(--text)}
+.dg .pa{fill:var(--accent)}
+.dg .bad{fill:none;stroke:var(--crit);stroke-width:1.8}
+.dg .badf{fill:var(--crit)}
+.dg .okf{fill:var(--ok)}
+.dg .box{fill:var(--surface);stroke:var(--border-strong);stroke-width:1}
+.dg .boxa{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1}
+.dg .edge{fill:none;stroke:var(--faint);stroke-width:1.2}
+.dg .head{fill:var(--faint)}
+.dg text{font-family:var(--sans);font-size:11px;fill:var(--muted)}
+.dg .t{fill:var(--text)}
+.dg .tm{font-family:var(--mono);font-size:11px;fill:var(--text)}
+.dg .ta{fill:var(--accent-text);font-weight:600}
+.dg .tc{fill:var(--crit);font-weight:600}
+.dg .ts{font-size:10px;fill:var(--faint)}
+@media (prefers-color-scheme:dark){
+.dg{--bg:#0c1017;--surface:#121722;--surface-2:#171d29;--surface-3:#1f2634;--text:#e6e9ef;--muted:#a3acbb;--faint:#6b7585;--border:#222a38;--border-strong:#303a4b;--accent:#6f8dff;--accent-soft:#182142;--accent-text:#8ea4ff;--ok:#5cc58c;--warn:#e0b34a;--crit:#f07d74;--ok-bg:#12271c;--warn-bg:#2a2410;--crit-bg:#2e1715;--code-bg:#0a0e16;--code-bar:#10151f;--code-fg:#d6deea;--code-border:#1c2431}
+}
+</style>
+<rect x="0" y="0" width="640" height="170" style="fill:var(--bg)"/>
+<defs><marker id="a-lf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0 0L10 5L0 10z"/></marker></defs><rect class="boxa" x="20" y="70" width="110" height="30" rx="15"/><text class="tm" x="75" y="89" text-anchor="middle">NEW</text><rect class="box" x="200" y="20" width="110" height="30" rx="15"/><text class="tm" x="255" y="39" text-anchor="middle">ESCALATED</text><rect class="box" x="200" y="120" width="110" height="30" rx="15"/><text class="tm" x="255" y="139" text-anchor="middle">DEESCALATED</text><rect class="box" x="380" y="70" width="110" height="30" rx="15"/><text class="tm" x="435" y="89" text-anchor="middle">RESOLVED</text><rect class="box" x="520" y="70" width="110" height="30" rx="15"/><text class="tm" x="575" y="89" text-anchor="middle">REOPENED</text>
+<path class="edge" d="M130 80 C 160 60 170 40 198 36" marker-end="url(#a-lf)"/>
+<path class="edge" d="M130 92 C 160 110 170 130 198 134" marker-end="url(#a-lf)"/>
+<path class="edge" d="M255 52 L255 118" marker-end="url(#a-lf)"/>
+<path class="edge" d="M265 118 L265 52" marker-end="url(#a-lf)"/>
+<path class="edge" d="M310 35 C 350 40 360 60 378 78" marker-end="url(#a-lf)"/>
+<path class="edge" d="M310 135 C 350 130 360 110 378 94" marker-end="url(#a-lf)"/>
+<path class="edge" d="M490 85 L518 85" marker-end="url(#a-lf)"/>
+<text class="ts" x="384" y="62">after resolve_grace_runs</text><text class="ts" x="384" y="114">misses</text>
+<text class="ts" x="20" y="160">one row per state_key in CAP_ALERT_STATE; each change is a CAP_ALERT_EVENT row; ack hides it until a date or until it resolves</text>
+</svg>

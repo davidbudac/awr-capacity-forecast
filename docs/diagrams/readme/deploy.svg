@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300" class="dd" viewBox="0 0 760 300" role="img" aria-labelledby="dd-deploy-title dd-deploy-desc">
+<style>
+.dd{--bg:#ffffff;--surface:#f8f9fb;--surface-2:#f1f3f6;--surface-3:#e8ebf0;--text:#111827;--muted:#4b5563;--faint:#8a93a1;--border:#e3e6eb;--border-strong:#cfd4dc;--accent:#2f5bea;--accent-soft:#eaf0ff;--accent-text:#2249c4;--ok:#1f7a4d;--warn:#9a6700;--crit:#c0392b;--ok-bg:#e6f4ec;--warn-bg:#fff5da;--crit-bg:#fdecea;--code-bg:#0f172a;--code-bar:#162036;--code-fg:#d6deea;--code-border:#1f2b45;--mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace;--sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;--r:10px;--dd-soft:#6b7280}
+.dd .paper{fill:var(--bg)}
+.dd .zone{fill:color-mix(in srgb,var(--text) 2%,transparent);stroke:var(--border-strong);stroke-width:1;stroke-dasharray:4 4}
+.dd .zone-solid{fill:color-mix(in srgb,var(--text) 2%,transparent);stroke:var(--border-strong);stroke-width:1}
+.dd .n{fill:var(--surface);stroke:var(--text);stroke-width:1}
+.dd .n-focal{fill:color-mix(in srgb,var(--accent) 8%,var(--bg));stroke:var(--accent);stroke-width:1.2}
+.dd .n-store{fill:color-mix(in srgb,var(--text) 5%,var(--bg));stroke:var(--muted);stroke-width:1}
+.dd .n-ext{fill:color-mix(in srgb,var(--text) 3%,var(--bg));stroke:color-mix(in srgb,var(--text) 30%,var(--bg));stroke-width:1}
+.dd .n-in{fill:color-mix(in srgb,var(--muted) 10%,var(--bg));stroke:var(--dd-soft);stroke-width:1}
+.dd .n-opt{fill:color-mix(in srgb,var(--text) 2%,var(--bg));stroke:color-mix(in srgb,var(--text) 20%,var(--bg));stroke-width:1;stroke-dasharray:4 3}
+.dd .n-sec{fill:color-mix(in srgb,var(--accent) 5%,var(--bg));stroke:color-mix(in srgb,var(--accent) 50%,var(--bg));stroke-width:1;stroke-dasharray:4 4}
+.dd .tag{fill:none;stroke:color-mix(in srgb,var(--text) 40%,var(--bg));stroke-width:.8}
+.dd .tag-acc{fill:none;stroke:color-mix(in srgb,var(--accent) 60%,var(--bg));stroke-width:.8}
+.dd .e{fill:none;stroke:var(--muted);stroke-width:1.2}
+.dd .e-acc{fill:none;stroke:var(--accent);stroke-width:1.4}
+.dd .e-link{fill:none;stroke:var(--ok);stroke-width:1.2}
+.dd .dash{stroke-dasharray:5 4}
+.dd .rule{stroke:color-mix(in srgb,var(--text) 12%,transparent);stroke-width:.8;fill:none}
+.dd .rule-solid{stroke:var(--border-strong);stroke-width:1;fill:none}
+.dd .mk{fill:var(--muted)}
+.dd .mk-acc{fill:var(--accent)}
+.dd .mk-link{fill:var(--ok)}
+.dd .dot{fill:var(--text)}
+.dd .dot-acc{fill:var(--accent)}
+.dd text{font-family:var(--sans);fill:var(--muted)}
+.dd .nm{font-family:var(--sans);font-size:12px;font-weight:600;fill:var(--text)}
+.dd .nm-acc{font-family:var(--sans);font-size:12px;font-weight:600;fill:var(--accent-text)}
+.dd .sub{font-family:var(--mono);font-size:9px;fill:var(--muted)}
+.dd .eb{font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.18em;fill:var(--dd-soft)}
+.dd .eb-acc{font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.18em;fill:var(--accent-text)}
+.dd .al{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--dd-soft)}
+.dd .al-acc{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--accent-text)}
+.dd .al-link{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--ok)}
+.dd .co{font-family:var(--sans);font-style:italic;font-size:13px;fill:var(--muted)}
+.dd .lg{font-family:var(--mono);font-size:8px;letter-spacing:.14em;fill:var(--muted)}
+.dd .lgt{font-family:var(--sans);font-size:10px;fill:var(--muted)}
+@media (prefers-color-scheme:dark){
+.dd{--bg:#0c1017;--surface:#121722;--surface-2:#171d29;--surface-3:#1f2634;--text:#e6e9ef;--muted:#a3acbb;--faint:#6b7585;--border:#222a38;--border-strong:#303a4b;--accent:#6f8dff;--accent-soft:#182142;--accent-text:#8ea4ff;--ok:#5cc58c;--warn:#e0b34a;--crit:#f07d74;--ok-bg:#12271c;--warn-bg:#2a2410;--crit-bg:#2e1715;--code-bg:#0a0e16;--code-bar:#10151f;--code-fg:#d6deea;--code-border:#1c2431;--dd-soft:#8a93a1}
+}
+</style>
+<rect x="0" y="0" width="760" height="300" style="fill:var(--bg)"/>
+<title id="dd-deploy-title">Where the suite runs, path A and path B</title>
+<desc id="dd-deploy-desc">Path A installs the suite on the measured database, where it reads its own AWR. Path B leaves each target with only a read-only reader; one repository database copies their AWR over a database link every hour and runs the suite on the copies.</desc>
+<defs><marker id="dd-deploy-mk-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-link" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-deploy-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker></defs>
+<rect class="paper" width="760" height="300"/>
+<!-- zones -->
+<rect class="zone" x="12" y="12" width="220" height="236" rx="8"/>
+<rect class="paper" x="20" y="8" width="136" height="10"/>
+<text class="eb" x="24" y="15">PATH A · ONE DATABASE</text>
+<rect class="zone" x="248" y="12" width="192" height="236" rx="8"/>
+<rect class="paper" x="256" y="8" width="104" height="10"/>
+<text class="eb" x="260" y="15">PATH B · TARGETS</text>
+<rect class="zone" x="508" y="12" width="240" height="236" rx="8"/>
+<rect class="paper" x="516" y="8" width="128" height="10"/>
+<text class="eb" x="520" y="15">PATH B · REPOSITORY</text>
+<!-- connectors -->
+<path class="e-link" d="M428 148 L516 148" marker-end="url(#dd-deploy-mk-link)"/>
+<rect class="paper" x="448" y="126" width="52" height="12" rx="2"/>
+<text class="al-link" x="474" y="135" text-anchor="middle">DB LINK</text>
+<rect class="paper" x="452" y="158" width="44" height="12" rx="2"/>
+<text class="al" x="474" y="167" text-anchor="middle">HOURLY</text>
+<!-- path A node -->
+<rect class="paper" x="28" y="40" width="188" height="192" rx="6"/>
+<rect class="n" x="28" y="40" width="188" height="192" rx="6"/>
+<rect class="tag" x="36" y="46" width="28" height="12" rx="2"/>
+<text class="eb" x="50" y="55" text-anchor="middle" style="letter-spacing:.08em">DB</text>
+<text class="nm" x="122" y="76" text-anchor="middle">Measured database</text>
+<text class="sub" x="122" y="90" text-anchor="middle">deploy_mode = local</text>
+<path class="e" d="M122 152 L122 132" marker-end="url(#dd-deploy-mk)"/>
+<text class="al" x="132" y="145">SELECT</text>
+<rect class="n-focal" x="40" y="104" width="164" height="24" rx="4"/>
+<text class="nm-acc" x="48" y="120">Suite</text>
+<text class="sub" x="196" y="119" text-anchor="end">CAP_* objects</text>
+<rect class="n-store" x="40" y="152" width="164" height="24" rx="4"/>
+<text class="nm" x="48" y="168">AWR</text>
+<text class="sub" x="196" y="167" text-anchor="end">DBA_HIST_*</text>
+<text class="sub" x="122" y="212" text-anchor="middle">reports/ on the DB host</text>
+<!-- path B target -->
+<rect class="paper" x="260" y="40" width="168" height="192" rx="6"/>
+<rect class="n" x="260" y="40" width="168" height="192" rx="6"/>
+<rect class="tag" x="268" y="46" width="28" height="12" rx="2"/>
+<text class="eb" x="282" y="55" text-anchor="middle" style="letter-spacing:.08em">DB</text>
+<rect class="tag" x="396" y="46" width="24" height="12" rx="2"/>
+<text class="eb" x="408" y="55" text-anchor="middle" style="letter-spacing:.04em">×N</text>
+<text class="nm" x="344" y="76" text-anchor="middle">Target database</text>
+<text class="sub" x="344" y="90" text-anchor="middle">target/prepare.sql</text>
+<rect class="n-store" x="272" y="104" width="144" height="24" rx="4"/>
+<text class="nm" x="280" y="120">Reader</text>
+<text class="sub" x="408" y="119" text-anchor="end">C##AWRRDR</text>
+<rect class="n-store" x="272" y="136" width="144" height="24" rx="4"/>
+<text class="nm" x="280" y="152">AWR</text>
+<text class="sub" x="408" y="151" text-anchor="end">DBA_HIST_*</text>
+<text class="sub" x="344" y="212" text-anchor="middle">no suite objects</text>
+<!-- path B repository -->
+<rect class="paper" x="520" y="40" width="216" height="192" rx="6"/>
+<rect class="n" x="520" y="40" width="216" height="192" rx="6"/>
+<rect class="tag" x="528" y="46" width="28" height="12" rx="2"/>
+<text class="eb" x="542" y="55" text-anchor="middle" style="letter-spacing:.08em">DB</text>
+<text class="nm" x="628" y="76" text-anchor="middle">Repository database</text>
+<text class="sub" x="628" y="90" text-anchor="middle">deploy_mode = repository</text>
+<rect class="n-store" x="532" y="104" width="192" height="24" rx="4"/>
+<text class="nm" x="540" y="120">Collector</text>
+<text class="sub" x="716" y="119" text-anchor="end">cap_repo</text>
+<rect class="n-store" x="532" y="136" width="192" height="24" rx="4"/>
+<text class="nm" x="540" y="152">AWR copies</text>
+<text class="sub" x="716" y="151" text-anchor="end">CAP_H_*, 400 d</text>
+<rect class="n-focal" x="532" y="168" width="192" height="24" rx="4"/>
+<text class="nm-acc" x="540" y="184">Suite</text>
+<text class="sub" x="716" y="183" text-anchor="end">CAP_* objects</text>
+<text class="sub" x="628" y="212" text-anchor="middle">one report for every target</text>
+<!-- legend -->
+<line class="rule" x1="12" y1="264" x2="748" y2="264"/>
+<text class="lg" x="12" y="286">LEGEND</text>
+<rect class="n-focal" x="84" y="277" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="287">the suite</text>
+<rect class="n-store" x="196" y="277" width="16" height="12" rx="3"/>
+<text class="lgt" x="220" y="287">AWR, its copies, the reader</text>
+<line class="e-link" x1="384" y1="283" x2="412" y2="283"/>
+<text class="lgt" x="420" y="287">read-only database link, pulled by the repository</text>
+</svg>

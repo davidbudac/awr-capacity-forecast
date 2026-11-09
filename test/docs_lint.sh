@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test/docs_lint.sh -- catch documentation drift against the DDL.
-# Bash + grep/awk, and git for check 8. Eight checks, each prints one OK / FAIL
-# summary line (6 and 7 one per document they read):
+# Bash + grep/awk, git for check 8 and python3 for check 9. Nine checks, each
+# prints one OK / FAIL summary line (6 and 7 one per document they read):
 #   1. every knob the ddl/05 seed MERGE inserts is named in docs/reference.html;
 #   2. every view / table / package / procedure that ddl/, ml/ and repository/ create is
 #      named in the object index of docs/reference.html (id="objects" up to
@@ -19,7 +19,10 @@
 #   7. every profiles/*.env is named in docs/reference.html as --profile NAME or
 #      NAME.env, and in the --profile help of install.sh;
 #   8. no tracked file but PLAN.md and bench/ names the retired warehouse mode
-#      (M24.9): its views, owner, seam file, profile, role or deploy_mode.
+#      (M24.9): its views, owner, seam file, profile, role or deploy_mode;
+#   9. README.md's diagrams (docs/diagrams/readme/*.svg) match the docs pages
+#      they are copied from (docs/diagrams/readme_svgs.py --check), and every
+#      image README.md names exists.
 # Exit 1 when any check fails.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -138,5 +141,12 @@ hits=$(git grep -n -I -i -E \
   "awrv_|awrwh|11_seam_warehouse|warehouse\.env|profile +warehouse|role *= *warehouse|deploy_mode *= *'?warehouse" \
   "${not_wh[@]}")
 report "tracked files without a retired warehouse-mode token" "$(git ls-files "${not_wh[@]}" | grep -c .)" "$hits"
+
+# ---- 9. README diagrams ------------------------------------------------------------
+stale=$(python3 docs/diagrams/readme_svgs.py --check 2>&1 | grep '^  ')
+imgs=$(grep -o '](docs/[^)]*\.svg)' README.md | sed 's/^](//; s/)$//')
+missing=$(for f in $imgs; do [ -f "$f" ] || echo "$f (named in README.md)"; done)
+report "README diagrams current (docs/diagrams/readme_svgs.py --check)" \
+  "$(ls docs/diagrams/readme/*.svg | grep -c .)" "$stale${stale:+$'\n'}$missing"
 
 exit $rc
