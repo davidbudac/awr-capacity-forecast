@@ -707,8 +707,7 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         IF p_password IS NULL OR INSTR(p_password, '"') > 0 THEN
             RAISE_APPLICATION_ERROR(-20071, 'p_password must be given, without "');
         END IF;
-        close_link(t.db_link);
-        EXECUTE IMMEDIATE 'DROP DATABASE LINK ' || t.db_link;
+        drop_link(t.db_link);
         create_link(t.db_link, t.link_user, p_password, t.connect_string);
         probe(t.db_link);
         close_link(t.db_link);
