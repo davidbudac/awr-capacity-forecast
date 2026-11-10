@@ -6,10 +6,11 @@
 -- changes nothing. It is the suite's Tier 1 tablespace forecast (ddl/20
 -- CAPD_TBSPC_DAILY + ddl/30 CAPF_TBSPC_FORECAST, slope_method 0) cut down
 -- to one SELECT, with its defaults inlined in the prm CTE instead of
--- CAP_CONFIG. No ML, no CAP_TBSPC_OVERRIDE, no anomaly scoring. Three
+-- CAP_CONFIG. No ML, no CAP_TBSPC_OVERRIDE, no anomaly scoring. Four
 -- things differ from the suite: the limit takes the live ceiling when that
--- is lower, the worst case takes the wider of two error models, and every
--- tablespace is also forecast against the one disk they share (all below).
+-- is lower, the worst case takes the wider of two error models, every
+-- tablespace is also forecast against the one disk they share, and the fit
+-- restarts where growth stopped or began (all below).
 --
 -- One row per (container, permanent tablespace) still sampled by AWR:
 --   used / limit / pct    newest day's sample. limit = autoextend maxsize
@@ -20,8 +21,13 @@
 --                         now, AWR's maxsize does not. Each tablespace is
 --                         capped alone, so tablespaces sharing storage can
 --                         still add up to more than it holds.
---   mb_day / r2           OLS slope and R^2 over the last train_days days,
---                         restarted after the latest purge cliff (below)
+--   mb_day / r2           OLS slope and R^2 over the fit window: the last
+--                         train_days days, or the part of them since the
+--                         latest restart
+--   days / restart        days in the fit window, and why it is shorter
+--                         than the history: PURGE (a purge cliff), STOP
+--                         (no new high since: growth stopped), START
+--                         (growth began inside the window). All below.
 --   gb_30 / gb_90         used projected 30 / 90 days ahead from today
 --   dtf / dtf_worst       days until used reaches the limit at the fitted
 --                         rate / at the top of its 95% CI (worst case,
@@ -59,6 +65,26 @@
 -- cliff: a day-over-day drop larger than GREATEST(shrink_mad_k x MAD sigma
 -- of the window's deltas, abs_floor_bytes). One cliff restarts the fit at
 -- that day.
+--
+-- Growth that stopped or began (restart STOP / START): one line through
+-- the whole window is wrong when the tablespace grew in only a part of it.
+-- A growth day is a new high: used above every earlier day of the window
+-- by more than growth_floor x the window's rise. A pause is a run of days
+-- without one. The fit restarts
+--   STOP   on the day after the last growth day, when the pause that runs
+--          up to the newest day is long. A tablespace that stays flat
+--          since then reads FLAT, no dtf.
+--   START  on the last day before the first growth day, when the pause
+--          before it is long and min_train_days days are left.
+-- Long = all three of: quiet_days days or more. quiet_ratio x the longest
+-- other pause or more (STOP: the pauses between two growth days. START:
+-- those and the pause up to the newest day). And unlikely by chance: g
+-- growth days that span s days make a pause of q days as likely as
+-- (s / (s + q)) ^ (g - 1), which must be below quiet_chance. So a
+-- tablespace that grows in rare steps or in monthly bursts keeps its whole
+-- window, and one growth day alone never restarts it. Not for CYCLIC. A
+-- rate that changes without a pause (fast to slow) is still averaged.
+-- quiet_days 0 = no STOP / START.
 --
 -- Worst case (dtf_worst, full_by, add_gb_90): two error models around the
 -- OLS slope and today's value, the wider one wins.
@@ -119,7 +145,7 @@ SET FEEDBACK OFF
 SET VERIFY OFF
 SET TRIMSPOOL ON
 SET SQLBLANKLINES ON
-SET LINESIZE 315
+SET LINESIZE 325
 SET PAGESIZE 500
 
 COLUMN container   FORMAT A16             HEADING 'CONTAINER'
@@ -131,6 +157,7 @@ COLUMN pct         FORMAT 990.0           HEADING 'PCT'
 COLUMN mb_day      FORMAT 99999990.000    HEADING 'MB_DAY'
 COLUMN r2          FORMAT 0.000           HEADING 'R2'
 COLUMN fit_days    FORMAT 9990            HEADING 'DAYS'
+COLUMN restart     FORMAT A7              HEADING 'RESTART'
 COLUMN gb_30       FORMAT 9999990.000     HEADING 'GB_30'
 COLUMN gb_90       FORMAT 9999990.000     HEADING 'GB_90'
 COLUMN dtf         FORMAT 999990          HEADING 'DTF'
@@ -155,6 +182,10 @@ WITH prm AS (
                6         AS shrink_mad_k,       -- purge cliff = drop > k x MAD sigma
                104857600 AS abs_floor_bytes,    -- ... and > 100 MiB
                2         AS cyclic_min_cliffs,  -- this many cliffs = CYCLIC, below 2 = never
+               14        AS quiet_days,         -- stopped / began = a pause this long, 0 = never ...
+               2         AS quiet_ratio,        -- ... and this many x the longest other pause ...
+               0.01      AS quiet_chance,       -- ... and less likely than this by chance
+               0.001     AS growth_floor,       -- growth day = a new high by more than this x the rise
                90        AS dtf_warn,           -- days to full at/below = WARN
                30        AS dtf_crit,           -- days to full at/below = CRIT
                90        AS nearfull_warn_pct,  -- pct used at/above = WARN
@@ -279,25 +310,89 @@ WITH prm AS (
         WHERE  t.delta < -GREATEST(prm.shrink_mad_k * s.sig, prm.abs_floor_bytes)
         GROUP  BY t.con_dbid, t.tablespace_id
      ),
-     -- The effective window: restarted at the latest cliff unless CYCLIC.
-     -- rate = the daily rate since the previous day of this window, so the
-     -- first day has none and a reset day's cliff stays out.
-     w AS (
+     -- The days since the latest cliff (all of the window when CYCLIC),
+     -- numbered. is_grow = a growth day (header, "Growth that stopped or
+     -- began").
+     cw AS (
         SELECT t.*, NVL(c.is_cyclic, 0) AS is_cyclic,
-               (t.used_b - LAG(t.used_b) OVER (PARTITION BY t.con_dbid, t.tablespace_id
-                                               ORDER BY t.day_dt))
-             / (t.day_n - LAG(t.day_n) OVER (PARTITION BY t.con_dbid, t.tablespace_id
-                                             ORDER BY t.day_dt))    AS rate
+               CASE WHEN c.is_cyclic = 0 THEN 'PURGE' END AS cut,
+               ROW_NUMBER() OVER (PARTITION BY t.con_dbid, t.tablespace_id
+                                  ORDER BY t.day_dt)                 AS rn,
+               COUNT(*)     OVER (PARTITION BY t.con_dbid, t.tablespace_id) AS rn_max,
+               CASE WHEN t.used_b - MAX(t.used_b) OVER (PARTITION BY t.con_dbid, t.tablespace_id
+                                                        ORDER BY t.day_dt
+                                                        ROWS BETWEEN UNBOUNDED PRECEDING
+                                                                 AND 1 PRECEDING)
+                         > prm.growth_floor
+                           * (MAX(t.used_b) OVER (PARTITION BY t.con_dbid, t.tablespace_id)
+                            - MIN(t.used_b) OVER (PARTITION BY t.con_dbid, t.tablespace_id))
+                    THEN 1 ELSE 0 END                                AS is_grow
         FROM   tw t
         LEFT   JOIN cliff c ON c.con_dbid = t.con_dbid AND c.tablespace_id = t.tablespace_id
+        CROSS  JOIN prm
         WHERE  c.last_cliff IS NULL
            OR  c.is_cyclic = 1
            OR  t.day_dt >= c.last_cliff
+     ),
+     -- The growth days, each with the pause before it.
+     gd AS (
+        SELECT con_dbid, tablespace_id, rn, rn_max,
+               rn - LAG(rn) OVER (PARTITION BY con_dbid, tablespace_id ORDER BY rn) - 1 AS gap
+        FROM   cw
+        WHERE  is_grow = 1 AND is_cyclic = 0
+     ),
+     -- g growth days that span span days. lead / trail = the pause before
+     -- the first and after the last, gap_max = the longest one between.
+     act AS (
+        SELECT con_dbid, tablespace_id,
+               COUNT(*)              AS g,
+               MIN(rn)               AS rn_first,
+               MAX(rn)               AS rn_last,
+               MAX(rn) - MIN(rn)     AS span,
+               MIN(rn) - 2           AS lead,
+               MAX(rn_max) - MAX(rn) AS trail,
+               NVL(MAX(gap), 0)      AS gap_max
+        FROM   gd
+        GROUP  BY con_dbid, tablespace_id
+     ),
+     -- Where growth stopped (the fit starts after the last growth day) or
+     -- began (it starts on the day before the first). STOP wins.
+     regime AS (
+        SELECT a.con_dbid, a.tablespace_id,
+               CASE WHEN a.is_stop = 1 THEN 'STOP'        ELSE 'START'        END AS cut,
+               CASE WHEN a.is_stop = 1 THEN a.rn_last + 1 ELSE a.rn_first - 1 END AS rn_from
+        FROM  (SELECT a.*,
+                      CASE WHEN a.trail >= prm.quiet_days
+                            AND a.trail >= prm.quiet_ratio * a.gap_max
+                            AND POWER(a.span / NULLIF(a.span + a.trail, 0), a.g - 1) < prm.quiet_chance
+                           THEN 1 ELSE 0 END AS is_stop,
+                      CASE WHEN a.lead >= prm.quiet_days
+                            AND a.lead >= prm.quiet_ratio * GREATEST(a.gap_max, a.trail)
+                            AND POWER(a.span / NULLIF(a.span + a.lead, 0), a.g - 1) < prm.quiet_chance
+                            AND a.span + a.trail + 2 >= prm.min_train_days
+                           THEN 1 ELSE 0 END AS is_start
+               FROM   act a
+               CROSS  JOIN prm
+               WHERE  prm.quiet_days > 0) a
+        WHERE  a.is_stop = 1 OR a.is_start = 1
+     ),
+     -- The fit window. rate = the daily rate since the previous day of this
+     -- window, so the first day has none and a reset day's cliff stays out.
+     w AS (
+        SELECT c.*, NVL(r.cut, c.cut) AS restart,
+               (c.used_b - LAG(c.used_b) OVER (PARTITION BY c.con_dbid, c.tablespace_id
+                                               ORDER BY c.day_dt))
+             / (c.day_n - LAG(c.day_n) OVER (PARTITION BY c.con_dbid, c.tablespace_id
+                                             ORDER BY c.day_dt))    AS rate
+        FROM   cw c
+        LEFT   JOIN regime r ON r.con_dbid = c.con_dbid AND r.tablespace_id = c.tablespace_id
+        WHERE  c.rn >= NVL(r.rn_from, 1)
      ),
      fit AS (
         SELECT con_dbid, tablespace_id,
                MAX(tsname)                                          AS tsname,
                MAX(is_cyclic)                                       AS is_cyclic,
+               MAX(restart)                                         AS restart,
                MAX(last_day)                                        AS last_day,
                MAX(last_day) - DATE '2020-01-01'                    AS last_day_n,
                MAX(used_b) KEEP (DENSE_RANK LAST ORDER BY day_dt)   AS cur_b,
@@ -504,6 +599,7 @@ SELECT c.con_name                                               AS container,
        ROUND(v.slope / 1048576, 3)                              AS mb_day,
        ROUND(v.r2, 3)                                           AS r2,
        v.n                                                      AS fit_days,
+       v.restart,
        CASE WHEN v.quality <> 'CYCLIC' THEN ROUND((v.cur_b + v.slope * 30) / 1073741824, 3) END AS gb_30,
        CASE WHEN v.quality <> 'CYCLIC' THEN ROUND((v.cur_b + v.slope * 90) / 1073741824, 3) END AS gb_90,
        v.dtf,
@@ -538,6 +634,7 @@ COLUMN pct CLEAR
 COLUMN mb_day CLEAR
 COLUMN r2 CLEAR
 COLUMN fit_days CLEAR
+COLUMN restart CLEAR
 COLUMN gb_30 CLEAR
 COLUMN gb_90 CLEAR
 COLUMN dtf CLEAR

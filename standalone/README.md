@@ -25,6 +25,7 @@ SQL> @standalone/tbspc_capacity.sql
 - At most the last **90 days**, counted back from the tablespace's last sampled day.
 - **One point per day**: the last AWR snapshot of that day. More snapshots per day do not add points.
 - If AWR holds fewer than 90 days, it uses what exists. The `DAYS` column shows the number of days actually used.
+- It uses fewer days when the fit restarts: after a purge (step 3), or where growth stopped or began (step 4). The `RESTART` column says which.
 - With fewer than **14 days** the row is marked `INSUFFICIENT_HISTORY`. Stock AWR retention is 8 days, so a database with default settings lands here until the retention is raised.
 
 ## How it works, step by step
@@ -70,11 +71,51 @@ What happens next depends on how many cliffs the 90-day window holds:
 - **One cliff:** the fit restarts at the cliff day. Only the data after the purge is used.
 - **Two or more cliffs:** the tablespace fills and is purged regularly. It is graded `CYCLIC` and judged on its peak fill level, not on a growth line.
 
-### 4. Fit a straight line
+### 4. Detect growth that stopped or began
+
+One straight line through 90 days assumes that the tablespace grew at one rate for all 90 days. That is wrong for a tablespace that grew in only a part of them:
+
+- **Growth stopped.** A tablespace that holds September's data fills during September and gets nothing afterwards. A line through "ramp, then flat" still points up, and would show a full date for about three more months.
+- **Growth began.** A tablespace that was empty for months and started to fill two weeks ago. A line through "flat, then ramp" is far too shallow.
+
+The query finds both cases from the days on which the tablespace grew.
+
+- **Growth day:** a day on which the used size reaches a new high, above every earlier day of the window. The new high must exceed the old one by more than 0.1% of the window's total rise, so a few kilobytes do not count.
+- **Pause:** a run of days without a growth day.
+
+When a pause is long, the fit restarts and the `RESTART` column says why:
+
+| `RESTART` | Meaning | The long pause | The fit then uses |
+|---|---|---|---|
+| `STOP` | Growth stopped | The pause that runs up to today | Only the days after the last growth day |
+| `START` | Growth began | The pause before the first growth day | The days from the last day of that pause on. Only when at least 14 days are left. |
+
+A pause is long when all three of these hold:
+
+1. **It lasts at least 14 days** (`quiet_days`).
+2. **It is at least twice as long as the longest other pause** (`quiet_ratio`). A tablespace that adds one extent every 20 days is not stopped after 14 quiet days. `STOP` compares with the pauses between two growth days. `START` compares with those and with the pause that runs up to today.
+3. **It is unlikely to be chance** (`quiet_chance`, 1%). The tablespace had `g` growth days spread over `s` days. The chance of a pause of `q` days is taken as:
+
+```
+chance of a pause of q days = (s / (s + q)) ^ (g - 1)
+```
+
+Two examples:
+
+- 30 growth days in a row (`g` = 30, `s` = 29), then 14 quiet days: `(29 / 43) ^ 29` = 0.00001. Stopped.
+- 3 growth days, 10 days apart (`g` = 3, `s` = 20), then 30 quiet days: `(20 / 50) ^ 2` = 0.16. Not stopped: with so few growth days a long pause proves nothing.
+
+One growth day alone never restarts the fit (`g - 1` = 0, so the chance is 1).
+
+After a `STOP` the line is fitted through the pause only. A tablespace that stayed flat reads `FLAT` and has no `DTF`. One that still creeps up gets the small rate it really has.
+
+This step is skipped for `CYCLIC` tablespaces. Set `quiet_days` to 0 to switch it off.
+
+### 5. Fit a straight line
 
 Through the remaining daily points the query fits a straight line (ordinary least squares, Oracle's `REGR_SLOPE`). The slope of that line is the growth rate in bytes per day.
 
-### 5. Project forward from today
+### 6. Project forward from today
 
 Every projection starts at today's actual used size, not at the fitted line:
 
@@ -82,9 +123,9 @@ Every projection starts at today's actual used size, not at the fitted line:
 projected size in h days = used now + growth per day x h
 ```
 
-### 6. Work out the worst case
+### 7. Work out the worst case
 
-The growth rate from step 4 is an estimate. The worst case asks how much faster growth could plausibly be. The query measures that uncertainty in two ways and keeps the larger one.
+The growth rate from step 5 is an estimate. The worst case asks how much faster growth could plausibly be. The query measures that uncertainty in two ways and keeps the larger one.
 
 **Way 1: distance from the line.** How far do the daily points sit from the fitted line? Small distances mean a small uncertainty.
 
@@ -94,9 +135,9 @@ Way 1 alone is too optimistic. Tablespace size is a running total: today's size 
 
 The exact formulas are in the section "Worst-case formulas" below.
 
-### 7. Share the disk
+### 8. Share the disk
 
-Steps 1 to 6 look at each tablespace alone. In reality the datafiles sit on one disk, and a tablespace that could still grow by its own limit is stuck once the disk is full. This step forecasts all tablespaces together, on the assumption that every datafile is on the same filesystem or disk group and that no storage is added.
+Steps 1 to 7 look at each tablespace alone. In reality the datafiles sit on one disk, and a tablespace that could still grow by its own limit is stuck once the disk is full. This step forecasts all tablespaces together, on the assumption that every datafile is on the same filesystem or disk group and that no storage is added.
 
 - **Each tablespace keeps growing at its own `MB_DAY`.** A shrinking, flat or `CYCLIC` tablespace counts as not growing. A datafile never gives space back to the disk on its own.
 - **Growth first fills the free space inside the datafiles** (allocated size minus used). That costs no disk space.
@@ -123,7 +164,7 @@ growing:      LIMIT_SHARED_GB = the smaller of  LIMIT_GB
 not growing:  LIMIT_SHARED_GB = allocated size
 ```
 
-**The worst case on the shared disk.** `DTF_SHARED_WORST` repeats the whole simulation with every tablespace growing at its worst-case rate at the same time. That rate is the one behind `DTF_WORST`: growth per day plus the uncertainty of the growth rate (step 6). The disk then fills sooner, and every tablespace is stuck sooner.
+**The worst case on the shared disk.** `DTF_SHARED_WORST` repeats the whole simulation with every tablespace growing at its worst-case rate at the same time. That rate is the one behind `DTF_WORST`: growth per day plus the uncertainty of the growth rate (step 7). The disk then fills sooner, and every tablespace is stuck sooner.
 
 ```
 worst rate       = growth per day + uncertainty of the growth rate     for every tablespace
@@ -152,21 +193,22 @@ GB and MB are binary units: 1 GB = 1024 x 1024 x 1024 bytes, 1 MB = 1024 x 1024 
 | `PCT` | Percent full now | `100 x used / limit`, one decimal. |
 | `MB_DAY` | Growth per day | Slope of the fitted line / 1 MB. Negative when the tablespace shrinks. |
 | `R2` | How well a straight line describes the history, 0 to 1 | R squared of the fit. 1 = the points lie exactly on a line. A completely flat series also reads 1. |
-| `DAYS` | Days of history the fit used | Count of daily points in the fit window, after a purge restart. |
+| `DAYS` | Days of history the fit used | Count of daily points in the fit window, after a restart. |
+| `RESTART` | Why the fit uses fewer days than the history holds | `PURGE` = since the purge cliff (step 3). `STOP` = since growth stopped, `START` = since growth began (step 4). Empty = the whole window. |
 | `GB_30`, `GB_90` | Expected size in 30 and 90 days | `used + growth per day x 30` (or 90). Empty for `CYCLIC`. |
 | `DTF` | Days to full, expected | `(limit - used) / growth per day`, rounded down. Empty when not growing, when `CYCLIC`, or when more than 100 years away. |
-| `DTF_SHARED` | Days until the tablespace is stuck when all tablespaces share one disk | The earlier of `DTF` and the first day it has to extend after the disk is full, see step 7. Same empty rules as `DTF`, except that it can show a value where `DTF` is more than 100 years away. |
-| `LIMIT_SHARED_GB` | The largest size the tablespace reaches when all tablespaces share one disk | Its size on the day it is stuck, see step 7. Equal to `LIMIT_GB` when the disk does not fill or `DISK_FREE_GB` is empty. |
+| `DTF_SHARED` | Days until the tablespace is stuck when all tablespaces share one disk | The earlier of `DTF` and the first day it has to extend after the disk is full, see step 8. Same empty rules as `DTF`, except that it can show a value where `DTF` is more than 100 years away. |
+| `LIMIT_SHARED_GB` | The largest size the tablespace reaches when all tablespaces share one disk | Its size on the day it is stuck, see step 8. Equal to `LIMIT_GB` when the disk does not fill or `DISK_FREE_GB` is empty. |
 | `DTF_WORST` | Days to full, worst case | `(limit - used) / (growth per day + uncertainty of the growth rate)`, rounded down. Same empty rules as `DTF`. |
-| `DTF_SHARED_WORST` | Days until the tablespace is stuck on the shared disk, worst case | `DTF_SHARED` with every tablespace at its worst-case rate at once, see step 7. Empty when not growing or when the history is too short for an uncertainty. |
+| `DTF_SHARED_WORST` | Days until the tablespace is stuck on the shared disk, worst case | `DTF_SHARED` with every tablespace at its worst-case rate at once, see step 8. Empty when not growing or when the history is too short for an uncertainty. |
 | `FULL_BY` | Worst-case date the tablespace reaches its own limit | Newest sampled day + `DTF_WORST`. It does not include the shared disk. |
 | `ADD_GB_90` | Space to add so that even the worst case stays under the limit for 90 days | `(used + growth per day x 90 + uncertainty at 90 days) - limit`, never below 0. 0 = nothing to add. Empty for `CYCLIC`. |
 | `PEAK_PCT` | Highest fill level in the window, percent of the limit | `100 x highest used / limit`. Shown for `CYCLIC` only. |
 | `QUALITY` | How far the forecast can be trusted | See "Quality grades". |
 | `STATUS` | `CRIT`, `WARN` or `OK` | See "Status rules". |
 | `WHY` | The rule that set the status | For example `pct >= 90`, `dtf <= 30` or `disk dtf <= 30`. Empty for `OK`. |
-| `DISK_FREE_GB` | Free space on the shared disk now | See step 7. The same on every row. Empty = not known. |
-| `DISK_DTF` | Days until the shared disk is full | See step 7. The same on every row. Empty = it does not fill, it is more than 100 years away, or `DISK_FREE_GB` is empty. |
+| `DISK_FREE_GB` | Free space on the shared disk now | See step 8. The same on every row. Empty = not known. |
+| `DISK_DTF` | Days until the shared disk is full | See step 8. The same on every row. Empty = it does not fill, it is more than 100 years away, or `DISK_FREE_GB` is empty. |
 | `LAST_DAY` | Newest day with a sample for this tablespace | Normally today. |
 
 Rows are sorted by status (`CRIT` first), then by `DTF_WORST` (soonest first), then by `PCT` (fullest first).
@@ -181,7 +223,7 @@ The first rule that matches wins.
 |---|---|---|
 | `INSUFFICIENT_HISTORY` | Fewer than 14 days in the fit | Too little data. Trust `PCT`, not the forecast. |
 | `CYCLIC` | Two or more purge cliffs in the window | Fills and is purged regularly. Look at `PEAK_PCT`. |
-| `FLAT` | Growth is exactly 0 | Not growing. |
+| `FLAT` | Growth is exactly 0 | Not growing. With `RESTART` = `STOP`: it grew earlier in the window and has stopped. |
 | `LOW_CONFIDENCE` | `R2` below 0.60 | The history does not follow a line well. Treat `DTF` as a rough hint. |
 | `OK` | None of the above | The forecast is usable. |
 
@@ -295,15 +337,22 @@ The defaults sit at the top of the query in the `prm` block and can be edited th
 | `shrink_mad_k` | 6 | A cliff is a drop larger than this many times the typical variation |
 | `abs_floor_bytes` | 100 MB | ... and larger than this |
 | `cyclic_min_cliffs` | 2 | This many cliffs = `CYCLIC`. Below 2 turns the grade off. |
+| `quiet_days` | 14 | Growth stopped or began = a pause of at least this many days. 0 turns step 4 off. |
+| `quiet_ratio` | 2 | ... and at least this many times the longest other pause |
+| `quiet_chance` | 0.01 | ... and less likely than this to be chance |
+| `growth_floor` | 0.001 | A growth day is a new high by more than this share of the window's rise |
 | `dtf_warn` / `dtf_crit` | 90 / 30 | Days to full at or below = `WARN` / `CRIT` |
 | `nearfull_warn_pct` / `nearfull_crit_pct` | 90 / 97 | Percent full at or above = `WARN` / `CRIT` |
 | `stale_days` | 3 | A tablespace not sampled for this long is hidden |
-| `disk_free_gb` | empty | Free GB on the shared disk. Empty = read from the live view, see step 7. |
+| `disk_free_gb` | empty | Free GB on the shared disk. Empty = read from the live view, see step 8. |
 | `dbid` | empty | Empty = the database of the newest AWR snapshot |
 
 ## Limits of the forecast
 
 - **It assumes steady growth.** A straight line cannot foresee a one-off bulk load, a new application or a planned purge.
+- **A growth stop shows after 14 quiet days, not sooner.** Until then the tablespace still has a forecast. If its growth began inside the window, that forecast uses the full recent rate.
+- **A change of rate without a pause is averaged.** A tablespace that slows from 1 GB to 100 MB per day keeps a rate between the two until the fast days leave the window.
+- **A one-off load and a rare regular load look the same.** A tablespace loaded once a quarter reads `STOP` and `FLAT` between two loads, like one that will never grow again. `PCT` still warns when it is nearly full. Set `quiet_days` to 0 if you have such tablespaces.
 - **Short history, weak forecast.** With 14 to 30 days the growth rate is uncertain. `DTF_WORST` reflects that; `DTF` does not.
 - **The limit is only as real as the storage.** `LIM = LIVE` corrects a single tablespace. `DTF_SHARED` is the column that accounts for several tablespaces competing for the same disk.
 - **The shared-disk forecast rests on its assumptions.** All datafiles on one disk, nothing else on that disk growing, no storage added. UNDO and TEMP files can grow too and are not forecast. Run it in `CDB$ROOT`: inside a PDB the other containers' growth is not seen and `DISK_DTF` is too late.

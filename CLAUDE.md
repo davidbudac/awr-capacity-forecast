@@ -36,7 +36,12 @@ for making changes safely.
   space derived from the `LIVE` caps or `prm.disk_free_gb`: the view's
   ceiling is `LEAST(sum of maxbytes, allocated + device free)` per tablespace
   at any file count, verified 19.27), and STATUS
-  uses `dtf_shared`. `standalone/README.md`
+  uses `dtf_shared`. A fourth: the fit window also restarts where growth
+  stopped or began (`RESTART` STOP / START beside PURGE, `prm.quiet_days` 0 =
+  off), judged on growth days (new highs) and the pauses between them: a
+  pause of `quiet_days`, `quiet_ratio` x the longest other pause, and a
+  chance `(span / (span + pause)) ^ (growth days - 1)` under `quiet_chance`.
+  The suite restarts at a purge cliff only. `standalone/README.md`
   explains its columns and formulas for readers outside the project (it is
   also pasted into Confluence): change it with the query.
 - **Every seam source read carries the session scope (M24.11).** Each
