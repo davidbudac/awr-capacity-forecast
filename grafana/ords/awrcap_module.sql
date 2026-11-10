@@ -183,8 +183,9 @@ DECLARE
     END;
     FUNCTION lv(p_val VARCHAR2) RETURN VARCHAR2 IS
     BEGIN
-        RETURN REPLACE(REPLACE(REPLACE(p_val, '', '\'), '"', '"'), CHR(10), '
-');
+        RETURN REPLACE(REPLACE(REPLACE(p_val, CHR(92), CHR(92) || CHR(92)),
+                               '"', CHR(92) || '"'),
+                       CHR(10), CHR(92) || 'n');
     END;
     FUNCTION num(p_n NUMBER) RETURN VARCHAR2 IS
     BEGIN
