@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>How it works — AWR Capacity Forecast</title>
-<meta name="description" content="The architecture of AWR Capacity Forecast: the swappable seam, the five-layer view pipeline, the forecast-quality machinery, the CPU and fixed-ceiling series, and the two forecasting engines.">
+<meta name="description" content="The architecture of AWR Capacity Forecast: the swappable seam, the six-layer view pipeline, the forecast-quality machinery, the memory sizing verdicts, the CPU and fixed-ceiling series, and the two forecasting engines.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23b06a0d'/><path d='M16 8L24 23L8 23Z' fill='%23fff'/></svg>">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
@@ -34,10 +34,11 @@
       <a class="nav-page" href="tutorial.html"><span class="n">03</span> Tutorial</a>
       <div class="nav__group">Guides</div>
       <a class="nav-page" href="concepts.html"><span class="n">04</span> How it works</a>
-      <a class="nav-page" href="usage.html"><span class="n">05</span> Usage</a>
-      <a class="nav-page" href="testing.html"><span class="n">06</span> Testing</a>
+      <a class="nav-page" href="architecture.html"><span class="n">05</span> Architecture</a>
+      <a class="nav-page" href="usage.html"><span class="n">06</span> Usage</a>
+      <a class="nav-page" href="testing.html"><span class="n">07</span> Testing</a>
       <div class="nav__group">Reference</div>
-      <a class="nav-page" href="reference.html"><span class="n">07</span> Reference</a>
+      <a class="nav-page" href="reference.html"><span class="n">08</span> Reference</a>
     </nav>
     <div class="sidebar__foot">
       <button class="theme-toggle" id="themeBtn" type="button">◐ System</button>
@@ -52,13 +53,13 @@
       <!-- ===================== HERO ===================== -->
       <section class="hero" id="how">
         <h1>How it works</h1>
-        <p class="lead">Five view layers turn AWR snapshots into forecasts, anomalies, alerts and a
-          report, on one swappable data source.</p>
+        <p class="lead">Six view layers turn AWR snapshots into forecasts, anomalies, memory sizing
+          verdicts, alerts and a report, on one swappable data source.</p>
 
         <div class="trackflow-scroll">
         <svg class="trackflow" viewBox="0 0 860 190" role="img"
              aria-label="One track with four stops. Irregular AWR snapshots are rolled up into a daily series, modelled by two engines, and turned into forecasts and alerts, with the signal changing shape at every stop.">
-          <text class="trk-lbl" x="40" y="30">read-only · in-database · nothing leaves the instance</text>
+          <text class="trk-lbl" x="40" y="30">read-only against AWR · in-database · no external service</text>
           <line class="trk-spine" x1="40" y1="118" x2="820" y2="118"/>
 
           <g class="trk-tick">
@@ -107,7 +108,7 @@
           <tbody>
             <tr><td><b>AWR</b></td><td class="def">Automatic Workload Repository, Oracle's built-in performance history. The suite only reads it.</td></tr>
             <tr><td><b>Seam</b> &nbsp;<span class="k">CAPV_</span> views</td><td class="def">An adapter layer of <span class="inline">CAPV_</span> views. All analytics read from them; the install chooses what they point at.</td></tr>
-            <tr><td><b>Mode</b> <span class="inline">deploy_mode</span></td><td class="def">What the seam points at: <span class="k">local</span> = this database's AWR · <span class="k">repository</span> = copies of the registered targets' AWR · <span class="k">fixture</span> = test data.</td></tr>
+            <tr><td><b>Mode</b> <span class="inline">deploy_mode</span></td><td class="def">What the seam points at: <span class="k">repository</span> = copies of the registered targets' AWR (the installing database included when it measures itself) · <span class="k">fixture</span> = test data.</td></tr>
             <tr><td><b>Fixture</b></td><td class="def">Hand-built sample rows with answers known in advance. Real AWR cannot take inserted rows, so fixtures are how the math is tested.</td></tr>
             <tr><td><b>Harness</b></td><td class="def">The script that loads a fixture, runs the suite and prints <span class="pill ok">PASS</span>/<span class="pill crit">FAIL</span> per expected number.</td></tr>
             <tr><td><b>Tier 1 (REGR)</b></td><td class="def">The always-on forecast: linear regression in plain SQL. Nothing trained.</td></tr>
@@ -154,9 +155,19 @@
 <text class="tm" x="355" y="72" text-anchor="middle">CAPV_</text><text class="ta" x="355" y="88" text-anchor="middle">one file per mode</text>
 <path class="edge" d="M415 75 L 455 75" marker-end="url(#a-seam)"/>
 <rect class="box" x="460" y="40" width="170" height="70" rx="5"/>
-<text class="t" x="545" y="68" text-anchor="middle">same SQL above</text>
-<text class="tm" x="545" y="88" text-anchor="middle">CAPD → CAPF/CAPA → CAPR</text>
+<text class="t" x="545" y="62" text-anchor="middle">same SQL above</text>
+<text class="tm" x="545" y="80" text-anchor="middle">CAPD → CAPF/CAPA → CAPR</text>
+<text class="ts" x="545" y="97" text-anchor="middle">CAPM_ reads CAPV_ directly</text>
 </svg>
+      <p>Every seam read carries <span class="inline">dbid = NVL(scope_dbid, dbid)</span>.
+        <span class="inline">CAP_SCOPE</span> reads the session's CLIENT_INFO
+        (<code>AWRCAP dbid=&lt;n&gt;</code>), which <span class="inline">report/scope.sql</span> sets
+        and each driver clears, so a report scoped to one target costs one target at any fleet size.
+        Writers (<span class="inline">cap_results.refresh</span>, the trainers) clear a scope they
+        find. Sequence: <a href="architecture.html#scope">session scope</a>.</p>
+      <p>Every analytic window above the seam partitions by <span class="inline">dbid</span>: one
+        target's numbers never depend on another's, and a fleet report lists the top
+        <span class="inline">top_n</span> of each database.</p>
 <div class="tablewrap">
         <table>
           <thead><tr><th>deploy_mode</th><th>Seam file</th><th>Reads from</th><th>Install as</th></tr></thead>
@@ -173,10 +184,9 @@
       </div>
 
       <div class="pipe">
-        <div class="pipe__cap">One of three sources feeds the seam</div>
+        <div class="pipe__cap">One of two sources feeds the seam</div>
         <div class="sources">
-          <div class="src"><h5>Local</h5><code>DBA_HIST_*</code><p>Live AWR in CDB$ROOT</p></div>
-          <div class="src"><h5>Repository</h5><code>CAP_H_*</code><p>Targets' AWR, copied over a link</p></div>
+          <div class="src"><h5>Repository</h5><code>CAP_H_*</code><p>Targets' <code>DBA_HIST_*</code>, copied over a link by <code>cap_repo.collect</code></p></div>
           <div class="src"><h5>Fixture</h5><code>CAP_FIXTURE_*</code><p>Deterministic test data</p></div>
         </div>
         <div class="conn"></div>
@@ -197,6 +207,12 @@
               <span class="obj">CAPV_SYSSTAT</span><span class="obj">CAPV_PARAMETER</span>
               <span class="obj">CAPV_ASM_DISKGROUP</span><span class="obj">CAPV_SEG_STAT</span>
               <span class="obj">CAPV_TARGET</span><span class="obj">CAPV_CONTRACT</span>
+              <span class="obj">CAPV_PGASTAT</span><span class="obj">CAPV_MEM_COMP</span>
+              <span class="obj">CAPV_WORKAREA_HSTGRM</span><span class="obj">CAPV_PGA_ADVICE</span>
+              <span class="obj">CAPV_SGA_ADVICE</span><span class="obj">CAPV_CACHE_ADVICE</span>
+              <span class="obj">CAPV_SHPOOL_ADVICE</span><span class="obj">CAPV_SGASTAT</span>
+              <span class="obj">CAPV_LIBRARYCACHE</span><span class="obj">CAPV_ROWCACHE</span>
+              <span class="obj">CAPV_SYSTEM_EVENT</span>
             </div>
           </div>
         </div>
@@ -212,6 +228,7 @@
               and one per clock hour, for the hour-of-week baseline.</p>
             <div class="layer__objs">
               <span class="obj">CAPD_TBSPC_DAILY</span><span class="obj">CAPD_TBSPC_DELTA</span>
+              <span class="obj">CAPD_COUNTER_DELTA</span>
               <span class="obj">CAPD_CPU_INTERVAL</span><span class="obj">CAPD_DBTIME_INTERVAL</span>
               <span class="obj">CAPD_CPU_DAILY</span><span class="obj">CAPD_DBTIME_DAILY</span>
               <span class="obj">CAPD_CPU_HOURLY</span><span class="obj">CAPD_SERIES_DAILY</span>
@@ -225,8 +242,8 @@
             <span class="layer__tag">CAPF_</span>
             <div class="layer__body">
               <h5>Tier 1 forecasts</h5>
-              <p>Least-squares (or Theil–Sen) fits with 95% prediction bands. Every projection
-                reconstructs from slope + intercept.</p>
+              <p>Least-squares (or Theil–Sen / drift) fits with 95% prediction bands. Every
+                projection is today's value + slope × h.</p>
               <div class="layer__objs">
                 <span class="obj">CAPF_TBSPC_FORECAST</span><span class="obj">CAPF_CPU_TREND</span>
                 <span class="obj">CAPF_SERIES_FORECAST</span>
@@ -254,12 +271,37 @@
             <span class="layer__tag">ESM</span>
             <div class="layer__body">
               <h5>OML exponential smoothing + backtest</h5>
-              <p>One model per series via <code>DBMS_DATA_MINING</code>, plus holdout twins that score
-                every engine against the recent past.</p>
+              <p>One model per eligible tablespace (top 20 by days to full) and per CPU series (host
+                <code>BUSY_PCT</code>, each container's <code>DB_CPU_SEC</code>) via
+                <code>DBMS_DATA_MINING</code>, plus holdout twins that score every engine against the
+                recent past. The fixed-ceiling series are Tier 1 only.</p>
               <div class="layer__objs">
                 <span class="obj">cap_forecast_ml</span><span class="obj">CAPF_ESM_FORECAST</span>
                 <span class="obj">CAPF_ESM_BACKTEST</span><span class="obj">CAPF_ESM_CANDIDATE</span>
                 <span class="obj">CAPF_COMPARE</span><span class="obj">CAPF_BACKTEST</span>
+                <span class="obj">CAPF_ESM_HEALTH</span><span class="obj">CAPF_ESM_HEALTH_SUMMARY</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="branch" style="margin-top:10px">
+          <div class="merge-note" style="text-align:left">◂ Memory branch (reads the seam directly; nothing above reads it)</div>
+          <div class="conn small"></div>
+          <div class="layer l-m">
+            <span class="layer__tag">CAPM_</span>
+            <div class="layer__body">
+              <h5>Memory sizing verdicts</h5>
+              <p>Per database, instance and area (PGA_LIMIT, PGA_TARGET, BUFFER_CACHE, SHARED_POOL,
+                SGA_TOTAL, SGA_BALANCE) a grade, the evidence and a suggested size, from AWR's
+                advisors, counters and wait events as increments within one startup. Advice only: no
+                alert reads it and no parameter is changed.</p>
+              <div class="layer__objs">
+                <span class="obj">CAPM_SNAP</span><span class="obj">CAPM_INST</span>
+                <span class="obj">CAPM_ADV_SRC</span><span class="obj">CAPM_DELTA</span>
+                <span class="obj">CAPM_ADVICE</span><span class="obj">CAPM_PGA_LIMIT</span>
+                <span class="obj">CAPM_AREA</span><span class="obj">CAPM_SGA_BALANCE</span>
+                <span class="obj">CAPM_EVIDENCE</span><span class="obj">CAPM_VERDICT</span>
               </div>
             </div>
           </div>
@@ -286,14 +328,17 @@
         <div class="layer out">
           <span class="layer__tag">report/</span>
           <div class="layer__body">
-            <h5>Read-only reports — text and HTML, sections 0–8</h5>
-            <p>Both drivers consume only <code>CAPR_*</code>, so they can't drift apart. Identity via
-              <code>SYS_CONTEXT</code> (no V$ or catalog privileges). Spools to
-              <code>reports/cap_report_&lt;db&gt;_&lt;ts&gt;.txt</code> (or <code>.html</code>).
-              Creates nothing.</p>
+            <h5>Read-only reports: text (sections 0–8), HTML, one-page brief, CSV</h5>
+            <p>Every driver reads the <code>CAPR_*</code> views (plus <code>CAP_CFG</code> and the
+              Tier 2 health summary), so they can't drift apart. Scope and identity come from
+              <code>report/scope.sql</code>: the targets in scope from <code>CAPV_TARGET</code>, not
+              the session's database (no V$ or catalog privileges). Spools to
+              <code>reports/cap_report_&lt;target|fleet&gt;_&lt;ts&gt;.txt</code> (or
+              <code>.html</code>). Creates nothing.</p>
           </div>
         </div>
       </div>
+      <p>The same stack, object by object: <a href="architecture.html#stack">view stack</a>.</p>
 
       <!-- ===================== LAYER REFERENCE ===================== -->
       <div class="section-head" id="layers">
@@ -312,16 +357,29 @@
         <span class="inline">(dbid, con_dbid)</span> to a database and PDB name (reports print
         <code>DB/PDB</code>), <span class="inline">CAPV_RESOURCE_LIMIT</span> carries
         <code>processes</code> / <code>sessions</code> utilisation against the init parameters, and
-        <span class="inline">CAPV_SYSSTAT</span> carries the <code>redo size</code> counter.</p>
+        <span class="inline">CAPV_SYSSTAT</span> carries the <code>redo size</code> counter.
+        <span class="inline">CAPV_PARAMETER</span> (cpu_count, FRA size, memory parameters),
+        <span class="inline">CAPV_ASM_DISKGROUP</span> and <span class="inline">CAPV_SEG_STAT</span>
+        feed the CPU ceiling, the ASM series and "who is filling it";
+        <span class="inline">CAPV_TARGET</span> names each target and its collect health;
+        <span class="inline">CAPV_CONTRACT</span> is the column contract doctor checks. Eleven
+        instance-level memory views (M26, filed under <span class="inline">con_dbid = dbid</span>)
+        feed <span class="inline">CAPM_</span>; they are optional sources, so a target whose reader
+        lacks them still collects. Diagrams: <a href="architecture.html#seam">the seam</a>,
+        <a href="architecture.html#collect">the collector</a>.</p>
 
       <h3><span class="k">CAPD_</span> &nbsp;— daily series</h3>
       <p>Tablespace usage is a level: each day keeps the last sample
         (<span class="inline">KEEP (DENSE_RANK LAST ...)</span>) and converts blocks→bytes.
-        <span class="inline">UNDO</span>/<span class="inline">TEMPORARY</span> are excluded. The
+        <span class="inline">UNDO</span>/<span class="inline">TEMPORARY</span> are excluded from the
+        growth series; their daily peaks are the <code>TEMP_PEAK:</code> / <code>UNDO_PEAK:</code>
+        <a href="#series">fixed-ceiling series</a>. The
         tablespace ceiling and operator overrides are resolved here, so every layer above honours them.
         CPU <span class="inline">BUSY/IDLE</span> are cumulative counters, differenced per instance;
         an interval spanning a restart (<span class="inline">startup_time</span> changed) or with a
-        negative delta is dropped. Deltas expose <span class="inline">day_gap</span> so a multi-day AWR
+        negative delta is dropped. <span class="inline">CAPD_COUNTER_DELTA</span> differences every
+        cumulative counter once per interval, with the restart flag, and feeds both interval views
+        and <code>REDO_GB_DAY</code>. Deltas expose <span class="inline">day_gap</span> so a multi-day AWR
         gap becomes a rate, not a spike. <span class="inline">CAPD_SERIES_DAILY</span> holds every
         series with a ceiling, keyed by a <code>series</code> name.
         <span class="inline">CAPD_CPU_INTERVAL</span> and <span class="inline">CAPD_DBTIME_INTERVAL</span>
@@ -341,8 +399,9 @@
           <thead><tr><th>Quality</th><th>Condition</th></tr></thead>
           <tbody>
             <tr><td><span class="pill crit">INSUFFICIENT_HISTORY</span></td><td class="def"><code>REGR_COUNT &lt; min_train_days</code>: too little AWR retention, or too few days after a change-point reset</td></tr>
+            <tr><td><span class="pill warn">CYCLIC</span></td><td class="def">Tablespaces with <code>cyclic_min_cliffs</code> or more shrink cliffs in the window (see <a href="#cyclic">Cyclic tablespaces</a>)</td></tr>
             <tr><td><span class="pill warn">FLAT</span></td><td class="def"><code>slope = 0</code>. <code>REGR_R2</code> returns <b>1</b> for a flat series, not NULL, so flatness keys off the slope</td></tr>
-            <tr><td><span class="pill warn">LOW_CONFIDENCE</span></td><td class="def"><code>R² &lt; r2_gate</code> (default 0.60)</td></tr>
+            <tr><td><span class="pill warn">LOW_CONFIDENCE</span></td><td class="def"><code>R² &lt; r2_gate</code> (default 0.60); under DRIFT, and for CPU with <code>cpu_quality_gate = 1</code>, the slope CI includes 0</td></tr>
             <tr><td><span class="pill ok">OK</span></td><td class="def">otherwise</td></tr>
           </tbody>
         </table>
@@ -358,6 +417,55 @@
         observation. Each flag carries value, median, threshold, robust z and baseline size. Modes:
         <a href="#anomalies">Anomalies: three baselines</a>. <span class="inline">CAPA_CPU_SHIFT</span>
         detects level shifts: <a href="#cpu">CPU: peak, share and shifts</a>.</p>
+
+      <h3 id="capm"><span class="k">CAPM_</span> &nbsp;— memory verdicts</h3>
+      <p>One row per database, instance and area in <span class="inline">CAPM_VERDICT</span>:
+        a grade, a reason, the current size and, when a change is advised, a suggested size and its
+        parameter. Areas: <span class="k">PGA_LIMIT</span> (usage against the ceiling), the four
+        advisor areas <span class="k">PGA_TARGET</span>, <span class="k">BUFFER_CACHE</span>,
+        <span class="k">SHARED_POOL</span> and <span class="k">SGA_TOTAL</span>, and
+        <span class="k">SGA_BALANCE</span> (resize activity). Grades: UNDERSIZED / OK / OVERSIZED /
+        INSUFFICIENT_EVIDENCE; for SGA_BALANCE: OK / THRASHING / DRIFTING. The evidence window is
+        the <span class="inline">mem_window_days</span> (30) days up to the dbid's newest snapshot.
+        Every counter and advisor estimate is read as increments between snapshots of one startup;
+        nothing is differenced across a restart. <span class="inline">CAPM_EVIDENCE</span> holds
+        one row per signal (usage, advisor, symptom, context) with its value, threshold and a
+        sentence. An UNDERSIZED or OVERSIZED <span class="inline">suggested_bytes</span> stays
+        within a factor <span class="inline">mem_max_step</span> (2) of the current size.
+        <span class="inline">exceeds_host_ram</span> flags a suggestion that, with the other side's
+        current size, passes <span class="inline">mem_host_ram_pct</span> (80) percent of the host's memory;
+        <span class="inline">exceeds_sga</span> flags a buffer cache or shared pool floor under ASMM
+        above what the two pools hold together. A flagged suggestion is never reduced.</p>
+      <div class="tablewrap">
+        <table>
+          <caption>Advisor areas: the first matching rule decides</caption>
+          <thead><tr><th>Condition</th><th>Grade</th><th>Reason</th></tr></thead>
+          <tbody>
+            <tr><td class="def">No advisor history in the window</td><td>INSUFFICIENT_EVIDENCE</td><td><span class="k">NOT_COLLECTED</span></td></tr>
+            <tr><td class="def"><code>memory_target</code> is set (AMM)</td><td>INSUFFICIENT_EVIDENCE</td><td><span class="k">AMM</span></td></tr>
+            <tr><td class="def">Manual SGA sizing, on SGA_TOTAL</td><td>INSUFFICIENT_EVIDENCE</td><td><span class="k">MANUAL_SIZING</span></td></tr>
+            <tr><td class="def">Advisor coverage under <code>mem_min_uptime_hours</code> (24)</td><td>INSUFFICIENT_EVIDENCE</td><td><span class="k">ADVISOR_THIN</span></td></tr>
+            <tr><td class="def">The advisor shows a gain and a symptom confirms it</td><td>UNDERSIZED</td><td><span class="k">ADVISOR_AND_SYMPTOM</span></td></tr>
+            <tr><td class="def">The advisor shows a gain, no symptom</td><td>OK</td><td><span class="k">ADVISOR_ONLY</span></td></tr>
+            <tr><td class="def">A symptom, no advisor gain</td><td>OK</td><td><span class="k">SYMPTOM_ONLY</span></td></tr>
+            <tr><td class="def">No pressure, a smaller size costs little, at least <code>mem_shrink_min_days</code> (21) sampled days</td><td>OVERSIZED</td><td><span class="k">SHRINK_COSTS_LITTLE</span></td></tr>
+            <tr><td class="def">The same with fewer days</td><td>OK</td><td><span class="k">SHRINK_UNPROVEN</span></td></tr>
+            <tr><td class="def">Otherwise</td><td>OK</td><td><span class="k">SIZED_RIGHT</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>PGA_LIMIT and SGA_BALANCE have their own rows in the same decision table. The reports print the
+        verdicts from the <span class="inline">CAPR_MEM_</span> views (text section 8, the HTML Memory
+        section, the briefing, <span class="inline">report/drill_mem.sql</span>); a verdict raises no
+        alert. Columns:
+        <a href="reference.html#objects">object index</a>. Knobs (<code>mem_*</code>):
+        <a href="reference.html#config">configuration</a>. Layer diagram:
+        <a href="architecture.html#memory">memory verdicts</a>.</p>
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">SQL*Plus</span><span class="term__tag in">query it</span></div>
+<pre><span class="c-prompt">SQL&gt;</span> SELECT area, grade, reason, current_bytes, suggested_bytes, suggested_param FROM capm_verdict;</pre>
+      </div>
 
       <h3><span class="k">CAPR_</span> &nbsp;— integration</h3>
       <p>Display labels, pollable alerts, one view per report section. See
@@ -499,7 +607,7 @@
 <text class="tc" x="312" y="165">reset_day = train_start</text>
 <text class="ts" x="40" y="186">delta &lt; −GREATEST(shrink_mad_k · MAD_σ, abs_floor_bytes)</text>
 </svg>
-<h3>Cyclic tablespaces</h3>
+<h3 id="cyclic">Cyclic tablespaces</h3>
       <p>With rolling retention a tablespace climbs, is purged, and climbs again. When the training
         window holds <span class="inline">cyclic_min_cliffs</span> (2) or more cliffs, the series is
         graded <span class="pill warn">CYCLIC</span>: no reset, judged on whether the per-cycle peaks
@@ -689,7 +797,9 @@
       </div>
       <p><span class="inline">CAPD_SERIES_DAILY</span> is keyed by <code>series</code> and carries
         <span class="inline">(dbid, con_dbid, series, day_dt, value, limit_value, unit,
-        n_samples)</span>. <span class="inline">CAPF_SERIES_FORECAST</span> applies OLS with the M9.1
+        n_samples)</span>, plus the coverage, gap and worst-instance columns.
+        <span class="inline">CAPF_SERIES_FORECAST</span> applies OLS (DRIFT under
+        <span class="inline">slope_method = 2</span>; never Theil–Sen) with the M9.1
         bands and the same quality ladder, and adds <span class="inline">days_to_limit</span> against
         the per-series <span class="inline">limit_value</span> instead of a global percentage knob. A
         new series is one more <code>UNION ALL</code> branch.</p>
@@ -700,14 +810,22 @@
           <tbody>
             <tr><td><span class="k">PROCESSES</span> / <span class="k">SESSIONS</span></td><td class="def">Day's peak <code>MAX_UTILIZATION</code>, summed across RAC instances. The worst instance's percent of its own limit is kept too; the near-limit alert uses the larger</td><td class="def">Summed init parameters. NULL if any instance reads <code>UNLIMITED</code></td></tr>
             <tr><td><span class="k">PGA_ALLOC_GB</span></td><td class="def">Day's highest sampled <code>total PGA allocated</code> in GiB, summed across RAC instances, worst instance kept as for <code>SESSIONS</code>. A sample: the high-water mark between snapshots is verdict evidence (<code>CAPM_PGA_LIMIT</code>), not this series</td><td class="def"><code>pga_aggregate_limit</code>, summed. None when it is 0</td></tr>
-            <tr><td><span class="k">REDO_GB_DAY</span></td><td class="def">Redo per day in GiB from <code>redo size</code> deltas (one stream per database)</td><td class="def">None; trend only, never an alert</td></tr>
+            <tr><td><span class="k">REDO_GB_DAY</span></td><td class="def">Redo per day in GiB from <code>redo size</code> deltas, one row per container (the CDB's redo is their sum)</td><td class="def">None: no limit alert (<code>SERIES_ANOM</code> still scores the level); <code>fra_days_at_cur</code> shows the days of redo the FRA holds</td></tr>
             <tr><td><span class="k">DB_SIZE_GB</span></td><td class="def">Summed used bytes across permanent tablespaces</td><td class="def">Summed tablespace ceilings, with the UNDO/TEMP exclusion and operator overrides</td></tr>
+            <tr><td><span class="k">ASM_DG:+&lt;diskgroup&gt;</span></td><td class="def">Used raw GiB of one ASM diskgroup at the day's last sample, <code>(total_mb − free_mb)/1024</code></td><td class="def"><code>total_mb/1024</code></td></tr>
+            <tr><td><span class="k">TEMP_PEAK:&lt;ts&gt;</span> / <span class="k">UNDO_PEAK:&lt;ts&gt;</span></td><td class="def">Day's peak sampled used GiB of a TEMPORARY / UNDO tablespace</td><td class="def">Day's max of <code>maxsize</code> when autoextend, else the allocated size. <code>CAP_TBSPC_OVERRIDE</code> does not apply</td></tr>
           </tbody>
         </table>
       </div>
-      <p>Saturation is <span class="inline">series_sat_pct</span> (default <b>90</b>) percent of the
-        ceiling. Crossing it raises <code>SERIES_LIMIT</code> / <code>SERIES_NEARLIMIT</code>, with the
-        same lo/hi range from the slope CI.</p>
+      <p><span class="inline">days_to_limit</span> counts to
+        <span class="inline">series_sat_pct</span> (90) percent of the ceiling, with the same lo/hi
+        range from the slope CI. <code>SERIES_LIMIT</code> fires when it is within
+        <span class="inline">dtf_warn</span> / <span class="inline">dtf_crit</span> on an OK fit;
+        <code>SERIES_NEARLIMIT</code> when the percent of limit (the larger of fleet and worst
+        instance) is at or above <span class="inline">nearfull_warn_pct</span> /
+        <span class="inline">nearfull_crit_pct</span>, at any fit quality. The
+        <code>ASM_DG:</code>, <code>TEMP_PEAK:</code> and <code>UNDO_PEAK:</code> series raise both
+        kinds but are not anomaly-scored.</p>
       <div class="callout">
         <span class="ico">i</span>
         <p><strong><code>MAX_UTILIZATION</code> is a high-water mark since instance startup.</strong>
@@ -816,6 +934,7 @@
           <tbody>
             <tr><td><span class="k">limit_bytes</span></td><td class="def">Replaces the computed ceiling.</td></tr>
             <tr><td><span class="k">exclude_flag</span></td><td class="def"><code>'Y'</code> drops the tablespace from forecasts, anomalies, alerts and reports.</td></tr>
+            <tr><td><span class="k">dtf_warn</span> / <span class="k">dtf_crit</span> / <span class="k">nearfull_warn_pct</span> / <span class="k">nearfull_crit_pct</span></td><td class="def">Per-tablespace alert thresholds, applied in <span class="inline">CAPR_SEVERITY</span>. <code>NULL</code> = the knob of the same name.</td></tr>
             <tr><td><span class="k">dbid</span> / <span class="k">con_dbid</span></td><td class="def"><code>0</code> = wildcard; the most specific matching row wins (a real <code>dbid</code> first, then a real <code>con_dbid</code>). <code>tablespace_name</code> matches exactly, no patterns.</td></tr>
           </tbody>
         </table>
@@ -834,10 +953,10 @@
       <!-- ===================== INTEGRATION ===================== -->
       <div class="section-head" id="integration">
         <h2>The integration layer</h2>
-        <p>Monitoring systems and both report drivers read the same <span class="k">CAPR_</span> rows.</p>
+        <p>Monitoring systems and every report driver read the same <span class="k">CAPR_</span> rows.</p>
       </div>
-            <svg class="dg" viewBox="0 0 640 210" role="img" aria-label="Every consumer reads the CAPR_ views: the three SQL*Plus reports, ORDS for Grafana, the ELK export and the APEX app.">
-<defs><marker id="a-int" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0 0L10 5L0 10z"/></marker></defs><rect class="boxa" x="20" y="80" width="140" height="46" rx="5"/><text class="tm" x="90" y="100" text-anchor="middle">CAPR_ views</text><text class="ta" x="90" y="116" text-anchor="middle">CAPR_ALERTS …</text><path class="edge" d="M160 103 C 210 103 210 21 258 21" marker-end="url(#a-int)"/><rect class="box" x="262" y="8" width="190" height="26" rx="4"/><text class="t" x="274" y="25">report.sql (text)</text><path class="edge" d="M160 103 C 210 103 210 54 258 54" marker-end="url(#a-int)"/><rect class="box" x="262" y="41" width="190" height="26" rx="4"/><text class="t" x="274" y="58">report_html.sql</text><path class="edge" d="M160 103 C 210 103 210 87 258 87" marker-end="url(#a-int)"/><rect class="box" x="262" y="74" width="190" height="26" rx="4"/><text class="t" x="274" y="91">report_csv.sql</text><path class="edge" d="M160 103 C 210 103 210 120 258 120" marker-end="url(#a-int)"/><rect class="box" x="262" y="107" width="190" height="26" rx="4"/><text class="t" x="274" y="124">ORDS → Grafana</text><path class="edge" d="M160 103 C 210 103 210 153 258 153" marker-end="url(#a-int)"/><rect class="box" x="262" y="140" width="190" height="26" rx="4"/><text class="t" x="274" y="157">ELK export → Kibana</text><path class="edge" d="M160 103 C 210 103 210 186 258 186" marker-end="url(#a-int)"/><rect class="box" x="262" y="173" width="190" height="26" rx="4"/><text class="t" x="274" y="190">APEX app</text><text class="ts" x="470" y="100">all read the same rows;</text><text class="ts" x="470" y="114">formatting only</text>
+            <svg class="dg" viewBox="0 0 640 243" role="img" aria-label="Every consumer reads the CAPR_ views: the four SQL*Plus reports, ORDS for Grafana, the ELK export and the APEX app.">
+<defs><marker id="a-int" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0 0L10 5L0 10z"/></marker></defs><rect class="boxa" x="20" y="97" width="140" height="46" rx="5"/><text class="tm" x="90" y="117" text-anchor="middle">CAPR_ views</text><text class="ta" x="90" y="133" text-anchor="middle">CAPR_ALERTS …</text><path class="edge" d="M160 120 C 210 120 210 21 258 21" marker-end="url(#a-int)"/><rect class="box" x="262" y="8" width="190" height="26" rx="4"/><text class="t" x="274" y="25">report.sql (text)</text><path class="edge" d="M160 120 C 210 120 210 54 258 54" marker-end="url(#a-int)"/><rect class="box" x="262" y="41" width="190" height="26" rx="4"/><text class="t" x="274" y="58">report_html.sql</text><path class="edge" d="M160 120 C 210 120 210 87 258 87" marker-end="url(#a-int)"/><rect class="box" x="262" y="74" width="190" height="26" rx="4"/><text class="t" x="274" y="91">report_brief.sql</text><path class="edge" d="M160 120 C 210 120 210 120 258 120" marker-end="url(#a-int)"/><rect class="box" x="262" y="107" width="190" height="26" rx="4"/><text class="t" x="274" y="124">report_csv.sql</text><path class="edge" d="M160 120 C 210 120 210 153 258 153" marker-end="url(#a-int)"/><rect class="box" x="262" y="140" width="190" height="26" rx="4"/><text class="t" x="274" y="157">ORDS → Grafana</text><path class="edge" d="M160 120 C 210 120 210 186 258 186" marker-end="url(#a-int)"/><rect class="box" x="262" y="173" width="190" height="26" rx="4"/><text class="t" x="274" y="190">ELK export → Kibana</text><path class="edge" d="M160 120 C 210 120 210 219 258 219" marker-end="url(#a-int)"/><rect class="box" x="262" y="206" width="190" height="26" rx="4"/><text class="t" x="274" y="223">APEX app</text><text class="ts" x="470" y="117">all read the same rows;</text><text class="ts" x="470" y="131">formatting only</text>
 </svg>
 <p><span class="inline">CAPR_ALERTS</span>: one row per current issue, with severity
         (CRIT / WARN / INFO) and sort rank, <code>kind</code>,
@@ -871,13 +990,24 @@
         <span class="inline">CAPR_CPU_ANOMALIES</span>, <span class="inline">CAPR_CPU_SHIFTS</span>,
         <span class="inline">CAPR_ESM_COMPARE</span>, <span class="inline">CAPR_BACKTEST</span>,
         <span class="inline">CAPR_SERIES</span> and <span class="inline">CAPR_SERIES_ANOMALIES</span>.
-        Unit conversions, severity markers, rankings and labels are computed in the view; the text and
-        HTML drivers only format (the HTML driver adds chart geometry). The three Tier-2-dependent
+        Unit conversions, severity markers, rankings and labels are computed in the view; every report
+        driver only formats (the HTML driver adds chart geometry). The three Tier-2-dependent
         views load after the ML file, in <span class="inline">ddl/55_report_views_ml.sql</span>.
         Ranking columns (<span class="inline">rank_dtf</span>, <span class="inline">rank_report</span>,
         <span class="inline">is_reportable</span>), counted per database, make <span class="inline">top_n</span> and "growing,
         near-full, or at least <span class="inline">report_min_gb</span> GiB" a plain
-        <code>WHERE</code> in both drivers. Columns: <a href="reference.html#objects">object index</a>.</p>
+        <code>WHERE</code> in every driver. Columns: <a href="reference.html#objects">object index</a>.</p>
+      <p>Beside the section views: the point feeds <span class="inline">CAPR_SERIES_POINTS</span>,
+        <span class="inline">CAPR_HOURLY_POINTS</span> and
+        <span class="inline">CAPR_FORECAST_POINTS</span>, with <span class="inline">CAPR_FIT</span>
+        and <span class="inline">CAPR_ANOMALIES</span>, are what ORDS, the ELK export, the APEX app
+        and the HTML report chart from; their columns are only ever added.
+        <span class="inline">CAPR_TARGETS</span> and <span class="inline">CAPR_FRESHNESS</span> say
+        what is measured and how old its newest snapshot is,
+        <span class="inline">CAPR_DATA_WINDOW</span> the collected day range,
+        <span class="inline">CAPR_SEGMENT_GROWTH</span> which segments fill a tablespace, and
+        <span class="inline">CAPR_TBSPC_RANK</span> holds the ranking columns. How an alert row is
+        built: <a href="architecture.html#alerts">alerts</a>.</p>
 
       <h3>Results layer</h3>
       <p><span class="inline">CAPR_ALERTS</span> is evaluated live and has no history. The optional
@@ -916,10 +1046,14 @@
         <span class="inline">CAPR_WEEKLY_DIGEST</span> compares the latest run with the one
         <span class="inline">digest_days</span> (7) earlier: days to full then and now, alerts opened
         or resolved. <span class="inline">CAPR_FORECAST_ACCURACY</span> compares each stored fit's
-        projection with what happened. Every report driver can read the last run instead of the live
+        projection with what happened. <span class="inline">CAPR_RUNS</span> lists the runs and
+        how fresh the last one is, <span class="inline">CAPR_COVERAGE</span> what the suite can see
+        per database, and <span class="inline">CAPR_FIT_HISTORY</span> the stored fits of the OK
+        runs. Every report driver can read the last run instead of the live
         views (<code>SNAPSHOT</code> argument): <span class="inline">cap_results.refresh</span> keeps each
         view the drivers read as a <code>&lt;view&gt;_S</code> table, so a SNAPSHOT report evaluates no
-        view over the AWR data.</p>
+        view over the AWR data. Diagram: <a href="architecture.html#results">refresh, LIVE and
+        SNAPSHOT</a>.</p>
 
       <!-- ===================== ENGINES ===================== -->
       <div class="section-head" id="engines">
@@ -931,22 +1065,25 @@
           <h4>Pure SQL linear trend</h4>
           <p>Linear regression, or Theil–Sen when selected. Forecast = slope × days + start; bands
             from the fit's residuals; anomalies explained by median and MAD. Nothing trained.</p>
-          <div class="meta"><span><b>Reaches:</b> +30 / +90 / +180 / +365 days, with 95% bands</span>
+          <div class="meta"><span><b>Reaches:</b> +30 / +90 (tablespaces also +180 / +365), with 95% bands</span>
             <span><b>Needs:</b> nothing beyond the views</span></div>
         </div>
         <div class="track-card b">
           <div class="tk">Tier 2 · optional</div>
           <h4>OML ESM (exponential smoothing)</h4>
-          <p>One model per series via <code>DBMS_DATA_MINING</code>. CPU uses additive Winters (weekly
+          <p>One model per eligible tablespace (top 20 by days to full) and per CPU series (host
+            <code>BUSY_PCT</code>, each container's <code>DB_CPU_SEC</code>) via
+            <code>DBMS_DATA_MINING</code>; the fixed-ceiling series are Tier 1 only. CPU uses additive Winters (weekly
             seasonality); tablespaces default to AUTO (backtest picks Holt or additive Winters per
             series). Compared with Tier 1 in report section 6, scored in 6c.</p>
           <div class="meta"><span><b>Reaches:</b> its furthest step, at most +30 (19c caps the horizon at 30 steps; 90 days of history give 22)</span>
             <span><b>Needs:</b> <span class="inline">CREATE MINING MODEL</span></span></div>
         </div>
       </div>
-      <svg class="dg" viewBox="0 0 640 120" role="img" aria-label="Tier 1 projects to +365 days. Tier 2 ESM reaches at most +30 days on 19c.">
+      <svg class="dg" viewBox="0 0 640 120" role="img" aria-label="Tier 1 projects to +90 days, tablespaces to +365. Tier 2 ESM reaches at most +30 days on 19c.">
 <line class="ax" x1="120.0" y1="90" x2="612.75" y2="90"/>
-<text class="t" x="20" y="38">Tier 1 SQL</text><rect class="pa" x="120.0" y="26" width="493" height="16" rx="3" opacity=".8"/>
+<text class="t" x="20" y="38">Tier 1 SQL</text><rect class="pa" x="120.0" y="26" width="493" height="16" rx="3" opacity=".35"/><rect class="pa" x="120.0" y="26" width="122" height="16" rx="3" opacity=".8"/>
+<text class="ts" x="250" y="19">tablespaces only past +90</text>
 <text class="t" x="20" y="72">Tier 2 ESM</text><rect class="pa" x="120.0" y="60" width="40" height="16" rx="3"/>
 <text class="ts" x="168.5" y="72">≤ 30 steps (19c cap), FLOOR(rows/4)</text>
 <line class="ax" x1="160" y1="90" x2="160" y2="95"/><text class="ts" x="160" y="108" text-anchor="middle">+30</text><line class="ax" x1="242" y1="90" x2="242" y2="95"/><text class="ts" x="242" y="108" text-anchor="middle">+90</text><line class="ax" x1="363" y1="90" x2="363" y2="95"/><text class="ts" x="363" y="108" text-anchor="middle">+180</text><line class="ax" x1="613" y1="90" x2="613" y2="95"/><text class="ts" x="613" y="108" text-anchor="middle">+365</text>
@@ -968,22 +1105,29 @@
       <!-- ===================== STATE ===================== -->
       <div class="section-head" id="state">
         <h2>Persisted state</h2>
-        <p>The suite writes only to the seven <code>CAP_*</code> tables it owns.</p>
+        <p>The suite writes only to the <code>CAP_*</code> tables it owns.</p>
       </div>
       <div class="tablewrap">
         <table>
           <thead><tr><th>Table</th><th>Holds</th><th>Survives re-install?</th></tr></thead>
           <tbody>
-            <tr><td><span class="kt">CAP_CONFIG</span></td><td>Tuning knobs (name/value), MERGE-seeded</td><td><span class="pill ok">yes</span>: the MERGE inserts missing keys and never overwrites <code>cfg_value</code></td></tr>
+            <tr><td><span class="kt">CAP_CONFIG</span></td><td>Tuning knobs (name/value), MERGE-seeded</td><td><span class="pill ok">yes</span>: the MERGE inserts missing keys and never overwrites <code>cfg_value</code> (except <code>suite_version</code>)</td></tr>
             <tr><td><span class="kt">CAP_TBSPC_OVERRIDE</span></td><td>Operator tablespace ceilings, exclusions and alert thresholds</td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves it</td></tr>
             <tr><td><span class="kt">CAP_ML_MODEL</span></td><td>Tier 2 model registry (type, selection, holdout scores, status)</td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves it</td></tr>
             <tr><td><span class="kt">CAP_RUN</span> · <span class="kt">CAP_FIT_HIST</span> · <span class="kt">CAP_ALERT_STATE</span> · <span class="kt">CAP_ALERT_EVENT</span></td><td>Results layer: refresh runs, fits per run, one state per alert (with acks) and its change events. Written only by <code>cap_results</code></td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves them</td></tr>
+            <tr><td><span class="kt">CAP_TARGET</span> · <span class="kt">CAP_TARGET_DBID</span> · <span class="kt">CAP_COLLECT_LOG</span> · <span class="kt">CAP_H_*</span></td><td>Repository: registered targets, their DBIDs, the collect log and the copies of each target's AWR (kept <code>repo_retention_days</code>, 400). Written only by <code>cap_repo</code></td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves them; copies cannot be re-pulled once the target's AWR has aged out</td></tr>
           </tbody>
         </table>
       </div>
       <p>OML models are schema objects (<span class="inline">DM$*</span>). Full teardown:
         <a href="reference.html#teardown">Teardown</a> (<span class="inline">@uninstall.sql</span>).
-        Reports and all <span class="inline">CAPV/CAPD/CAPF/CAPA/CAPR</span> views only SELECT.</p>
+        Reports and all <span class="inline">CAPV/CAPD/CAPF/CAPA/CAPM/CAPR</span> views only SELECT. Two
+        more tables hold no state: the <code>&lt;view&gt;_S</code> snapshot tables are a cache that
+        every install re-creates, and <span class="inline">CAP_ML_INPUT</span> is a global temporary
+        table with the training rows of the model being built. Where each table sits:
+        <a href="architecture.html#config">configuration</a>,
+        <a href="architecture.html#collect">the collector</a>,
+        <a href="architecture.html#results">the results layer</a>.</p>
 
       <nav class="pager" id="pager" aria-label="Previous and next page"></nav>
 

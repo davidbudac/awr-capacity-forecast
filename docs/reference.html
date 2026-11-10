@@ -34,10 +34,11 @@
       <a class="nav-page" href="tutorial.html"><span class="n">03</span> Tutorial</a>
       <div class="nav__group">Guides</div>
       <a class="nav-page" href="concepts.html"><span class="n">04</span> How it works</a>
-      <a class="nav-page" href="usage.html"><span class="n">05</span> Usage</a>
-      <a class="nav-page" href="testing.html"><span class="n">06</span> Testing</a>
+      <a class="nav-page" href="architecture.html"><span class="n">05</span> Architecture</a>
+      <a class="nav-page" href="usage.html"><span class="n">06</span> Usage</a>
+      <a class="nav-page" href="testing.html"><span class="n">07</span> Testing</a>
       <div class="nav__group">Reference</div>
-      <a class="nav-page" href="reference.html"><span class="n">07</span> Reference</a>
+      <a class="nav-page" href="reference.html"><span class="n">08</span> Reference</a>
     </nav>
     <div class="sidebar__foot">
       <button class="theme-toggle" id="themeBtn" type="button">◐ System</button>
@@ -79,7 +80,7 @@
         <p>Thresholds live in <span class="inline">CAP_CONFIG</span>. Views read it only through
           the one-row view <span class="inline">CAP_CFG</span> (one column per knob, named after the knob).
           The table lists every knob the <span class="inline">ddl/05_config.sql</span> seed inserts
-          (64 rows: 63 knobs plus <span class="inline">suite_version</span>) with its shipped default;
+          (one row per knob, plus <span class="inline">suite_version</span>) with its shipped default;
           <span class="inline">test/docs_lint.sh</span> fails when one is missing.</p>
       </div>
       <div class="term in">
@@ -122,7 +123,7 @@
             <tr><td><span class="k">r2_gate</span></td><td class="num">0.60</td><td class="def"><code>REGR_R2</code> below this marks a forecast <span class="pill warn">LOW_CONFIDENCE</span> (tablespaces and series under OLS / THEILSEN, and CPU only when <code>cpu_quality_gate = 0</code>).</td></tr>
             <tr><td><span class="k">mad_k</span></td><td class="num">3</td><td class="def">MAD multiplier <em>k</em>: <code>|value − median| &gt; k·MAD_σ</code> flags an anomaly.</td></tr>
             <tr><td><span class="k">mad_window_days</span></td><td class="num">28</td><td class="def">Length of the <code>TRAILING</code> anomaly baseline (days before the scored day).</td></tr>
-            <tr><td><span class="k">anomaly_report_days</span></td><td class="num">14</td><td class="def">Trailing-days window of anomalies <code>CAPR_ALERTS</code> raises. Separate from the report argument <code>anomaly_days</code> (sections&nbsp;3 and&nbsp;5, default 30).</td></tr>
+            <tr><td><span class="k">anomaly_report_days</span></td><td class="num">14</td><td class="def">Trailing-days window of anomalies <code>CAPR_ALERTS</code> raises. Separate from the report argument <code>anomaly_days</code> (sections&nbsp;3, 5 and&nbsp;7b, default 30).</td></tr>
             <tr><td><span class="k">report_min_gb</span></td><td class="num">1</td><td class="def">Report sections&nbsp;2 and&nbsp;6a print a tablespace only if it is growing, near-full, or at least this many GiB used (<code>is_reportable</code>), then cap at <code>top_n</code> by <code>rank_report</code>.</td></tr>
             <tr><td><span class="k">accel_slope_floor_bpd</span></td><td class="num">1,048,576</td><td class="def">Minimum <code>|slope|</code> (bytes/day, 1&nbsp;MiB) before <code>accel_ratio</code> is computed; below it the ratio is NULL (a near-flat series would divide by ~0).</td></tr>
             <tr><td><span class="k">slope_method</span></td><td class="num">0</td><td class="def"><strong>M9.2</strong> slope estimator for the <code>CAPF_*</code> fits. <code>CAP_CONFIG</code> is numeric, so the encoding is <strong>0 = OLS</strong> (<code>REGR_SLOPE</code>, the default), <strong>1 = THEILSEN</strong> (median of the pairwise slopes, robust to a step) and <strong>2 = DRIFT</strong> (median of the day-over-day rates, slope CI <code>t&middot;sd/&radic;n</code>, bands <code>t&middot;(sd&middot;&radic;h + h&middot;se)</code>, quality OK only when the CI excludes 0). Theil-Sen is computed only under 1, so <code>ts_slope_bpd</code> is NULL otherwise; <code>ols_slope_bpd</code>, <code>drift_slope_bpd</code> and <code>drift_sd_bpd</code> are always there, and the <code>slope_method</code> column says which one the row used. <code>CAPF_SERIES_FORECAST</code> knows 0 and 2; <code>CAPF_BACKTEST</code>'s REGR replay follows all three.</td></tr>
@@ -271,7 +272,7 @@
             <tr><th scope="row"><code>CAPA_ANOM_DAY</code></th><td class="def">view</td><td class="def"><strong>M15</strong>: <code>CAPA_ANOM</code>'s day rows rolled up to one row per observation: <code>anomaly</code> (any day mode flagged), <code>anomaly_modes</code>, <code>headline_mode</code> and its flag, expected, threshold, z and <code>n_hist</code>. The join target that cannot fan out</td></tr>
             <tr><th scope="row"><code>CAPA_CPU_SHIFT</code></th><td class="def">view</td><td class="def"><strong>M10.3</strong> level shifts: last <code>shift_days</code> median vs the prior <code>shift_baseline_days</code> median per (container, metric), confirmed by an N-of-M rule. Gap-flagged and incomplete days (<code>is_complete = 'N'</code>) are left out of both windows. Carries <code>newest_day</code> / <code>is_current</code> (<code>stale_days</code> behind the dbid's newest day reads <code>N</code>). One row per series (current state, not per day)</td></tr>
 
-            <tr><td colspan="3"><b><span class="k">CAPM_</span> memory verdict views (M26)</b> · one grade per instance and memory area, with its evidence and a suggested size. Areas <code>PGA_LIMIT</code>, <code>PGA_TARGET</code>, <code>BUFFER_CACHE</code>, <code>SHARED_POOL</code>, <code>SGA_TOTAL</code> and <code>SGA_BALANCE</code>. Advice for reports: no alert reads them, and only the <code>CAPR_MEM_</code> report views do</td></tr>
+            <tr><td colspan="3"><b><span class="k">CAPM_</span> memory verdict views (M26)</b> · one grade per instance and memory area, with its evidence and a suggested size. Areas <code>PGA_LIMIT</code>, <code>PGA_TARGET</code>, <code>BUFFER_CACHE</code>, <code>SHARED_POOL</code>, <code>SGA_TOTAL</code> and <code>SGA_BALANCE</code>. Advice for reports: no alert reads them, and only the <code>CAPR_MEM_</code> report views do (report section 8, the HTML Memory section, the briefing). <code>CAPM_EVIDENCE</code> holds the signals behind each grade; an area whose optional copies are empty reads <code>INSUFFICIENT_EVIDENCE</code> / <code>NOT_COLLECTED</code>. <code>SELECT * FROM capm_verdict</code> takes about 8&nbsp;s and 150&nbsp;MB of PGA on 30 days of real AWR. The layers: <a href="architecture.html#memory">Architecture, Memory verdicts</a></td></tr>
             <tr><th scope="row"><code>CAPM_SNAP</code></th><td class="def">view</td><td class="def">The snapshot spine of the memory analysis, one row per (dbid, instance, snapshot): <code>end_time</code>, the dbid's <code>window_start</code> / <code>window_end</code> (the <code>mem_window_days</code> days up to its newest snapshot) and <code>in_win</code>, <code>prev_snap_id</code> / <code>ivl_hours</code> (the previous snapshot of the same startup, so nothing is differenced across a restart), <code>latest_snap_id</code>, <code>uptime_hours</code> and <code>seg_ok</code> (the startup was observed for at least <code>mem_min_uptime_hours</code>)</td></tr>
             <tr><th scope="row"><code>CAPM_INST</code></th><td class="def">view</td><td class="def">One row per (dbid, instance) with a snapshot in the window: the window, <code>mem_mode</code> (<code>AMM</code> when <code>memory_target</code> &gt; 0, else <code>ASMM</code> when <code>sga_target</code> &gt; 0, else <code>MANUAL</code>), the parameters at the latest snapshot (<code>sga_target_bytes</code>, <code>pga_target_bytes</code>, <code>pga_limit_bytes</code>, <code>sga_bytes</code>) and <code>host_ram_bytes</code></td></tr>
             <tr><th scope="row"><code>CAPM_ADV_SRC</code></th><td class="def">view</td><td class="def">The four advisors in one shape, one row per (snapshot, <code>area</code>, advised size): <code>size_bytes</code> (the SGA, cache and shared pool advisors list MB, the PGA advisor bytes), <code>size_factor</code>, <code>advice_on</code> and the cumulative <code>cost</code>: <code>estd_db_time</code> (<code>SGA_TOTAL</code>), <code>estd_physical_read_time</code> of the DEFAULT pool of the standard block size (<code>BUFFER_CACHE</code>), <code>estd_lc_load_time</code> (<code>SHARED_POOL</code>), <code>estd_extra_bytes_rw</code> with <code>work</code> = <code>bytes_processed</code> and <code>overalloc</code> (<code>PGA_TARGET</code>)</td></tr>
@@ -344,7 +345,7 @@
             <tr><th scope="row"><code>cap_forecast_ml</code></th><td class="def">package</td><td class="def">Tier 2 train / forecast (<code>train_all</code>, <code>drop_all</code>, <code>get_forecast</code>)</td></tr>
             <tr><th scope="row"><code>cap_results</code></th><td class="def">package</td><td class="def">The only writer of the results tables: <code>refresh(p_as_of)</code> (copy every <code>snap_views</code> view into its <code>&lt;view&gt;_S</code> table, then snapshot <code>CAPR_FIT_S</code> into <code>CAP_FIT_HIST</code>, merge <code>CAPR_ALERTS_S</code> into the state machine, keep the <code>CAPR_COVERAGE_S</code> roll-up on the run; FAILED + re-raise on error; a past <code>p_as_of</code> = backdated run, fits only), <code>snap_views</code> (the one list of views the report drivers read), <code>build_snap_tables</code> (drop and re-create every <code>&lt;view&gt;_S</code>, empty; run by every install), <code>ack(p_key, p_until, p_note, p_by)</code> / <code>unack(p_key)</code> (a <code>state_key</code> or its last <code>alert_key</code>), <code>purge(p_keep_days)</code>, <code>reset</code>, <code>deploy_mode</code></td></tr>
             <tr><th scope="row"><code>CAP_REPO_SOURCE</code></th><td class="def">view (ddl/13)</td><td class="def">One row per copied source: <code>seq</code>, <code>source_name</code>, <code>kind</code> (F fact, D dimension, S dimension scoped to a fact's chunk), <code>copy_table</code> and the finished <code>pull_sql</code> that <code>cap_repo</code> runs over each link</td></tr>
-            <tr><th scope="row"><code>cap_repo</code></th><td class="def">package (repository)</td><td class="def">Target registry and collector: <code>add_target(p_name, p_connect, p_user, p_password | p_db_link, p_global_name)</code> (probes every view over the link; where <code>GLOBAL_NAMES = TRUE</code> refuses <code>CAP_&lt;NAME&gt;</code> with ORA-02085 it names the link <code>&lt;p_global_name&gt;@CAP_&lt;NAME&gt;</code>, and without <code>p_global_name</code> fails with ORA-20074), <code>collect(p_name, p_chunk_snaps)</code> (per DBID, chunked, one transaction per chunk; ORA-20070 after the batch if any failed), <code>set_enabled</code>, <code>remove_target</code> (copies, registry rows and an owned link), <code>set_link_password</code> (recreate an owned link after the reader's password changed; the copies stay), <code>purge(p_days)</code> (delete the fact copies of snapshots older than <code>repo_retention_days</code> per DBID and older <code>CAP_COLLECT_LOG</code> rows, one transaction; dimensions stay; a <code>BAD</code> knob is refused), <code>ping(p_name)</code> (NULL when the link answers and every copied view is readable, else the error text) and <code>reader_expiry(p_name)</code> (when the reader's password expires, from <code>USER_USERS</code> over the link; NULL when it never expires or the link fails). <span class="inline">doctor.sql</span> calls both, because only the owner can use its private links</td></tr>
+            <tr><th scope="row"><code>cap_repo</code></th><td class="def">package (repository)</td><td class="def">Target registry and collector: <code>add_target(p_name, p_connect, p_user, p_password | p_db_link, p_global_name)</code> (probes every copied view over the link and fails on a required one; where <code>GLOBAL_NAMES = TRUE</code> refuses <code>CAP_&lt;NAME&gt;</code> with ORA-02085 it names the link <code>&lt;p_global_name&gt;@CAP_&lt;NAME&gt;</code>, and without <code>p_global_name</code> fails with ORA-20074), <code>collect(p_name, p_chunk_snaps)</code> (per DBID, chunked, one transaction per chunk; ORA-20070 after the batch if any failed), <code>set_enabled</code>, <code>remove_target</code> (copies, registry rows and an owned link), <code>set_link_password</code> (recreate an owned link after the reader's password changed; the copies stay), <code>purge(p_days)</code> (delete the fact copies of snapshots older than <code>repo_retention_days</code> per DBID and older <code>CAP_COLLECT_LOG</code> rows, one transaction; dimensions stay; a <code>BAD</code> knob is refused), <code>ping(p_name)</code> (NULL when the link answers and every required copied view is readable, else the error text; an unreadable optional one is only a <code>[WARN]</code> line; it rolls back the caller's transaction) and <code>reader_expiry(p_name)</code> (when the reader's password expires, from <code>USER_USERS</code> over the link; NULL when it never expires or the link fails). <span class="inline">doctor.sql</span> calls both, because only the owner can use its private links</td></tr>
           </tbody>
         </table>
       </div>
@@ -358,8 +359,7 @@
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
 <pre><span class="c-prompt">SQL&gt;</span> @test/fixture_remove.sql   <span class="c-cmt">-- fixture mode only: drop CAP_FIXTURE_* tables</span>
-<span class="c-prompt">SQL&gt;</span> @uninstall.sql             <span class="c-cmt">-- write the config replay file, then drop all CAP_* / CAPV_ / CAPD_ / CAPF_ / CAPA_ / CAPR_ objects and the links</span>
-<span class="c-prompt">SQL&gt;</span> EXEC cap_forecast_ml.drop_all;  <span class="c-cmt">-- (if trained) remove the OML models</span></pre>
+<span class="c-prompt">SQL&gt;</span> @uninstall.sql             <span class="c-cmt">-- write the config replay file, then drop the OML models, the links and all CAP_* / CAPV_ / CAPD_ / CAPF_ / CAPA_ / CAPM_ / CAPR_ objects</span></pre>
       </div>
 
       <!-- ===================== ADVANCED INSTALL (the former Installation page) ===================== -->
@@ -409,8 +409,12 @@
           </tbody>
         </table>
       </div>
-      <p>A profile is a file of <code>KEY=VALUE</code> answers; <span class="inline">./install.sh --help</span>
-        lists every key. <span class="inline">--set KEY=VALUE</span> overrides one answer and
+      <p>A profile is a file of <code>KEY=VALUE</code> answers. The keys, their defaults and questions
+        are the <code>KEYS</code> table at the top of <span class="inline">install.sh</span>;
+        <span class="inline">./install.sh --help</span> lists the options.
+        <span class="inline">--set KEY=VALUE</span> overrides one answer,
+        <span class="inline">--interactive</span> walks the wizard with the profile's answers as defaults,
+        <span class="inline">--yes</span> skips the final confirmation and
         <span class="inline">--save FILE</span> writes the final answers as a new profile. Passwords never
         live in a profile: they come from <span class="inline">CAP_DB_PW</span>,
         <span class="inline">CAP_OWNER_PW</span> and <span class="inline">CAP_READER_PW</span>, or from a
@@ -510,10 +514,10 @@
           <caption>Privileges the installing schema needs</caption>
           <thead><tr><th scope="col">Privilege</th><th scope="col">Why</th></tr></thead>
           <tbody>
-            <tr><td><span class="k">CREATE TABLE</span></td><td class="def">The <a href="#tables">persisted tables</a>: <span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>, <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span>; in repository mode also the target registry and the <span class="inline">CAP_H_*</span> copies.</td></tr>
-            <tr><td><span class="k">CREATE VIEW</span></td><td class="def">Every <span class="k">CAPV_</span> / <span class="k">CAPD_</span> / <span class="k">CAPF_</span> / <span class="k">CAPA_</span> / <span class="k">CAPR_</span> object.</td></tr>
+            <tr><td><span class="k">CREATE TABLE</span></td><td class="def">The <a href="#tables">persisted tables</a>: <span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>, <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span>; in repository mode also the target registry and the <span class="inline">CAP_H_*</span> copies. Also the SNAPSHOT cache tables <span class="inline">&lt;view&gt;_S</span> and the temporary <span class="inline">CAP_ML_INPUT</span>.</td></tr>
+            <tr><td><span class="k">CREATE VIEW</span></td><td class="def">Every <span class="k">CAPV_</span> / <span class="k">CAPD_</span> / <span class="k">CAPF_</span> / <span class="k">CAPA_</span> / <span class="k">CAPM_</span> / <span class="k">CAPR_</span> object.</td></tr>
             <tr><td><span class="k">CREATE TYPE</span></td><td class="def"><span class="inline">CAP_ESM_ROW</span> / <span class="inline">CAP_ESM_TAB</span>, the pipelined-function types behind <span class="inline">CAPF_ESM_FORECAST</span>.</td></tr>
-            <tr><td><span class="k">CREATE PROCEDURE</span></td><td class="def">The <span class="inline">cap_forecast_ml</span> package (and <span class="inline">cap_nightly</span> and <span class="inline">cap_report_spool</span>, if you add the jobs).</td></tr>
+            <tr><td><span class="k">CREATE PROCEDURE</span></td><td class="def">The packages <span class="inline">cap_forecast_ml</span> and <span class="inline">cap_results</span>, in repository mode also <span class="inline">cap_repo</span> (and <span class="inline">cap_nightly</span> and <span class="inline">cap_report_spool</span>, if you add the jobs).</td></tr>
             <tr><td><span class="k">CREATE MINING MODEL</span></td><td class="def">Optional, Tier 2 only; everything else installs without it. Must be granted <b>directly</b> to the owner: <span class="inline">cap_forecast_ml</span> is definer's rights and creates models with the owner's own privileges.</td></tr>
             <tr><td><span class="k">CREATE JOB</span></td><td class="def">Optional, <span class="inline">install_jobs.sql</span> only.</td></tr>
             <tr><td><span class="k">CREATE DATABASE LINK</span></td><td class="def">Every install but fixture, granted directly: <span class="inline">cap_repo.add_target</span> creates the link to each target.</td></tr>
@@ -567,7 +571,7 @@
 
       <div class="tablewrap">
         <table>
-          <caption>Fixture harness: PDB1, the 150-day fixture (<span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; --ml --pga</span>)</caption>
+          <caption>Fixture harness, measured before M24.13: PDB1, the 121-day test fixture of <span class="inline">test/fixture_install.sql</span> (<span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; --ml --pga</span>)</caption>
           <thead><tr><th scope="col">Step</th><th scope="col">Elapsed</th><th scope="col">Peak PGA</th></tr></thead>
           <tbody>
             <tr><td><span class="inline">test/fixture_install.sql</span></td><td class="def">1 s</td><td class="def">18 MB</td></tr>
@@ -577,6 +581,9 @@
           </tbody>
         </table>
       </div>
+      <p>Since M24.13 the whole fixture run takes about 30&nbsp;minutes: every refresh also fills the
+        snapshot tables, and <span class="inline">run_test.sql</span> compares them. The table above has
+        not been measured again.</p>
 
       <p><strong>Why <span class="inline">pga_aggregate_target</span> does not cap it.</strong>
         Almost none of that memory is sort or hash work area: the largest single work area needs
@@ -698,7 +705,7 @@
             <tr><td class="num">8</td><td><b>Install state</b></td><td class="def">Whether <span class="inline">CAP_CONFIG</span> exists, the <span class="inline">suite_version</span> that built the objects, any <code>INVALID</code> <span class="inline">CAP*</span> object, the deploy mode (inferred from what <span class="inline">CAPV_SNAPSHOT</span> depends on), and how the tablespace and CPU fits came out by quality.</td></tr>
             <tr><td class="num">9</td><td><b>Config sanity</b></td><td class="def">Installed only: reads <a href="#config"><span class="inline">CAP_CFG_CHECK</span></a>. PASS when every knob is <code>OK</code>, else one WARN per <code>MISSING</code> or <code>BAD</code> knob with its reason.</td></tr>
             <tr><td class="num">10</td><td><b>Results layer and seam coverage</b></td><td class="def">Installed only, every probe in its own exception handler: the last <span class="inline">CAPR_RUNS</span> row (run id, status, as-of day, age) and <code>stale_run</code>; FAILED runs of the last 7 days with the first line of the error; RUNNING runs older than an hour; whether <span class="inline">CAP_NIGHTLY_JOB</span> (in repository mode also <span class="inline">CAP_COLLECT_JOB</span>) exists and is enabled, and its last scheduler run (<span class="inline">ALL_SCHEDULER_JOB_RUN_DETAILS</span>); a WARN per step the last nightly run failed, from that run's <code>OUTPUT</code>; OPEN versus acknowledged alert states; retired dbids from <span class="inline">CAPR_COVERAGE</span>; every <span class="inline">CAPV_CONTRACT</span> row, WARN when a per-container source shows one <code>con_dbid</code> on a CDB.</td></tr>
-            <tr><td class="num">11</td><td><b>Repository targets</b></td><td class="def">Repository mode, installed only: per <span class="inline">CAPR_TARGETS</span> target (up to 50) whether its link answers and its reader sees every copied view (<span class="inline">cap_repo.ping</span>, as the owner's private link is not usable by a SYSDBA session), then per DBID the <code>collect_state</code> (OK with the newest copy's age and high-water mark; FAILING with the last error; NEVER), a WARN when the copy is stale or snapshots aged out on the target before they were copied (gaps), one WARN naming every optional copy (<code>CAP_H_PGASTAT</code> and the memory sizing copies) that has no row for a DBID with copied snapshots (memory history not collected or not populated on the target: re-run <span class="inline">target/prepare.sql</span> there if its reader lacks the grants; an advisor switched off also leaves its copy empty), the days copied against the needs of check&nbsp;7, and when the reader's password expires (<span class="inline">cap_repo.reader_expiry</span>; WARN inside <span class="inline">reader_expiry_warn_days</span>, naming the <code>ALTER USER ... IDENTIFIED BY</code> on the target and the <span class="inline">cap_repo.set_link_password</span> that follow it). A disabled target is listed and skipped.</td></tr>
+            <tr><td class="num">11</td><td><b>Repository targets</b></td><td class="def">Repository mode, installed only: per <span class="inline">CAPR_TARGETS</span> target (up to 50) whether its link answers and its reader sees every required copied view (<span class="inline">cap_repo.ping</span>; an unreadable optional one is a WARN, see <a href="#optional-sources">Optional sources</a>, as the owner's private link is not usable by a SYSDBA session), then per DBID the <code>collect_state</code> (OK with the newest copy's age and high-water mark; FAILING with the last error; NEVER), a WARN when the copy is stale or snapshots aged out on the target before they were copied (gaps), one WARN naming every optional copy (<code>CAP_H_PGASTAT</code> and the memory sizing copies) that has no row for a DBID with copied snapshots (memory history not collected or not populated on the target: re-run <span class="inline">target/prepare.sql</span> there if its reader lacks the grants; an advisor switched off also leaves its copy empty), the days copied against the needs of check&nbsp;7, and when the reader's password expires (<span class="inline">cap_repo.reader_expiry</span>; WARN inside <span class="inline">reader_expiry_warn_days</span>, naming the <code>ALTER USER ... IDENTIFIED BY</code> on the target and the <span class="inline">cap_repo.set_link_password</span> that follow it). A disabled target is listed and skipped.</td></tr>
           </tbody>
         </table>
       </div>
@@ -720,7 +727,8 @@
         <span class="eyebrow">The seam</span>
         <h2>Deploy modes</h2>
         <p>All analytics read the <span class="k">CAPV_</span> seam views (plus the
-          <span class="inline">CAPV_CONTRACT</span> diagnostic); <span class="inline">deploy_mode</span> chooses their source.</p>
+          <span class="inline">CAPV_CONTRACT</span> diagnostic); <span class="inline">deploy_mode</span> chooses their source.
+          Diagram: <a href="architecture.html#seam">Architecture, The seam</a>.</p>
       </div>
       <div class="tablewrap">
         <table>
@@ -757,7 +765,9 @@
         <p>One database measures itself the way a repository measures any target: the suite lives in a
           PDB owner and copies the CDB's AWR over a loopback database link.
           <span class="inline">quickstart.sh</span> and <span class="inline">./install.sh --profile standalone</span>
-          run the steps below in one SQL*Plus session, as SYSDBA in <span class="inline">CDB$ROOT</span>.</p>
+          run the steps below in one SQL*Plus session, as SYSDBA in <span class="inline">CDB$ROOT</span>.
+          The query <span class="inline">standalone/tbspc_capacity.sql</span> is something else: one SELECT
+          for a database with nothing installed (<a href="#drivers">Report drivers</a>).</p>
       </div>
       <div class="tablewrap">
         <table>
@@ -800,7 +810,7 @@
 ...
   Reader C##AWRRDR is ready for this database's own repository.
 ...
-  [PASS] grants           SELECT on all 17 DBA_HIST_* views
+  [PASS] grants           SELECT on all 28 DBA_HIST_* views
   [PASS] container data   ALL: the reader sees every container's AWR rows
   [PASS] pack access      DIAGNOSTIC+TUNING
 ...
@@ -824,8 +834,12 @@ Next: repository/self.sql  (registers this database as target CDB1)
   target CDB1 registered over link CAP_CDB1; containers visible: CDB$ROOT, PDB$SEED, PDB1
   CDB1 DBID 1234567890: snap_id 1..4023, 164998 rows (3.8 s)</pre>
       </div>
-      <p>From then on it is a repository with one target: <span class="inline">CAP_COLLECT_JOB</span>
-        copies new snapshots hourly, the copies keep <span class="inline">repo_retention_days</span> of
+      <p>From then on it is a repository with one target. Once <span class="inline">@install_jobs.sql</span>
+        has created <span class="inline">CAP_COLLECT_JOB</span> and you enabled it
+        (<span class="inline">quickstart.sh</span> does not run it; <span class="inline">--profile standalone</span>
+        creates the jobs disabled, <code>JOBS_ENABLE=Y</code> enables them), it copies new snapshots hourly;
+        until then run <code>EXEC cap_repo.collect</code>. The copies keep
+        <span class="inline">repo_retention_days</span> of
         history whatever the database's own AWR retention, and every
         <a href="#repository">Repository mode</a> call applies. Reports run in the owner's schema
         (<code>ALTER SESSION SET CONTAINER = PDB1</code>, then
@@ -837,7 +851,10 @@ Next: repository/self.sql  (registers this database as target CDB1)
         <span class="eyebrow">Install · operate</span>
         <h2>Repository mode</h2>
         <p>The seam reads copies of the registered targets' AWR. The five steps from an empty
-          database to a fleet report: <a href="start.html#fleet">Measure a fleet</a>.</p>
+          database to a fleet report: <a href="start.html#fleet">Measure a fleet</a>. Diagrams:
+          <a href="architecture.html#placement">reader, owner and link</a>,
+          <a href="architecture.html#collect">what one collect moves</a> and
+          <a href="architecture.html#contract">the copy contract</a>.</p>
       </div>
       <p>Each target runs <span class="inline">target/prepare.sql</span> once: a read-only common user
         <span class="inline">C##AWRRDR</span> with <code>CREATE SESSION</code>, direct
@@ -865,7 +882,7 @@ Next: repository/self.sql  (registers this database as target CDB1)
         and facts are copied once, so a collect holds back the newest snapshot while fewer instances have
         it than the one before; the next collect copies it (named in the output and in
         <span class="inline">CAP_COLLECT_LOG</span>). A single instance never waits. RAC is untested.</p>
-      <p><b>Optional sources.</b> <code>CAP_REPO_SOURCE.optional</code> marks a view a target's reader may
+      <p id="optional-sources"><b>Optional sources.</b> <code>CAP_REPO_SOURCE.optional</code> marks a view a target's reader may
         not be able to read yet: <code>DBA_HIST_PGASTAT</code> and the memory sizing sources
         (<code>DBA_HIST_MEM_DYNAMIC_COMP</code>, <code>DBA_HIST_SQL_WORKAREA_HSTGRM</code>, the PGA, SGA,
         buffer cache and shared pool advisors, <code>DBA_HIST_SGASTAT</code>, <code>DBA_HIST_LIBRARYCACHE</code>,
@@ -957,14 +974,14 @@ Next: repository/self.sql  (registers this database as target CDB1)
           <caption>Operating the fleet: cap_repo calls, as the owner</caption>
           <thead><tr><th scope="col">To</th><th scope="col">Run</th><th scope="col">Effect</th></tr></thead>
           <tbody>
-            <tr><td>Register a target</td><td><code>cap_repo.add_target('CDB1', '//host:1521/svc', 'C##AWRRDR', '&lt;pw&gt;', p_global_name =&gt; 'CDB1.EXAMPLE.COM')</code></td><td class="def">Creates the link <span class="inline">CAP_CDB1</span>, probes every copied view through it and records the target's DBIDs. Copies nothing yet. A wrong password or a missing grant fails the call and leaves nothing behind. A name is a letter followed by up to 25 letters, digits or <code>_</code>. <code>p_global_name</code> (the line <span class="inline">target/prepare.sql</span> prints has it) matters only where the repository runs with <code>GLOBAL_NAMES = TRUE</code>, which refuses <span class="inline">CAP_CDB1</span> with ORA-02085: the link is then named <code>CDB1.EXAMPLE.COM@CAP_CDB1</code>, and without the global name the call fails with ORA-20074.</td></tr>
+            <tr><td>Register a target</td><td><code>cap_repo.add_target('CDB1', '//host:1521/svc', 'C##AWRRDR', '&lt;pw&gt;', p_global_name =&gt; 'CDB1.EXAMPLE.COM')</code></td><td class="def">Creates the link <span class="inline">CAP_CDB1</span>, probes every copied view through it and records the target's DBIDs. Copies nothing yet. A wrong password or a missing grant on a required view fails the call and leaves nothing behind; an unreadable optional view is a <code>[WARN]</code> line (<a href="#optional-sources">Optional sources</a>). A name is a letter followed by up to 25 letters, digits or <code>_</code>. <code>p_global_name</code> (the line <span class="inline">target/prepare.sql</span> prints has it) matters only where the repository runs with <code>GLOBAL_NAMES = TRUE</code>, which refuses <span class="inline">CAP_CDB1</span> with ORA-02085: the link is then named <code>CDB1.EXAMPLE.COM@CAP_CDB1</code>, and without the global name the call fails with ORA-20074.</td></tr>
             <tr><td>Register over your own link</td><td><code>cap_repo.add_target('CDB1', p_db_link =&gt; 'MY_LINK')</code></td><td class="def">Uses a link in the owner's schema that a DBA made (a wallet, a proxy user). <span class="inline">remove_target</span> leaves it in place.</td></tr>
             <tr><td>Copy now</td><td><code>cap_repo.collect</code> or <code>cap_repo.collect('CDB1')</code></td><td class="def">Every enabled target, or one. <span class="inline">CAP_COLLECT_JOB</span> runs it hourly at :05.</td></tr>
             <tr><td>Pause or resume</td><td><code>cap_repo.set_enabled('CDB1', 'N')</code></td><td class="def">The copies stay. A disabled target raises no <code>DATA_STALE</code>.</td></tr>
             <tr><td>Follow a password change</td><td><code>cap_repo.set_link_password('CDB1', '&lt;new pw&gt;')</code></td><td class="def">Recreates the link after the reader's password changed on the target. The copies stay.</td></tr>
             <tr><td>Forget a target</td><td><code>cap_repo.remove_target('CDB1')</code></td><td class="def">Deletes its copies and registry rows and drops the link <span class="inline">add_target</span> made. <span class="inline">CAP_COLLECT_LOG</span> keeps its history.</td></tr>
             <tr><td>Trim old copies</td><td><code>cap_repo.purge</code></td><td class="def">Deletes the fact copies of snapshots older than <span class="inline">repo_retention_days</span> (400; 0 keeps everything), per DBID, in one transaction. Refuses a value <span class="inline">CAP_CFG_CHECK</span> calls <code>BAD</code>. The <code>PURGE</code> step of <span class="inline">CAP_NIGHTLY_JOB</span> runs it first each night, at 01:00 by default.</td></tr>
-            <tr><td>Test a link</td><td><code>EXEC DBMS_OUTPUT.PUT_LINE(NVL(cap_repo.ping('CDB1'), 'OK'))</code></td><td class="def">NULL when the link answers and the reader can read every copied view, else the error text.</td></tr>
+            <tr><td>Test a link</td><td><code>EXEC DBMS_OUTPUT.PUT_LINE(NVL(cap_repo.ping('CDB1'), 'OK'))</code></td><td class="def">NULL when the link answers and the reader can read every required copied view, else the error text. An unreadable optional view is a <code>[WARN]</code> line, not an error (<a href="#optional-sources">Optional sources</a>). The call rolls back the caller's transaction.</td></tr>
             <tr><td>See when the reader expires</td><td><code>EXEC DBMS_OUTPUT.PUT_LINE(cap_repo.reader_expiry('CDB1'))</code></td><td class="def">The reader's password expiry from <code>USER_USERS</code> over the link; NULL when it never expires or the link fails. An expired reader fails every collect with ORA-28001; <span class="inline">doctor.sql</span> check&nbsp;11 warns inside <span class="inline">reader_expiry_warn_days</span>.</td></tr>
           </tbody>
         </table>
@@ -1007,7 +1024,7 @@ Next: repository/self.sql  (registers this database as target CDB1)
           <tbody>
             <tr><td><span class="inline">EXEC cap_forecast_ml.train_all</span></td><td class="def">43 s</td><td class="def">86 s</td><td class="def">191 s</td><td class="def">24 s</td></tr>
             <tr><td><span class="inline">EXEC cap_results.refresh</span></td><td class="def">62 s</td><td class="def">279 s</td><td class="def">558 s</td><td class="def">70 s</td></tr>
-            <tr><td><span class="inline">EXEC cap_results.refresh</span> since M24.13 (fills the <code>_S</code> tables)</td><td class="def">&nbsp;</td><td class="def">&nbsp;</td><td class="def">2547 s</td><td class="def">318 s</td></tr>
+            <tr><td><span class="inline">EXEC cap_results.refresh</span> since M24.13 (fills the <code>_S</code> tables)</td><td class="def">&nbsp;</td><td class="def">&nbsp;</td><td class="def">2547 s, 911&nbsp;MB PGA</td><td class="def">318 s</td></tr>
             <tr><td><span class="inline">report/report.sql</span></td><td class="def">179 s</td><td class="def">741 s</td><td class="def">1602 s</td><td class="def">200 s</td></tr>
             <tr><td><span class="inline">report/report_html.sql</span></td><td class="def">122 s</td><td class="def">542 s</td><td class="def">1204 s</td><td class="def">150 s</td></tr>
             <tr><td><span class="inline">report/report.sql</span>, <code>SNAPSHOT</code> before M24.13</td><td class="def">&nbsp;</td><td class="def">452 s</td><td class="def">993 s</td><td class="def">124 s</td></tr>
@@ -1026,8 +1043,9 @@ Next: repository/self.sql  (registers this database as target CDB1)
           report view once. After it, every <code>SNAPSHOT</code> report of any scope takes about a
           second. Twenty targets: a two-hour nightly run, then reports for free. A live fleet report
           still costs about 200&nbsp;s per target.</li>
-        <li><strong>PGA does not grow with the fleet.</strong> Every step peaked between 490 and
-          640&nbsp;MB at one, four and eight targets, so the <a href="#memory">sizing rule</a> holds
+        <li><strong>PGA does not grow with the fleet.</strong> Every step but the refresh peaked between
+          490 and 640&nbsp;MB at one, four and eight targets. The refresh peaks at 911&nbsp;MB since
+          M24.13, still independent of fleet size. So the <a href="#memory">sizing rule</a> holds
           per session whatever the fleet size.</li>
         <li><strong>A report for one target costs one target.</strong>
           <span class="inline">--target</span> (or a dbid argument) scopes the session, so the seam
@@ -1064,14 +1082,16 @@ Next: repository/self.sql  (registers this database as target CDB1)
       <div class="section-head" id="layers">
         <span class="eyebrow">What runs, in what order</span>
         <h2>The load order</h2>
-        <p>Each step depends only on the ones above it.</p>
+        <p>Each step depends only on the ones above it. The install as a flow and the views layer by
+          layer: <a href="architecture.html#install-flow">Architecture, The install</a> and
+          <a href="architecture.html#stack">The view stack</a>.</p>
       </div>
       <!-- dd:load -->
       <figure class="dd-fig">
       <div class="dd-scroll">
 <svg class="dd" viewBox="0 0 760 412" role="img" aria-labelledby="dd-load-title dd-load-desc">
 <title id="dd-load-title">install.sql load order</title>
-<desc id="dd-load-desc">install.sql loads six layers bottom to top: configuration, the seam file chosen by deploy_mode, daily series, forecasts and anomalies, report views with Tier 2, and the results layer; the persisted tables live in the configuration, seam (repository mode), Tier 2 and results steps, and 00_drop runs first without touching them.</desc>
+<desc id="dd-load-desc">install.sql loads six layers bottom to top: configuration, the seam file chosen by deploy_mode (ddl/13 for repository, ddl/12 for fixture), daily series, forecasts with anomalies and the memory verdicts (steps 30, 35, 40 and 42), report views with Tier 2, and the results layer; the persisted tables live in the configuration, seam (repository mode), Tier 2 and results steps, and 00_drop runs first without touching them.</desc>
 <defs><marker id="dd-load-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker></defs>
 <rect class="paper" width="760" height="412"/>
 <path class="e" d="M32 328 L32 36" marker-end="url(#dd-load-mk)"/>
@@ -1090,26 +1110,26 @@ Next: repository/self.sql  (registers this database as target CDB1)
 <rect class="n-store" x="652" y="92" width="84" height="20" rx="4"/>
 <text class="sub" x="728" y="105" text-anchor="end" style="fill:var(--text)">CAP_ML_MODEL</text>
 <line class="rule" x1="64" y1="128" x2="748" y2="128"/>
-<text class="eb" x="80" y="158">30 35 40</text>
-<text class="nm" x="156" y="152">Forecasts and anomalies</text>
-<text class="sub" x="156" y="167">CAPF_ · CAPA_</text>
+<text class="eb" x="80" y="158">30 35 40 42</text>
+<text class="nm" x="156" y="152">Forecasts, anomalies and memory verdicts</text>
+<text class="sub" x="156" y="167">CAPF_ · CAPA_ · CAPM_</text>
 <line class="rule" x1="64" y1="180" x2="748" y2="180"/>
 <text class="eb" x="80" y="210">20 25</text>
 <text class="nm" x="156" y="204">Daily series</text>
 <text class="sub" x="156" y="219">CAPD_ · overrides applied here</text>
 <rect class="n-focal" x="64" y="232" width="684" height="52"/>
-<text class="eb-acc" x="80" y="262">10 13 12</text>
+<text class="eb-acc" x="80" y="262">13 12</text>
 <text class="nm-acc" x="156" y="256">Seam, one file per deploy_mode</text>
-<text class="sub" x="156" y="271">CAPV_ · local | repository | fixture</text>
+<text class="sub" x="156" y="271">CAPV_ · repository | fixture</text>
 <rect class="n-store" x="400" y="248" width="336" height="20" rx="4"/>
 <text class="sub" x="728" y="261" text-anchor="end" style="fill:var(--text)">repository: CAP_TARGET[_DBID] · CAP_COLLECT_LOG · CAP_H_*</text>
 <line class="rule" x1="64" y1="284" x2="748" y2="284"/>
 <text class="eb" x="80" y="314">05</text>
 <text class="nm" x="156" y="308">Configuration</text>
-<text class="sub" x="156" y="323">CAP_CFG · CAP_CFG_CHECK</text>
+<text class="sub" x="156" y="323">CAP_CFG · CAP_CFG_CHECK · CAP_SCOPE</text>
 <rect class="n-store" x="544" y="300" width="192" height="20" rx="4"/>
 <text class="sub" x="728" y="313" text-anchor="end" style="fill:var(--text)">CAP_CONFIG · CAP_TBSPC_OVERRIDE</text>
-<text class="sub" x="64" y="360">00_drop.sql runs before 05: it drops every view and keeps every table in a chip.</text>
+<text class="sub" x="64" y="360">00_drop.sql runs before 05: it drops every view and its &lt;view&gt;_S cache table, and keeps every table in a chip.</text>
 <line class="rule" x1="12" y1="376" x2="748" y2="376"/>
 <text class="lg" x="12" y="398">LEGEND</text>
 <rect class="n-store" x="84" y="389" width="16" height="12" rx="3"/>
@@ -1122,11 +1142,11 @@ Next: repository/self.sql  (registers this database as target CDB1)
       <!-- /dd:load -->
       <div class="tablewrap">
         <table>
-          <caption>install.sql — the twelve steps</caption>
+          <caption>install.sql — the thirteen steps</caption>
           <thead><tr><th scope="col">Step</th><th scope="col">File</th><th scope="col">Creates</th></tr></thead>
           <tbody>
-            <tr><td><span class="k">00</span></td><td class="def"><span class="inline">ddl/00_drop.sql</span></td><td class="def">Idempotent teardown of every <span class="inline">CAP*</span> view plus the two ESM types. <b>Leaves the <a href="#tables">persisted tables</a> alone</b>; still drops retired objects such as <span class="inline">CAPA_TBSPC_ANOM</span>, so an upgrade removes them.</td></tr>
-            <tr><td><span class="k">05</span></td><td class="def"><span class="inline">ddl/05_config.sql</span></td><td class="def"><span class="inline">CAP_CONFIG</span> (created idempotently, then MERGE-seeded), the config views <span class="obj">CAP_CFG</span> <span class="obj">CAP_CFG_CHECK</span>, and <span class="inline">CAP_TBSPC_OVERRIDE</span>.</td></tr>
+            <tr><td><span class="k">00</span></td><td class="def"><span class="inline">ddl/00_drop.sql</span></td><td class="def">Idempotent teardown of every <span class="inline">CAP*</span> view, each view's SNAPSHOT cache table <span class="inline">&lt;view&gt;_S</span>, the two ESM types and the package <span class="inline">cap_repo</span> (ddl/13 reloads it in repository mode). <b>Leaves the <a href="#tables">persisted tables</a> alone</b>; still drops retired objects such as <span class="inline">CAPA_TBSPC_ANOM</span>, so an upgrade removes them.</td></tr>
+            <tr><td><span class="k">05</span></td><td class="def"><span class="inline">ddl/05_config.sql</span></td><td class="def"><span class="inline">CAP_CONFIG</span> (created idempotently, then MERGE-seeded), the config views <span class="obj">CAP_CFG</span> <span class="obj">CAP_CFG_CHECK</span>, the session scope <span class="obj">CAP_SCOPE</span>, and <span class="inline">CAP_TBSPC_OVERRIDE</span>.</td></tr>
             <tr><td><span class="k">seam</span></td><td class="def"><span class="inline">ddl/13_seam_repository.sql</span> · <span class="inline">12_seam_fixture.sql</span></td><td class="def">The twenty-four <span class="k">CAPV_</span> views, chosen by <span class="inline">deploy_mode</span> (ddl/13 is generated by <span class="inline">repository/build.py</span> from <span class="inline">repository/seam.sql</span>, the seam written over <span class="kt">DBA_HIST_*</span>, which is never installed itself): <span class="obj">CAPV_SNAPSHOT</span> <span class="obj">CAPV_TBSPC_USAGE</span> <span class="obj">CAPV_TABLESPACE</span> <span class="obj">CAPV_DATAFILE</span> <span class="obj">CAPV_OSSTAT</span> <span class="obj">CAPV_TIME_MODEL</span> <span class="obj">CAPV_SYSSTAT</span> <span class="obj">CAPV_RESOURCE_LIMIT</span> <span class="obj">CAPV_PARAMETER</span> <span class="obj">CAPV_PGASTAT</span> <span class="obj">CAPV_MEM_COMP</span> <span class="obj">CAPV_WORKAREA_HSTGRM</span> <span class="obj">CAPV_PGA_ADVICE</span> <span class="obj">CAPV_SGA_ADVICE</span> <span class="obj">CAPV_CACHE_ADVICE</span> <span class="obj">CAPV_SHPOOL_ADVICE</span> <span class="obj">CAPV_SGASTAT</span> <span class="obj">CAPV_LIBRARYCACHE</span> <span class="obj">CAPV_ROWCACHE</span> <span class="obj">CAPV_SYSTEM_EVENT</span> <span class="obj">CAPV_ASM_DISKGROUP</span> <span class="obj">CAPV_SEG_STAT</span> <span class="obj">CAPV_CONTAINER</span> <span class="obj">CAPV_TARGET</span>, plus the <span class="obj">CAPV_CONTRACT</span> diagnostic</td></tr>
             <tr><td><span class="k">20</span></td><td class="def"><span class="inline">ddl/20_daily_views.sql</span></td><td class="def">Daily series: <span class="obj">CAPD_TBSPC_DAILY</span> <span class="obj">CAPD_TBSPC_DELTA</span> <span class="obj">CAPD_COUNTER_DELTA</span> <span class="obj">CAPD_CPU_INTERVAL</span> <span class="obj">CAPD_CPU_DAILY</span> <span class="obj">CAPD_DBTIME_INTERVAL</span> <span class="obj">CAPD_DBTIME_DAILY</span> <span class="obj">CAPD_CPU_HOURLY</span>. This is where <span class="inline">CAP_TBSPC_OVERRIDE</span> is applied, once.</td></tr>
             <tr><td><span class="k">25</span></td><td class="def"><span class="inline">ddl/25_series_daily.sql</span></td><td class="def"><span class="obj">CAPD_SERIES_DAILY</span>, the M11 fixed-ceiling series (<code>PROCESSES</code>, <code>SESSIONS</code>, <code>PGA_ALLOC_GB</code>, <code>REDO_GB_DAY</code>, <code>DB_SIZE_GB</code>, <code>ASM_DG:+&lt;group&gt;</code>, <code>TEMP_PEAK:&lt;ts&gt;</code>, <code>UNDO_PEAK:&lt;ts&gt;</code>) in one generic view keyed by a <span class="inline">series</span> name, with the gap columns the anomaly layer reads.</td></tr>
@@ -1134,10 +1154,10 @@ Next: repository/self.sql  (registers this database as target CDB1)
             <tr><td><span class="k">35</span></td><td class="def"><span class="inline">ddl/35_series_forecast.sql</span></td><td class="def"><span class="obj">CAPF_SERIES_FORECAST</span>, the same fit machinery applied to the fixed-ceiling series, with <span class="inline">days_to_limit</span>.</td></tr>
             <tr><td><span class="k">40</span></td><td class="def"><span class="inline">ddl/40_anomaly_views.sql</span></td><td class="def"><span class="obj">CAPA_OBS</span> <span class="obj">CAPA_ANOM</span> <span class="obj">CAPA_ANOM_DAY</span> <span class="obj">CAPA_CPU_SHIFT</span>.</td></tr>
             <tr><td><span class="k">42</span></td><td class="def"><span class="inline">ddl/42_memory_views.sql</span></td><td class="def">The memory verdicts (M26): <span class="obj">CAPM_SNAP</span> <span class="obj">CAPM_INST</span> <span class="obj">CAPM_ADV_SRC</span> <span class="obj">CAPM_DELTA</span> <span class="obj">CAPM_ADVICE</span> <span class="obj">CAPM_PGA_LIMIT</span> <span class="obj">CAPM_AREA</span> <span class="obj">CAPM_COMP</span> <span class="obj">CAPM_SGA_BALANCE</span> <span class="obj">CAPM_EVIDENCE</span> <span class="obj">CAPM_VERDICT</span>.</td></tr>
-            <tr><td><span class="k">45</span></td><td class="def"><span class="inline">ddl/45_report_views.sql</span></td><td class="def">The integration layer: <span class="obj">CAPR_CONTAINER</span> <span class="obj">CAPR_ANOMALIES</span> <span class="obj">CAPR_FRESHNESS</span> <span class="obj">CAPR_TARGETS</span> <span class="obj">CAPR_SEVERITY</span> plus the per-section views <span class="obj">CAPR_TBSPC_DAYS_TO_FULL</span> <span class="obj">CAPR_TBSPC_ANOMALIES</span> <span class="obj">CAPR_CPU_TREND</span> <span class="obj">CAPR_CPU_ANOMALIES</span> <span class="obj">CAPR_CPU_SHIFTS</span> <span class="obj">CAPR_SERIES</span> <span class="obj">CAPR_SERIES_ANOMALIES</span>, the point feeds <span class="obj">CAPR_SERIES_POINTS</span> <span class="obj">CAPR_HOURLY_POINTS</span> <span class="obj">CAPR_FIT</span>, and the memory report views (M26.4) <span class="obj">CAPR_MEM_AREA</span> <span class="obj">CAPR_MEM_VERDICT</span> <span class="obj">CAPR_MEM_EVIDENCE</span> <span class="obj">CAPR_MEM_COMPONENTS</span> <span class="obj">CAPR_MEM_COMP_POINTS</span>.</td></tr>
+            <tr><td><span class="k">45</span></td><td class="def"><span class="inline">ddl/45_report_views.sql</span></td><td class="def">The integration layer: <span class="obj">CAPR_CONTAINER</span> <span class="obj">CAPR_ANOMALIES</span> <span class="obj">CAPR_FRESHNESS</span> <span class="obj">CAPR_TARGETS</span> <span class="obj">CAPR_SEVERITY</span> plus the per-section views <span class="obj">CAPR_TBSPC_DAYS_TO_FULL</span> <span class="obj">CAPR_TBSPC_ANOMALIES</span> <span class="obj">CAPR_CPU_TREND</span> <span class="obj">CAPR_CPU_ANOMALIES</span> <span class="obj">CAPR_CPU_SHIFTS</span> <span class="obj">CAPR_SERIES</span> <span class="obj">CAPR_SERIES_ANOMALIES</span> <span class="obj">CAPR_SEGMENT_GROWTH</span>, the point feeds <span class="obj">CAPR_SERIES_POINTS</span> <span class="obj">CAPR_HOURLY_POINTS</span> <span class="obj">CAPR_FIT</span>, the HTML report's chart window <span class="obj">CAPR_DATA_WINDOW</span>, and the memory report views (M26.4) <span class="obj">CAPR_MEM_AREA</span> <span class="obj">CAPR_MEM_VERDICT</span> <span class="obj">CAPR_MEM_EVIDENCE</span> <span class="obj">CAPR_MEM_COMPONENTS</span> <span class="obj">CAPR_MEM_COMP_POINTS</span>.</td></tr>
             <tr><td><span class="k">50</span></td><td class="def"><span class="inline">ddl/50_ml.sql</span></td><td class="def">Tier 2: <span class="inline">CAP_ML_MODEL</span>, the temporary <span class="inline">CAP_ML_INPUT</span>, the types <span class="inline">CAP_ESM_ROW</span>/<span class="inline">CAP_ESM_TAB</span>, the <span class="inline">cap_forecast_ml</span> package, and <span class="obj">CAPF_ESM_FORECAST</span> <span class="obj">CAPF_ESM_BACKTEST</span> <span class="obj">CAPF_ESM_CANDIDATE</span> <span class="obj">CAPF_COMPARE</span> <span class="obj">CAPF_BACKTEST</span> <span class="obj">CAPF_ESM_HEALTH</span> <span class="obj">CAPF_ESM_HEALTH_SUMMARY</span>.</td></tr>
             <tr><td><span class="k">55</span></td><td class="def"><span class="inline">ddl/55_report_views_ml.sql</span></td><td class="def">The report views that need Tier 2 to exist: <span class="obj">CAPR_TBSPC_RANK</span> <span class="obj">CAPR_TBSPC_FORECAST</span> <span class="obj">CAPR_ESM_COMPARE</span> <span class="obj">CAPR_BACKTEST</span> <span class="obj">CAPR_FORECAST_POINTS</span> <span class="obj">CAPR_ALERTS</span> (its <code>MODEL_HEALTH</code> kind reads <span class="inline">CAPF_ESM_HEALTH_SUMMARY</span>; its anomaly rows come from <span class="inline">CAPR_ANOMALIES</span>). Split out of step 45 to keep the load order acyclic.</td></tr>
-            <tr><td><span class="k">60</span></td><td class="def"><span class="inline">ddl/60_results.sql</span></td><td class="def">The results layer: the tables <span class="inline">CAP_RUN</span> <span class="inline">CAP_FIT_HIST</span> <span class="inline">CAP_ALERT_STATE</span> <span class="inline">CAP_ALERT_EVENT</span> (idempotent, preserved by step 00), the <span class="inline">cap_results</span> package, and <span class="obj">CAPR_ALERTS_LATEST</span> <span class="obj">CAPR_ALERT_EVENTS</span> <span class="obj">CAPR_RUNS</span> <span class="obj">CAPR_COVERAGE</span> <span class="obj">CAPR_FIT_HISTORY</span> <span class="obj">CAPR_WEEKLY_DIGEST</span> <span class="obj">CAPR_FORECAST_ACCURACY</span>. Every view works on empty tables.</td></tr>
+            <tr><td><span class="k">60</span></td><td class="def"><span class="inline">ddl/60_results.sql</span></td><td class="def">The results layer: the tables <span class="inline">CAP_RUN</span> <span class="inline">CAP_FIT_HIST</span> <span class="inline">CAP_ALERT_STATE</span> <span class="inline">CAP_ALERT_EVENT</span> (idempotent, preserved by step 00), the <span class="inline">cap_results</span> package, and <span class="obj">CAPR_ALERTS_LATEST</span> <span class="obj">CAPR_ALERT_EVENTS</span> <span class="obj">CAPR_RUNS</span> <span class="obj">CAPR_COVERAGE</span> <span class="obj">CAPR_FIT_HISTORY</span> <span class="obj">CAPR_WEEKLY_DIGEST</span> <span class="obj">CAPR_FORECAST_ACCURACY</span>. Every view works on empty tables. Last, <span class="inline">cap_results.build_snap_tables</span> re-creates the <span class="inline">&lt;view&gt;_S</span> SNAPSHOT cache.</td></tr>
           </tbody>
         </table>
       </div>
@@ -1156,7 +1176,8 @@ Next: repository/self.sql  (registers this database as target CDB1)
         <h2>Persisted tables</h2>
         <p>Everything else is a view, type or package. The suite writes only to these
           <code>CAP_*</code> tables, never to AWR. All survive a re-install; the last four exist in
-          repository mode only.</p>
+          repository mode only. Which package writes which table:
+          <a href="architecture.html#writers">Architecture, Who writes what</a>.</p>
       </div>
       <div class="tablewrap">
         <table>
@@ -1353,7 +1374,8 @@ Next: repository/self.sql  (registers this database as target CDB1)
       <div class="section-head" id="jobs">
         <span class="eyebrow">Opt-in</span>
         <h2>Scheduler jobs</h2>
-        <p>Standalone, outside <span class="inline">install.sql</span>. Jobs are created <b>DISABLED</b>.</p>
+        <p>Standalone, outside <span class="inline">install.sql</span>. Jobs are created <b>DISABLED</b>.
+          The timeline: <a href="architecture.html#runtime">Architecture, What runs when</a>.</p>
       </div>
 
       <div class="term in">
@@ -1554,7 +1576,7 @@ EXEC DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_NIGHTLY_JOB')</pre>
             <tr>
               <td><span class="inline">report/run_report.sh</span></td>
               <td class="def"><code>[connect] [--html] [--brief] [--csv] [--scope D[:C]] [--target NAME] [--snapshot] [--keep N] [--container P] [--schema O]</code></td>
-              <td class="def">The cron wrapper. Runs the text report (plus HTML / briefing / CSV) non-interactively from the repo root, connect string default <code>/ as sysdba</code>; <code>--target NAME</code> passes a target name as every driver's dbid argument (with <code>--scope</code> only as <code>-:C</code>); exits non-zero when a spool is missing or contains an <code>ORA-</code> / <code>SP2-</code> line; prints each path; <code>--keep N</code> keeps the newest N reports of each kind, only after a clean run. A cron line is in its header.</td>
+              <td class="def">The cron wrapper. Runs the text report (plus HTML / briefing / CSV) non-interactively from the repo root, connect string default <code>/ as sysdba</code>; <code>--target NAME</code> passes a target name as every driver's dbid argument (with <code>--scope</code> only as <code>-:C</code>); exits non-zero when sqlplus exits non-zero, when a line of the session output or of a spool starts with <code>ORA-</code> / <code>SP2-</code> (an alert message quoting an Oracle error mid-line is content), or when a spool is missing; prints each path; <code>--keep N</code> keeps the newest N reports of each kind, only after a clean run. A cron line is in its header.</td>
             </tr>
             <tr>
               <td><span class="inline">report/drill_tbspc.sql</span></td>
@@ -1570,6 +1592,11 @@ EXEC DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_NIGHTLY_JOB')</pre>
               <td><span class="inline">report/drill_mem.sql</span></td>
               <td class="def"><code>[dbid | target] [instance]</code></td>
               <td class="def"><strong>M26.4</strong>: the memory verdicts of one instance, spooled to <span class="inline">reports/cap_drill_mem_&lt;db&gt;_&lt;instance&gt;_&lt;ts&gt;.txt</span>: the instance's mode, parameters, host memory and evidence window (<code>CAPM_INST</code>) with its six verdicts, the startups of the window and whether each one's advisor evidence was used (<code>CAPM_SNAP</code>), every evidence line, the advisor curves with the current, reference and suggested sizes marked (<code>CAPM_ADVICE</code>), and the intervals in which a component was resized (<code>CAPM_COMP</code>). The database may be omitted when the schema holds one; the instance defaults to the only one, else 1. Scoped to its database through <span class="inline">report/scope.sql</span>. Reads the views live.</td>
+            </tr>
+            <tr>
+              <td><span class="inline">standalone/tbspc_capacity.sql</span></td>
+              <td class="def">none</td>
+              <td class="def">Outside the suite: one read-only SELECT over <span class="kt">DBA_HIST_*</span> on a database with nothing installed. The Tier 1 tablespace fit (OLS, purge reset, <code>CYCLIC</code>, 95% bands) with the knob defaults inlined in its <code>prm</code> CTE; no <span class="inline">CAP_CONFIG</span>, no overrides, no anomalies, no ML. Run it in <span class="inline">CDB$ROOT</span> (or a non-CDB) to see every container; the reading user needs SELECT on six <span class="kt">DBA_HIST_*</span> views (<code>SNAPSHOT</code>, <code>TBSPC_SPACE_USAGE</code>, <code>TABLESPACE</code>, <code>DATAFILE</code>, <code>PDB_INSTANCE</code>, <code>DATABASE_INSTANCE</code>) or <code>SELECT_CATALOG_ROLE</code>, and a common user needs <code>CONTAINER_DATA = ALL</code> to see more than the root. Not the <a href="#standalone">standalone install</a>.</td>
             </tr>
             <tr>
               <td><span class="inline">awrcap/metrics</span><br><span class="small">ORDS GET</span></td>
@@ -1601,7 +1628,7 @@ EXEC DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_NIGHTLY_JOB')</pre>
         created only if absent and new columns are added in place; new knobs are MERGE-seeded with their
         shipped default. Run <span class="inline">@doctor.sql</span> afterwards to confirm nothing is
         <code>INVALID</code>. <span class="inline">@uninstall.sql</span> removes the scheduler jobs, views, types,
-        package, OML models, a repository's database links and every persisted table; it prints any error other than "does not exist" and ends
+        packages, OML models, a repository's database links and every persisted table; it prints any error other than "does not exist" and ends
         with the number of <span class="inline">CAP%</span> objects left (0 expected). Before it drops
         anything it writes the knobs off their default and the <span class="inline">CAP_TBSPC_OVERRIDE</span>
         rows to <span class="inline">reports/cap_config_replay_&lt;schema&gt;_&lt;timestamp&gt;.sql</span> and

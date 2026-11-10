@@ -30,7 +30,7 @@ for making changes safely.
   ddl/20 / ddl/30 tablespace fit there.
 - **Every seam source read carries the session scope (M24.11).** Each
   `FROM dba_hist_x` / `cap_fixture_x` in repository/seam.sql and ddl/12 (and
-  ddl/13, generated) keeps `dbid = NVL((SELECT scope_dbid FROM cap_scope), dbid)`:
+  ddl/13, generated) keeps `dbid = NVL(<the CAP_SCOPE expression, inline>, dbid)`:
   both sides of a join, each UNION branch, each NOT EXISTS subquery (an
   anti-join scans its table whole otherwise). `CAP_SCOPE` (ddl/05, one row)
   parses CLIENT_INFO `AWRCAP dbid=<n>`, which `report/scope.sql` sets and
@@ -167,6 +167,13 @@ removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
 `test/lint_snapshot_reads.sh` and `test/lint_dba_hist.sh` (plus build.py
 --check and the two offline report tests), syncs and runs the whole fixture
 harness on dbmint.
+`docs/architecture.html` is the architecture page: the system level by level
+(context, accounts and link, install flow, collector and copy contract, seam
+and session scope, view stack, configuration, forecast / anomaly / memory
+paths, alerts, results layer), one inline `<svg class="dd">` per topic. A
+structural change (a layer, a writer, a seam source, a job, a persisted
+table) is mirrored there. A new docs page joins the `nav` block of every
+`docs/*.html` and `PAGES` in `docs/assets/site.js`.
 README.md shows diagrams as `docs/diagrams/readme/*.svg`, standalone copies
 of inline SVGs from the docs pages made by `docs/diagrams/readme_svgs.py`
 (its `DIAGRAMS` map names page and diagram): edit the page's SVG, rerun it.

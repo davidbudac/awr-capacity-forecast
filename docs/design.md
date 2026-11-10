@@ -1,7 +1,9 @@
 # Design — AWR Capacity Forecast
 
 This document explains *why* each layer is shaped the way it is. For usage see
-`README.md`; for change-safety notes see `CLAUDE.md`.
+`README.md`; for change-safety notes see `CLAUDE.md`. `architecture.html` is
+the illustrated overview: the same system level by level, one diagram per
+topic.
 
 ## Goals and constraints
 
@@ -11,7 +13,7 @@ This document explains *why* each layer is shaped the way it is. For usage see
   anomaly flag exposes the exact arithmetic (value, median, MAD-sigma,
   threshold, robust z) so an operator can reproduce it by hand.
 - **Portable.** Analytics are written once against a thin seam so the same SQL
-  serves local AWR, a repository's copies of other databases' AWR, or test
+  serves a repository's copies of AWR (its own database's included) or test
   fixtures.
 - **Read-only.** Nothing the report touches is ever modified. The suite
   writes only to `CAP_*` tables it owns, never to AWR: the config and
@@ -39,6 +41,18 @@ This document explains *why* each layer is shaped the way it is. For usage see
   inserts a missing key with `cfg_value = cfg_default`, and on a re-install
   refreshes only `cfg_default` and `cfg_desc`. The reset is
   `UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = '...'`.
+- **Every session is labelled.** A DBA who finds a suite statement in
+  `V$SESSION`, ASH or the AWR SQL statistics must be able to tell whose it
+  is and which step. A runnable SQL\*Plus script sets
+  `MODULE` to `AWRCAP/<its path>` (`SET APPINFO`), a public procedure of
+  `cap_results`, `cap_forecast_ml` or `cap_repo` sets
+  `AWRCAP/<package>.<procedure>` with its step as `ACTION` and restores the
+  caller's values on return and on error, and a scheduler job sets its name
+  as the client identifier (`DBMS_SESSION.SET_IDENTIFIER`). Functions called
+  from SQL set nothing. Module and action do not cross a DB link, so
+  `cap_repo` labels its session on the target itself. `test/lint_appinfo.sh`
+  fails on a script, procedure or job without its label; the table of labels
+  is `reference.html#labels`.
 - **19c floor.** No 21c+ syntax (notably: no standalone `WINDOW` clause).
 
 ## Deployment: every database a target (M24, M25)
@@ -82,6 +96,15 @@ made 2026-11-07:
   database instance, ASM diskgroup) are MERGEd null-safe on their key. One
   dimension (S: `SEG_STAT_OBJ`) is scoped to the fact chunk that references
   it, because the full view is large.
+- **Optional sources (M26).** A manifest source marked `optional`
+  (`CAP_REPO_SOURCE.optional = 'Y'`: `PGASTAT` and the ten memory sizing
+  sources) is a view a target's reader may lack, for example a reader
+  prepared before M26, which has no grant on it. A missing grant must not stop the capacity
+  history, so `probe` and `ping` warn instead of failing, and `collect` skips
+  that pull on ORA-00942 / ORA-01031, copies the rest, moves the high-water
+  mark, prints one `[WARN]` per target and names the skipped views in its OK
+  log row. There is no backfill once the grant arrives: the window starts at
+  the high-water mark, so the memory history of that target begins then.
 - **The window starts at the high-water mark, not the oldest snapshot.** AWR
   purges its tables unevenly: `DBA_HIST_CON_SYSSTAT` kept rows of snapshots
   2657..2695 after they had left `DBA_HIST_SNAPSHOT` (verified 19.27). The
@@ -125,11 +148,15 @@ made 2026-11-07:
 
 - **The views stay live at fleet size (M24.10).** Measured at 1, 4 and 8
   synthetic targets of 144 days each (`test/dbmint_scale.sh`), refresh and
-  both reports grow in proportion to the fleet, about seven minutes of
-  nightly work per target on two vCPUs, and each session's PGA stays at
-  490-640 MB. A per-run results table would not change that shape, so none
-  was added then; the SNAPSHOT reports (about 40% faster) read the M19
-  results layer for the alerts and fits. Two scale bugs came out of it: OML re-planned the training
+  both reports grow in proportion to the fleet. As measured at M24.10: about
+  seven minutes of nightly work per target on two vCPUs (the refresh 70 s of
+  it), each session's PGA at 490-640 MB. A per-run results table would not
+  change that shape, so none was added then; the SNAPSHOT reports of that
+  time (about 40% faster) read the M19 results layer for the alerts and
+  fits. Since M24.13 (next bullet) the refresh pays for every report view:
+  318 s per 144-day target on two vCPUs, peak PGA 911 MB, and a SNAPSHOT
+  report takes about 1 s and 10 MB of PGA at any fleet size. The other steps
+  stay at 490-640 MB. Two scale bugs came out of it: OML re-planned the training
   query inside its own INSERT into work that re-read the fleet per series
   (`train_all` quadratic; fixed by staging each series in `CAP_ML_INPUT`),
   and `add_by_day` overflowed the DATE range on a near-zero slope (every
@@ -209,8 +236,19 @@ The M25 choices, made 2026-11-09:
 - **AWR is read in one place.** `doctor.sql` checks only the repository side
   (its sections over the database's own AWR moved to `target/check.sql`) and
   warns before a reader's password expires (`reader_expiry_warn_days`). Code
-  names `DBA_HIST_*` only under `repository/` and `target/` (plus test/ and
-  bench/), which `test/lint_dba_hist.sh` enforces.
+  names `DBA_HIST_*` only under `repository/`, `target/` and `standalone/`
+  (one no-install query outside the seam, below), plus test/ and bench/,
+  which `test/lint_dba_hist.sh` enforces.
+- **One installer for every role.** `install.sh` asks the role first
+  (standalone, target, repository, fixture) and writes one SQL\*Plus driver
+  per run; `profiles/*.env` are its answer files, so a silent install is the
+  guided one with the answers given. Standalone is not a separate code path:
+  it is the target steps and the repository steps on one database.
+- **A query for a database with nothing installed.**
+  `standalone/tbspc_capacity.sql` is one SELECT over `DBA_HIST_*` that
+  re-derives the Tier 1 tablespace fit (Layers 2 and 3, OLS only) with the
+  knob defaults inlined. It sits outside the suite and its seam, so a change
+  to the tablespace fit is mirrored there by hand.
 
 A warehouse mode, a seam over the `../awr-fleet-warehouse` collector,
 predated M24. M24.9 retired it, so repository mode is the one fleet path;
@@ -325,13 +363,58 @@ bullet).
   `** MISSING **`. AWR keeps only the top segments of each snapshot, so the
   deltas cover the busiest segments, not all of them. The fixture reads
   `CAP_FIXTURE_SEG_STAT`, with the same fallback stub.
+- **The memory sources (M26).** Eleven views feed the memory verdicts of
+  Layer 4b: `CAPV_PGASTAT` (PGA statistics in bytes; `total PGA allocated`
+  is a sample, `maximum PGA allocated` a high-water mark since startup),
+  `CAPV_MEM_COMP` (component sizes, the cumulative resize counter, the last
+  operation, the granule size), `CAPV_WORKAREA_HSTGRM` (optimal, one-pass
+  and multi-pass executions), the four advisors `CAPV_PGA_ADVICE`,
+  `CAPV_SGA_ADVICE`, `CAPV_CACHE_ADVICE` and `CAPV_SHPOOL_ADVICE`,
+  `CAPV_SGASTAT` (free memory per pool only), `CAPV_LIBRARYCACHE`,
+  `CAPV_ROWCACHE` and `CAPV_SYSTEM_EVENT` (a fixed list of memory pressure
+  events). They are instance level, so `con_dbid := dbid`, with the guard
+  `CAPV_PARAMETER` uses against a PDB row; `CAPV_SGASTAT` alone keeps the
+  source's `con_dbid`. Counters and advisor estimates pass through
+  cumulative, as AWR stores them: differencing is Layer 4b's job, in one
+  place. The row filters (statistic names, events, free memory rows) keep
+  the copies small, except `PGASTAT`, which is copied with every name
+  because a copy cannot be backfilled. Each is an optional repository copy
+  (Deployment). The fixture seam reads `CAP_FIXTURE_<suffix>`, with the
+  zero-row stub of `CAPV_PARAMETER` where a table is missing.
+- **Session scope (M24.11).** Every seam read of a source keeps
+  `dbid = NVL(<scope>, dbid)`, where the scope is the dbid parsed from the
+  session's `CLIENT_INFO` `AWRCAP dbid=<n>`, NULL for every database:
+  both sides of a join, each `UNION` branch and each `NOT EXISTS` subquery
+  (an anti-join scans its table whole otherwise). `CAP_SCOPE` (ddl/05, one
+  row) is the named form of that expression; the seam repeats it inline,
+  which parses cheaper than a subquery on the view, and `run_test.sql`
+  proves the two agree. `report/scope.sql` sets the scope from a driver's
+  dbid or target argument and each driver clears it at its end.
+  `CLIENT_INFO` needs no privilege and no package state and shows in
+  `V$SESSION`. A writer (`cap_results.refresh`, the `cap_forecast_ml`
+  trainers) clears a scope it finds: it reads every database, and a scope
+  left by an aborted report would hide the other targets and resolve their
+  alerts. The scope sits at the bottom because no predicate placed above
+  the seam survives the materialized CTEs downstream: in the 19.27 plans
+  before M24.13's per-dbid windows, 35 of 64 views read the copies unscoped
+  under `WHERE dbid =`, so a report for one target cost a fleet report. The
+  optimizer estimates the filter at 1/NDV(dbid), scoped or not.
+  `test/scope_plan.sql` EXPLAINs every view and counts the seam reads
+  without the `CLIENT_INFO` lookup; the only right answer is 0, and
+  `run_test.sql` asserts it for the `CAPV` views.
 - `CAPV_CONTRACT` is a diagnostic over the seam itself, the same body in all
   three seam files: one row per fact source (`SNAPSHOT`, `TBSPC_USAGE`,
   `OSSTAT`, `TIME_MODEL`, `SYSSTAT`, `RESOURCE_LIMIT`, `PARAMETER`,
-  `ASM_DISKGROUP`, `SEG_STAT`) with `n_rows`, `n_con_dbid`, `min_snap_id` /
+  `ASM_DISKGROUP`, `SEG_STAT` and the eleven memory sources `PGASTAT`,
+  `MEM_COMP`, `WORKAREA_HSTGRM`, `PGA_ADVICE`, `SGA_ADVICE`, `CACHE_ADVICE`,
+  `SHPOOL_ADVICE`, `SGASTAT`, `LIBRARYCACHE`, `ROWCACHE`, `SYSTEM_EVENT`)
+  with `n_rows`, `n_con_dbid`, `min_snap_id` /
   `max_snap_id`, `max_end_time` and `per_container_expected` (`Y` for
   tablespace usage, time model, sysstat and segment stats, `N` for the host,
-  instance and spine sources). `doctor.sql` section 10 prints every row and
+  instance and spine sources, the memory sources among them: `SGASTAT`
+  keeps the source's `con_dbid` but its free memory rows are instance wide).
+  An advisor that is off reads `n_rows = 0`, as `ASM_DISKGROUP` does on a
+  database without ASM. `doctor.sql` section 10 prints every row and
   warns when a `Y` source shows a single `con_dbid` on a CDB. `n_con_dbid = 1` against a
   `Y` says the per-PDB series are missing, which is what a common user
   without `CONTAINER_DATA = ALL` sees in `CDB$ROOT`. It full-scans every
@@ -514,7 +597,7 @@ of `CAPD_SERIES_DAILY` expose:
   (knob, default 80), else `'N'`.
 
 `gap_flag` keeps its meaning. The level series of `CAPD_SERIES_DAILY`
-(`PROCESSES`, `SESSIONS`, `DB_SIZE_GB`) read one sample a day and carry
+(`PROCESSES`, `SESSIONS`, `PGA_ALLOC_GB`, `DB_SIZE_GB`) read one sample a day and carry
 `covered_sec` NULL and `is_complete = 'Y'`. The CPU and series fits read
 complete days only (Layer 3), and the anomaly layer neither scores an
 incomplete day nor lets it into a baseline (Layer 4).
@@ -726,8 +809,8 @@ Ordinary least squares via `REGR_*` over `day_n = day_dt − DATE '2020-01-01'`
   - **Hot now**: for `BUSY_P95` and `DB_CPU_P95`, `recent_p95_med` is that
     same median and `hot_now = 'Y'` when it is at or above `cpu_sat_pct`:
     saturated in the busy hour now, whatever the trend says (tablespaces and
-    series have `NEARFULL` / `NEARLIMIT` for this). A column only; no alert
-    reads it yet.
+    series have `NEARFULL` / `NEARLIMIT` for this). `CPU_HOT` / `DBCPU_HOT`
+    page on it at any fit quality (Layer 6).
 
 ## Layer 2b / 3b — fixed-ceiling series (M11)
 
@@ -881,7 +964,7 @@ ts)`. Each branch states what is scored, in which unit, and with which floor:
 | `SERIES` / `DB_SIZE_GB` | DAY | growth, GiB moved ÷ `day_gap` | GiB moved | `GIB_PER_DAY` | `series_floor_gib` | `SERIES_GROWTH` → `SERIES_ANOM` |
 
 The M11 rows come from an inline `sreg` registry (series, LEVEL or RATE basis,
-unit, anomaly kind), so scoring a fifth M11 series is one row there. The floors
+unit, anomaly kind), so scoring another series is one row there. The floors
 come from one inline `ufloor (unit, grain)` table and are expressed as
 **threshold** floors in value units. `CAPA_OBS` also carries `gap_flag`,
 `is_complete`, `day_gap`, `ivl_hours`, the family's `alert_modes` bitmask and
@@ -1110,6 +1193,159 @@ returned no rows). `kind_last_day` (the newest DAY `ts` of the kind) rides
 along, so `CAPR_ANOMALIES` and `CAPR_CPU_ANOMALIES` need no second `CAPA_OBS`
 read for their windows.
 
+## Layer 4b: memory verdicts (`CAPM_*`, M26, ddl/42)
+
+Whether `sga_target` or `pga_aggregate_target` is set well is not a forecast
+question. The answer is in four advisor sections of an AWR report, read
+against wait events, work area statistics and the resize history, and nobody
+does that by hand for a fleet. So this layer is a third kind of analysis
+beside forecast and anomaly: per database, instance and memory area a
+**grade** (`UNDERSIZED` / `OK` / `OVERSIZED` / `INSUFFICIENT_EVIDENCE`), the
+evidence behind it and a suggested size. It is advice. The suite never
+changes a parameter. `docs/specs/memory-sizing.md` is the spec.
+
+Six areas: `PGA_LIMIT` (usage against the ceiling, no advisor), the four
+advisor-based areas `PGA_TARGET`, `BUFFER_CACHE`, `SHARED_POOL` and
+`SGA_TOTAL`, and `SGA_BALANCE` (resize activity between the pools). Instance
+areas are filed under `con_dbid = dbid`, where AWR records instance memory.
+The evidence window is per dbid: the `mem_window_days` (30) days up to that
+dbid's newest snapshot, never `SYSDATE`.
+
+The views, bottom up:
+
+| view | what it holds |
+| --- | --- |
+| `CAPM_SNAP` | the snapshot spine: window, startup, the previous snapshot of the same startup, `seg_ok` (the startup's uptime reaches `mem_min_uptime_hours`) |
+| `CAPM_INST` | one row per instance: memory mode (AMM / ASMM / MANUAL), the parameters at the latest snapshot, host RAM |
+| `CAPM_ADV_SRC` | the four advisors in one shape, sizes in bytes |
+| `CAPM_DELTA` | every counter and advisor estimate as increments, one long shape |
+| `CAPM_ADVICE` | the curve: cost and gain per advised size against the reference size |
+| `CAPM_PGA_LIMIT`, `CAPM_AREA`, `CAPM_SGA_BALANCE` | the facts of each area |
+| `CAPM_EVIDENCE` | one row per signal: value, unit, threshold, direction, a sentence, `kind` (USAGE / ADVISOR / SYMPTOM / CONTEXT) |
+| `CAPM_VERDICT` | one row per (dbid, instance, area): grade, reason, current and suggested size, the parameter the suggestion is for |
+
+- **An advisor alone does not grade.** `UNDERSIZED` needs advisor pressure
+  and one observed symptom; either alone is `OK` with a reason that names
+  the lone signal (`ADVISOR_ONLY`, `SYMPTOM_ONLY`). `OVERSIZED` needs
+  advisor slack, no pressure of any kind in the window and
+  `mem_shrink_min_days` sampled days: taking memory away is the risky call,
+  so it is the conservative one. An advisor estimates; a symptom is
+  observed. An instance without advisors reads `INSUFFICIENT_EVIDENCE`,
+  never a symptom-only `UNDERSIZED`.
+- **Materiality is measured in DB time.** A gain or loss for the SGA total,
+  the buffer cache and the shared pool is the change in the advisor's
+  estimated seconds over the instance's DB time in the same intervals. A
+  buffer cache that would do half the physical reads but save 0.8% of DB
+  time is not undersized. The PGA advisor has no usable time column, so the
+  PGA target is measured in cache hit percentage points.
+- **Rules are data.** A symptom is a `sig` row plus `term` rows in
+  `CAPM_EVIDENCE`, an advisor area a `def` row in `CAPM_AREA` plus a branch
+  in `CAPM_ADV_SRC`, a grade a row of `rule` in `CAPM_VERDICT` (first match
+  by `n`, a NULL flag matches any). A CASE ladder per area would be six
+  copies of the logic, the shape Layer 4 left behind in M15, and a verdict
+  derived only from evidence rows can always show why.
+- **Increments only.** Counters and advisor estimates are cumulative since
+  instance startup, so `CAPM_DELTA` turns each into increments between
+  consecutive snapshots of one startup, and that is the one piece of
+  increment logic in the layer. Nothing is differenced across a restart. A
+  missing row pairs with the key's previous present row. A negative step is
+  dropped: the buffer cache advisor restarts its estimates at a resize of
+  the cache. Summing increments weights each interval by the work it
+  carried, so no table of startup segments is needed.
+- **Zero-fill.** AWR writes no row for a PGA statistic or a wait event that
+  is still zero (verified 19.27), and writes one on every snapshot from the
+  first use on. For those sources a key's first row in a startup counts in
+  full. Pairing only with a previous present row lost that step: on the
+  probe database it was 110 of 145 seconds of free buffer waits. Advisor
+  rows never zero-fill.
+- **One interval set per area.** The advisor lists are ragged (verified
+  19.27: the shared pool advisor gave 30 different lists in 502 intervals;
+  low sizes come and go, some lists stop short, a resize moves the list). The
+  first version compared each size over the intervals that listed it. Every
+  size then had its own interval set, the curve was not monotonic, and the
+  shared pool suggestion moved from 1776 to 1296 MiB between two snapshots
+  15 minutes apart. Now every size is compared over the reference size's
+  intervals. Where an interval has no increment for a size, the largest
+  listed size below it stands in, which understates a gain and overstates a
+  loss. An interval with no size at or below it does not count, and a
+  candidate must count in every interval of the reference. The gain never
+  falls with size, by construction, and `run_test.sql` asserts it.
+- **Reference size (26.3).** Gains and losses are measured against the
+  current (factor 1) size when its own increments cover
+  `mem_min_uptime_hours`. A pool that has just been resized has a new
+  factor 1 size with a few hours of history beside sizes listed for weeks
+  (test database: 6.5 hours at 1072 MiB, 152 at a size 16 MiB below). The
+  reference is then the advised size nearest to the current one, the larger
+  on a tie, that has the hours and lies within `mem_ref_tolerance_pct`
+  (`reference_fallback = 'Y'`). It is one rule: the current size is its own
+  nearest size whenever it has the hours. Under a fallback the candidates
+  are every size listed in the window, the reference itself is none, grow
+  and shrink stay relative to the current size, and the evidence sentences
+  say "measured against". No reference at all is `ADVISOR_THIN`.
+- **`CAPM_ADVICE` never joins the increments to themselves**, and never
+  outer-joins the sizes to the aggregation. A self-join on the interval is
+  sizes x sizes (2.2M rows and 20 s on a 30-size list, an order the
+  optimizer did pick). `sizes LEFT JOIN agg` was estimated at one row and
+  ran the whole aggregation once per size: `SELECT * FROM capm_area` took 5
+  minutes (19.27). The sizes therefore ride into the aggregation as rows of
+  a `UNION ALL`, carrying `current_bytes` / `reference_bytes`, and the
+  stand-in is a `LAST_VALUE ... IGNORE NULLS` over one interval's sizes. A
+  change here is timed on `capm_advice`, `capm_area` and `capm_verdict`,
+  because the three plans differ.
+- **Flagged, never reduced.** A suggestion is always a size the advisor
+  evaluated, inside `mem_max_step` of the current one. `exceeds_host_ram`
+  marks a PGA or SGA total suggestion that, with the other side's current
+  size, passes `mem_host_ram_pct` of the host's physical memory.
+  `exceeds_sga` marks a buffer cache or shared pool floor under ASMM above
+  what the two pools hold together, which cannot fit in `sga_target` even
+  with the other pool at nothing. Neither reduces the suggestion: it says
+  how large the pool wants to be, and the `SGA_TOTAL` verdict says what to
+  raise first. On the test database the advisor asked for a shared pool
+  floor above the whole `sga_target`.
+- **`PGA_LIMIT` has no advisor.** It is `UNDERSIZED` when a window peak
+  reaches `mem_pga_limit_pct` of the limit in force now, and never
+  `OVERSIZED`: the limit is a safety ceiling. `maximum PGA allocated` is a
+  high-water mark since startup, so it counts only by its advances between
+  two snapshots of one startup inside the window. A mark reached before the
+  window, under an older limit, does not grade the current one.
+- **`SGA_BALANCE` grades.** `THRASHING` / `RESIZE_CHURN` when operations per
+  day or reversals reach their knobs; the suggestion is a floor for the pool
+  that kept growing. Churn misses a pool squeezed one way: on the test
+  database forced shared pool grows took the buffer cache from 256 MiB to
+  48 MiB under a 1536 MiB `sga_target` with one operation a day and no
+  reversal. So `DRIFTING` / `ONE_WAY_SHIFT` reads the larger pool loss from
+  its window peak as a share of `sga_target` (`SGA_POOL_SHIFT_PCT` against
+  `mem_shift_pct`), after `THRASHING` in rule order. It carries no
+  suggestion and names no parameter: the answer to a drift is the
+  `SGA_TOTAL` verdict, or a floor the DBA sets knowingly. Else `OK` /
+  `STABLE`.
+- **Modes.** ASMM grades every area. Under MANUAL the buffer cache and the
+  shared pool are graded from their own advisors and `SGA_TOTAL` /
+  `SGA_BALANCE` read `MANUAL_SIZING`. AMM instances are not graded (`AMM`).
+  A target whose reader lacks the optional memory views reads
+  `NOT_COLLECTED`.
+- **Only the `CAPR_MEM_` report views read a `CAPM_` view.** No alert, no
+  series: a verdict is report content, advice over a 30-day window, not a
+  condition to page on, and it adds no alert kind. `run_test.sql` asserts it
+  from `ALL_DEPENDENCIES`, and that nothing reads a `CAPR_MEM_` view. The
+  one memory figure in the alert path is the `PGA_ALLOC_GB` series (Layer
+  2b), which gets the ordinary forecast, near-limit and anomaly treatment.
+- **In the reports (M26.4).** `CAPR_MEM_VERDICT` composes every sentence a
+  report prints (reason, headline with the action and the flags), so the
+  text report (section 8), the HTML Memory section and the briefing word a
+  verdict identically. `CAPR_MEM_EVIDENCE`, `CAPR_MEM_COMPONENTS` and
+  `CAPR_MEM_COMP_POINTS` carry the evidence lines and the SGA component
+  sizes of the window; `CAPM_COMP` holds the component intervals both they
+  and `CAPM_SGA_BALANCE` read. The four views are in the snapshot registry.
+  The briefing lists only the verdicts that advise a change and counts the
+  areas that could not be judged.
+- **Cost.** Measured at 26.4 on the test CDB's AWR (35 days of 15-minute
+  snapshots): `SELECT * FROM capm_verdict` takes about 8 s and 150 MB of
+  PGA, most of it `CAPM_AREA` evaluated twice (under the evidence and for
+  the facts). The cost follows the length of the history, not the window:
+  on the demo story (150 days, hourly) the verdict view takes 28 s and the
+  evidence view 16 s. A SNAPSHOT report reads the stored rows.
+
 ## Layer 5 — Tier 2 OML ESM
 
 `ml/cap_forecast_ml` trains one exponential-smoothing model per series (19c has
@@ -1247,8 +1483,9 @@ above the high-water mark, which no nightly step reads past.
 jobs at fixed times: `CAP_PURGE_JOB` (01:00, repository mode),
 `CAP_REFRESH_JOB` (01:30, `DEFINE refresh_interval`), `CAP_ML_RETRAIN` (02:00,
 `DEFINE retrain_interval`) and `CAP_REPORT_SPOOL_JOB` (03:00), so the refresh
-ran before the retrain. On a repository fleet the refresh grows by about 70 s
-per target on 2 vCPUs. Past about 25 targets the 01:30 refresh still ran when
+ran before the retrain. On a repository fleet the refresh grew by about 70 s
+per target on 2 vCPUs, as measured at M24.12 (318 s since M24.13, when it
+began to fill the snapshot tables). Past about 25 targets the 01:30 refresh still ran when
 the 02:00 retrain started, and both needed a session's PGA at once. One job
 cannot overlap itself. Scheduler job incompatibilities keep jobs apart but not
 in order (verified on 19.27), and a chain needs Rules Engine privileges.
@@ -1392,10 +1629,12 @@ the two drivers, and they cannot drift.
 | `CAPR_SERIES_ANOMALIES` | 7b | every flagged (day, baseline mode) of an M11 series: `value` (level, or GiB/day growth for `DB_SIZE_GB`), `raw_value`, `expected`, `threshold`, `z`, `n_hist`, `unit`, mode columns and `days_ago` from the last `CAPD_SERIES_DAILY` day |
 | `CAPR_SERIES` | 7 | the M11 fixed-ceiling series: `cur_val` / `cur_limit` / `sat_value` in the series' own `unit`, `pct_of_limit`, `days_to_limit` with its `limit_worst` / `limit_best` range, `quality`, `sev` (the worse `CAPR_SEVERITY` sev of SERIES_LIMIT and SERIES_NEARLIMIT) with `gated_by`, and `rank_series` (soonest to hit its limit first) |
 
-All of them resolve `db_pdb` through `CAPR_CONTAINER` themselves. The last
-three read `CAPF_COMPARE` / `CAPF_BACKTEST`, which `ddl/50_ml.sql` creates
-*after* `ddl/45_report_views.sql`, so they live in `ddl/55_report_views_ml.sql`
-(loaded last by `install.sql`). Since M23 `report_html.sql` reads none of
+All of them resolve `db_pdb` through `CAPR_CONTAINER` themselves. Four of
+them (`CAPR_TBSPC_RANK`, `CAPR_TBSPC_FORECAST`, `CAPR_ESM_COMPARE`,
+`CAPR_BACKTEST`) read `CAPF_COMPARE` / `CAPF_BACKTEST`, which `ddl/50_ml.sql`
+creates *after* `ddl/45_report_views.sql`, so they live in
+`ddl/55_report_views_ml.sql` (loaded after ddl/50), beside
+`CAPR_FORECAST_POINTS` and `CAPR_ALERTS`. Since M23 `report_html.sql` reads none of
 them: it reads the point feeds below (see M23).
 
 `CAPR_SEGMENT_GROWTH` (M21, ddl/45) answers "which segment is filling this
@@ -1454,13 +1693,21 @@ column reaches an older install on the next `@install.sql`.
 **`CAP_RESULTS.refresh(p_as_of)`** first takes an exclusive lock on the state
 table, then inserts the `CAP_RUN` row as `RUNNING` and commits it at once from
 an autonomous transaction (a hung run stays visible, and the lock stays
-held), copies `CAPR_FIT` into
-`CAP_FIT_HIST`, merges `CAPR_ALERTS` into the state table, marks the run `OK`
-with its counts and commits. On any error it rolls the run's work back,
-marks it `FAILED` with the error stack in `error_text` and re-raises, so the
-scheduler log says FAILED too. `CAPR_ALERTS` is read once: one row per
+held). Since M24.13 it then replaces the rows of every `<view>_S` table of
+`cap_results.snap_views` (DELETE, then INSERT the view's rows under the
+run's id) and reads those tables itself: it copies `CAPR_FIT_S` into
+`CAP_FIT_HIST`, merges `CAPR_ALERTS_S` into the state table, takes the
+coverage columns from `CAPR_COVERAGE_S`, marks the run `OK` with its counts
+and commits. So each view is evaluated once per run, and the snapshot
+tables switch to the new run at that COMMIT. On any error it rolls the
+run's work back, marks it `FAILED` with the error stack in `error_text` and
+re-raises, so the scheduler log says FAILED too; the tables keep the
+previous run's rows. The alert merge reads one row per
 `state_key` (worst severity, then latest day; an anomaly key can carry
-several episodes). A `p_as_of` before today records a backdated run: the
+several episodes). Before the lock, `refresh` clears a session scope it
+finds (`CLIENT_INFO`, Layer 1): a run reads every database, and a scope
+left by an aborted report would hide the other targets and resolve their
+alerts. A `p_as_of` before today records a backdated run: the
 fits as the views show them now, labelled with that day, and no alert state,
 because the state machine runs in real time (it still takes the lock). That
 `LOCK TABLE` on `CAP_ALERT_STATE` is held from `run_id` allocation to the
@@ -1541,8 +1788,11 @@ at-a-glance alert roll-up from `CAPR_ALERTS`, then the seven detail sections —
 days-to-full, tablespace forecast, tablespace anomalies, CPU trend, CPU
 anomalies + level shifts, ESM/backtest compare, and the M11 fixed-ceiling
 series with their anomalies in 7b) to
-`reports/cap_report_<db>_<ts>.txt`. Identity comes from `SYS_CONTEXT` (no `V$`
-or catalog privileges needed, so any monitoring schema can run it). Since M8.2
+`reports/cap_report_<db>_<ts>.txt`. Database, Host and the file stem come
+from `CAPV_TARGET` through `report/scope.sql` (the targets in scope, not the
+session's database, which in a repository is not what is reported on); the
+Schema line comes from `SYS_CONTEXT`. Still no `V$` or catalog privileges,
+so any monitoring schema can run it. Since M8.2
 the sections consume **only** `CAPR_*` — they are `SELECT` + `COLUMN` formats
 and nothing else. `show_esm` = `AUTO`/`Y`/`N` controls
 the Tier 2 section (AUTO prints a hint when no models are trained). Section 1
@@ -1610,8 +1860,10 @@ source never evaluates it, so SNAPSHOT skips the live `CAPR_ALERTS`
 evaluation. `report/report_csv.sql [dbid] [con_dbid] [source]` writes one quoted CSV
 per CAPR section view (`SET MARKUP CSV ON QUOTE ON`, header line, every row
 and column, `NUMFORMAT TM9`) into `reports/cap_csv_<db>_<ts>/`.
-`report/run_report.sh [connect] [--html] [--csv] [--scope D[:C]]
-[--snapshot] [--keep N] [--container P] [--schema O]` runs the drivers from
+`report/run_report.sh [connect] [--html] [--brief] [--csv] [--scope D[:C]]
+[--target NAME] [--snapshot] [--keep N] [--container P] [--schema O]` runs
+the drivers (`--brief` adds the briefing below; `--target` scopes to one
+target by name, ORA-20003 for an unknown one) from
 the repo root without prompts, exits non-zero when a spool is missing or holds
 an `ORA-` / `SP2-` line, prints each path and rotates old reports only after
 a clean run; its header has a cron line.
@@ -1651,6 +1903,15 @@ block emptied in turn. On the demo story the page takes about a minute, down
 from 164 s. M21's per-section failure blocks and U12's collections below
 describe the previous driver.
 
+**The briefing.** `report/report_brief.sql` spools a one-page HTML "Runway"
+briefing (`reports/cap_brief_<db>_<ts>.html`) for the reader who wants what
+fills, when, and what to do: a headline, the dates each limit is reached on
+a twelve-month runway, the actions in order, the evidence for the first few
+and every tablespace as a fill bar. It reads two lists once, `CAPR_FIT` and
+the alert list (`CAPR_ALERTS`, or `CAPR_ALERTS_LATEST` under SNAPSHOT), and
+derives everything else from them, so it cannot disagree with the full
+report. It takes the arguments of `report_html.sql`.
+
 **Report cost (U12).** Each read of a `CAPA_ANOM`-backed or forecast view
 re-runs its chain, so a view read many times dominates. The HTML driver reads
 each heavy view once into a PL/SQL collection at the header (the alert list
@@ -1681,11 +1942,20 @@ the security note.
 
 **M8.4 — `doctor.sql`.** A read-only PASS/WARN/FAIL preflight, in one
 exception-wrapped anonymous block so a missing privilege prints one WARN line
-instead of aborting: pack access, direct `DBA_HIST_*` reads, `SESSION_PRIVS`,
-AWR retention and interval per dbid, days of history per source versus
-`min_train_days`, invalid `CAP*` objects and the detected deploy mode — closing
-with a plain-English explanation of why forecasts would read
-`INSUFFICIENT_HISTORY`. It queries `ALL_*` filtered on
+instead of aborting. Since M25.5 it checks the repository side only and
+names no `DBA_HIST_*` view: pack access, the reader's grants and container
+visibility, and AWR retention and interval moved to `target/check.sql`,
+which runs on the measured database. The sections that left (2, 3, 5, 6)
+took their numbers with them; the rest keep theirs, because the docs and
+`CAP_CFG_CHECK` cite section 7. What remains: the target schema (1), the
+install privileges from `SESSION_PRIVS`, `CREATE DATABASE LINK` included
+(4), a readiness table of the days each feature needs against the days of
+history the copies hold (7), the install state with `suite_version`,
+invalid `CAP*` objects, the detected deploy mode and the fit-quality mix
+(8), and `CAP_CFG_CHECK` with each knob that is not OK (9). It leaves
+`cap_doctor_fail` behind, the count of FAIL lines ("1" when the block did
+not finish), and `quickstart.sql` stops before install when it is not 0. It
+queries `ALL_*` filtered on
 `SYS_CONTEXT('USERENV','CURRENT_SCHEMA')` rather than `USER_OBJECTS`, because
 the latter follows the *session* user and would report nothing useful when
 testing as SYSDBA with `CURRENT_SCHEMA` set elsewhere. Section 10 (M21)
@@ -1698,8 +1968,12 @@ the run's `OUTPUT`), open versus acknowledged alert states, retired dbids from
 section 10 adds `CAP_COLLECT_JOB`, and section 11 checks
 each registered target: its link through `cap_repo.ping` (a private DB link
 resolves only for its owner, and doctor may run as SYSDBA), the collect
-state, staleness, gaps, and the days copied per DBID against section 7's
-needs.
+state, staleness, gaps, the days copied per DBID against section 7's
+needs, each optional memory copy that holds no row for a DBID with copied
+snapshots (M26: the reader lacks the grant, or the advisor is off), and
+the reader's password expiry (`cap_repo.reader_expiry`, a WARN inside
+`reader_expiry_warn_days`): an expired password stops every collect with
+ORA-28001.
 
 `drill_cpu.sql`'s residual footer follows `cpu_deseason`: with the knob at 1
 the residuals are taken against the deseasoned fit input (value minus its
@@ -1717,7 +1991,8 @@ re-deriving dates). `run_test.sql` prints PASS/FAIL per check and a closing
 adds the Tier 2 checks behind the `CREATE MINING MODEL` privilege. The count
 grows with every milestone, so the docs never quote it. The harness needs
 `CREATE TABLE/VIEW/TYPE/PROCEDURE` (+ `CREATE MINING MODEL` for Tier 2) and no
-`V$` access at all — report identity comes from `SYS_CONTEXT`.
+`V$` access at all — report identity comes from `CAPV_TARGET` and
+`SYS_CONTEXT`.
 
 Two properties of the fixture are load-bearing enough to state as contracts:
 
@@ -1763,8 +2038,11 @@ mad_k`, no gap, complete, `n_hist ≥ min_hist`). Knob flips (`alert_modes_cpu`
 6 and 0, `alert_modes_tbspc` 3, `weekly_min_hist` 9, `hour_gap_ratio` 0.5,
 `cpu_min_mad_pct_hour` 3) each assert the change and restore the knob.
 `test/lint_anom_joins.sh` keeps `CAPA_ANOM` readers where the key rule is
-reviewed, and `test/dbmint_harness.sh <SCHEMA> [--ml]` runs the lint before
-it syncs and runs the harness in a throwaway schema.
+reviewed, and `test/dbmint_harness.sh <SCHEMA> [--ml] [--no-fixture] [--pga]
+[--parity] [--sql FILE]` runs `repository/build.py --check`, five lints
+(anomaly joins, session labels, per-dbid windows, snapshot reads,
+`DBA_HIST` names) and the two offline report tests before it syncs and runs
+the harness in a throwaway schema.
 
 Before the legacy views were deleted, a parity gate on dbmint compared them
 with the engine row by row (FULL OUTER JOIN): `CAPA_TBSPC_ANOM` against the
@@ -1775,6 +2053,36 @@ differences. The only differences were the new rows the legacy views had
 omitted (`n_hist` 0: 9 and 7) and the tablespace `robust_z` on the 963
 floored baselines, finite now. The gate was a one-off check and is not
 committed.
+
+**The memory fixture (M26)** is built so that every verdict is a closed
+form. Each counter and advisor estimate reads k times its increment on the
+k-th snapshot of a startup, so it drops at both restarts (nothing may be
+differenced across one) and every ratio is the ratio of the increments.
+`MEM_U` (in `CAP_FIXTURE_META`) is the window's DB time divided by 6000, in
+seconds, so an increment of a × `MEM_U` per interval is a percent of DB
+time and the expected gains and losses can be written down. The shipped
+knobs give one grade of each kind: an `UNDERSIZED` PGA target and PGA
+limit, an `OVERSIZED` buffer cache, a shared pool that is `OK` because the
+advisor stands alone. The branches the shipped data cannot reach (an
+advisor reset, a changed size list, oscillating pools, AMM, MANUAL, no
+memory history) are driven by knob flips and DML under a savepoint, each
+undone before the next. Traps are planted as in the other layers: a KEEP
+pool and a 16 KiB DEFAULT pool in the cache advisor must be ignored, and a
+wait event has no row until its first wait.
+
+**Beyond the fixture assertions**, four levers test properties no single
+number shows. `test/snapshot_parity.sh` runs every report LIVE and
+SNAPSHOT on the fixture and diffs them (M24.13), and lists the objects in
+the plans of the SNAPSHOT runs: none may be a seam source, bar the identity
+lookups of `report/scope.sql`. `test/scope_plan.sql`
+EXPLAINs every view and counts seam reads that lack the session scope
+(M24.11); the only passing count is zero. `test/dbmint_copy_check.sh` runs
+the copy check of Deployment against a real target, and `--plant` deletes
+one copy row uncommitted to prove a difference is reported.
+`test/dbmint_scale.sh` clones one collected target into K synthetic ones
+(`test/repo_synth_target.sql`) and times the nightly steps and the
+reports, each session ending in `test/pga_probe.sql`; the fleet figures in
+Deployment come from it.
 
 **What fixtures cannot prove** is that the toolkit reads a *live* database
 sensibly — an idle test instance has no growth, no seasonality and nothing to
@@ -1799,6 +2107,13 @@ AWR history. See `bench/README.md`.
 - **M24–M25 — done.** The repository and its fleet (M24), then one
   architecture: every database a target, local mode retired (M25). See
   Deployment above.
-- **v2** — memory forecasting (SGA / PGA from `DBA_HIST_MEM_DYNAMIC_COMP`, the
-  19c view name, and `DBA_HIST_PGASTAT`); cross-DBID series stitching
+- **M26, verdicts and their reports built (suite_version 26.4).** Instance
+  memory sizing: eleven memory seam views with optional repository copies,
+  the `PGA_ALLOC_GB` series, the `CAPM_*` verdicts (Layer 4b) and, with
+  M26.4, the `CAPR_MEM_*` report views, report section 8, the HTML Memory
+  section, the briefing lines and `report/drill_mem.sql`. Still open in
+  `PLAN.md`: per-PDB usage and the persisted verdict history.
+- **v2** — memory follow-ups to M26 (grading AMM instances, verdicts for the
+  In-Memory area and minor pools, verdict panels in the dashboards,
+  forecasting SGA components); cross-DBID series stitching
   (non-CDB → PDB migrations) keyed on a stable `CAP_TARGET.target_id`.

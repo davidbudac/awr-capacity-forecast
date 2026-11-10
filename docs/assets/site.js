@@ -17,6 +17,7 @@
     { file: "start.html",     label: "Getting started" },
     { file: "tutorial.html",  label: "Tutorial" },
     { file: "concepts.html",  label: "How it works" },
+    { file: "architecture.html", label: "Architecture" },
     { file: "usage.html",     label: "Usage" },
     { file: "testing.html",   label: "Testing" },
     { file: "reference.html", label: "Reference" }

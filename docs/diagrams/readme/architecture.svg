@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="284" class="dd" viewBox="0 0 760 284" role="img" aria-labelledby="dd-arch-context-title dd-arch-context-desc">
+<style>
+.dd{--bg:#ffffff;--surface:#f8f9fb;--surface-2:#f1f3f6;--surface-3:#e8ebf0;--text:#111827;--muted:#4b5563;--faint:#8a93a1;--border:#e3e6eb;--border-strong:#cfd4dc;--accent:#2f5bea;--accent-soft:#eaf0ff;--accent-text:#2249c4;--ok:#1f7a4d;--warn:#9a6700;--crit:#c0392b;--ok-bg:#e6f4ec;--warn-bg:#fff5da;--crit-bg:#fdecea;--code-bg:#0f172a;--code-bar:#162036;--code-fg:#d6deea;--code-border:#1f2b45;--mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace;--sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;--r:10px;--dd-soft:#6b7280}
+.dd .paper{fill:var(--bg)}
+.dd .zone{fill:color-mix(in srgb,var(--text) 2%,transparent);stroke:var(--border-strong);stroke-width:1;stroke-dasharray:4 4}
+.dd .zone-solid{fill:color-mix(in srgb,var(--text) 2%,transparent);stroke:var(--border-strong);stroke-width:1}
+.dd .n{fill:var(--surface);stroke:var(--text);stroke-width:1}
+.dd .n-focal{fill:color-mix(in srgb,var(--accent) 8%,var(--bg));stroke:var(--accent);stroke-width:1.2}
+.dd .n-store{fill:color-mix(in srgb,var(--text) 5%,var(--bg));stroke:var(--muted);stroke-width:1}
+.dd .n-ext{fill:color-mix(in srgb,var(--text) 3%,var(--bg));stroke:color-mix(in srgb,var(--text) 30%,var(--bg));stroke-width:1}
+.dd .n-in{fill:color-mix(in srgb,var(--muted) 10%,var(--bg));stroke:var(--dd-soft);stroke-width:1}
+.dd .n-opt{fill:color-mix(in srgb,var(--text) 2%,var(--bg));stroke:color-mix(in srgb,var(--text) 20%,var(--bg));stroke-width:1;stroke-dasharray:4 3}
+.dd .n-sec{fill:color-mix(in srgb,var(--accent) 5%,var(--bg));stroke:color-mix(in srgb,var(--accent) 50%,var(--bg));stroke-width:1;stroke-dasharray:4 4}
+.dd .tag{fill:none;stroke:color-mix(in srgb,var(--text) 40%,var(--bg));stroke-width:.8}
+.dd .tag-acc{fill:none;stroke:color-mix(in srgb,var(--accent) 60%,var(--bg));stroke-width:.8}
+.dd .e{fill:none;stroke:var(--muted);stroke-width:1.2}
+.dd .e-acc{fill:none;stroke:var(--accent);stroke-width:1.4}
+.dd .e-link{fill:none;stroke:var(--ok);stroke-width:1.2}
+.dd .dash{stroke-dasharray:5 4}
+.dd .rule{stroke:color-mix(in srgb,var(--text) 12%,transparent);stroke-width:.8;fill:none}
+.dd .rule-solid{stroke:var(--border-strong);stroke-width:1;fill:none}
+.dd .mk{fill:var(--muted)}
+.dd .mk-acc{fill:var(--accent)}
+.dd .mk-link{fill:var(--ok)}
+.dd .dot{fill:var(--text)}
+.dd .dot-acc{fill:var(--accent)}
+.dd text{font-family:var(--sans);fill:var(--muted)}
+.dd .nm{font-family:var(--sans);font-size:12px;font-weight:600;fill:var(--text)}
+.dd .nm-acc{font-family:var(--sans);font-size:12px;font-weight:600;fill:var(--accent-text)}
+.dd .sub{font-family:var(--mono);font-size:9px;fill:var(--muted)}
+.dd .eb{font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.18em;fill:var(--dd-soft)}
+.dd .eb-acc{font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.18em;fill:var(--accent-text)}
+.dd .al{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--dd-soft)}
+.dd .al-acc{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--accent-text)}
+.dd .al-link{font-family:var(--mono);font-size:8px;letter-spacing:.06em;fill:var(--ok)}
+.dd .co{font-family:var(--sans);font-style:italic;font-size:13px;fill:var(--muted)}
+.dd .lg{font-family:var(--mono);font-size:8px;letter-spacing:.14em;fill:var(--muted)}
+.dd .lgt{font-family:var(--sans);font-size:10px;fill:var(--muted)}
+@media (prefers-color-scheme:dark){
+.dd{--bg:#0c1017;--surface:#121722;--surface-2:#171d29;--surface-3:#1f2634;--text:#e6e9ef;--muted:#a3acbb;--faint:#6b7585;--border:#222a38;--border-strong:#303a4b;--accent:#6f8dff;--accent-soft:#182142;--accent-text:#8ea4ff;--ok:#5cc58c;--warn:#e0b34a;--crit:#f07d74;--ok-bg:#12271c;--warn-bg:#2a2410;--crit-bg:#2e1715;--code-bg:#0a0e16;--code-bar:#10151f;--code-fg:#d6deea;--code-border:#1c2431;--dd-soft:#8a93a1}
+}
+</style>
+<rect x="0" y="0" width="760" height="284" style="fill:var(--bg)"/>
+<title id="dd-arch-context-title">The system in one picture</title>
+<desc id="dd-arch-context-desc">Each measured database keeps its AWR and a read-only reader account; the repository database pulls AWR over a database link every hour into its own copies, computes everything as views over them, stores results and alert state, and serves reports, dashboards and monitoring.</desc>
+<defs><marker id="dd-arch-context-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-arch-context-mk-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-link" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="284"/>
+<rect class="zone" x="12" y="16" width="176" height="192" rx="8"/>
+<rect class="paper" x="20" y="12" width="116" height="10"/>
+<text class="eb" x="24" y="19">MEASURED DATABASES</text>
+<rect class="zone" x="220" y="16" width="336" height="192" rx="8"/>
+<rect class="paper" x="228" y="12" width="124" height="10"/>
+<text class="eb" x="232" y="19">REPOSITORY DATABASE</text>
+<rect class="zone" x="596" y="16" width="152" height="192" rx="8"/>
+<rect class="paper" x="604" y="12" width="64" height="10"/>
+<text class="eb" x="608" y="19">CONSUMERS</text>
+<path class="e" d="M100 104 L100 136" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e-link" d="M172 164 L236 164" marker-end="url(#dd-arch-context-mk-link)"/>
+<path class="e" d="M304 136 L304 104" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e" d="M372 76 L404 76" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e" d="M472 104 L472 136" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e" d="M540 76 L612 76" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e" d="M540 164 L612 164" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e" d="M508 136 L508 128 Q508 120 516 120 L664 120 Q672 120 672 112 L672 104" marker-end="url(#dd-arch-context-mk)"/>
+<rect class="paper" x="108" y="114" width="44" height="12" rx="2"/>
+<text class="al" x="130" y="123" text-anchor="middle">SELECT</text>
+<rect class="paper" x="178" y="144" width="52" height="12" rx="2"/>
+<text class="al-link" x="204" y="153" text-anchor="middle">DB LINK</text>
+<rect class="paper" x="312" y="114" width="44" height="12" rx="2"/>
+<text class="al" x="334" y="123" text-anchor="middle">HOURLY</text>
+<rect class="paper" x="412" y="114" width="52" height="12" rx="2"/>
+<text class="al" x="438" y="123" text-anchor="middle">REFRESH</text>
+<rect class="paper" x="560" y="56" width="32" height="12" rx="2"/>
+<text class="al" x="576" y="65" text-anchor="middle">LIVE</text>
+<rect class="paper" x="554" y="144" width="44" height="12" rx="2"/>
+<text class="al" x="576" y="153" text-anchor="middle">ALERTS</text>
+<rect class="paper" x="548" y="100" width="56" height="12" rx="2"/>
+<text class="al" x="576" y="109" text-anchor="middle">SNAPSHOT</text>
+<rect class="paper" x="28" y="48" width="144" height="56" rx="6"/>
+<rect class="n-store" x="28" y="48" width="144" height="56" rx="6"/>
+<rect class="tag" x="36" y="54" width="24" height="12" rx="2"/>
+<text class="eb" x="48" y="63" text-anchor="middle" style="letter-spacing:.08em">×N</text>
+<text class="nm" x="100" y="81" text-anchor="middle">Target AWR</text>
+<text class="sub" x="100" y="95" text-anchor="middle">DBA_HIST_* views</text>
+<rect class="paper" x="28" y="136" width="144" height="56" rx="6"/>
+<rect class="n-sec" x="28" y="136" width="144" height="56" rx="6"/>
+<text class="nm" x="100" y="162" text-anchor="middle">Reader</text>
+<text class="sub" x="100" y="176" text-anchor="middle">read-only account</text>
+<rect class="paper" x="236" y="48" width="136" height="56" rx="6"/>
+<rect class="n-store" x="236" y="48" width="136" height="56" rx="6"/>
+<text class="nm" x="304" y="74" text-anchor="middle">AWR copies</text>
+<text class="sub" x="304" y="88" text-anchor="middle">CAP_H_* tables</text>
+<rect class="paper" x="236" y="136" width="136" height="56" rx="6"/>
+<rect class="n" x="236" y="136" width="136" height="56" rx="6"/>
+<text class="nm" x="304" y="162" text-anchor="middle">Collector</text>
+<text class="sub" x="304" y="176" text-anchor="middle">cap_repo.collect</text>
+<rect class="paper" x="404" y="48" width="136" height="56" rx="6"/>
+<rect class="n-focal" x="404" y="48" width="136" height="56" rx="6"/>
+<text class="nm-acc" x="472" y="74" text-anchor="middle">Analytics views</text>
+<text class="sub" x="472" y="88" text-anchor="middle">CAPV_ … CAPR_</text>
+<rect class="paper" x="404" y="136" width="136" height="56" rx="6"/>
+<rect class="n-store" x="404" y="136" width="136" height="56" rx="6"/>
+<text class="nm" x="472" y="162" text-anchor="middle">Results layer</text>
+<text class="sub" x="472" y="176" text-anchor="middle">cap_results tables</text>
+<rect class="paper" x="612" y="48" width="120" height="56" rx="6"/>
+<rect class="n-ext" x="612" y="48" width="120" height="56" rx="6"/>
+<text class="nm" x="672" y="74" text-anchor="middle">Reports</text>
+<text class="sub" x="672" y="88" text-anchor="middle">and dashboards</text>
+<rect class="paper" x="612" y="136" width="120" height="56" rx="6"/>
+<rect class="n-ext" x="612" y="136" width="120" height="56" rx="6"/>
+<text class="nm" x="672" y="162" text-anchor="middle">Monitoring</text>
+<text class="sub" x="672" y="176" text-anchor="middle">alert polling</text>
+<line class="rule" x1="12" y1="224" x2="748" y2="224"/>
+<text class="lg" x="12" y="246">LEGEND</text>
+<rect class="n-focal" x="84" y="236" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="246">views: nothing stored</text>
+<rect class="n-store" x="252" y="236" width="16" height="12" rx="3"/>
+<text class="lgt" x="276" y="246">tables</text>
+<rect class="n-sec" x="336" y="236" width="16" height="12" rx="3"/>
+<text class="lgt" x="360" y="246">read-only account</text>
+<rect class="n-ext" x="480" y="236" width="16" height="12" rx="3"/>
+<text class="lgt" x="504" y="246">outside the suite</text>
+<line class="e-link" x1="84" y1="262" x2="112" y2="262"/>
+<text class="lgt" x="120" y="266">database link, pulled by the repository</text>
+</svg>

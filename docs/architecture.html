@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Architecture — AWR Capacity Forecast</title>
+<meta name="description" content="The architecture and data flows of AWR Capacity Forecast, from the whole system down to each layer: collector, seam, view stack, forecasts, anomalies, memory verdicts, alerts and the results layer.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23b06a0d'/><path d='M16 8L24 23L8 23Z' fill='%23fff'/></svg>">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="assets/style.css">
+<script>
+  // No-FOUC: apply the persisted theme before first paint.
+  (function(){try{var t=localStorage.getItem("cap-theme");
+    if(t){document.documentElement.setAttribute("data-theme",t);
+      var m=document.querySelector('meta[name="color-scheme"]');if(m)m.content=t;}}catch(e){}})();
+</script>
+</head>
+<body>
+<a class="skip-link visually-hidden" href="#content">Skip to content</a>
+<div class="shell">
+  <aside class="sidebar">
+    <a class="brand" href="index.html">
+      <div class="brand__mark" aria-hidden="true">▲</div>
+      <div>
+        <div class="brand__name">AWR Capacity<br>Forecast</div>
+        <div class="brand__sub">Documentation</div>
+      </div>
+    </a>
+    <nav class="nav" aria-label="Documentation pages">
+      <div class="nav__group">Start</div>
+      <a class="nav-page" href="index.html"><span class="n">01</span> Introduction</a>
+      <a class="nav-page" href="start.html"><span class="n">02</span> Getting started</a>
+      <a class="nav-page" href="tutorial.html"><span class="n">03</span> Tutorial</a>
+      <div class="nav__group">Guides</div>
+      <a class="nav-page" href="concepts.html"><span class="n">04</span> How it works</a>
+      <a class="nav-page" href="architecture.html"><span class="n">05</span> Architecture</a>
+      <a class="nav-page" href="usage.html"><span class="n">06</span> Usage</a>
+      <a class="nav-page" href="testing.html"><span class="n">07</span> Testing</a>
+      <div class="nav__group">Reference</div>
+      <a class="nav-page" href="reference.html"><span class="n">08</span> Reference</a>
+    </nav>
+    <div class="sidebar__foot">
+      <button class="theme-toggle" id="themeBtn" type="button">◐ System</button>
+      <a class="sidebar__link" href="demo/cap_report_demo.html" target="_blank" rel="noopener">Sample report ↗</a>
+      <a class="sidebar__link" href="https://github.com/davidbudac/awr-capacity-forecast">Source on GitHub ↗</a>
+    </div>
+  </aside>
+
+  <main class="main" id="content" tabindex="-1">
+    <div class="wrap">
+
+      <!-- ===================== HERO ===================== -->
+      <section class="hero" id="architecture">
+        <span class="eyebrow">Architecture</span>
+        <h1>Architecture and data flows</h1>
+        <p class="lead">What the suite is made of, where each part runs and how data moves through
+          it. The page starts with the whole system and goes one level deeper in each section.
+          For the mathematics see <a href="concepts.html">How it works</a>; for every object and
+          knob see the <a href="reference.html">Reference</a>.</p>
+      </section>
+
+      <!-- ===================== OVERVIEW ===================== -->
+      <div class="section-head" id="overview">
+        <span class="eyebrow">Level 1</span>
+        <h2>The system in one picture</h2>
+        <p>Three parts: the databases that are measured, one database that does the measuring,
+          and whatever reads the results.</p>
+      </div>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 284" role="img" aria-labelledby="dd-arch-context-title dd-arch-context-desc">
+<title id="dd-arch-context-title">The system in one picture</title>
+<desc id="dd-arch-context-desc">Each measured database keeps its AWR and a read-only reader account; the repository database pulls AWR over a database link every hour into its own copies, computes everything as views over them, stores results and alert state, and serves reports, dashboards and monitoring.</desc>
+<defs><marker id="dd-arch-context-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-arch-context-mk-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-link" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="284"/>
+<rect class="zone" x="12" y="16" width="176" height="192" rx="8"/>
+<rect class="paper" x="20" y="12" width="116" height="10"/>
+<text class="eb" x="24" y="19">MEASURED DATABASES</text>
+<rect class="zone" x="220" y="16" width="336" height="192" rx="8"/>
+<rect class="paper" x="228" y="12" width="124" height="10"/>
+<text class="eb" x="232" y="19">REPOSITORY DATABASE</text>
+<rect class="zone" x="596" y="16" width="152" height="192" rx="8"/>
+<rect class="paper" x="604" y="12" width="64" height="10"/>
+<text class="eb" x="608" y="19">CONSUMERS</text>
+<path class="e" d="M100 104 L100 136" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e-link" d="M172 164 L236 164" marker-end="url(#dd-arch-context-mk-link)"/>
+<path class="e" d="M304 136 L304 104" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e" d="M372 76 L404 76" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e" d="M472 104 L472 136" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e" d="M540 76 L612 76" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e" d="M540 164 L612 164" marker-end="url(#dd-arch-context-mk)"/>
+<path class="e" d="M508 136 L508 128 Q508 120 516 120 L664 120 Q672 120 672 112 L672 104" marker-end="url(#dd-arch-context-mk)"/>
+<rect class="paper" x="108" y="114" width="44" height="12" rx="2"/>
+<text class="al" x="130" y="123" text-anchor="middle">SELECT</text>
+<rect class="paper" x="178" y="144" width="52" height="12" rx="2"/>
+<text class="al-link" x="204" y="153" text-anchor="middle">DB LINK</text>
+<rect class="paper" x="312" y="114" width="44" height="12" rx="2"/>
+<text class="al" x="334" y="123" text-anchor="middle">HOURLY</text>
+<rect class="paper" x="412" y="114" width="52" height="12" rx="2"/>
+<text class="al" x="438" y="123" text-anchor="middle">REFRESH</text>
+<rect class="paper" x="560" y="56" width="32" height="12" rx="2"/>
+<text class="al" x="576" y="65" text-anchor="middle">LIVE</text>
+<rect class="paper" x="554" y="144" width="44" height="12" rx="2"/>
+<text class="al" x="576" y="153" text-anchor="middle">ALERTS</text>
+<rect class="paper" x="548" y="100" width="56" height="12" rx="2"/>
+<text class="al" x="576" y="109" text-anchor="middle">SNAPSHOT</text>
+<rect class="paper" x="28" y="48" width="144" height="56" rx="6"/>
+<rect class="n-store" x="28" y="48" width="144" height="56" rx="6"/>
+<rect class="tag" x="36" y="54" width="24" height="12" rx="2"/>
+<text class="eb" x="48" y="63" text-anchor="middle" style="letter-spacing:.08em">×N</text>
+<text class="nm" x="100" y="81" text-anchor="middle">Target AWR</text>
+<text class="sub" x="100" y="95" text-anchor="middle">DBA_HIST_* views</text>
+<rect class="paper" x="28" y="136" width="144" height="56" rx="6"/>
+<rect class="n-sec" x="28" y="136" width="144" height="56" rx="6"/>
+<text class="nm" x="100" y="162" text-anchor="middle">Reader</text>
+<text class="sub" x="100" y="176" text-anchor="middle">read-only account</text>
+<rect class="paper" x="236" y="48" width="136" height="56" rx="6"/>
+<rect class="n-store" x="236" y="48" width="136" height="56" rx="6"/>
+<text class="nm" x="304" y="74" text-anchor="middle">AWR copies</text>
+<text class="sub" x="304" y="88" text-anchor="middle">CAP_H_* tables</text>
+<rect class="paper" x="236" y="136" width="136" height="56" rx="6"/>
+<rect class="n" x="236" y="136" width="136" height="56" rx="6"/>
+<text class="nm" x="304" y="162" text-anchor="middle">Collector</text>
+<text class="sub" x="304" y="176" text-anchor="middle">cap_repo.collect</text>
+<rect class="paper" x="404" y="48" width="136" height="56" rx="6"/>
+<rect class="n-focal" x="404" y="48" width="136" height="56" rx="6"/>
+<text class="nm-acc" x="472" y="74" text-anchor="middle">Analytics views</text>
+<text class="sub" x="472" y="88" text-anchor="middle">CAPV_ … CAPR_</text>
+<rect class="paper" x="404" y="136" width="136" height="56" rx="6"/>
+<rect class="n-store" x="404" y="136" width="136" height="56" rx="6"/>
+<text class="nm" x="472" y="162" text-anchor="middle">Results layer</text>
+<text class="sub" x="472" y="176" text-anchor="middle">cap_results tables</text>
+<rect class="paper" x="612" y="48" width="120" height="56" rx="6"/>
+<rect class="n-ext" x="612" y="48" width="120" height="56" rx="6"/>
+<text class="nm" x="672" y="74" text-anchor="middle">Reports</text>
+<text class="sub" x="672" y="88" text-anchor="middle">and dashboards</text>
+<rect class="paper" x="612" y="136" width="120" height="56" rx="6"/>
+<rect class="n-ext" x="612" y="136" width="120" height="56" rx="6"/>
+<text class="nm" x="672" y="162" text-anchor="middle">Monitoring</text>
+<text class="sub" x="672" y="176" text-anchor="middle">alert polling</text>
+<line class="rule" x1="12" y1="224" x2="748" y2="224"/>
+<text class="lg" x="12" y="246">LEGEND</text>
+<rect class="n-focal" x="84" y="236" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="246">views: nothing stored</text>
+<rect class="n-store" x="252" y="236" width="16" height="12" rx="3"/>
+<text class="lgt" x="276" y="246">tables</text>
+<rect class="n-sec" x="336" y="236" width="16" height="12" rx="3"/>
+<text class="lgt" x="360" y="246">read-only account</text>
+<rect class="n-ext" x="480" y="236" width="16" height="12" rx="3"/>
+<text class="lgt" x="504" y="246">outside the suite</text>
+<line class="e-link" x1="84" y1="262" x2="112" y2="262"/>
+<text class="lgt" x="120" y="266">database link, pulled by the repository</text>
+</svg>
+</div>
+<figcaption>The whole system. A database measured on its own is the same picture with both sides in one database and the link looping back to it.</figcaption>
+</figure>
+
+      <ul>
+        <li><b>Measured databases</b> keep their AWR and gain one read-only account. Nothing of
+          the suite is installed there.</li>
+        <li><b>The repository database</b> copies AWR over a database link, hourly, into tables
+          it owns. Every number in a report is computed by views over those copies. A small
+          results layer stores what a view cannot recompute: history of past fits and the state
+          of each alert.</li>
+        <li><b>Consumers</b> select from the report views or the results layer: four SQL*Plus
+          report drivers, three optional dashboards, and any monitoring system that can poll a
+          view.</li>
+      </ul>
+      <p>There is one production architecture. A database that measures only itself is a
+        repository with itself as its one target, over a loopback link
+        (<a href="start.html#one">Measure one database</a>). The diagram of both deployments is
+        on <a href="start.html">Getting started</a>.</p>
+
+      <h3 id="rules">Rules the design holds to</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Rule</th><th>What it means</th><th>Enforced by</th></tr></thead>
+          <tbody>
+            <tr><td><b>Read-only against AWR</b></td><td class="def">On a measured database the suite runs only SELECTs, as the reader. It writes only <code>CAP_*</code> tables in its own schema.</td><td class="def">The reader's grants</td></tr>
+            <tr><td><b>One seam</b></td><td class="def">Analytics name only <span class="inline">CAPV_</span> views. Only the seam knows where the rows come from.</td><td class="def"><span class="inline">test/lint_dba_hist.sh</span></td></tr>
+            <tr><td><b>Views compute, tables remember</b></td><td class="def">Anything derivable is a view. Tables hold AWR copies, configuration, the model registry, results history and a cache.</td><td class="def"><span class="inline">test/lint_snapshot_reads.sh</span></td></tr>
+            <tr><td><b>Per database</b></td><td class="def">Every analytic window partitions by <code>dbid</code>. One target's numbers never depend on another's.</td><td class="def"><span class="inline">test/lint_dbid_windows.sh</span></td></tr>
+            <tr><td><b>Configuration, not constants</b></td><td class="def">Every threshold is a row in <span class="inline">CAP_CONFIG</span>, read through one view.</td><td class="def"><span class="inline">CAP_CFG_CHECK</span>, <span class="inline">test/docs_lint.sh</span></td></tr>
+            <tr><td><b>Every session labelled</b></td><td class="def">Scripts, package procedures and jobs set MODULE, ACTION or CLIENT_IDENTIFIER, so the suite's own load is visible in <code>V$SESSION</code> and AWR.</td><td class="def"><span class="inline">test/lint_appinfo.sh</span></td></tr>
+            <tr><td><b>Oracle 19c floor</b></td><td class="def">No 21c or 23c syntax anywhere.</td><td class="def">The 19c test database</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ===================== PLACEMENT ===================== -->
+      <div class="section-head" id="placement">
+        <span class="eyebrow">Level 2</span>
+        <h2>Where it runs: two accounts and a link</h2>
+        <p>AWR lives in <code>CDB$ROOT</code>. The suite lives in a PDB. One database link joins
+          them.</p>
+      </div>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 324" role="img" aria-labelledby="dd-arch-accounts-title dd-arch-accounts-desc">
+<title id="dd-arch-accounts-title">Two accounts and one database link</title>
+<desc id="dd-arch-accounts-desc">The reader, a common user in the measured database&#x27;s CDB$ROOT, may only connect and select from twenty-eight DBA_HIST views; the suite owner in a PDB holds eight CREATE privileges and no grant on AWR, and reaches AWR only through a private database link that connects as the reader.</desc>
+<defs><marker id="dd-arch-accounts-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-arch-accounts-mk-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-link" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="324"/>
+<rect class="zone" x="12" y="16" width="320" height="232" rx="8"/>
+<rect class="paper" x="20" y="12" width="176" height="10"/>
+<text class="eb" x="24" y="19">MEASURED DATABASE · CDB$ROOT</text>
+<rect class="zone" x="428" y="16" width="320" height="232" rx="8"/>
+<rect class="paper" x="436" y="12" width="116" height="10"/>
+<text class="eb" x="440" y="19">REPOSITORY · A PDB</text>
+<path class="e-link" d="M444 92 L316 92" marker-end="url(#dd-arch-accounts-mk-link)"/>
+<path class="e" d="M172 136 L172 176" marker-end="url(#dd-arch-accounts-mk)"/>
+<path class="e" d="M588 136 L588 176" marker-end="url(#dd-arch-accounts-mk)"/>
+<rect class="paper" x="354" y="72" width="52" height="12" rx="2"/>
+<text class="al-link" x="380" y="81" text-anchor="middle">DB LINK</text>
+<rect class="paper" x="338" y="100" width="84" height="12" rx="2"/>
+<text class="al" x="380" y="109" text-anchor="middle">AS THE READER</text>
+<rect class="paper" x="180" y="150" width="72" height="12" rx="2"/>
+<text class="al" x="216" y="159" text-anchor="middle">SELECT ONLY</text>
+<rect class="paper" x="596" y="150" width="32" height="12" rx="2"/>
+<text class="al" x="612" y="159" text-anchor="middle">OWNS</text>
+<rect class="paper" x="28" y="48" width="288" height="88" rx="6"/>
+<rect class="n-sec" x="28" y="48" width="288" height="88" rx="6"/>
+<text class="nm" x="172" y="77" text-anchor="middle">Reader</text>
+<text class="sub" x="172" y="91" text-anchor="middle">C##AWRRDR, a common user</text>
+<text class="sub" x="172" y="104" text-anchor="middle">CREATE SESSION + SELECT on 28 DBA_HIST_* views</text>
+<text class="sub" x="172" y="117" text-anchor="middle">CONTAINER_DATA = ALL</text>
+<rect class="paper" x="28" y="176" width="288" height="56" rx="6"/>
+<rect class="n-store" x="28" y="176" width="288" height="56" rx="6"/>
+<text class="nm" x="172" y="202" text-anchor="middle">AWR</text>
+<text class="sub" x="172" y="216" text-anchor="middle">DBA_HIST_*, every container</text>
+<rect class="paper" x="444" y="48" width="288" height="88" rx="6"/>
+<rect class="n-focal" x="444" y="48" width="288" height="88" rx="6"/>
+<text class="nm-acc" x="588" y="77" text-anchor="middle">Suite owner</text>
+<text class="sub" x="588" y="91" text-anchor="middle">AWRCAP, schema-only by default</text>
+<text class="sub" x="588" y="104" text-anchor="middle">8 CREATE privileges, granted directly</text>
+<text class="sub" x="588" y="117" text-anchor="middle">no grant on DBA_HIST_*, no CONTAINER_DATA</text>
+<rect class="paper" x="444" y="176" width="288" height="56" rx="6"/>
+<rect class="n-store" x="444" y="176" width="288" height="56" rx="6"/>
+<text class="nm" x="588" y="202" text-anchor="middle">Suite objects</text>
+<text class="sub" x="588" y="216" text-anchor="middle">CAP_H_* copies · CAP* views, packages, jobs</text>
+<line class="rule" x1="12" y1="264" x2="748" y2="264"/>
+<text class="lg" x="12" y="286">LEGEND</text>
+<rect class="n-sec" x="84" y="276" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="286">created by target/prepare.sql</text>
+<rect class="n-focal" x="296" y="276" width="16" height="12" rx="3"/>
+<text class="lgt" x="320" y="286">created by create_owner.sql</text>
+<line class="e-link" x1="84" y1="302" x2="112" y2="302"/>
+<text class="lgt" x="120" y="306">private link, password held in the link</text>
+</svg>
+</div>
+<figcaption>Nothing the suite owns can write to a measured database: the only path to AWR is the reader's SELECT. In a non-CDB the reader is <span class="inline">AWRRDR</span>.</figcaption>
+</figure>
+
+      <p>The reader is created by <span class="inline">target/prepare.sql</span>
+        (<span class="inline">target/self.sql</span> on the standalone path) and checked by
+        <span class="inline">target/check.sql</span>. <code>CONTAINER_DATA = ALL</code> matters:
+        without it a common user reading <code>DBA_HIST_*</code> in the root sees only the root's
+        rows. The owner is created by <span class="inline">create_owner.sql</span>. Its privileges
+        are granted directly because views and definer's-rights packages ignore roles. Details:
+        <a href="reference.html#owner">A dedicated owner</a>,
+        <a href="reference.html#repository">Repository mode</a>.</p>
+
+      <h3 id="install-flow">The install, step by step</h3>
+      <p>Every installer runs the same scripts in the same order. Only the first one needs the
+        root container.</p>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 276" role="img" aria-labelledby="dd-arch-install-title dd-arch-install-desc">
+<title id="dd-arch-install-title">The install, step by step</title>
+<desc id="dd-arch-install-desc">target/self.sql runs as SYSDBA in CDB$ROOT, creates the reader and ends in the suite&#x27;s PDB; there create_owner.sql, doctor.sql, install.sql, repository/self.sql and report/report.sql run in turn: owner, preflight, install, first collect, first report.</desc>
+<defs><marker id="dd-arch-install-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-arch-install-mk-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-acc" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="276"/>
+<rect class="zone-solid" x="12" y="24" width="736" height="192" rx="8"/>
+<line class="rule-solid" x1="12" y1="120" x2="748" y2="120"/>
+<path class="e" d="M144 176 L172 176" marker-end="url(#dd-arch-install-mk)"/>
+<path class="e" d="M292 176 L320 176" marker-end="url(#dd-arch-install-mk)"/>
+<path class="e" d="M440 176 L468 176" marker-end="url(#dd-arch-install-mk)"/>
+<path class="e" d="M588 176 L616 176" marker-end="url(#dd-arch-install-mk)"/>
+<path class="e-acc" d="M84 104 L84 152" marker-end="url(#dd-arch-install-mk-acc)"/>
+<rect class="paper" x="92" y="126" width="84" height="12" rx="2"/>
+<text class="al-acc" x="134" y="135" text-anchor="middle">BIND PASSWORD</text>
+<rect class="paper" x="24" y="56" width="120" height="48" rx="6"/>
+<rect class="n-sec" x="24" y="56" width="120" height="48" rx="6"/>
+<text class="nm" x="84" y="78" text-anchor="middle">Reader</text>
+<text class="sub" x="84" y="92" text-anchor="middle">target/self.sql</text>
+<rect class="paper" x="24" y="152" width="120" height="48" rx="6"/>
+<rect class="n" x="24" y="152" width="120" height="48" rx="6"/>
+<text class="nm" x="84" y="174" text-anchor="middle">Owner</text>
+<text class="sub" x="84" y="188" text-anchor="middle">create_owner.sql</text>
+<rect class="paper" x="172" y="152" width="120" height="48" rx="6"/>
+<rect class="n" x="172" y="152" width="120" height="48" rx="6"/>
+<text class="nm" x="232" y="174" text-anchor="middle">Preflight</text>
+<text class="sub" x="232" y="188" text-anchor="middle">doctor.sql</text>
+<rect class="paper" x="320" y="152" width="120" height="48" rx="6"/>
+<rect class="n-focal" x="320" y="152" width="120" height="48" rx="6"/>
+<text class="nm-acc" x="380" y="174" text-anchor="middle">Install</text>
+<text class="sub" x="380" y="188" text-anchor="middle">install.sql</text>
+<rect class="paper" x="468" y="152" width="120" height="48" rx="6"/>
+<rect class="n" x="468" y="152" width="120" height="48" rx="6"/>
+<text class="nm" x="528" y="174" text-anchor="middle">First collect</text>
+<text class="sub" x="528" y="188" text-anchor="middle">repository/self.sql</text>
+<rect class="paper" x="616" y="152" width="120" height="48" rx="6"/>
+<rect class="n" x="616" y="152" width="120" height="48" rx="6"/>
+<text class="nm" x="676" y="174" text-anchor="middle">First report</text>
+<text class="sub" x="676" y="188" text-anchor="middle">report/report.sql</text>
+<text class="eb" x="736" y="42" text-anchor="end">CDB$ROOT, OR A NON-CDB</text>
+<text class="eb" x="736" y="138" text-anchor="end">THE SUITE&#x27;S PDB</text>
+<text class="co" x="172" y="84">Once per measured database. Its last act is to switch to the suite&#x27;s PDB.</text>
+<line class="rule" x1="12" y1="232" x2="748" y2="232"/>
+<text class="lg" x="12" y="254">LEGEND</text>
+<line class="e-acc" x1="84" y1="250" x2="112" y2="250"/>
+<text class="lgt" x="120" y="254">the reader&#x27;s random password, passed in a bind variable</text>
+<rect class="n-focal" x="452" y="244" width="16" height="12" rx="3"/>
+<text class="lgt" x="476" y="254">creates every suite object</text>
+</svg>
+</div>
+<figcaption><span class="inline">quickstart.sh</span> and <span class="inline">install.sh --profile standalone</span> run exactly these scripts. A fleet runs the top lane on each target (<span class="inline">target/prepare.sql</span>) and the bottom lane once.</figcaption>
+</figure>
+
+      <p><span class="inline">install.sql</span> itself loads the layers bottom up:
+        <a href="reference.html#layers">The load order</a>. Re-running it is safe: it drops
+        and re-creates every view and keeps every persisted table.</p>
+
+      <!-- ===================== COLLECT ===================== -->
+      <div class="section-head" id="collect">
+        <span class="eyebrow">Level 3 · Data in</span>
+        <h2>The collector</h2>
+        <p><span class="inline">cap_repo.collect</span> is the only code that reads a measured
+          database. It copies; it computes nothing.</p>
+      </div>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 348" role="img" aria-labelledby="dd-arch-collect-title dd-arch-collect-desc">
+<title id="dd-arch-collect-title">What one collect moves</title>
+<desc id="dd-arch-collect-desc">For one target and DBID the collector reads twenty-two fact views above the high-water mark and six dimension views whole over the database link, appends the facts and merges the dimensions into the CAP_H_ copies, moves the high-water mark and logs the outcome.</desc>
+<defs><marker id="dd-arch-collect-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-arch-collect-mk-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-acc" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-arch-collect-mk-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-link" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="348"/>
+<rect class="zone" x="12" y="16" width="200" height="272" rx="8"/>
+<rect class="paper" x="20" y="12" width="44" height="10"/>
+<text class="eb" x="24" y="19">TARGET</text>
+<rect class="zone" x="292" y="16" width="456" height="272" rx="8"/>
+<rect class="paper" x="300" y="12" width="68" height="10"/>
+<text class="eb" x="304" y="19">REPOSITORY</text>
+<path class="e-link" d="M196 92 L308 92" marker-end="url(#dd-arch-collect-mk-link)"/>
+<path class="e-link" d="M196 228 L308 228" marker-end="url(#dd-arch-collect-mk-link)"/>
+<path class="e" d="M452 64 L532 64" marker-end="url(#dd-arch-collect-mk)"/>
+<path class="e" d="M452 128 L532 128" marker-end="url(#dd-arch-collect-mk)"/>
+<path class="e-acc" d="M452 192 L532 192" marker-end="url(#dd-arch-collect-mk-acc)"/>
+<path class="e" d="M452 256 L532 256" marker-end="url(#dd-arch-collect-mk)"/>
+<rect class="paper" x="208" y="72" width="88" height="12" rx="2"/>
+<text class="al-link" x="252" y="81" text-anchor="middle">ABOVE THE MARK</text>
+<rect class="paper" x="218" y="208" width="68" height="12" rx="2"/>
+<text class="al-link" x="252" y="217" text-anchor="middle">WHOLE VIEW</text>
+<rect class="paper" x="470" y="44" width="44" height="12" rx="2"/>
+<text class="al" x="492" y="53" text-anchor="middle">APPEND</text>
+<rect class="paper" x="472" y="108" width="40" height="12" rx="2"/>
+<text class="al" x="492" y="117" text-anchor="middle">MERGE</text>
+<rect class="paper" x="462" y="172" width="60" height="12" rx="2"/>
+<text class="al-acc" x="492" y="181" text-anchor="middle">MOVE MARK</text>
+<rect class="paper" x="458" y="236" width="68" height="12" rx="2"/>
+<text class="al" x="492" y="245" text-anchor="middle">OK · ERROR</text>
+<rect class="paper" x="28" y="64" width="168" height="56" rx="6"/>
+<rect class="n-store" x="28" y="64" width="168" height="56" rx="6"/>
+<text class="nm" x="112" y="90" text-anchor="middle">Fact views</text>
+<text class="sub" x="112" y="104" text-anchor="middle">22 sources, per snapshot</text>
+<rect class="paper" x="28" y="200" width="168" height="56" rx="6"/>
+<rect class="n-store" x="28" y="200" width="168" height="56" rx="6"/>
+<text class="nm" x="112" y="226" text-anchor="middle">Dimension views</text>
+<text class="sub" x="112" y="240" text-anchor="middle">6 sources, names and sizes</text>
+<rect class="paper" x="308" y="48" width="144" height="224" rx="6"/>
+<rect class="n" x="308" y="48" width="144" height="224" rx="6"/>
+<text class="nm" x="380" y="145" text-anchor="middle">Collector</text>
+<text class="sub" x="380" y="159" text-anchor="middle">cap_repo.collect</text>
+<text class="sub" x="380" y="172" text-anchor="middle">per target and DBID,</text>
+<text class="sub" x="380" y="185" text-anchor="middle">500 snapshots a chunk</text>
+<rect class="paper" x="532" y="40" width="200" height="48" rx="6"/>
+<rect class="n-store" x="532" y="40" width="200" height="48" rx="6"/>
+<text class="nm" x="632" y="62" text-anchor="middle">Fact copies</text>
+<text class="sub" x="632" y="76" text-anchor="middle">CAP_H_*, kept 400 days</text>
+<rect class="paper" x="532" y="104" width="200" height="48" rx="6"/>
+<rect class="n-store" x="532" y="104" width="200" height="48" rx="6"/>
+<text class="nm" x="632" y="126" text-anchor="middle">Dimension copies</text>
+<text class="sub" x="632" y="140" text-anchor="middle">CAP_H_*, never purged</text>
+<rect class="paper" x="532" y="168" width="200" height="48" rx="6"/>
+<rect class="n-focal" x="532" y="168" width="200" height="48" rx="6"/>
+<text class="nm-acc" x="632" y="190" text-anchor="middle">High-water mark</text>
+<text class="sub" x="632" y="204" text-anchor="middle">CAP_TARGET_DBID</text>
+<rect class="paper" x="532" y="232" width="200" height="48" rx="6"/>
+<rect class="n-store" x="532" y="232" width="200" height="48" rx="6"/>
+<text class="nm" x="632" y="254" text-anchor="middle">Collect log</text>
+<text class="sub" x="632" y="268" text-anchor="middle">CAP_COLLECT_LOG</text>
+<line class="rule" x1="12" y1="304" x2="748" y2="304"/>
+<text class="lg" x="12" y="326">LEGEND</text>
+<line class="e-link" x1="84" y1="322" x2="112" y2="322"/>
+<text class="lgt" x="120" y="326">read over the database link</text>
+<rect class="n-focal" x="296" y="316" width="16" height="12" rx="3"/>
+<text class="lgt" x="320" y="326">what makes a collect incremental</text>
+<rect class="n-store" x="524" y="316" width="16" height="12" rx="3"/>
+<text class="lgt" x="548" y="326">tables</text>
+</svg>
+</div>
+<figcaption>Each chunk is one transaction: rows and mark commit together, so a failed collect resumes where it stopped. The cycle step by step: <a href="reference.html#repository">Repository mode</a>.</figcaption>
+</figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Kind</th><th>Sources</th><th>How it is copied</th><th>Purged?</th></tr></thead>
+          <tbody>
+            <tr><td><b>F</b> fact</td><td class="def">22, one row per snapshot and key (usage, OSSTAT, time model, …)</td><td class="def">Appended for the snapshots above the DBID's high-water mark, in chunks</td><td class="def">After <span class="inline">repo_retention_days</span> (400)</td></tr>
+            <tr><td><b>D</b> dimension</td><td class="def">5, names and sizes (tablespaces, datafiles, containers, …)</td><td class="def">MERGEd whole on every collect, null-safe on the key</td><td class="def">Never</td></tr>
+            <tr><td><b>S</b> scoped dimension</td><td class="def">1, <code>SEG_STAT_OBJ</code></td><td class="def">Only the keys of the segment statistics in the chunk</td><td class="def">Never</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li><b>Incremental.</b> The window starts at the high-water mark, not at the oldest
+          snapshot, so the copies hold exactly what the target's views showed.</li>
+        <li><b>Restartable.</b> Rows and mark commit together per chunk. A collect that fails is
+          logged <code>ERROR</code> and the next one continues from the mark.</li>
+        <li><b>Longer memory than AWR.</b> Copies are kept 400 days by default; stock AWR keeps 8.
+          Tier 2 needs about 120 days, which is why a database measuring itself also copies.</li>
+        <li><b>Optional sources.</b> Eleven memory sources may be missing from an older reader's
+          grants. Collect skips those with one warning and copies the rest.</li>
+        <li><b>RAC.</b> The newest snapshot is held back while fewer instances have finished it
+          than the one before. RAC itself is untested.</li>
+      </ul>
+
+      <h3 id="contract">One manifest, three generated artefacts</h3>
+      <p>Which views are copied, which columns, under which key and filter is declared once.</p>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 252" role="img" aria-labelledby="dd-arch-gen-title dd-arch-gen-desc">
+<title id="dd-arch-gen-title">One manifest generates the copy contract</title>
+<desc id="dd-arch-gen-desc">repository/build.py turns its manifest of copied sources and the seam template repository/seam.sql into ddl/13_seam_repository.sql, which holds the copy tables, the pull statements and the seam, and into the copy check test/repo_copy_check.sql.</desc>
+<defs><marker id="dd-arch-gen-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="252"/>
+<path class="e" d="M188 68 L232 68 Q240 68 240 76 L240 96 Q240 104 248 104 L292 104" marker-end="url(#dd-arch-gen-mk)"/>
+<path class="e" d="M188 164 L232 164 Q240 164 240 156 L240 136 Q240 128 248 128 L292 128" marker-end="url(#dd-arch-gen-mk)"/>
+<path class="e" d="M436 104 L480 104 Q488 104 488 96 L488 76 Q488 68 496 68 L540 68" marker-end="url(#dd-arch-gen-mk)"/>
+<path class="e" d="M436 128 L480 128 Q488 128 488 136 L488 156 Q488 164 496 164 L540 164" marker-end="url(#dd-arch-gen-mk)"/>
+<rect class="paper" x="12" y="40" width="176" height="56" rx="6"/>
+<rect class="n-in" x="12" y="40" width="176" height="56" rx="6"/>
+<text class="nm" x="100" y="66" text-anchor="middle">Copy manifest</text>
+<text class="sub" x="100" y="80" text-anchor="middle">in repository/build.py</text>
+<rect class="paper" x="12" y="136" width="176" height="56" rx="6"/>
+<rect class="n-in" x="12" y="136" width="176" height="56" rx="6"/>
+<text class="nm" x="100" y="162" text-anchor="middle">Seam template</text>
+<text class="sub" x="100" y="176" text-anchor="middle">repository/seam.sql</text>
+<rect class="paper" x="292" y="88" width="144" height="56" rx="6"/>
+<rect class="n-focal" x="292" y="88" width="144" height="56" rx="6"/>
+<text class="nm-acc" x="364" y="114" text-anchor="middle">build.py</text>
+<text class="sub" x="364" y="128" text-anchor="middle">rerun after an edit</text>
+<rect class="paper" x="540" y="40" width="208" height="56" rx="6"/>
+<rect class="n" x="540" y="40" width="208" height="56" rx="6"/>
+<text class="nm" x="644" y="66" text-anchor="middle">ddl/13_seam_repository.sql</text>
+<text class="sub" x="644" y="80" text-anchor="middle">copy tables, pulls, seam</text>
+<rect class="paper" x="540" y="136" width="208" height="56" rx="6"/>
+<rect class="n" x="540" y="136" width="208" height="56" rx="6"/>
+<text class="nm" x="644" y="162" text-anchor="middle">test/repo_copy_check.sql</text>
+<text class="sub" x="644" y="176" text-anchor="middle">source MINUS copy, and back</text>
+<line class="rule" x1="12" y1="208" x2="748" y2="208"/>
+<text class="lg" x="12" y="230">LEGEND</text>
+<rect class="n-in" x="84" y="220" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="230">edit these</text>
+<rect class="n" x="188" y="220" width="16" height="12" rx="3"/>
+<text class="lgt" x="212" y="230">written by build.py: never edit</text>
+<rect class="n-focal" x="412" y="220" width="16" height="12" rx="3"/>
+<text class="lgt" x="436" y="230">--check fails on a stale file</text>
+</svg>
+</div>
+<figcaption><span class="inline">build.py --check</span> also fails when <span class="inline">seam.sql</span> or <span class="inline">target/prepare.sql</span> names a view the manifest does not.</figcaption>
+</figure>
+
+      <p><span class="inline">ddl/13_seam_repository.sql</span> carries three things: the
+        <span class="inline">CAP_H_*</span> copy tables (created once, columns only ever added),
+        <span class="inline">CAP_REPO_SOURCE</span> (the finished pull statements the collector
+        runs) and the seam views, which are the template with each
+        <code>dba_hist_x</code> renamed to <code>cap_h_x</code>. The copy check proves a copy
+        against its source: <a href="testing.html">Testing</a>.</p>
+
+      <!-- ===================== SEAM ===================== -->
+      <div class="section-head" id="seam">
+        <span class="eyebrow">Level 4</span>
+        <h2>The seam</h2>
+        <p>Twenty-four <span class="inline">CAPV_</span> views are the only place that knows
+          where rows come from.</p>
+      </div>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 288" role="img" aria-labelledby="dd-arch-seam-title dd-arch-seam-desc">
+<title id="dd-arch-seam-title">Two sources, one seam</title>
+<desc id="dd-arch-seam-desc">A repository install reads its CAP_H_ copies through the generated ddl/13 seam, a fixture install reads CAP_FIXTURE_ tables through ddl/12; both define the same twenty-four CAPV_ views and CAPV_CONTRACT, so the analytics above are identical SQL.</desc>
+<defs><marker id="dd-arch-seam-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="288"/>
+<path class="e" d="M172 68 L220 68" marker-end="url(#dd-arch-seam-mk)"/>
+<path class="e" d="M172 164 L220 164" marker-end="url(#dd-arch-seam-mk)"/>
+<path class="e" d="M396 68 L444 68" marker-end="url(#dd-arch-seam-mk)"/>
+<path class="e" d="M396 164 L444 164" marker-end="url(#dd-arch-seam-mk)"/>
+<path class="e" d="M580 116 L628 116" marker-end="url(#dd-arch-seam-mk)"/>
+<rect class="paper" x="12" y="40" width="160" height="56" rx="6"/>
+<rect class="n-store" x="12" y="40" width="160" height="56" rx="6"/>
+<text class="nm" x="92" y="66" text-anchor="middle">AWR copies</text>
+<text class="sub" x="92" y="80" text-anchor="middle">CAP_H_* · production</text>
+<rect class="paper" x="12" y="136" width="160" height="56" rx="6"/>
+<rect class="n-store" x="12" y="136" width="160" height="56" rx="6"/>
+<text class="nm" x="92" y="162" text-anchor="middle">Fixture tables</text>
+<text class="sub" x="92" y="176" text-anchor="middle">CAP_FIXTURE_* · tests</text>
+<rect class="paper" x="220" y="40" width="176" height="56" rx="6"/>
+<rect class="n" x="220" y="40" width="176" height="56" rx="6"/>
+<text class="nm" x="308" y="66" text-anchor="middle">Repository seam</text>
+<text class="sub" x="308" y="80" text-anchor="middle">ddl/13, from seam.sql</text>
+<rect class="paper" x="220" y="136" width="176" height="56" rx="6"/>
+<rect class="n" x="220" y="136" width="176" height="56" rx="6"/>
+<text class="nm" x="308" y="162" text-anchor="middle">Fixture seam</text>
+<text class="sub" x="308" y="176" text-anchor="middle">ddl/12_seam_fixture.sql</text>
+<rect class="paper" x="444" y="40" width="136" height="152" rx="6"/>
+<rect class="n-focal" x="444" y="40" width="136" height="152" rx="6"/>
+<text class="nm-acc" x="512" y="107.5" text-anchor="middle">CAPV_ views</text>
+<text class="sub" x="512" y="121.5" text-anchor="middle">24 views</text>
+<text class="sub" x="512" y="134.5" text-anchor="middle">+ CAPV_CONTRACT</text>
+<rect class="paper" x="628" y="88" width="120" height="56" rx="6"/>
+<rect class="n" x="628" y="88" width="120" height="56" rx="6"/>
+<text class="nm" x="688" y="114" text-anchor="middle">Analytics</text>
+<text class="sub" x="688" y="128" text-anchor="middle">CAPD_ … CAPR_</text>
+<text class="al" x="308" y="119" text-anchor="middle">ONE PER INSTALL</text>
+<text class="co" x="12" y="222">Every read under the seam filters on the session scope: dbid = NVL(scope, dbid).</text>
+<line class="rule" x1="12" y1="244" x2="748" y2="244"/>
+<text class="lg" x="12" y="266">LEGEND</text>
+<rect class="n-store" x="84" y="256" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="266">tables</text>
+<rect class="n" x="168" y="256" width="16" height="12" rx="3"/>
+<text class="lgt" x="192" y="266">views</text>
+<rect class="n-focal" x="244" y="256" width="16" height="12" rx="3"/>
+<text class="lgt" x="268" y="266">the contract: same names and columns either way</text>
+</svg>
+</div>
+<figcaption><span class="inline">deploy_mode</span> picks the seam file. Nothing above <span class="inline">CAPV_</span> knows which one is installed.</figcaption>
+</figure>
+
+      <p>Thirteen views carry space, CPU, time model, limits, parameters, ASM and segment
+        statistics. Eleven more carry memory statistics and advisors.
+        <span class="inline">CAPV_CONTRACT</span> lists the columns the analytics expect, and the
+        installer and <span class="inline">doctor.sql</span> check the live views against it.
+        Because both seam files define the same views, the test fixture exercises the same
+        analytics SQL that production runs.</p>
+
+      <h3 id="scope">Session scope: one target costs one target</h3>
+      <p>A predicate placed above the seam does not survive the materialized subqueries on the
+        way down, so a report for one target would still read every target's copies. The scope
+        therefore lives at the bottom.</p>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 388" role="img" aria-labelledby="dd-arch-scope-title dd-arch-scope-desc">
+<title id="dd-arch-scope-title">How a report is scoped to one target</title>
+<desc id="dd-arch-scope-desc">The report driver writes the target&#x27;s dbid into the session&#x27;s CLIENT_INFO; every seam view parses it and filters its copy tables on that dbid, so the whole view stack costs one target; the driver clears the scope at its end.</desc>
+<defs><marker id="dd-arch-scope-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+<marker id="dd-arch-scope-mk-acc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk-acc" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="388"/>
+<line class="rule-solid dash" x1="100" y1="72" x2="100" y2="328"/>
+<line class="rule-solid dash" x1="288" y1="72" x2="288" y2="328"/>
+<line class="rule-solid dash" x1="476" y1="72" x2="476" y2="328"/>
+<line class="rule-solid dash" x1="664" y1="72" x2="664" y2="328"/>
+<path class="e" d="M100 112 L288 112" marker-end="url(#dd-arch-scope-mk)"/>
+<path class="e" d="M100 144 L472 144" marker-end="url(#dd-arch-scope-mk)"/>
+<path class="e" d="M472 176 L288 176" marker-end="url(#dd-arch-scope-mk)"/>
+<path class="e-acc" d="M480 208 L664 208" marker-end="url(#dd-arch-scope-mk-acc)"/>
+<path class="e dash" d="M664 240 L480 240" marker-end="url(#dd-arch-scope-mk)"/>
+<path class="e dash" d="M472 272 L100 272" marker-end="url(#dd-arch-scope-mk)"/>
+<path class="e" d="M100 304 L288 304" marker-end="url(#dd-arch-scope-mk)"/>
+<rect class="paper" x="156" y="92" width="76" height="12" rx="2"/>
+<text class="al" x="194" y="101" text-anchor="middle">SET DBID = N</text>
+<rect class="paper" x="172" y="124" width="44" height="12" rx="2"/>
+<text class="al" x="194" y="133" text-anchor="middle">SELECT</text>
+<rect class="paper" x="348" y="156" width="68" height="12" rx="2"/>
+<text class="al" x="382" y="165" text-anchor="middle">READ SCOPE</text>
+<rect class="paper" x="536" y="188" width="72" height="12" rx="2"/>
+<text class="al-acc" x="572" y="197" text-anchor="middle">ONLY DBID N</text>
+<rect class="paper" x="538" y="220" width="68" height="12" rx="2"/>
+<text class="al" x="572" y="229" text-anchor="middle">ONE TARGET</text>
+<rect class="paper" x="366" y="252" width="32" height="12" rx="2"/>
+<text class="al" x="382" y="261" text-anchor="middle">ROWS</text>
+<rect class="paper" x="174" y="284" width="40" height="12" rx="2"/>
+<text class="al" x="194" y="293" text-anchor="middle">CLEAR</text>
+<rect class="paper" x="24" y="24" width="152" height="48" rx="6"/>
+<rect class="n" x="24" y="24" width="152" height="48" rx="6"/>
+<text class="nm" x="100" y="46" text-anchor="middle">Report driver</text>
+<text class="sub" x="100" y="60" text-anchor="middle">report/*.sql + scope.sql</text>
+<rect class="paper" x="212" y="24" width="152" height="48" rx="6"/>
+<rect class="n" x="212" y="24" width="152" height="48" rx="6"/>
+<text class="nm" x="288" y="46" text-anchor="middle">Session</text>
+<text class="sub" x="288" y="60" text-anchor="middle">CLIENT_INFO</text>
+<rect class="paper" x="400" y="24" width="152" height="48" rx="6"/>
+<rect class="n" x="400" y="24" width="152" height="48" rx="6"/>
+<text class="nm" x="476" y="46" text-anchor="middle">Seam</text>
+<text class="sub" x="476" y="60" text-anchor="middle">the CAPV_ views</text>
+<rect class="paper" x="588" y="24" width="152" height="48" rx="6"/>
+<rect class="n-store" x="588" y="24" width="152" height="48" rx="6"/>
+<text class="nm" x="664" y="46" text-anchor="middle">AWR copies</text>
+<text class="sub" x="664" y="60" text-anchor="middle">CAP_H_*, every target</text>
+<rect class="n-store" x="472" y="144" width="8" height="128"/>
+<line class="rule" x1="12" y1="344" x2="748" y2="344"/>
+<text class="lg" x="12" y="366">LEGEND</text>
+<line class="e" x1="84" y1="362" x2="112" y2="362"/>
+<text class="lgt" x="120" y="366">call</text>
+<line class="e dash" x1="168" y1="362" x2="196" y2="362"/>
+<text class="lgt" x="204" y="366">rows returned</text>
+<line class="e-acc" x1="304" y1="362" x2="332" y2="362"/>
+<text class="lgt" x="340" y="366">the predicate that keeps a scoped report to one target</text>
+</svg>
+</div>
+<figcaption>Time runs top to bottom. Without a scope the predicate reads <span class="inline">dbid = dbid</span> and every target is in.</figcaption>
+</figure>
+
+      <p>The scope is the dbid parsed from <code>CLIENT_INFO</code>
+        (<code>AWRCAP dbid=&lt;n&gt;</code>). Every source read in both seam files repeats that
+        expression inline, on both sides of a join and in every subquery, because inline parses
+        cheaper than a subquery. <span class="inline">CAP_SCOPE</span> is the same expression as
+        a one-row view, for a look at the scope a session has.
+        <span class="inline">test/scope_plan.sql</span> explains every view and counts seam
+        reads without the lookup; the count must be zero. Writers
+        (<span class="inline">cap_results.refresh</span>, the Tier 2 trainers) clear a scope they
+        find, because they must read every database.</p>
+
+      <!-- ===================== STACK ===================== -->
+      <div class="section-head" id="stack">
+        <span class="eyebrow">Level 5</span>
+        <h2>The view stack</h2>
+        <p>Six prefixes, one direction. Each layer is plain views over the layer before it.</p>
+      </div>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 380" role="img" aria-labelledby="dd-arch-stack-title dd-arch-stack-desc">
+<title id="dd-arch-stack-title">The view stack, by prefix and DDL file</title>
+<desc id="dd-arch-stack-desc">The seam views CAPV_ feed the daily series CAPD_, which feed forecasts CAPF_ and anomalies CAPA_, which feed the report views CAPR_ that the results layer snapshots; the memory verdicts CAPM_ read the seam directly; every layer reads the one-row configuration view CAP_CFG.</desc>
+<defs><marker id="dd-arch-stack-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="380"/>
+<path class="e" d="M132 148 L172 148" marker-end="url(#dd-arch-stack-mk)"/>
+<path class="e" d="M72 176 L72 220 Q72 228 80 228 L332 228" marker-end="url(#dd-arch-stack-mk)"/>
+<path class="e" d="M292 136 L304 136 Q312 136 312 128 L312 76 Q312 68 320 68 L332 68" marker-end="url(#dd-arch-stack-mk)"/>
+<path class="e" d="M292 160 L332 160" marker-end="url(#dd-arch-stack-mk)"/>
+<path class="e" d="M468 68 L480 68 Q488 68 488 76 L488 128 Q488 136 496 136 L508 136" marker-end="url(#dd-arch-stack-mk)"/>
+<path class="e" d="M468 160 L508 160" marker-end="url(#dd-arch-stack-mk)"/>
+<path class="e" d="M620 148 L660 148" marker-end="url(#dd-arch-stack-mk)"/>
+<rect class="paper" x="158" y="208" width="88" height="12" rx="2"/>
+<text class="al" x="202" y="217" text-anchor="middle">EVERY SNAPSHOT</text>
+<rect class="paper" x="12" y="120" width="120" height="56" rx="6"/>
+<rect class="n" x="12" y="120" width="120" height="56" rx="6"/>
+<text class="nm" x="72" y="146" text-anchor="middle">Seam</text>
+<text class="sub" x="72" y="160" text-anchor="middle">CAPV_ · ddl/12, 13</text>
+<rect class="paper" x="172" y="120" width="120" height="56" rx="6"/>
+<rect class="n" x="172" y="120" width="120" height="56" rx="6"/>
+<text class="nm" x="232" y="146" text-anchor="middle">Daily series</text>
+<text class="sub" x="232" y="160" text-anchor="middle">CAPD_ · ddl/20, 25</text>
+<rect class="paper" x="332" y="40" width="136" height="56" rx="6"/>
+<rect class="n" x="332" y="40" width="136" height="56" rx="6"/>
+<text class="nm" x="400" y="66" text-anchor="middle">Forecasts</text>
+<text class="sub" x="400" y="80" text-anchor="middle">CAPF_ · ddl/30, 35, 50</text>
+<rect class="paper" x="332" y="120" width="136" height="56" rx="6"/>
+<rect class="n" x="332" y="120" width="136" height="56" rx="6"/>
+<text class="nm" x="400" y="146" text-anchor="middle">Anomalies</text>
+<text class="sub" x="400" y="160" text-anchor="middle">CAPA_ · ddl/40</text>
+<rect class="paper" x="332" y="200" width="136" height="56" rx="6"/>
+<rect class="n" x="332" y="200" width="136" height="56" rx="6"/>
+<text class="nm" x="400" y="226" text-anchor="middle">Memory verdicts</text>
+<text class="sub" x="400" y="240" text-anchor="middle">CAPM_ · ddl/42</text>
+<rect class="paper" x="508" y="120" width="112" height="56" rx="6"/>
+<rect class="n-focal" x="508" y="120" width="112" height="56" rx="6"/>
+<text class="nm-acc" x="564" y="146" text-anchor="middle">Report views</text>
+<text class="sub" x="564" y="160" text-anchor="middle">CAPR_ · 45, 55</text>
+<rect class="paper" x="660" y="120" width="88" height="56" rx="6"/>
+<rect class="n-store" x="660" y="120" width="88" height="56" rx="6"/>
+<text class="nm" x="704" y="146" text-anchor="middle">Results</text>
+<text class="sub" x="704" y="160" text-anchor="middle">ddl/60</text>
+<rect class="paper" x="12" y="288" width="736" height="32" rx="4"/>
+<rect class="n-store" x="12" y="288" width="736" height="32" rx="4"/>
+<text class="nm" x="24" y="308">Configuration</text>
+<text class="sub" x="736" y="307" text-anchor="end">ddl/05 · CAP_CONFIG → CAP_CFG: one row, cross-joined by every view</text>
+<text class="co" x="484" y="232">advice: no alert, reports via CAPR_MEM_</text>
+<line class="rule" x1="12" y1="336" x2="748" y2="336"/>
+<text class="lg" x="12" y="358">LEGEND</text>
+<rect class="n" x="84" y="348" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="358">a layer of views</text>
+<rect class="n-focal" x="224" y="348" width="16" height="12" rx="3"/>
+<text class="lgt" x="248" y="358">what every consumer reads</text>
+<rect class="n-store" x="412" y="348" width="16" height="12" rx="3"/>
+<text class="lgt" x="436" y="358">tables</text>
+</svg>
+</div>
+<figcaption>Left to right is the order <span class="inline">install.sql</span> creates the layers in. A view only reads layers to its left.</figcaption>
+</figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Prefix</th><th>Files</th><th>Grain</th><th>Holds</th></tr></thead>
+          <tbody>
+            <tr><td><span class="k">CAPV_</span></td><td class="def"><span class="inline">ddl/13</span> or <span class="inline">ddl/12</span></td><td class="def">snapshot</td><td class="def">AWR columns under stable names, every row keyed <code>(dbid, con_dbid)</code></td></tr>
+            <tr><td><span class="k">CAPD_</span></td><td class="def"><span class="inline">ddl/20</span>, <span class="inline">25</span></td><td class="def">day; CPU also interval and hour</td><td class="def">Daily tablespace usage, CPU and DB time, and <span class="inline">CAPD_SERIES_DAILY</span>, one shape for every fixed-ceiling series. Tablespace overrides are applied here, once</td></tr>
+            <tr><td><span class="k">CAPF_</span></td><td class="def"><span class="inline">ddl/30</span>, <span class="inline">35</span>, <span class="inline">50</span></td><td class="def">series</td><td class="def">One fit per series: slope, bands, days to full, to saturation or to limit, quality grade. Tier 2 forecast, comparison and backtest</td></tr>
+            <tr><td><span class="k">CAPA_</span></td><td class="def"><span class="inline">ddl/40</span></td><td class="def">observation and baseline mode</td><td class="def">Robust anomaly scores, the CPU level shift</td></tr>
+            <tr><td><span class="k">CAPM_</span></td><td class="def"><span class="inline">ddl/42</span></td><td class="def">instance and memory area</td><td class="def">Memory sizing verdicts with their evidence</td></tr>
+            <tr><td><span class="k">CAPR_</span></td><td class="def"><span class="inline">ddl/45</span>, <span class="inline">55</span>, <span class="inline">60</span></td><td class="def">display row</td><td class="def">Labelled sections for the reports, the point feeds, the alert list, and the views over the results tables</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The cost of this design is parse time and memory. A session that runs the whole stack
+        holds 1.1 to 1.3&nbsp;GB of PGA, most of it from parsing deeply nested views, not from
+        sorting (<a href="reference.html#memory">Memory (PGA)</a>). The
+        <a href="#results">snapshot cache</a> exists to pay that once a night.</p>
+
+      <h3 id="config">Configuration</h3>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 244" role="img" aria-labelledby="dd-arch-config-title dd-arch-config-desc">
+<title id="dd-arch-config-title">How a knob reaches a view</title>
+<desc id="dd-arch-config-desc">An operator updates cfg_value in CAP_CONFIG and install.sql merges new defaults into it without touching that value; CAP_CFG pivots the table into one row that every view cross-joins, and CAP_CFG_CHECK grades each knob for doctor.sql and cap_repo.purge.</desc>
+<defs><marker id="dd-arch-config-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="244"/>
+<path class="e" d="M148 68 L172 68 Q180 68 180 76 L180 92 Q180 100 188 100 L212 100" marker-end="url(#dd-arch-config-mk)"/>
+<path class="e" d="M148 156 L172 156 Q180 156 180 148 L180 132 Q180 124 188 124 L212 124" marker-end="url(#dd-arch-config-mk)"/>
+<path class="e" d="M348 100 L372 100 Q380 100 380 92 L380 76 Q380 68 388 68 L412 68" marker-end="url(#dd-arch-config-mk)"/>
+<path class="e" d="M348 124 L372 124 Q380 124 380 132 L380 148 Q380 156 388 156 L412 156" marker-end="url(#dd-arch-config-mk)"/>
+<path class="e" d="M548 68 L612 68" marker-end="url(#dd-arch-config-mk)"/>
+<path class="e" d="M548 156 L612 156" marker-end="url(#dd-arch-config-mk)"/>
+<rect class="paper" x="560" y="48" width="40" height="12" rx="2"/>
+<text class="al" x="580" y="57" text-anchor="middle">1 ROW</text>
+<rect class="paper" x="12" y="40" width="136" height="56" rx="6"/>
+<rect class="n-in" x="12" y="40" width="136" height="56" rx="6"/>
+<text class="nm" x="80" y="66" text-anchor="middle">Operator</text>
+<text class="sub" x="80" y="80" text-anchor="middle">UPDATE cfg_value</text>
+<rect class="paper" x="12" y="128" width="136" height="56" rx="6"/>
+<rect class="n-in" x="12" y="128" width="136" height="56" rx="6"/>
+<text class="nm" x="80" y="154" text-anchor="middle">install.sql</text>
+<text class="sub" x="80" y="168" text-anchor="middle">seed MERGE, ddl/05</text>
+<rect class="paper" x="212" y="84" width="136" height="56" rx="6"/>
+<rect class="n-store" x="212" y="84" width="136" height="56" rx="6"/>
+<text class="nm" x="280" y="110" text-anchor="middle">CAP_CONFIG</text>
+<text class="sub" x="280" y="124" text-anchor="middle">one row per knob</text>
+<rect class="paper" x="412" y="40" width="136" height="56" rx="6"/>
+<rect class="n-focal" x="412" y="40" width="136" height="56" rx="6"/>
+<text class="nm-acc" x="480" y="66" text-anchor="middle">CAP_CFG</text>
+<text class="sub" x="480" y="80" text-anchor="middle">one row, a column each</text>
+<rect class="paper" x="412" y="128" width="136" height="56" rx="6"/>
+<rect class="n" x="412" y="128" width="136" height="56" rx="6"/>
+<text class="nm" x="480" y="154" text-anchor="middle">CAP_CFG_CHECK</text>
+<text class="sub" x="480" y="168" text-anchor="middle">OK · MISSING · BAD</text>
+<rect class="paper" x="612" y="40" width="136" height="56" rx="6"/>
+<rect class="n" x="612" y="40" width="136" height="56" rx="6"/>
+<text class="nm" x="680" y="66" text-anchor="middle">Every view</text>
+<text class="sub" x="680" y="80" text-anchor="middle">CROSS JOIN cap_cfg</text>
+<rect class="paper" x="612" y="128" width="136" height="56" rx="6"/>
+<rect class="n" x="612" y="128" width="136" height="56" rx="6"/>
+<text class="nm" x="680" y="154" text-anchor="middle">doctor.sql</text>
+<text class="sub" x="680" y="168" text-anchor="middle">and cap_repo.purge</text>
+<line class="rule" x1="12" y1="200" x2="748" y2="200"/>
+<text class="lg" x="12" y="222">LEGEND</text>
+<rect class="n-in" x="84" y="212" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="222">sets a value</text>
+<rect class="n-store" x="200" y="212" width="16" height="12" rx="3"/>
+<text class="lgt" x="224" y="222">table: survives a re-install</text>
+<rect class="n-focal" x="408" y="212" width="16" height="12" rx="3"/>
+<text class="lgt" x="432" y="222">the only way a view reads a knob</text>
+</svg>
+</div>
+<figcaption>The seed MERGE refreshes only <span class="inline">cfg_default</span> and <span class="inline">cfg_desc</span> on an existing key.</figcaption>
+</figure>
+
+      <p>A view never reads <span class="inline">CAP_CONFIG</span> and never inlines a default.
+        A missing knob therefore shows up as a NULL in <span class="inline">CAP_CFG</span> and a
+        <code>MISSING</code> line in <span class="inline">CAP_CFG_CHECK</span>, not as a silently
+        different threshold. Per-tablespace ceilings and thresholds live in
+        <span class="inline">CAP_TBSPC_OVERRIDE</span>
+        (<a href="usage.html#override">CAP_TBSPC_OVERRIDE</a>). All knobs:
+        <a href="reference.html#knobs">Configuration knobs</a>.</p>
+
+      <!-- ===================== FORECAST ===================== -->
+      <div class="section-head" id="forecast">
+        <span class="eyebrow">Level 6 · Analytics</span>
+        <h2>The forecast path</h2>
+        <p>Two engines read the same daily series and meet in one comparison view.</p>
+      </div>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 336" role="img" aria-labelledby="dd-arch-forecast-title dd-arch-forecast-desc">
+<title id="dd-arch-forecast-title">Two forecast engines, one comparison</title>
+<desc id="dd-arch-forecast-desc">Tier 1 fits every daily series in SQL at query time, out to 365 days; Tier 2 is trained by the nightly job, which stages each series in CAP_ML_INPUT for an Oracle Machine Learning ESM model that forecasts at most 30 days; CAPF_COMPARE puts both side by side for the report views.</desc>
+<defs><marker id="dd-arch-forecast-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="336"/>
+<path class="e" d="M124 148 L140 148 Q148 148 148 140 L148 80 Q148 72 156 72 L168 72" marker-end="url(#dd-arch-forecast-mk)"/>
+<path class="e" d="M124 172 L140 172 Q148 172 148 180 L148 240 Q148 248 156 248 L168 248" marker-end="url(#dd-arch-forecast-mk)"/>
+<path class="e" d="M280 72 L528 72 Q536 72 536 80 L536 132" marker-end="url(#dd-arch-forecast-mk)"/>
+<path class="e" d="M280 248 L324 248" marker-end="url(#dd-arch-forecast-mk)"/>
+<path class="e" d="M436 248 L480 248" marker-end="url(#dd-arch-forecast-mk)"/>
+<path class="e" d="M536 220 L536 188" marker-end="url(#dd-arch-forecast-mk)"/>
+<path class="e" d="M592 160 L636 160" marker-end="url(#dd-arch-forecast-mk)"/>
+<rect class="paper" x="370" y="52" width="76" height="12" rx="2"/>
+<text class="al" x="408" y="61" text-anchor="middle">TO +365 DAYS</text>
+<rect class="paper" x="544" y="198" width="76" height="12" rx="2"/>
+<text class="al" x="582" y="207" text-anchor="middle">MAX +30 DAYS</text>
+<rect class="paper" x="12" y="132" width="112" height="56" rx="6"/>
+<rect class="n" x="12" y="132" width="112" height="56" rx="6"/>
+<text class="nm" x="68" y="158" text-anchor="middle">Daily series</text>
+<text class="sub" x="68" y="172" text-anchor="middle">CAPD_ views</text>
+<rect class="paper" x="168" y="44" width="112" height="56" rx="6"/>
+<rect class="n" x="168" y="44" width="112" height="56" rx="6"/>
+<text class="nm" x="224" y="70" text-anchor="middle">Tier 1 fit</text>
+<text class="sub" x="224" y="84" text-anchor="middle">SQL · ddl/30, 35</text>
+<rect class="paper" x="168" y="220" width="112" height="56" rx="6"/>
+<rect class="n" x="168" y="220" width="112" height="56" rx="6"/>
+<text class="nm" x="224" y="246" text-anchor="middle">Trainer</text>
+<text class="sub" x="224" y="260" text-anchor="middle">cap_forecast_ml</text>
+<rect class="paper" x="324" y="220" width="112" height="56" rx="6"/>
+<rect class="n-store" x="324" y="220" width="112" height="56" rx="6"/>
+<text class="nm" x="380" y="246" text-anchor="middle">Staging</text>
+<text class="sub" x="380" y="260" text-anchor="middle">CAP_ML_INPUT</text>
+<rect class="paper" x="480" y="220" width="112" height="56" rx="6"/>
+<rect class="n-ext" x="480" y="220" width="112" height="56" rx="6"/>
+<text class="nm" x="536" y="246" text-anchor="middle">ESM model</text>
+<text class="sub" x="536" y="260" text-anchor="middle">OML · CAP_ML_MODEL</text>
+<rect class="paper" x="480" y="132" width="112" height="56" rx="6"/>
+<rect class="n-focal" x="480" y="132" width="112" height="56" rx="6"/>
+<text class="nm-acc" x="536" y="158" text-anchor="middle">Compare</text>
+<text class="sub" x="536" y="172" text-anchor="middle">CAPF_COMPARE</text>
+<rect class="paper" x="636" y="132" width="112" height="56" rx="6"/>
+<rect class="n" x="636" y="132" width="112" height="56" rx="6"/>
+<text class="nm" x="692" y="158" text-anchor="middle">Report views</text>
+<text class="sub" x="692" y="172" text-anchor="middle">CAPR_ point feeds</text>
+<text class="eb" x="168" y="32">TIER 1 · COMPUTED AT QUERY TIME</text>
+<text class="eb" x="168" y="208">TIER 2 · TRAINED BY THE NIGHTLY JOB</text>
+<line class="rule" x1="12" y1="292" x2="748" y2="292"/>
+<text class="lg" x="12" y="314">LEGEND</text>
+<rect class="n" x="84" y="304" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="314">views</text>
+<rect class="n-store" x="160" y="304" width="16" height="12" rx="3"/>
+<text class="lgt" x="184" y="314">global temporary table</text>
+<rect class="n-ext" x="332" y="304" width="16" height="12" rx="3"/>
+<text class="lgt" x="356" y="314">Oracle Machine Learning</text>
+<rect class="n-focal" x="512" y="304" width="16" height="12" rx="3"/>
+<text class="lgt" x="536" y="314">where both forecasts meet</text>
+</svg>
+</div>
+<figcaption>Tier 1 needs no training and no state. Tier 2 is optional: without <span class="inline">CREATE MINING MODEL</span> the lower row is simply empty.</figcaption>
+</figure>
+
+      <ul>
+        <li><b>Tier 1</b> is SQL: least squares, Theil–Sen or drift, with prediction bands,
+          change-point resets and cycle detection. It exists the moment the views do.</li>
+        <li><b>Tier 2</b> is Oracle Machine Learning exponential smoothing. The trainer copies
+          one series at a time into the temporary table <span class="inline">CAP_ML_INPUT</span>
+          and lets OML read that, never the views: handed a view, OML planned work that grew
+          with the fleet. A failed build keeps the previous model.</li>
+        <li><b>Compare</b> lines both up per series; the backtest scores each on held-out days.
+          ESM stops at 30 days on 19c, so long horizons are always Tier 1.</li>
+      </ul>
+      <p>The methods: <a href="concepts.html#quality">Forecast quality</a>,
+        <a href="concepts.html#engines">Two engines</a>.</p>
+
+      <div class="section-head" id="anomalies">
+        <span class="eyebrow">Level 6 · Analytics</span>
+        <h2>The anomaly path</h2>
+        <p>One engine scores every series; a separate detector watches for CPU steps.</p>
+      </div>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 332" role="img" aria-labelledby="dd-arch-anom-title dd-arch-anom-desc">
+<title id="dd-arch-anom-title">From daily values to anomaly alerts</title>
+<desc id="dd-arch-anom-desc">CAPA_OBS lists what is scored from the daily views and the hourly CPU buckets, CAPA_ANOM scores each observation once per baseline mode, CAPR_ANOMALIES adds severity and the alerting flag and feeds CAPR_ALERTS; CPU level shifts take their own path from the daily CPU series.</desc>
+<defs><marker id="dd-arch-anom-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="332"/>
+<path class="e" d="M124 56 L324 56" marker-end="url(#dd-arch-anom-mk)"/>
+<path class="e" d="M124 80 L216 80 Q224 80 224 88 L224 128" marker-end="url(#dd-arch-anom-mk)"/>
+<path class="e" d="M124 244 L216 244 Q224 244 224 236 L224 184" marker-end="url(#dd-arch-anom-mk)"/>
+<path class="e" d="M280 156 L324 156" marker-end="url(#dd-arch-anom-mk)"/>
+<path class="e" d="M436 156 L480 156" marker-end="url(#dd-arch-anom-mk)"/>
+<path class="e" d="M592 156 L636 156" marker-end="url(#dd-arch-anom-mk)"/>
+<path class="e" d="M380 184 L380 216" marker-end="url(#dd-arch-anom-mk)"/>
+<path class="e" d="M436 68 L684 68 Q692 68 692 76 L692 128" marker-end="url(#dd-arch-anom-mk)"/>
+<rect class="paper" x="196" y="36" width="56" height="12" rx="2"/>
+<text class="al" x="224" y="45" text-anchor="middle">CPU DAYS</text>
+<rect class="paper" x="534" y="48" width="60" height="12" rx="2"/>
+<text class="al" x="564" y="57" text-anchor="middle">CPU_SHIFT</text>
+<rect class="paper" x="12" y="40" width="112" height="56" rx="6"/>
+<rect class="n" x="12" y="40" width="112" height="56" rx="6"/>
+<text class="nm" x="68" y="66" text-anchor="middle">Daily views</text>
+<text class="sub" x="68" y="80" text-anchor="middle">CAPD_, per day</text>
+<rect class="paper" x="12" y="216" width="112" height="56" rx="6"/>
+<rect class="n" x="12" y="216" width="112" height="56" rx="6"/>
+<text class="nm" x="68" y="242" text-anchor="middle">CPU by hour</text>
+<text class="sub" x="68" y="256" text-anchor="middle">CAPD_CPU_HOURLY</text>
+<rect class="paper" x="324" y="40" width="112" height="56" rx="6"/>
+<rect class="n" x="324" y="40" width="112" height="56" rx="6"/>
+<text class="nm" x="380" y="66" text-anchor="middle">Level shift</text>
+<text class="sub" x="380" y="80" text-anchor="middle">CAPA_CPU_SHIFT</text>
+<rect class="paper" x="168" y="128" width="112" height="56" rx="6"/>
+<rect class="n" x="168" y="128" width="112" height="56" rx="6"/>
+<text class="nm" x="224" y="154" text-anchor="middle">Observations</text>
+<text class="sub" x="224" y="168" text-anchor="middle">CAPA_OBS</text>
+<rect class="paper" x="324" y="128" width="112" height="56" rx="6"/>
+<rect class="n-focal" x="324" y="128" width="112" height="56" rx="6"/>
+<text class="nm-acc" x="380" y="154" text-anchor="middle">Engine</text>
+<text class="sub" x="380" y="168" text-anchor="middle">CAPA_ANOM</text>
+<rect class="paper" x="324" y="216" width="112" height="56" rx="6"/>
+<rect class="n" x="324" y="216" width="112" height="56" rx="6"/>
+<text class="nm" x="380" y="242" text-anchor="middle">Day verdict</text>
+<text class="sub" x="380" y="256" text-anchor="middle">CAPA_ANOM_DAY</text>
+<rect class="paper" x="480" y="128" width="112" height="56" rx="6"/>
+<rect class="n" x="480" y="128" width="112" height="56" rx="6"/>
+<text class="nm" x="536" y="154" text-anchor="middle">Anomaly feed</text>
+<text class="sub" x="536" y="168" text-anchor="middle">CAPR_ANOMALIES</text>
+<rect class="paper" x="636" y="128" width="112" height="56" rx="6"/>
+<rect class="n" x="636" y="128" width="112" height="56" rx="6"/>
+<text class="nm" x="692" y="154" text-anchor="middle">Alerts</text>
+<text class="sub" x="692" y="168" text-anchor="middle">CAPR_ALERTS</text>
+<line class="rule" x1="12" y1="288" x2="748" y2="288"/>
+<text class="lg" x="12" y="310">LEGEND</text>
+<rect class="n" x="84" y="300" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="310">views</text>
+<rect class="n-focal" x="160" y="300" width="16" height="12" rx="3"/>
+<text class="lgt" x="184" y="310">one row per observation and baseline mode</text>
+</svg>
+</div>
+<figcaption>Read <span class="inline">CAPA_ANOM</span> with a <span class="inline">baseline_mode</span> predicate; <span class="inline">CAPA_ANOM_DAY</span> is the one-row-per-observation view.</figcaption>
+</figure>
+
+      <p><span class="inline">CAPA_OBS</span> decides what is scored, in which unit and above
+        which floor. <span class="inline">CAPA_ANOM</span> compares each observation with its
+        baseline under every mode of its grain: <code>TRAILING</code> and <code>SAME_DOW</code>
+        per day, <code>HOUR_OF_WEEK</code> per CPU hour. The baseline mode is part of the key.
+        <span class="inline">CAPR_ANOMALIES</span> owns severity, message and whether a mode
+        alerts; the alert list takes its anomaly rows from there, with consecutive days folded
+        into one episode. The rules: <a href="concepts.html#anomalies">Anomalies</a>.</p>
+
+      <div class="section-head" id="memory">
+        <span class="eyebrow">Level 6 · Analytics</span>
+        <h2>Memory verdicts</h2>
+        <p>One grade per instance and memory area: is it undersized, oversized or fine, and on
+          what evidence.</p>
+      </div>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 392" role="img" aria-labelledby="dd-arch-mem-title dd-arch-mem-desc">
+<title id="dd-arch-mem-title">The memory verdict layers</title>
+<desc id="dd-arch-mem-desc">Six layers of CAPM_ views turn the memory seam views into one verdict per memory area: the snapshot window and instance facts, counters as per-interval increments, advisor curves per size, the facts of each area, the evidence rows and the verdict.</desc>
+<rect class="paper" width="760" height="392"/>
+<rect class="paper" x="12" y="40" width="736" height="40"/>
+<rect class="n-focal" x="12" y="40" width="736" height="40"/>
+<text class="eb-acc" x="28" y="63">06</text>
+<text class="nm-acc" x="64" y="64">Verdict</text>
+<text class="sub" x="732" y="63" text-anchor="end">CAPM_VERDICT</text>
+<rect class="paper" x="12" y="80" width="736" height="40"/>
+<rect class="n" x="12" y="80" width="736" height="40"/>
+<text class="eb" x="28" y="103">05</text>
+<text class="nm" x="64" y="104">Evidence, one row per signal</text>
+<text class="sub" x="732" y="103" text-anchor="end">CAPM_EVIDENCE</text>
+<rect class="paper" x="12" y="120" width="736" height="40"/>
+<rect class="n" x="12" y="120" width="736" height="40"/>
+<text class="eb" x="28" y="143">04</text>
+<text class="nm" x="64" y="144">Area facts</text>
+<text class="sub" x="732" y="143" text-anchor="end">CAPM_PGA_LIMIT · CAPM_AREA · CAPM_SGA_BALANCE</text>
+<rect class="paper" x="12" y="160" width="736" height="40"/>
+<rect class="n" x="12" y="160" width="736" height="40"/>
+<text class="eb" x="28" y="183">03</text>
+<text class="nm" x="64" y="184">Advice curve per advised size</text>
+<text class="sub" x="732" y="183" text-anchor="end">CAPM_ADVICE</text>
+<rect class="paper" x="12" y="200" width="736" height="40"/>
+<rect class="n" x="12" y="200" width="736" height="40"/>
+<text class="eb" x="28" y="223">02</text>
+<text class="nm" x="64" y="224">Counters as increments</text>
+<text class="sub" x="732" y="223" text-anchor="end">CAPM_ADV_SRC · CAPM_DELTA</text>
+<rect class="paper" x="12" y="240" width="736" height="40"/>
+<rect class="n" x="12" y="240" width="736" height="40"/>
+<text class="eb" x="28" y="263">01</text>
+<text class="nm" x="64" y="264">Window, startups, instance</text>
+<text class="sub" x="732" y="263" text-anchor="end">CAPM_SNAP · CAPM_INST</text>
+<rect class="paper" x="12" y="296" width="736" height="32" rx="4"/>
+<rect class="n-store" x="12" y="296" width="736" height="32" rx="4"/>
+<text class="nm" x="24" y="316">Memory seam views</text>
+<text class="sub" x="736" y="315" text-anchor="end">11 CAPV_ views: PGA and SGA statistics, four advisors, wait events</text>
+<text class="eb" x="12" y="28">EACH LAYER READS THE ONES BELOW IT</text>
+<line class="rule" x1="12" y1="348" x2="748" y2="348"/>
+<text class="lg" x="12" y="370">LEGEND</text>
+<rect class="n-focal" x="84" y="360" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="370">the view to query</text>
+<rect class="n" x="228" y="360" width="16" height="12" rx="3"/>
+<text class="lgt" x="252" y="370">a layer of views</text>
+<rect class="n-store" x="368" y="360" width="16" height="12" rx="3"/>
+<text class="lgt" x="392" y="370">seam views over the copies</text>
+</svg>
+</div>
+<figcaption>Only the <span class="inline">CAPR_MEM_</span> report views read a <span class="inline">CAPM_</span> view: no alert, no series.</figcaption>
+</figure>
+
+      <ul>
+        <li><b>Areas:</b> <code>PGA_LIMIT</code>, <code>PGA_TARGET</code>,
+          <code>BUFFER_CACHE</code>, <code>SHARED_POOL</code>, <code>SGA_TOTAL</code>,
+          <code>SGA_BALANCE</code>.</li>
+        <li><b>Increments only.</b> Layer 02 turns every cumulative counter and advisor estimate
+          into per-interval increments in one place. Nothing is differenced across a restart.</li>
+        <li><b>Rules are data.</b> A symptom is a row in layer 05, a grade is a row of the rule
+          table in layer 06. The first matching rule wins.</li>
+        <li><b>Advisory.</b> A suggestion that would not fit in host RAM or in
+          <code>sga_target</code> is flagged, never reduced.</li>
+      </ul>
+      <p>The reports print the verdicts through the <span class="inline">CAPR_MEM_</span> views
+        (<a href="usage.html#sections">section 8</a>). To query the layer directly:</p>
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
+<pre><span class="c-prompt">SQL&gt;</span> SELECT area, grade, reason,
+            ROUND(current_bytes / 1048576)   AS current_mb,
+            ROUND(suggested_bytes / 1048576) AS suggested_mb
+     FROM   capm_verdict
+     ORDER  BY dbid, instance_number, area;</pre>
+      </div>
+      <p>The evidence behind a grade is in <span class="inline">CAPM_EVIDENCE</span>. Every view
+        and knob: <a href="reference.html#objects">Object index</a>,
+        <a href="reference.html#knobs">Configuration knobs</a> (<code>mem_*</code>).</p>
+
+      <!-- ===================== ALERTS ===================== -->
+      <div class="section-head" id="alerts">
+        <span class="eyebrow">Level 7 · Data out</span>
+        <h2>Alerts</h2>
+        <p>One view lists everything worth a page. It is computed, not stored.</p>
+      </div>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 364" role="img" aria-labelledby="dd-arch-alerts-title dd-arch-alerts-desc">
+<title id="dd-arch-alerts-title">Where alerts come from and where they go</title>
+<desc id="dd-arch-alerts-desc">Five sources feed the fifteen alert kinds of CAPR_ALERTS: the forecast views, the anomaly feed, CPU level shifts, Tier 2 model health and data freshness; cap_results.refresh merges the rows into the alert state and logs each change as an event, and monitoring polls the view or the state.</desc>
+<defs><marker id="dd-arch-alerts-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="364"/>
+<path class="e" d="M228 60 L300 60" marker-end="url(#dd-arch-alerts-mk)"/>
+<path class="e" d="M228 116 L300 116" marker-end="url(#dd-arch-alerts-mk)"/>
+<path class="e" d="M228 172 L300 172" marker-end="url(#dd-arch-alerts-mk)"/>
+<path class="e" d="M228 228 L300 228" marker-end="url(#dd-arch-alerts-mk)"/>
+<path class="e" d="M228 284 L300 284" marker-end="url(#dd-arch-alerts-mk)"/>
+<path class="e" d="M444 92 L532 92" marker-end="url(#dd-arch-alerts-mk)"/>
+<path class="e" d="M444 172 L532 172" marker-end="url(#dd-arch-alerts-mk)"/>
+<path class="e" d="M444 252 L532 252" marker-end="url(#dd-arch-alerts-mk)"/>
+<rect class="paper" x="468" y="72" width="40" height="12" rx="2"/>
+<text class="al" x="488" y="81" text-anchor="middle">MERGE</text>
+<rect class="paper" x="458" y="152" width="60" height="12" rx="2"/>
+<text class="al" x="488" y="161" text-anchor="middle">ON CHANGE</text>
+<rect class="paper" x="472" y="232" width="32" height="12" rx="2"/>
+<text class="al" x="488" y="241" text-anchor="middle">POLL</text>
+<rect class="paper" x="12" y="40" width="216" height="40" rx="6"/>
+<rect class="n" x="12" y="40" width="216" height="40" rx="6"/>
+<text class="nm" x="120" y="58" text-anchor="middle">Forecast views</text>
+<text class="sub" x="120" y="72" text-anchor="middle">8 kinds: TBSPC_FULL, CPU_SAT, …</text>
+<rect class="paper" x="12" y="96" width="216" height="40" rx="6"/>
+<rect class="n" x="12" y="96" width="216" height="40" rx="6"/>
+<text class="nm" x="120" y="114" text-anchor="middle">Anomaly feed</text>
+<text class="sub" x="120" y="128" text-anchor="middle">4 kinds: TBSPC_ANOM, CPU_ANOM, …</text>
+<rect class="paper" x="12" y="152" width="216" height="40" rx="6"/>
+<rect class="n" x="12" y="152" width="216" height="40" rx="6"/>
+<text class="nm" x="120" y="170" text-anchor="middle">CPU level shift</text>
+<text class="sub" x="120" y="184" text-anchor="middle">CPU_SHIFT</text>
+<rect class="paper" x="12" y="208" width="216" height="40" rx="6"/>
+<rect class="n" x="12" y="208" width="216" height="40" rx="6"/>
+<text class="nm" x="120" y="226" text-anchor="middle">Tier 2 model health</text>
+<text class="sub" x="120" y="240" text-anchor="middle">MODEL_HEALTH</text>
+<rect class="paper" x="12" y="264" width="216" height="40" rx="6"/>
+<rect class="n" x="12" y="264" width="216" height="40" rx="6"/>
+<text class="nm" x="120" y="282" text-anchor="middle">Data freshness</text>
+<text class="sub" x="120" y="296" text-anchor="middle">DATA_STALE</text>
+<rect class="paper" x="300" y="40" width="144" height="264" rx="6"/>
+<rect class="n-focal" x="300" y="40" width="144" height="264" rx="6"/>
+<text class="nm-acc" x="372" y="163.5" text-anchor="middle">CAPR_ALERTS</text>
+<text class="sub" x="372" y="177.5" text-anchor="middle">one row per alert</text>
+<text class="sub" x="372" y="190.5" text-anchor="middle">alert_key · state_key</text>
+<rect class="paper" x="532" y="64" width="216" height="56" rx="6"/>
+<rect class="n-store" x="532" y="64" width="216" height="56" rx="6"/>
+<text class="nm" x="640" y="90" text-anchor="middle">Alert state</text>
+<text class="sub" x="640" y="104" text-anchor="middle">CAP_ALERT_STATE, by state_key</text>
+<rect class="paper" x="532" y="144" width="216" height="56" rx="6"/>
+<rect class="n-store" x="532" y="144" width="216" height="56" rx="6"/>
+<text class="nm" x="640" y="170" text-anchor="middle">Alert events</text>
+<text class="sub" x="640" y="184" text-anchor="middle">CAP_ALERT_EVENT</text>
+<rect class="paper" x="532" y="224" width="216" height="56" rx="6"/>
+<rect class="n-ext" x="532" y="224" width="216" height="56" rx="6"/>
+<text class="nm" x="640" y="250" text-anchor="middle">Monitoring</text>
+<text class="sub" x="640" y="264" text-anchor="middle">polls the view, or the state</text>
+<line class="rule" x1="12" y1="320" x2="748" y2="320"/>
+<text class="lg" x="12" y="342">LEGEND</text>
+<rect class="n" x="84" y="332" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="342">views, computed live</text>
+<rect class="n-focal" x="244" y="332" width="16" height="12" rx="3"/>
+<text class="lgt" x="268" y="342">the one alert list</text>
+<rect class="n-store" x="396" y="332" width="16" height="12" rx="3"/>
+<text class="lgt" x="420" y="342">written by cap_results.refresh</text>
+<rect class="n-ext" x="612" y="332" width="16" height="12" rx="3"/>
+<text class="lgt" x="636" y="342">outside the suite</text>
+</svg>
+</div>
+<figcaption>An alert's states and events: <a href="usage.html#results">Results layer</a>. Every kind and its rule: <a href="usage.html#alerts">Polling CAPR_ALERTS</a>.</figcaption>
+</figure>
+
+      <p>Each row has two keys. <code>alert_key</code> includes the day and identifies a row;
+        <code>state_key</code> (kind, database, container, series, mode) is stable across days
+        and identifies the condition. Refresh merges on <code>state_key</code>, which is what
+        turns a list that is recomputed every time into states with a history:
+        new, escalated, de-escalated, resolved, reopened, acknowledged.</p>
+
+      <div class="section-head" id="results">
+        <span class="eyebrow">Level 7 · Data out</span>
+        <h2>The results layer: refresh, LIVE and SNAPSHOT</h2>
+        <p>The one place the suite writes its own conclusions.</p>
+      </div>
+
+<figure class="dd-fig">
+<div class="dd-scroll">
+<svg class="dd" viewBox="0 0 760 352" role="img" aria-labelledby="dd-arch-refresh-title dd-arch-refresh-desc">
+<title id="dd-arch-refresh-title">One refresh, two ways to read</title>
+<desc id="dd-arch-refresh-desc">A LIVE report runs the whole view stack on every call. cap_results.refresh runs it once, replaces the rows of one snapshot table per report view, then reads those tables to append the fit history, merge the alert state and close its row in the run log; a SNAPSHOT report reads only the tables.</desc>
+<defs><marker id="dd-arch-refresh-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
+</defs>
+<rect class="paper" width="760" height="352"/>
+<path class="e" d="M80 128 L80 96" marker-end="url(#dd-arch-refresh-mk)"/>
+<path class="e" d="M476 128 L476 96" marker-end="url(#dd-arch-refresh-mk)"/>
+<path class="e" d="M148 156 L220 156" marker-end="url(#dd-arch-refresh-mk)"/>
+<path class="e" d="M340 156 L404 156" marker-end="url(#dd-arch-refresh-mk)"/>
+<path class="e" d="M548 144 L568 144 Q576 144 576 136 L576 96 Q576 88 584 88 L604 88" marker-end="url(#dd-arch-refresh-mk)"/>
+<path class="e" d="M548 168 L604 168" marker-end="url(#dd-arch-refresh-mk)"/>
+<path class="e" d="M280 184 L280 216" marker-end="url(#dd-arch-refresh-mk)"/>
+<rect class="paper" x="88" y="106" width="32" height="12" rx="2"/>
+<text class="al" x="104" y="115" text-anchor="middle">LIVE</text>
+<rect class="paper" x="484" y="106" width="56" height="12" rx="2"/>
+<text class="al" x="512" y="115" text-anchor="middle">SNAPSHOT</text>
+<rect class="paper" x="154" y="136" width="60" height="12" rx="2"/>
+<text class="al" x="184" y="145" text-anchor="middle">EACH VIEW</text>
+<rect class="paper" x="346" y="136" width="52" height="12" rx="2"/>
+<text class="al" x="372" y="145" text-anchor="middle">REPLACE</text>
+<rect class="paper" x="288" y="194" width="72" height="12" rx="2"/>
+<text class="al" x="324" y="203" text-anchor="middle">OK · FAILED</text>
+<rect class="paper" x="12" y="40" width="136" height="56" rx="6"/>
+<rect class="n-ext" x="12" y="40" width="136" height="56" rx="6"/>
+<text class="nm" x="80" y="66" text-anchor="middle">Report, LIVE</text>
+<text class="sub" x="80" y="80" text-anchor="middle">runs the whole stack</text>
+<rect class="paper" x="404" y="40" width="144" height="56" rx="6"/>
+<rect class="n-ext" x="404" y="40" width="144" height="56" rx="6"/>
+<text class="nm" x="476" y="66" text-anchor="middle">Report, SNAPSHOT</text>
+<text class="sub" x="476" y="80" text-anchor="middle">about 1 s, 10 MB</text>
+<rect class="paper" x="12" y="128" width="136" height="56" rx="6"/>
+<rect class="n" x="12" y="128" width="136" height="56" rx="6"/>
+<text class="nm" x="80" y="154" text-anchor="middle">Report views</text>
+<text class="sub" x="80" y="168" text-anchor="middle">CAPR_, computed</text>
+<rect class="paper" x="220" y="128" width="120" height="56" rx="6"/>
+<rect class="n-focal" x="220" y="128" width="120" height="56" rx="6"/>
+<text class="nm-acc" x="280" y="154" text-anchor="middle">Refresh</text>
+<text class="sub" x="280" y="168" text-anchor="middle">cap_results.refresh</text>
+<rect class="paper" x="404" y="128" width="144" height="56" rx="6"/>
+<rect class="n-opt" x="404" y="128" width="144" height="56" rx="6"/>
+<text class="nm" x="476" y="154" text-anchor="middle">Snapshot cache</text>
+<text class="sub" x="476" y="168" text-anchor="middle">one &lt;view&gt;_S table each</text>
+<rect class="paper" x="604" y="60" width="144" height="56" rx="6"/>
+<rect class="n-store" x="604" y="60" width="144" height="56" rx="6"/>
+<text class="nm" x="676" y="86" text-anchor="middle">Fit history</text>
+<text class="sub" x="676" y="100" text-anchor="middle">CAP_FIT_HIST</text>
+<rect class="paper" x="604" y="140" width="144" height="56" rx="6"/>
+<rect class="n-store" x="604" y="140" width="144" height="56" rx="6"/>
+<text class="nm" x="676" y="166" text-anchor="middle">Alert state</text>
+<text class="sub" x="676" y="180" text-anchor="middle">CAP_ALERT_STATE, _EVENT</text>
+<rect class="paper" x="220" y="216" width="120" height="56" rx="6"/>
+<rect class="n-store" x="220" y="216" width="120" height="56" rx="6"/>
+<text class="nm" x="280" y="242" text-anchor="middle">Run log</text>
+<text class="sub" x="280" y="256" text-anchor="middle">CAP_RUN</text>
+<line class="rule" x1="12" y1="288" x2="748" y2="288"/>
+<text class="lg" x="12" y="310">LEGEND</text>
+<rect class="n-focal" x="84" y="300" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="310">the only writer of the results layer</text>
+<rect class="n-store" x="336" y="300" width="16" height="12" rx="3"/>
+<text class="lgt" x="360" y="310">persisted: survives a re-install</text>
+<rect class="n-opt" x="84" y="320" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="330">cache: re-created by every install</text>
+<rect class="n-ext" x="324" y="320" width="16" height="12" rx="3"/>
+<text class="lgt" x="348" y="330">a report driver</text>
+</svg>
+</div>
+<figcaption>The whole refresh is one transaction, so a reader never sees half a run. The cache holds the views in <span class="inline">cap_results.snap_views</span>.</figcaption>
+</figure>
+
+      <ul>
+        <li><b>LIVE</b> is always current and costs the whole stack on every call.</li>
+        <li><b>SNAPSHOT</b> reads what the last refresh stored: about a second and 10&nbsp;MB at
+          any fleet size, and as stale as the last refresh. A driver takes
+          <code>LIVE</code> or <code>SNAPSHOT</code> as its last argument
+          (<span class="inline">run_report.sh --snapshot</span>).</li>
+        <li><b>Persisted tables</b> are what refresh adds that no view could: how a fit looked
+          on an earlier day, and when an alert opened, changed and closed.</li>
+        <li><b>The cache</b> is disposable. Every install drops and re-creates the
+          <code>_S</code> tables empty; the next refresh fills them.</li>
+      </ul>
+      <p>Tables and keys: <a href="reference.html#tables">Persisted tables</a>.</p>
+
+      <h3 id="writers">Who writes what</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Writer</th><th>Tables</th><th>When</th></tr></thead>
+          <tbody>
+            <tr><td><b>Operator</b></td><td class="def"><span class="inline">CAP_CONFIG</span> (<code>cfg_value</code>), <span class="inline">CAP_TBSPC_OVERRIDE</span></td><td class="def">By hand</td></tr>
+            <tr><td><span class="inline">cap_repo</span></td><td class="def"><span class="inline">CAP_TARGET</span>, <span class="inline">CAP_TARGET_DBID</span>, <span class="inline">CAP_COLLECT_LOG</span>, the <span class="inline">CAP_H_*</span> copies</td><td class="def"><code>add_target</code>, the hourly <code>collect</code>, the nightly <code>purge</code></td></tr>
+            <tr><td><span class="inline">cap_forecast_ml</span></td><td class="def"><span class="inline">CAP_ML_MODEL</span>, the OML models, <span class="inline">CAP_ML_INPUT</span> (temporary)</td><td class="def">The nightly retrain, or <code>train_all</code> by hand</td></tr>
+            <tr><td><span class="inline">cap_results</span></td><td class="def"><span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>, <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span>, the <code>_S</code> cache</td><td class="def">The nightly <code>refresh</code>; <code>ack</code> and <code>unack</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Every view, report driver and export only SELECTs.</p>
+
+      <!-- ===================== RUNTIME ===================== -->
+      <div class="section-head" id="runtime">
+        <span class="eyebrow">Level 8</span>
+        <h2>What runs when</h2>
+        <p>Nothing runs by itself after an install. The two jobs are created disabled.</p>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Trigger</th><th>Runs</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><span class="inline">CAP_COLLECT_JOB</span>, hourly at :05</td><td class="def"><span class="inline">cap_repo.collect</span></td><td class="def">New snapshots of every enabled target land in the copies</td></tr>
+            <tr><td><span class="inline">CAP_NIGHTLY_JOB</span>, daily at 01:00</td><td class="def"><span class="inline">cap_nightly</span>: PURGE, RETRAIN, REFRESH, SPOOL, one after the other in one session</td><td class="def">Old copies deleted, Tier 2 retrained, results and cache rewritten, the alert file spooled. A failed step is logged and skipped; the job then ends with ORA-20080</td></tr>
+            <tr><td>cron or an operator</td><td class="def"><span class="inline">report/run_report.sh</span>: text, <code>--html</code>, <code>--brief</code>, <code>--csv</code></td><td class="def">A report file; non-zero exit on any error</td></tr>
+            <tr><td>A monitoring system</td><td class="def">A query on <span class="inline">CAPR_ALERTS</span> or <span class="inline">CAPR_ALERTS_LATEST</span>, or the Prometheus endpoint</td><td class="def">Pages on new or escalated alerts</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The night as a timeline: <a href="usage.html#jobs">Scheduler jobs</a>. One nightly job
+        instead of four timed ones because a fleet's refresh outgrew its slot and ran beside the
+        retrain.</p>
+
+      <h3 id="consumers">Consumers</h3>
+      <p>Every consumer reads the same views, so a change is made in the view and not in the
+        consumers. Six of them are a contract that only ever gains columns:
+        <span class="inline">CAPR_SERIES_POINTS</span>,
+        <span class="inline">CAPR_FORECAST_POINTS</span>, <span class="inline">CAPR_FIT</span>,
+        <span class="inline">CAPR_ANOMALIES</span>, <span class="inline">CAPR_ALERTS</span> and
+        <span class="inline">CAPR_CONTAINER</span>.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Consumer</th><th>Path</th><th>Leaves the database?</th></tr></thead>
+          <tbody>
+            <tr><td>Reports</td><td class="def"><span class="inline">report/*.sql</span> in SQL*Plus: text, HTML, one-page brief, CSV</td><td class="def">As a spooled file</td></tr>
+            <tr><td>Grafana, Prometheus</td><td class="def">The ORDS module <span class="inline">grafana/ords/awrcap_module.sql</span> publishes the point feeds and a <code>metrics</code> handler</td><td class="def">Over HTTPS, read live</td></tr>
+            <tr><td>Kibana</td><td class="def"><span class="inline">elk/export.sh</span> writes one JSON document per line for Filebeat</td><td class="def">As files on the database host</td></tr>
+            <tr><td>APEX</td><td class="def">An application generated by <span class="inline">apex/build.py</span></td><td class="def">No</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The three dashboard paths drawn out: <a href="usage.html#kibana">Usage</a>. Outside the
+        suite altogether, <span class="inline">standalone/tbspc_capacity.sql</span> is one SELECT
+        over <code>DBA_HIST_*</code> that repeats the Tier 1 tablespace forecast on a database
+        with nothing installed.</p>
+
+      <!-- ===================== TESTING ===================== -->
+      <div class="section-head" id="verified">
+        <span class="eyebrow">Level 9</span>
+        <h2>How the architecture is verified</h2>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Claim</th><th>Proof</th></tr></thead>
+          <tbody>
+            <tr><td>The analytics are right</td><td class="def">A fixture with answers known in closed form, installed through the fixture seam, asserted by <span class="inline">test/run_test.sql</span> and <span class="inline">run_test_ml.sql</span></td></tr>
+            <tr><td>A copy equals its source</td><td class="def"><span class="inline">test/dbmint_copy_check.sh</span>: source MINUS copy and back, per target, DBID and source</td></tr>
+            <tr><td>LIVE and SNAPSHOT agree</td><td class="def"><span class="inline">test/snapshot_parity.sh</span> diffs both reports on the fixture</td></tr>
+            <tr><td>A scoped report reads one target</td><td class="def"><span class="inline">test/scope_plan.sql</span> counts unscoped seam reads in every plan</td></tr>
+            <tr><td>The structural rules hold</td><td class="def">Six lints: <span class="inline">lint_dba_hist</span>, <span class="inline">lint_dbid_windows</span>, <span class="inline">lint_snapshot_reads</span>, <span class="inline">lint_anom_joins</span>, <span class="inline">lint_appinfo</span>, <span class="inline">docs_lint</span></td></tr>
+            <tr><td>It scales linearly</td><td class="def"><span class="inline">test/dbmint_scale.sh</span> grows a synthetic fleet and times each step (<a href="reference.html#fleet-size">How many targets</a>)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>How to run them: <a href="testing.html">Testing</a>.</p>
+
+      <!-- ===================== NEXT ===================== -->
+      <div class="section-head" id="next">
+        <h2>Next</h2>
+      </div>
+      <div class="cardgrid">
+        <a class="card" href="concepts.html">
+          <div class="k">04 · Guide</div>
+          <h3>How it works</h3>
+          <p>The mathematics behind each layer: fits, bands, baselines, level shifts.</p>
+          <div class="go">How it works →</div>
+        </a>
+        <a class="card" href="usage.html">
+          <div class="k">06 · Guide</div>
+          <h3>Usage</h3>
+          <p>Run the reports, poll the alerts, wire up a dashboard.</p>
+          <div class="go">Usage →</div>
+        </a>
+        <a class="card" href="reference.html">
+          <div class="k">08 · Reference</div>
+          <h3>Reference</h3>
+          <p>Every knob, object, table, job and script.</p>
+          <div class="go">Reference →</div>
+        </a>
+      </div>
+
+      <nav class="pager" id="pager" aria-label="Previous and next page"></nav>
+
+      <footer class="foot">
+        AWR Capacity Forecast · in-database capacity forecasting · Oracle 19c floor<br>
+        Hand-maintained documentation. Design rationale lives in
+        <span class="inline">docs/design.md</span>.
+      </footer>
+
+    </div><!-- /wrap -->
+  </main>
+  <aside class="rail"><nav class="toc" id="toc" aria-label="On this page"></nav></aside>
+</div>
+<script src="assets/site.js"></script>
+</body>
+</html>
