@@ -33,6 +33,10 @@
 --   CAPR_SERIES_POINTS / CAPR_HOURLY_POINTS / CAPR_FIT -- point feeds for
 --                     external dashboards (grafana/API.md, elk/), at the
 --                     bottom of this file.
+--   CAPR_MEM_AREA / CAPR_MEM_VERDICT / CAPR_MEM_EVIDENCE /
+--   CAPR_MEM_COMPONENTS / CAPR_MEM_COMP_POINTS -- the memory sizing verdicts
+--                     of ddl/42 for the reports (M26.4), at the end of this
+--                     file.
 -- CAPR_ALERTS (the pollable alert surface) and CAPR_FORECAST_POINTS live in
 -- ddl/55_report_views_ml.sql: CAPR_ALERTS' MODEL_HEALTH kind reads the
 -- Tier 2 health views ddl/50 creates after this file.
@@ -1361,3 +1365,264 @@ LEFT   JOIN (SELECT fit_kind, dbid, con_dbid, series_key, MIN(sev_rank) AS sev_r
  AND   s.series_key = f.series
 LEFT   JOIN capr_container c
   ON   c.dbid = f.dbid AND c.con_dbid = f.con_dbid;
+
+-- ====================================================================
+-- Memory sizing report views (M26.4), over the CAPM_ verdict layer of
+-- ddl/42. Same contract as the section views above: db_pdb resolved, every
+-- label, sentence and rank computed here, so the report drivers only format.
+-- Instance level: con_dbid = dbid, as the CAPM_ views file their rows, so a
+-- report scoped to a PDB shows no memory rows. No alert reads these views.
+-- ====================================================================
+
+-- --------------------------------------------------------------------
+-- CAPR_MEM_AREA -- the memory areas in report order, with their labels. The
+-- one place a report learns how to name and order an area.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_mem_area AS
+SELECT CAST(area AS VARCHAR2(20))       AS area,
+       area_rank,
+       CAST(area_label AS VARCHAR2(20)) AS area_label
+FROM  ( SELECT 'SGA_TOTAL' AS area, 1 AS area_rank, 'SGA total' AS area_label FROM dual
+        UNION ALL SELECT 'BUFFER_CACHE', 2, 'Buffer cache' FROM dual
+        UNION ALL SELECT 'SHARED_POOL',  3, 'Shared pool'  FROM dual
+        UNION ALL SELECT 'SGA_BALANCE',  4, 'SGA balance'  FROM dual
+        UNION ALL SELECT 'PGA_TARGET',   5, 'PGA target'   FROM dual
+        UNION ALL SELECT 'PGA_LIMIT',    6, 'PGA limit'    FROM dual );
+
+-- --------------------------------------------------------------------
+-- CAPR_MEM_VERDICT -- report section 8: CAPM_VERDICT, one row per (dbid,
+-- instance_number, area), ready to print.
+--   reason_text     one sentence for the reason code (why).
+--   actionable      Y for a grade that advises a change or names a problem
+--                   (gr): UNDERSIZED, OVERSIZED, THRASHING, DRIFTING. OK and
+--                   INSUFFICIENT_EVIDENCE are N. The briefing lists the Y rows.
+--   current_size / suggested_size  the two sizes as text: whole GiB when the
+--                   size is a multiple of 1 GiB, else whole MiB, so a
+--                   suggestion reads as the value to set.
+--   change_pct      the suggestion against the current size, percent. NULL
+--                   for SGA_BALANCE, whose current size is sga_target and
+--                   whose suggestion is a pool floor.
+--   headline        "<area> <grade phrase>." and, with a suggestion, what to
+--                   do: a floor ("Set <parameter> to at least") when the
+--                   balance is THRASHING or an ASMM pool should grow, "Raise
+--                   <parameter> from .. to .." otherwise, "It could shrink
+--                   from .. to .." for OVERSIZED; then one sentence per flag
+--                   (exceeds_host_ram, exceeds_sga).
+--   rank_mem        per database: by instance, then area_rank.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_mem_verdict AS
+WITH why AS (
+        SELECT 'NOT_COLLECTED' AS reason,
+               'No memory history was collected in the window.' AS reason_text FROM dual
+        UNION ALL SELECT 'AMM',                 'The instance runs automatic memory management (memory_target), which is not analysed.' FROM dual
+        UNION ALL SELECT 'MANUAL_SIZING',       'The SGA pools are sized manually, so there is no SGA total or balance to grade.' FROM dual
+        UNION ALL SELECT 'ADVISOR_THIN',        'The advisor has too little history at or near the current size.' FROM dual
+        UNION ALL SELECT 'ADVISOR_AND_SYMPTOM', 'The advisor estimates a material gain at a larger size, and a pressure symptom was observed.' FROM dual
+        UNION ALL SELECT 'ADVISOR_ONLY',        'The advisor estimates a gain at a larger size, but no pressure symptom was observed.' FROM dual
+        UNION ALL SELECT 'SYMPTOM_ONLY',        'A pressure symptom was observed, but the advisor estimates no material gain at a larger size.' FROM dual
+        UNION ALL SELECT 'SHRINK_COSTS_LITTLE', 'The advisor estimates almost no cost at a smaller size, and no pressure was observed.' FROM dual
+        UNION ALL SELECT 'SHRINK_UNPROVEN',     'A smaller size looks cheap, but too few days were sampled to advise it.' FROM dual
+        UNION ALL SELECT 'SIZED_RIGHT',         'Neither a larger nor a smaller size would change much.' FROM dual
+        UNION ALL SELECT 'RESIZE_CHURN',        'The instance keeps moving memory between the buffer cache and the shared pool.' FROM dual
+        UNION ALL SELECT 'ONE_WAY_SHIFT',       'One pool was squeezed in favour of the other. See the SGA total verdict.' FROM dual
+        UNION ALL SELECT 'STABLE',              'The split between the buffer cache and the shared pool is stable.' FROM dual
+        UNION ALL SELECT 'NO_LIMIT',            'pga_aggregate_limit is 0, so there is no limit to grade.' FROM dual
+        UNION ALL SELECT 'PEAK_NEAR_LIMIT',     'PGA allocation peaked close to pga_aggregate_limit.' FROM dual
+        UNION ALL SELECT 'WINDOW_TOO_SHORT',    'Too few days were sampled to judge the limit.' FROM dual
+        UNION ALL SELECT 'PEAK_BELOW_LIMIT',    'PGA allocation stayed clear of pga_aggregate_limit.' FROM dual
+     ),
+     gr AS (
+        SELECT 'UNDERSIZED' AS grade, 'is undersized' AS phrase, 'Y' AS actionable FROM dual
+        UNION ALL SELECT 'OVERSIZED',             'is oversized',        'Y' FROM dual
+        UNION ALL SELECT 'THRASHING',             'is thrashing',        'Y' FROM dual
+        UNION ALL SELECT 'DRIFTING',              'is drifting',         'Y' FROM dual
+        UNION ALL SELECT 'OK',                    'needs no change',     'N' FROM dual
+        UNION ALL SELECT 'INSUFFICIENT_EVIDENCE', 'could not be judged', 'N' FROM dual
+     ),
+     v AS (
+        SELECT m.*,
+               CASE WHEN m.current_bytes IS NULL THEN NULL
+                    WHEN MOD(m.current_bytes, 1073741824) = 0
+                    THEN TO_CHAR(m.current_bytes / 1073741824, 'FM99999990') || ' GiB'
+                    ELSE TO_CHAR(ROUND(m.current_bytes / 1048576), 'FM99999990') || ' MiB'
+               END AS current_size,
+               CASE WHEN m.suggested_bytes IS NULL THEN NULL
+                    WHEN MOD(m.suggested_bytes, 1073741824) = 0
+                    THEN TO_CHAR(m.suggested_bytes / 1073741824, 'FM99999990') || ' GiB'
+                    ELSE TO_CHAR(ROUND(m.suggested_bytes / 1048576), 'FM99999990') || ' MiB'
+               END AS suggested_size
+        FROM   capm_verdict m
+     )
+SELECT v.dbid,
+       v.con_dbid,
+       v.instance_number,
+       NVL(c.db_pdb, TO_CHAR(v.dbid))           AS db_pdb,
+       v.area,
+       a.area_label,
+       a.area_rank,
+       v.mem_mode,
+       v.grade,
+       v.reason,
+       CAST(w.reason_text AS VARCHAR2(200))     AS reason_text,
+       CAST(NVL(g.actionable, 'N') AS VARCHAR2(1)) AS actionable,
+       v.current_bytes,
+       v.suggested_bytes,
+       CAST(v.current_size   AS VARCHAR2(20))   AS current_size,
+       CAST(v.suggested_size AS VARCHAR2(20))   AS suggested_size,
+       CASE WHEN v.area <> 'SGA_BALANCE' AND v.current_bytes > 0
+            THEN ROUND(100 * (v.suggested_bytes - v.current_bytes) / v.current_bytes, 1)
+       END                                      AS change_pct,
+       v.suggested_param,
+       v.exceeds_host_ram,
+       v.exceeds_sga,
+       v.n_evidence,
+       v.n_pressure,
+       v.n_days,
+       v.window_start,
+       v.window_end,
+       CAST(a.area_label || ' ' || NVL(g.phrase, LOWER(v.grade)) || '.'
+            || CASE WHEN v.suggested_bytes IS NULL THEN NULL
+                    WHEN v.grade = 'THRASHING'
+                    THEN ' Set ' || v.suggested_param || ' to at least ' || v.suggested_size || '.'
+                    WHEN v.suggested_bytes > v.current_bytes AND v.mem_mode = 'ASMM'
+                         AND v.area IN ('BUFFER_CACHE', 'SHARED_POOL')
+                    THEN ' Set ' || v.suggested_param || ' to at least ' || v.suggested_size
+                         || ' (the pool holds ' || v.current_size || ' now).'
+                    WHEN v.suggested_bytes > v.current_bytes
+                    THEN ' Raise ' || v.suggested_param || ' from ' || v.current_size || ' to '
+                         || v.suggested_size || '.'
+                    ELSE ' It could shrink from ' || v.current_size || ' to ' || v.suggested_size || '.'
+               END
+            || CASE WHEN v.exceeds_host_ram = 'Y'
+                    THEN ' With the rest of the instance that passes '
+                         || RTRIM(TO_CHAR(cfg.mem_host_ram_pct, 'FM990.99', 'NLS_NUMERIC_CHARACTERS=''.,'''), '.')
+                         || '% of the host''s memory.' END
+            || CASE WHEN v.exceeds_sga = 'Y'
+                    THEN ' That does not fit in sga_target: raise sga_target first.' END
+            AS VARCHAR2(400))                   AS headline,
+       ROW_NUMBER() OVER (PARTITION BY v.dbid
+                          ORDER BY v.instance_number, a.area_rank) AS rank_mem
+FROM   v
+JOIN   capr_mem_area a
+  ON   a.area = v.area
+LEFT   JOIN why w
+  ON   w.reason = v.reason
+LEFT   JOIN gr g
+  ON   g.grade = v.grade
+LEFT   JOIN capr_container c
+  ON   c.dbid = v.dbid AND c.con_dbid = v.con_dbid
+CROSS  JOIN cap_cfg cfg;
+
+-- --------------------------------------------------------------------
+-- CAPR_MEM_EVIDENCE -- report section 8b: CAPM_EVIDENCE, one row per signal,
+-- with the area's label.
+--   rank_ev  per database: by instance and area_rank, then the kind (USAGE,
+--            ADVISOR, SYMPTOM, CONTEXT), PRESSURE before SLACK before
+--            NEUTRAL, then the signal.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_mem_evidence AS
+SELECT e.dbid,
+       e.con_dbid,
+       e.instance_number,
+       NVL(c.db_pdb, TO_CHAR(e.dbid))           AS db_pdb,
+       e.area,
+       a.area_label,
+       a.area_rank,
+       e.kind,
+       e.signal,
+       e.direction,
+       e.value,
+       e.unit,
+       e.threshold,
+       e.observed_at,
+       e.evidence_text,
+       ROW_NUMBER() OVER (PARTITION BY e.dbid
+                          ORDER BY e.instance_number, a.area_rank,
+                                   DECODE(e.kind, 'USAGE', 1, 'ADVISOR', 2, 'SYMPTOM', 3, 4),
+                                   DECODE(e.direction, 'PRESSURE', 1, 'SLACK', 2, 3),
+                                   e.signal) AS rank_ev
+FROM   capm_evidence e
+JOIN   capr_mem_area a
+  ON   a.area = e.area
+LEFT   JOIN capr_container c
+  ON   c.dbid = e.dbid AND c.con_dbid = e.con_dbid;
+
+-- --------------------------------------------------------------------
+-- CAPR_MEM_COMPONENTS -- report section 8c: where the SGA goes. One row per
+-- (dbid, instance_number, SGA component) that held memory in the evidence
+-- window, from the component intervals (CAPM_COMP) ending in it. The minor
+-- pools and the In-Memory area are listed with sizes and no grade.
+--   current_bytes   the size at the component's latest window snapshot.
+--   min_bytes / max_bytes  its smallest and largest size in the window.
+--   pct_of_total    current_bytes as a percent of the listed components.
+--   n_ops           resize operations in the window; n_grows / n_shrinks the
+--                   intervals in which it rose or fell; n_forced_grows the
+--                   rises whose last operation was IMMEDIATE.
+--   last_resize_at  when its size last changed in the window.
+--   rank_comp       per database: by instance, then the largest first.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_mem_components AS
+WITH w AS (
+        SELECT dbid, instance_number, component, is_pool,
+               MAX(current_size) KEEP (DENSE_RANK LAST ORDER BY snap_id)            AS current_bytes,
+               MIN(current_size)                                                    AS min_bytes,
+               MAX(current_size)                                                    AS max_bytes,
+               NVL(SUM(ops), 0)                                                     AS n_ops,
+               COUNT(CASE WHEN net > 0 THEN 1 END)                                  AS n_grows,
+               COUNT(CASE WHEN net < 0 THEN 1 END)                                  AS n_shrinks,
+               COUNT(CASE WHEN net > 0 AND last_oper_mode = 'IMMEDIATE' THEN 1 END) AS n_forced_grows,
+               MAX(CASE WHEN net <> 0 THEN end_time END)                            AS last_resize_at
+        FROM   capm_comp
+        WHERE  in_win = 'Y'
+        GROUP  BY dbid, instance_number, component, is_pool
+        HAVING MAX(current_size) > 0
+     )
+SELECT w.dbid,
+       w.dbid                                   AS con_dbid,
+       w.instance_number,
+       NVL(c.db_pdb, TO_CHAR(w.dbid))           AS db_pdb,
+       w.component,
+       w.is_pool,
+       w.current_bytes,
+       w.min_bytes,
+       w.max_bytes,
+       ROUND(100 * w.current_bytes
+             / NULLIF(SUM(w.current_bytes) OVER (PARTITION BY w.dbid, w.instance_number), 0), 1)
+                                                AS pct_of_total,
+       w.n_ops,
+       w.n_grows,
+       w.n_shrinks,
+       w.n_forced_grows,
+       w.last_resize_at,
+       ROW_NUMBER() OVER (PARTITION BY w.dbid
+                          ORDER BY w.instance_number, w.current_bytes DESC, w.component) AS rank_comp
+FROM   w
+LEFT   JOIN capr_container c
+  ON   c.dbid = w.dbid AND c.con_dbid = w.dbid;
+
+-- --------------------------------------------------------------------
+-- CAPR_MEM_COMP_POINTS -- the component sizes over time, the point feed of
+-- the HTML report's memory card: one row per (dbid, instance_number,
+-- component, day) of the evidence window, for the components
+-- CAPR_MEM_COMPONENTS lists.
+--   ts         the day (TRUNC of the snapshot end time).
+--   bytes      the size at the day's last snapshot; min_bytes / max_bytes
+--              the day's range, which shows a pool moving inside a day.
+--   ops        resize operations that day.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_mem_comp_points AS
+SELECT p.dbid,
+       p.dbid                                                      AS con_dbid,
+       p.instance_number,
+       p.component,
+       TRUNC(p.end_time)                                           AS ts,
+       MAX(p.current_size) KEEP (DENSE_RANK LAST ORDER BY p.snap_id) AS bytes,
+       MIN(p.current_size)                                         AS min_bytes,
+       MAX(p.current_size)                                         AS max_bytes,
+       NVL(SUM(p.ops), 0)                                          AS ops
+FROM  ( SELECT k.dbid, k.instance_number, k.component, k.snap_id, k.end_time, k.current_size, k.ops,
+               MAX(k.current_size) OVER (PARTITION BY k.dbid, k.instance_number, k.component) AS win_max
+        FROM   capm_comp k
+        WHERE  k.in_win = 'Y' ) p
+WHERE  p.win_max > 0
+GROUP  BY p.dbid, p.instance_number, p.component, TRUNC(p.end_time);

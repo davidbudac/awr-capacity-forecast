@@ -2038,6 +2038,9 @@ BEGIN
         v_xsga   VARCHAR2(1);
         v_exp    NUMBER;
         v_d      DATE;
+        v_txt    VARCHAR2(400);
+        v_ws     DATE;
+        v_we     DATE;
 
         PROCEDURE verdict(p_area VARCHAR2) IS
         BEGIN
@@ -2101,6 +2104,18 @@ BEGIN
         BEGIN RETURN 100 * p_n * p_a * n_u / p_dbt; END;
         PROCEDURE reset_knobs IS
         BEGIN UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name LIKE 'mem!_%' ESCAPE '!'; END;
+        -- One CAPR_MEM_VERDICT row: its headline and whether it is actionable.
+        PROCEDURE chk_h(p_label VARCHAR2, p_area VARCHAR2, p_act VARCHAR2, p_headline VARCHAR2) IS
+            l_head VARCHAR2(400);
+            l_act  VARCHAR2(1);
+        BEGIN
+            SELECT headline, actionable INTO l_head, l_act
+              FROM capr_mem_verdict
+             WHERE dbid = v_dbid AND instance_number = 1 AND area = p_area;
+            chk_true(p_label || ': CAPR_MEM_VERDICT ' || p_area || ' headline (got ' || l_head || ')',
+                     l_head = p_headline);
+            chk_str(p_label || ': CAPR_MEM_VERDICT ' || p_area || ' actionable', l_act, p_act);
+        END;
     BEGIN
         DBMS_OUTPUT.PUT_LINE('=== M26 CAPM_SNAP / CAPM_DELTA ===');
         SELECT COUNT(*), COUNT(CASE WHEN in_win = 'Y' THEN 1 END),
@@ -2342,6 +2357,94 @@ BEGIN
         chk_true('SGA_BALANCE exceeds_sga NULL', v_xsga IS NULL);
         chk_int('SGA_BALANCE n_days', v_days, 30);
 
+        DBMS_OUTPUT.PUT_LINE('=== M26.4 CAPR_MEM_* report views (shipped knobs) ===');
+        SELECT COUNT(*), COUNT(CASE WHEN rank_mem = area_rank THEN 1 END),
+               COUNT(CASE WHEN db_pdb = 'FIXCDB' AND con_dbid = dbid THEN 1 END),
+               COUNT(CASE WHEN reason_text IS NOT NULL THEN 1 END)
+          INTO v_n, v_num, v_num2, v_num3
+          FROM capr_mem_verdict WHERE dbid = v_dbid;
+        chk_int('CAPR_MEM_VERDICT six areas', v_n, 6);
+        chk_int('CAPR_MEM_VERDICT rank_mem follows area_rank (one instance)', v_num, 6);
+        chk_int('CAPR_MEM_VERDICT rows are the root''s, labelled with the database', v_num2, 6);
+        chk_int('CAPR_MEM_VERDICT every reason has its sentence', v_num3, 6);
+        SELECT COUNT(*) INTO v_n
+          FROM capr_mem_verdict r
+          JOIN capm_verdict m
+            ON m.dbid = r.dbid AND m.instance_number = r.instance_number AND m.area = r.area
+         WHERE m.grade = r.grade AND m.reason = r.reason
+           AND DECODE(m.suggested_bytes, r.suggested_bytes, 1, 0) = 1
+           AND DECODE(m.current_bytes, r.current_bytes, 1, 0) = 1;
+        chk_int('CAPR_MEM_VERDICT carries CAPM_VERDICT''s grade, reason and sizes', v_n, 6);
+        SELECT LISTAGG(area, ',') WITHIN GROUP (ORDER BY rank_mem) INTO v_txt
+          FROM capr_mem_verdict WHERE dbid = v_dbid;
+        chk_true('CAPR_MEM_VERDICT report order (got ' || v_txt || ')',
+                 v_txt = 'SGA_TOTAL,BUFFER_CACHE,SHARED_POOL,SGA_BALANCE,PGA_TARGET,PGA_LIMIT');
+        chk_h('shipped', 'SGA_TOTAL',    'N', 'SGA total needs no change.');
+        chk_h('shipped', 'BUFFER_CACHE', 'Y', 'Buffer cache is oversized. It could shrink from 2560 MiB to 1536 MiB.');
+        chk_h('shipped', 'SHARED_POOL',  'N', 'Shared pool needs no change.');
+        chk_h('shipped', 'SGA_BALANCE',  'N', 'SGA balance needs no change.');
+        chk_h('shipped', 'PGA_TARGET',   'Y', 'PGA target is undersized. Raise pga_aggregate_target from 1 GiB to 1792 MiB.');
+        chk_h('shipped', 'PGA_LIMIT',    'Y', 'PGA limit is undersized. Raise pga_aggregate_limit from 2 GiB to '
+                                              || meta_n('PGA_SUGGEST_MIB') || ' MiB.');
+        SELECT current_size, suggested_size, change_pct INTO v_str, v_txt, v_num
+          FROM capr_mem_verdict WHERE dbid = v_dbid AND area = 'PGA_TARGET';
+        chk_str  ('CAPR_MEM_VERDICT PGA_TARGET current_size (a whole GiB)', v_str, '1 GiB');
+        chk_str  ('CAPR_MEM_VERDICT PGA_TARGET suggested_size (whole MiB)', v_txt, '1792 MiB');
+        chk_close('CAPR_MEM_VERDICT PGA_TARGET change_pct', v_num, 75, 0.000001);
+        SELECT suggested_size, change_pct INTO v_txt, v_num
+          FROM capr_mem_verdict WHERE dbid = v_dbid AND area = 'SGA_BALANCE';
+        chk_true('CAPR_MEM_VERDICT SGA_BALANCE: no suggested_size, no change_pct', v_txt IS NULL AND v_num IS NULL);
+
+        SELECT COUNT(*), COUNT(DISTINCT rank_ev), MIN(rank_ev), MAX(rank_ev) INTO v_n, v_num, v_num2, v_num3
+          FROM capr_mem_evidence WHERE dbid = v_dbid;
+        SELECT COUNT(*) INTO v_days FROM capm_evidence WHERE dbid = v_dbid;
+        chk_int ('CAPR_MEM_EVIDENCE one row per CAPM_EVIDENCE row', v_n, v_days);
+        chk_true('CAPR_MEM_EVIDENCE rank_ev is 1..n', v_num = v_n AND v_num2 = 1 AND v_num3 = v_n);
+        SELECT COUNT(*) INTO v_n
+          FROM (SELECT area, signal, kind, direction, value, evidence_text FROM capm_evidence WHERE dbid = v_dbid
+                MINUS
+                SELECT area, signal, kind, direction, value, evidence_text FROM capr_mem_evidence WHERE dbid = v_dbid);
+        chk_int('CAPR_MEM_EVIDENCE carries every signal unchanged', v_n, 0);
+        SELECT LISTAGG(area, ',') WITHIN GROUP (ORDER BY first_rank) INTO v_txt
+          FROM (SELECT area, MIN(rank_ev) AS first_rank FROM capr_mem_evidence WHERE dbid = v_dbid GROUP BY area);
+        chk_true('CAPR_MEM_EVIDENCE areas in report order (got ' || v_txt || ')',
+                 v_txt = 'SGA_TOTAL,BUFFER_CACHE,SHARED_POOL,SGA_BALANCE,PGA_TARGET,PGA_LIMIT');
+        SELECT MAX(CASE WHEN signal = 'PGA_ADV_SHRINK_LOSS_PTS' THEN rank_ev END)
+               - MAX(CASE WHEN signal = 'PGA_ADV_OVERALLOC' THEN rank_ev END),
+               MAX(CASE WHEN signal = 'PGA_MULTIPASS_PCT' THEN rank_ev END)
+               - MAX(CASE WHEN signal = 'PGA_ADV_SHRINK_LOSS_PTS' THEN rank_ev END),
+               MAX(CASE WHEN signal = 'PGA_AUTO_SHARE_MIN_PCT' THEN rank_ev END)
+               - MAX(CASE WHEN kind = 'SYMPTOM' THEN rank_ev END)
+          INTO v_num, v_num2, v_num3
+          FROM capr_mem_evidence WHERE dbid = v_dbid AND area = 'PGA_TARGET';
+        chk_true('CAPR_MEM_EVIDENCE inside an area: ADVISOR before SYMPTOM before CONTEXT, PRESSURE first',
+                 v_num > 0 AND v_num2 > 0 AND v_num3 > 0);
+
+        SELECT COUNT(*), LISTAGG(component, ',') WITHIN GROUP (ORDER BY rank_comp),
+               SUM(n_ops + n_grows + n_shrinks + n_forced_grows), COUNT(last_resize_at),
+               COUNT(CASE WHEN current_bytes = min_bytes AND current_bytes = max_bytes THEN 1 END)
+          INTO v_n, v_txt, v_num, v_num2, v_num3
+          FROM capr_mem_components WHERE dbid = v_dbid;
+        chk_int ('CAPR_MEM_COMPONENTS four components hold memory (streams pool 0 and the targets left out)', v_n, 4);
+        chk_true('CAPR_MEM_COMPONENTS largest first, a tie by name (got ' || v_txt || ')',
+                 v_txt = 'DEFAULT buffer cache,shared pool,java pool,large pool');
+        chk_true('CAPR_MEM_COMPONENTS never resized: no operation, no move, min = max = current',
+                 v_num = 0 AND v_num2 = 0 AND v_num3 = 4);
+        SELECT current_bytes, pct_of_total, is_pool INTO v_num, v_num2, v_c1
+          FROM capr_mem_components WHERE dbid = v_dbid AND component = 'DEFAULT buffer cache';
+        chk_int  ('CAPR_MEM_COMPONENTS buffer cache current_bytes 2560 MiB', v_num, 2560 * n_mib);
+        chk_close('CAPR_MEM_COMPONENTS buffer cache pct_of_total = 2560 of 3712 MiB', v_num2,
+                  ROUND(100 * 2560 / 3712, 1), 0.000001);
+        chk_str  ('CAPR_MEM_COMPONENTS buffer cache is_pool', v_c1, 'Y');
+        SELECT COUNT(*), COUNT(DISTINCT ts), MIN(ts), MAX(ts), SUM(ops),
+               COUNT(CASE WHEN bytes = min_bytes AND bytes = max_bytes THEN 1 END)
+          INTO v_n, v_num, v_ws, v_we, v_num2, v_num3
+          FROM capr_mem_comp_points WHERE dbid = v_dbid;
+        chk_int ('CAPR_MEM_COMP_POINTS one row per component and window day', v_n, 4 * 30);
+        chk_true('CAPR_MEM_COMP_POINTS the 30 window days up to the last day',
+                 v_num = 30 AND v_ws = d_last - 29 AND v_we = d_last);
+        chk_true('CAPR_MEM_COMP_POINTS flat: no operation, each day min = max = bytes', v_num2 = 0 AND v_num3 = v_n);
+
         DBMS_OUTPUT.PUT_LINE('=== M26 advisor area knob variations ===');
         BEGIN
             -- The knee and the step cap move a suggestion.
@@ -2512,6 +2615,11 @@ BEGIN
             chk_v('memory_target > 0', 'SHARED_POOL',  'INSUFFICIENT_EVIDENCE', 'AMM', NULL);
             chk_v('memory_target > 0', 'SGA_TOTAL',    'INSUFFICIENT_EVIDENCE', 'AMM', NULL);
             chk_v('memory_target > 0', 'SGA_BALANCE',  'INSUFFICIENT_EVIDENCE', 'AMM', NULL);
+            chk_h('memory_target > 0', 'PGA_TARGET', 'N', 'PGA target could not be judged.');
+            SELECT COUNT(CASE WHEN actionable = 'Y' THEN 1 END),
+                   COUNT(CASE WHEN reason_text LIKE '%memory_target%' THEN 1 END)
+              INTO v_n, v_num FROM capr_mem_verdict WHERE dbid = v_dbid;
+            chk_true('memory_target > 0: CAPR_MEM_VERDICT nothing actionable, six AMM sentences', v_n = 0 AND v_num = 6);
             ROLLBACK TO SAVEPOINT m25_mem;
 
             UPDATE cap_fixture_parameter SET value_num = 0
@@ -2558,6 +2666,9 @@ BEGIN
             knob('mem_symptom_dbtime_pct', 0.03);
             chk_v('pools of 256 + 1024 MiB', 'SHARED_POOL', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 1536);
             chk_str('pools of 256 + 1024 MiB: SHARED_POOL exceeds_sga, the suggestion stays', v_xsga, 'Y');
+            chk_h('pools of 256 + 1024 MiB', 'SHARED_POOL', 'Y',
+                  'Shared pool is undersized. Set shared_pool_size to at least 1536 MiB (the pool holds 1 GiB now).'
+                  || ' That does not fit in sga_target: raise sga_target first.');
             chk_v('pools of 256 + 1024 MiB (no move, no shift)', 'SGA_BALANCE', 'OK', 'STABLE', NULL);
             UPDATE cap_fixture_mem_comp SET current_size = 512 * 1048576
              WHERE component = 'DEFAULT buffer cache';
@@ -2706,6 +2817,25 @@ BEGIN
             chk_e('one-way shift', 'SGA_RESIZE_OPS_DAY', 6 / 30, 'NEUTRAL');
             chk_v('one-way shift', 'SGA_BALANCE', 'DRIFTING', 'ONE_WAY_SHIFT', NULL);
             chk_true('one-way shift: SGA_BALANCE names no parameter', v_param IS NULL);
+            chk_h('one-way shift', 'SGA_BALANCE', 'Y', 'SGA balance is drifting.');
+            SELECT current_bytes, min_bytes, max_bytes, n_ops, n_grows, n_shrinks, n_forced_grows, last_resize_at
+              INTO v_num, v_num2, v_num3, v_r2, n_aux, v_exp, v_cur, v_d
+              FROM capr_mem_components WHERE dbid = v_dbid AND component = 'DEFAULT buffer cache';
+            chk_true('one-way shift: CAPR_MEM_COMPONENTS cache 1792 MiB now, 1792..2560 in the window',
+                     v_num = 1792 * n_mib AND v_num2 = 1792 * n_mib AND v_num3 = 2560 * n_mib);
+            chk_true('one-way shift: CAPR_MEM_COMPONENTS cache 3 operations, 3 shrinks, no grow',
+                     v_r2 = 3 AND n_aux = 0 AND v_exp = 3 AND v_cur = 0);
+            chk_true('one-way shift: CAPR_MEM_COMPONENTS cache last_resize_at = day 110 06:00', v_d = d_base + 110 + 6/24);
+            SELECT rank_comp INTO v_num FROM capr_mem_components WHERE dbid = v_dbid AND component = 'shared pool';
+            chk_int ('one-way shift: CAPR_MEM_COMPONENTS a 1792 MiB tie ranks by name, the shared pool second', v_num, 2);
+            SELECT SUM(ops), MIN(bytes), MAX(bytes),
+                   MAX(CASE WHEN ts = d_base + 100 THEN min_bytes END), MAX(CASE WHEN ts = d_base + 100 THEN max_bytes END)
+              INTO v_num, v_num2, v_num3, v_r2, n_aux
+              FROM capr_mem_comp_points WHERE dbid = v_dbid AND component = 'DEFAULT buffer cache';
+            chk_true('one-way shift: CAPR_MEM_COMP_POINTS cache 3 operations, 2560 down to 1792 MiB',
+                     v_num = 3 AND v_num2 = 1792 * n_mib AND v_num3 = 2560 * n_mib);
+            chk_true('one-way shift: CAPR_MEM_COMP_POINTS day 100 holds both sizes (2304 at 06:00 and 18:00: min = max)',
+                     v_r2 = 2304 * n_mib AND n_aux = 2304 * n_mib);
             chk_int ('one-way shift: SGA_BALANCE n_pressure (the shift alone)', v_npr, 1);
             chk_e('one-way shift (a pool row is no SHARED_POOL or BUFFER_CACHE symptom)', 'SGA_POOLS_PRESSED', 0, 'NEUTRAL');
             knob('mem_shift_pct', 18.75);
@@ -2921,6 +3051,20 @@ BEGIN
             chk_e('oscillation', 'SGA_RESIZE_OPS_DAY', 49 / 30, 'NEUTRAL');
             chk_v('oscillation', 'SGA_BALANCE', 'THRASHING', 'RESIZE_CHURN', 1152);
             chk_str('oscillation: SGA_BALANCE suggested_param names the pool to floor', v_param, 'shared_pool_size');
+            chk_h('oscillation', 'SGA_BALANCE', 'Y', 'SGA balance is thrashing. Set shared_pool_size to at least 1152 MiB.');
+            chk_h('oscillation', 'SHARED_POOL', 'Y',
+                  'Shared pool is undersized. Set shared_pool_size to at least 1536 MiB (the pool holds 1 GiB now).');
+            SELECT SUM(n_ops), MAX(CASE WHEN component = 'shared pool' THEN n_forced_grows END),
+                   MAX(CASE WHEN component = 'DEFAULT buffer cache' THEN n_grows END),
+                   MAX(CASE WHEN component = 'shared pool' THEN max_bytes END)
+              INTO v_num, v_num2, v_num3, v_r2
+              FROM capr_mem_components WHERE dbid = v_dbid;
+            chk_true('oscillation: CAPR_MEM_COMPONENTS 49 operations, 16 forced shared pool grows, 8 cache grows, peak 1152 MiB',
+                     v_num = 49 AND v_num2 = 16 AND v_num3 = 8 AND v_r2 = 1152 * n_mib);
+            SELECT SUM(ops), MAX(max_bytes - min_bytes) INTO v_num, v_num2
+              FROM capr_mem_comp_points WHERE dbid = v_dbid;
+            chk_true('oscillation: CAPR_MEM_COMP_POINTS 49 operations, a day''s range up to 128 MiB',
+                     v_num = 49 AND v_num2 = 128 * n_mib);
             chk_true('oscillation: SGA_BALANCE exceeds_host_ram NULL', v_xram IS NULL);
             chk_e('oscillation', 'SHPOOL_FORCED_GROWS', 16, 'PRESSURE');
             chk_true('oscillation: SHPOOL_FORCED_GROWS observed_at = the last forced grow', e_at = d_base + 111 + 6/24);
@@ -2937,6 +3081,9 @@ BEGIN
             knob('mem_host_ram_pct', 40);
             chk_v('oscillation, mem_host_ram_pct 40', 'SGA_TOTAL', 'UNDERSIZED', 'ADVISOR_AND_SYMPTOM', 6144);
             chk_str('SGA_TOTAL UNDERSIZED: exceeds_host_ram (7 GiB over 6.4 GiB)', v_xram, 'Y');
+            chk_h('oscillation, mem_host_ram_pct 40', 'SGA_TOTAL', 'Y',
+                  'SGA total is undersized. Raise sga_target from 4 GiB to 6 GiB.'
+                  || ' With the rest of the instance that passes 40% of the host''s memory.');
             knob('mem_resize_reversals', 32);
             chk_v('oscillation, mem_resize_reversals 32 (1.63 operations a day under 10)', 'SGA_BALANCE', 'OK', 'STABLE', NULL);
             knob('mem_resize_ops_day', 1.5);
@@ -2950,8 +3097,10 @@ BEGIN
         chk_v('after the rollback', 'SGA_BALANCE',  'OK', 'STABLE', NULL);
         SELECT COUNT(*) INTO v_n FROM cap_config WHERE cfg_name LIKE 'mem!_%' ESCAPE '!' AND cfg_value <> cfg_default;
         chk_int('every mem_ knob back at its default', v_n, 0);
-        -- The memory sources feed the verdict views only, and nothing reads a
-        -- verdict view: no series, no anomaly and no alert can come from them.
+        -- The memory sources feed the verdict views only, and only the
+        -- memory report views (CAPR_MEM_*) and their SNAPSHOT tables' filler
+        -- read a verdict view: no series, no anomaly and no alert can come
+        -- from them.
         SELECT COUNT(*) INTO v_n FROM all_dependencies
          WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND referenced_owner = owner
            AND (referenced_name IN ('CAPV_MEM_COMP', 'CAPV_WORKAREA_HSTGRM', 'CAPV_PGA_ADVICE',
@@ -2960,8 +3109,14 @@ BEGIN
                                     'CAPV_SYSTEM_EVENT')
                 OR referenced_name LIKE 'CAPM!_%' ESCAPE '!')
            AND name NOT LIKE 'CAPM!_%' ESCAPE '!'
+           AND name NOT LIKE 'CAPR!_MEM!_%' ESCAPE '!'
            AND name <> 'CAPV_CONTRACT';
-        chk_int('only CAPM_ views (and CAPV_CONTRACT) read the memory sources, nothing reads a CAPM_ view', v_n, 0);
+        chk_int('only CAPM_ views (and CAPV_CONTRACT) read the memory sources, only CAPR_MEM_ views read a CAPM_ view', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM all_dependencies
+         WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND referenced_owner = owner
+           AND referenced_name LIKE 'CAPR!_MEM!_%' ESCAPE '!'
+           AND name NOT LIKE 'CAPR!_MEM!_%' ESCAPE '!';
+        chk_int('nothing reads a CAPR_MEM_ view: no alert, no series', v_n, 0);
     EXCEPTION
         WHEN OTHERS THEN
             fail('M26 memory block raised ' || SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
@@ -4767,10 +4922,10 @@ BEGIN
 
     -- suite_version: stamped by every install, BAD when older than this release.
     SELECT suite_version INTO v_num FROM cap_cfg;
-    chk_int('suite_version = 26.3', v_num, 26.3);
+    chk_int('suite_version = 26.4', v_num, 26.4);
     UPDATE cap_config SET cfg_value = 24.13 WHERE cfg_name = 'suite_version';
     SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'suite_version';
-    chk_str('CAP_CFG_CHECK suite_version=24.13 < 26.3', v_str, 'BAD');
+    chk_str('CAP_CFG_CHECK suite_version=24.13 < 26.4', v_str, 'BAD');
     UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'suite_version';
     COMMIT;
 
