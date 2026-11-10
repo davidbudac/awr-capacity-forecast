@@ -645,7 +645,8 @@ SELECT f.dbid,
        -- by ~0 and reports an absurd 500x "acceleration", so the ratio is NULL
        -- instead. slope = 0 (FLAT) was already NULL and still is. A CYCLIC
        -- window has no single growth rate to compare against.
-       CASE WHEN f.is_cyclic = 0 AND ABS(f.use_slope) >= cfg.accel_slope_floor_bpd
+       CASE WHEN f.is_cyclic = 0 AND f.use_slope <> 0
+             AND ABS(f.use_slope) >= cfg.accel_slope_floor_bpd
             THEN f.recent_use / f.use_slope
        END                                                AS accel_ratio,
        CASE WHEN f.n  < cfg.min_train_days THEN 'INSUFFICIENT_HISTORY'

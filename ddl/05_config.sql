@@ -349,6 +349,10 @@ WITH u AS (
                         THEN 'must be <= dow_weeks (' || c.dow_weeks || '): the weekly baselines hold at most that many observations'
                    WHEN u.knob = 'hour_gap_ratio'      AND u.value <= 0
                         THEN 'must be > 0'
+                   WHEN u.knob = 'mad_k'               AND u.value <= 0
+                        THEN 'must be > 0: the anomaly threshold is mad_k x sigma'
+                   WHEN u.knob = 'accel_slope_floor_bpd' AND u.value < 0
+                        THEN 'must be >= 0'
                    WHEN u.knob IN ('alert_modes_tbspc', 'alert_modes_cpu', 'alert_modes_series')
                         AND (u.value <> TRUNC(u.value) OR u.value NOT BETWEEN 0 AND 7)
                         THEN 'must be a bitmask 0..7: 1=TRAILING 2=SAME_DOW 4=HOUR_OF_WEEK'
