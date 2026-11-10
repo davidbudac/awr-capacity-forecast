@@ -818,6 +818,217 @@
     return out.join('');
   }
 
+  /* ---------- memory: sizing verdicts per instance (advice, not alerts) ---------- */
+
+  var GRADE_LABEL = {
+    UNDERSIZED: 'undersized', OVERSIZED: 'oversized', THRASHING: 'thrashing', DRIFTING: 'drifting',
+    OK: 'OK', INSUFFICIENT_EVIDENCE: 'insufficient evidence'
+  };
+  var GRADE_ORDER = { UNDERSIZED: 0, THRASHING: 0, DRIFTING: 1, OVERSIZED: 2 };
+  var DIR_MARK = { PRESSURE: ['pr', '▲ pressure'], SLACK: ['sl', '▼ slack'], NEUTRAL: ['nu', '· neutral'] };
+  var MEM_EV = groupBy(D.memEvidence, function (e) { return key(e.dbid, e.inst, e.area); });
+  var MEM_PTS = groupBy(D.memPoints, function (p) { return key(p.dbid, p.inst); });
+  var MEM_V = groupBy(D.memVerdicts, function (v) { return key(v.dbid, v.inst); });
+  var memCards = Object.keys(MEM_V).map(function (k) {
+    var vs = MEM_V[k].slice().sort(function (a, b) { return a.ar - b.ar; });
+    return { v: vs[0], vs: vs, id: 'memory-' + vs[0].dbid + '-' + vs[0].inst, pts: MEM_PTS[k] || [] };
+  });
+  var memInstances = groupBy(memCards, function (c) { return c.v.dbid; });
+  var MCHARTS = [];
+  var MW = 480, MH = 200, MML = 44, MMR = 10, MMT = 22, MMB = 24;
+
+  function gradeName(g) { return GRADE_LABEL[g] || String(g || '').toLowerCase().replace(/_/g, ' '); }
+  function gradeTone(v) { return v.act === 'Y' ? 'act' : v.g === 'INSUFFICIENT_EVIDENCE' ? 'ie' : 'ok'; }
+  /* As the view prints a size: whole GiB when it is a multiple of 1 GiB, else whole MiB. */
+  function memSize(b) {
+    if (b == null) return '–';
+    return b % Math.pow(1024, 3) === 0 ? b / Math.pow(1024, 3) + ' GiB' : Math.round(b / Math.pow(1024, 2)) + ' MiB';
+  }
+  function memRange(lo, hi) {
+    var a = memSize(lo), b = memSize(hi);
+    return a.slice(-4) === b.slice(-4) ? a.slice(0, -4) + '–' + b : a + ' – ' + b;
+  }
+  function memName(c) {
+    var n = conLabel(c.v.dbid, c.v.con);
+    return memInstances[c.v.dbid].length > 1 ? n + ' instance ' + c.v.inst : n;
+  }
+
+  /* The component points as stacked bands: the largest component at the bottom. */
+  function memStack(pts) {
+    var comps = pts.map(function (p) {
+      var t0 = dayN(p.t0), byX = {}, lastX = null, cur = 0, lo = null, hi = null, ops = 0;
+      p.d.forEach(function (r) {
+        var x = t0 + r[0], b = r[1] || 0;
+        byX[x] = { b: b, lo: r[2], hi: r[3], ops: r[4] || 0 };
+        if (lastX == null || x > lastX) { lastX = x; cur = b; }
+        if (r[2] != null) lo = lo == null ? r[2] : Math.min(lo, r[2]);
+        if (r[3] != null) hi = hi == null ? r[3] : Math.max(hi, r[3]);
+        ops += r[4] || 0;
+      });
+      return { c: p.c, byX: byX, cur: cur, lo: lo, hi: hi, ops: ops };
+    }).sort(function (a, b) { return b.cur - a.cur || (a.c < b.c ? -1 : 1); });
+    comps.forEach(function (c, i) { c.cls = 'mc' + (i % 6); });
+    var seen = {};
+    comps.forEach(function (c) { Object.keys(c.byX).forEach(function (x) { seen[x] = 1; }); });
+    var days = Object.keys(seen).map(Number).sort(function (a, b) { return a - b; });
+    var total = comps.reduce(function (s, c) { return s + c.cur; }, 0);
+    return { comps: comps, days: days, total: total };
+  }
+  function memAt(c, d) { return c.byX[d] ? c.byX[d].b : 0; }
+  function memMoved(c, d) { var p = c.byX[d]; return !!p && (p.ops > 0 || (p.lo != null && p.hi != null && p.hi > p.lo)); }
+
+  function memChartSvg(st, id) {
+    var days = st.days, x1 = days[days.length - 1], x0 = days.length > 1 ? days[0] : x1 - 1;
+    var ymax = 0;
+    days.forEach(function (d) { ymax = Math.max(ymax, st.comps.reduce(function (s, c) { return s + memAt(c, d); }, 0)); });
+    var u = unitFor('bytes', ymax);
+    var nt = niceTicks(0, (ymax || 1) * 1.04 / u.scale, 4);
+    var top = nt.ticks[nt.ticks.length - 1] * u.scale;
+    if (top < ymax * 1.02) top = (nt.ticks[nt.ticks.length - 1] + nt.step) * u.scale;
+    var xs = function (x) { return MML + (x - x0) / (x1 - x0) * (MW - MML - MMR); };
+    var ys = function (y) { return MMT + (1 - y / (top || 1)) * (MH - MMT - MMB); };
+    var o = ['<svg viewBox="0 0 ' + MW + ' ' + MH + '" role="img" aria-label="SGA components by day">'];
+    nt.ticks.forEach(function (t) {
+      var y = ys(t * u.scale).toFixed(1);
+      o.push('<line x1="' + MML + '" x2="' + (MW - MMR) + '" y1="' + y + '" y2="' + y + '" stroke="var(--line-2)"/>');
+      o.push('<text x="' + (MML - 6) + '" y="' + (+y + 3.5).toFixed(1) + '" text-anchor="end">' + num(t, nt.dp) + '</text>');
+    });
+    o.push('<text x="' + (MML - 6) + '" y="10" text-anchor="end">' + u.short + '</text>');
+    var base = days.map(function () { return 0; });
+    st.comps.forEach(function (c) {
+      var hi = days.map(function (d, i) { return base[i] + memAt(c, d); });
+      var up = days.map(function (d, i) { return xs(d).toFixed(1) + ',' + ys(hi[i]).toFixed(1); });
+      var down = days.map(function (d, i) { return xs(d).toFixed(1) + ',' + ys(base[i]).toFixed(1); }).reverse();
+      if (days.length === 1) {
+        up.unshift(xs(x0).toFixed(1) + ',' + ys(hi[0]).toFixed(1));
+        down.push(xs(x0).toFixed(1) + ',' + ys(base[0]).toFixed(1));
+      }
+      o.push('<path class="' + c.cls + '" d="M' + up.join('L') + 'L' + down.join('L') + 'Z" stroke="var(--surface)" stroke-width=".75" stroke-linejoin="round"/>');
+      base = hi;
+    });
+    o.push('<line x1="' + MML + '" x2="' + (MW - MMR) + '" y1="' + ys(0).toFixed(1) + '" y2="' + ys(0).toFixed(1) + '" stroke="var(--line)"/>');
+    days.forEach(function (d) {
+      if (st.comps.some(function (c) { return memMoved(c, d); })) {
+        o.push('<rect class="mrz" x="' + (xs(d) - 1.5).toFixed(1) + '" y="' + (MH - MMB + 2) + '" width="3" height="6" fill="var(--accent)"/>');
+      }
+    });
+    for (var d = x1; d >= x0; d -= 7) {
+      var x = xs(d);
+      o.push('<line x1="' + x.toFixed(1) + '" x2="' + x.toFixed(1) + '" y1="' + (MH - MMB) + '" y2="' + (MH - MMB + 4) + '" stroke="var(--line)"/>');
+      o.push('<text x="' + x.toFixed(1) + '" y="' + (MH - 7) + '" text-anchor="' + (x > MW - MMR - 20 ? 'end' : 'middle') + '">' + fDay(d) + '</text>');
+    }
+    o.push('<line class="hx" x1="0" x2="0" y1="' + MMT + '" y2="' + (MH - MMB) + '" stroke="var(--ink-2)" stroke-width="1" visibility="hidden"/>');
+    o.push('<rect x="' + MML + '" y="0" width="' + (MW - MML - MMR) + '" height="' + (MH - MMB) + '" fill="transparent" class="hit"/>');
+    o.push('</svg>');
+    MCHARTS[id] = { st: st, x0: x0, x1: x1, xs: xs };
+    return o.join('');
+  }
+
+  function memLegendHtml(st) {
+    return '<div class="mlg"><div class="mlh"><span>SGA component</span><span>now</span><span>share</span><span>in the window</span></div>' +
+      st.comps.map(function (c) {
+        var moved = c.ops > 0 || (c.lo != null && c.hi != null && c.hi > c.lo);
+        return '<div class="mlr"><span class="mn"><i class="' + c.cls + '"></i>' + esc(c.c) + '</span><span>' + memSize(c.cur) + '</span>' +
+          '<span>' + (st.total ? num(100 * c.cur / st.total, 1) + '%' : '–') + '</span>' +
+          '<span class="' + (moved ? 'mvd' : '') + '">' + (moved ? memRange(c.lo, c.hi) + ' · ' + c.ops + ' op' + (c.ops === 1 ? '' : 's') : 'not resized') + '</span></div>';
+      }).join('') +
+      '<div class="mlf"><span><i class="mrzk"></i>a component was resized that day</span><span>total ' + memSize(st.total) + '</span></div></div>';
+  }
+
+  function memEvidenceHtml(v) {
+    var ev = MEM_EV[key(v.dbid, v.inst, v.area)] || [];
+    if (!ev.length) return '';
+    var np = ev.filter(function (e) { return e.dir === 'PRESSURE'; }).length;
+    return '<details class="mev"><summary>Evidence <span>' + ev.length + ' signal' + (ev.length === 1 ? '' : 's') + (np ? ', ' + np + ' pressure' : '') + '</span></summary><ul>' +
+      ev.map(function (e) {
+        var dm = DIR_MARK[e.dir] || ['nu', String(e.dir || '').toLowerCase()];
+        return '<li class="' + dm[0] + '"><span class="dir">' + esc(dm[1]) + '</span><span class="kd">' + esc(String(e.kind || '').toLowerCase()) + '</span><span>' + esc(e.txt) + '</span></li>';
+      }).join('') + '</ul></details>';
+  }
+
+  function memRowHtml(v) {
+    var cur = v.curS || (v.cur != null ? memSize(v.cur) : '–');
+    var sz = '<span class="mcur">' + esc(cur) + '</span>';
+    /* The view leaves change_pct NULL when the suggestion is a pool floor (SGA_BALANCE), not a new current size. */
+    if (v.sugS && v.chg != null) {
+      sz += '<span class="arr">→</span><b>' + esc(v.sugS) + '</b><span class="chg">' + sign(v.chg) + num(Math.abs(v.chg), v.chg % 1 ? 1 : 0) + '%</span>';
+    } else if (v.sugS) {
+      sz += '<span class="arr">·</span>floor <b>' + esc(v.sugS) + '</b>';
+    }
+    if (v.par) sz += '<code>' + esc(v.par) + '</code>';
+    var flags = [];
+    if (v.ram === 'Y') flags.push('over the host memory share');
+    if (v.sga === 'Y') flags.push('does not fit in sga_target');
+    return '<div class="mrow ' + gradeTone(v) + '"><div class="mh"><span class="ma">' + esc(v.al || v.area) + '</span>' +
+      '<span class="gp ' + gradeTone(v) + '">' + esc(gradeName(v.g)) + '</span><span class="msz">' + sz + '</span></div>' +
+      (v.hl ? '<p class="mhl">' + esc(v.hl) + '</p>' : '') + (v.why ? '<p class="mwhy">' + esc(v.why) + '</p>' : '') +
+      (flags.length ? '<div class="mflags">' + flags.map(function (f) { return '<span class="tag mflag">' + esc(f) + '</span>'; }).join('') + '</div>' : '') +
+      memEvidenceHtml(v) + '</div>';
+  }
+
+  function memCardHtml(c) {
+    var w0 = null, w1 = null, nd = null, mode = null;
+    c.vs.forEach(function (v) {
+      if (v.w0 && (w0 == null || dayN(v.w0) < w0)) w0 = dayN(v.w0);
+      if (v.w1 && (w1 == null || dayN(v.w1) > w1)) w1 = dayN(v.w1);
+      if (v.nd != null) nd = Math.max(nd || 0, v.nd);
+      mode = mode || v.mode;
+    });
+    var multi = memInstances[c.v.dbid].length > 1;
+    var o = ['<article class="card mem" id="' + c.id + '"><div class="ch"><h3>' + esc(conLabel(c.v.dbid, c.v.con)) + '</h3>' +
+      (multi ? '<span class="ctr">instance ' + esc(c.v.inst) + '</span>' : '') + (mode ? '<span class="tag">' + esc(mode) + '</span>' : '') +
+      (w1 != null ? '<span class="mwin">evidence ' + (w0 != null ? fDay(w0) + ' – ' : '') + fDayY(w1) + (nd != null ? ' · ' + nd + ' sampled day' + (nd === 1 ? '' : 's') : '') + '</span>' : '') +
+      '</div><div class="mbody"><div class="mvs">' + c.vs.map(memRowHtml).join('') + '</div><div class="mside">'];
+    var st = c.pts.length ? memStack(c.pts) : null;
+    if (st && st.days.length) {
+      var id = MCHARTS.length;
+      o.push('<h4>SGA components by day</h4><div class="mchart" data-mchart="' + id + '">' + memChartSvg(st, id) + '<div class="tip"></div></div>' + memLegendHtml(st));
+    } else {
+      o.push('<p class="mnone">No SGA component history in the window.</p>');
+    }
+    o.push('</div></div></article>');
+    return o.join('');
+  }
+
+  function memActions() {
+    var acts = [];
+    memCards.forEach(function (c) { c.vs.forEach(function (v) { if (v.act === 'Y') acts.push({ c: c, v: v }); }); });
+    return acts.sort(function (a, b) {
+      var ga = GRADE_ORDER[a.v.g] != null ? GRADE_ORDER[a.v.g] : 3, gb = GRADE_ORDER[b.v.g] != null ? GRADE_ORDER[b.v.g] : 3;
+      return ga - gb || a.v.ar - b.v.ar;
+    });
+  }
+
+  function memSummary() {
+    var n = memActions().length;
+    return '<span><b>' + memCards.length + '</b> instance' + (memCards.length === 1 ? '' : 's') + '</span>' +
+      '<span>' + (n ? '<b>' + n + '</b> change' + (n === 1 ? '' : 's') + ' advised' : 'no change advised') + '</span>' +
+      '<span>advice only, not counted as alerts</span>';
+  }
+
+  function memHeadline() {
+    var acts = memActions(), a = acts[0];
+    if (!a) {
+      var all = [];
+      memCards.forEach(function (c) { all = all.concat(c.vs); });
+      return all.every(function (v) { return v.g === 'INSUFFICIENT_EVIDENCE'; }) ? 'not enough evidence to judge' : 'no change advised';
+    }
+    return '<b>' + esc(a.v.al || a.v.area) + '</b> ' + esc(gradeName(a.v.g)) + (memCards.length > 1 ? ' on ' + esc(memName(a.c)) : '') +
+      (acts.length > 1 ? ' · ' + (acts.length - 1) + ' more change' + (acts.length > 2 ? 's' : '') + ' advised' : '');
+  }
+
+  /* The overview's strip: one cell per verdict, filled when it advises a change. */
+  function memStripSvg() {
+    var vs = [];
+    memCards.forEach(function (c) { vs = vs.concat(c.vs); });
+    var cw = Math.max(1, Math.min(24, 240 / vs.length - 3));
+    return '<svg viewBox="0 0 240 28" preserveAspectRatio="xMinYMid meet" aria-hidden="true">' + vs.map(function (v, i) {
+      var t = gradeTone(v), x = (i * (cw + 3) + 0.5).toFixed(1);
+      return '<rect x="' + x + '" y="8.5" width="' + cw.toFixed(1) + '" height="11" rx="1.5" fill="' + (t === 'act' ? 'var(--accent)' : 'var(--surface)') + '"' +
+        (t === 'act' ? '' : ' stroke="var(--line)"' + (t === 'ie' ? ' stroke-dasharray="2 2"' : '')) + '/>';
+    }).join('') + '</svg>';
+  }
+
   /* ---------- assemble ---------- */
 
   var sections = FAMILIES.map(function (fam) {
@@ -856,7 +1067,7 @@
     '<span class="tools"><button class="tbtn" id="themeBtn" type="button">Theme</button><button class="tbtn" type="button" onclick="window.print()">Print</button></span></p>');
   html.push('<nav class="nav"><a href="#overview">Overview</a>' + present.map(function (s) {
     return '<a class="' + SEV_CLASS[s.sev] + '" href="#' + s.fam.id + '">' + esc(s.fam.title) + '<span class="n">' + s.ms.length + '</span></a>';
-  }).join('') + '</nav><main>');
+  }).join('') + (memCards.length ? '<a href="#memory">Memory<span class="n">' + memCards.length + '</span></a>' : '') + '</nav><main>');
 
   (D.errors || []).forEach(function (e) {
     html.push('<div class="banner">Data block “' + esc(e.block) + '” failed: ' + esc(e.msg) + '</div>');
@@ -897,7 +1108,8 @@
     return '<a class="irow ' + SEV_CLASS[s.sev] + '" href="#' + s.fam.id + '">' + sdot(s.sev) + '<span class="it">' + esc(s.fam.title) + '</span>' +
       '<span class="ic">' + s.ms.length + '</span><span class="ih">' + headline(s.fam, s.ms) + '</span>' +
       sparkSvg(s.ms[0], 240, 28) + '<span class="iw">' + (soon ? stamp(LAST + soon.f.dtf) : '') + '</span></a>';
-  }).join('') + '</div>');
+  }).join('') + (memCards.length ? '<a class="irow" href="#memory">' + sdot('OK') + '<span class="it">Memory</span><span class="ic">' + memCards.length + '</span>' +
+    '<span class="ih">' + memHeadline() + '</span>' + memStripSvg() + '<span class="iw"></span></a>' : '') + '</div>');
 
   html.push('<h3>Needs attention <span>' + listed.length + ' open</span></h3><div class="attn">');
   if (!listed.length) html.push('<div class="allok">Nothing needs attention</div>');
@@ -924,6 +1136,10 @@
     }
     html.push('</section>');
   });
+  if (memCards.length) {
+    html.push('<section id="memory" class="wide"><div class="sh"><h2>Memory</h2><div class="sum">' + memSummary() + '</div></div>' +
+      '<div class="cards">' + memCards.map(memCardHtml).join('') + '</div></section>');
+  }
   html.push('</div></main><footer class="foot"><span>' + esc(M.db) + '</span><span>schema ' + esc(M.schema) + '</span><span>suite ' + esc(K.suiteVersion || '') + '</span>' +
     '<span>' + esc(M.run || '') + '</span><span>read-only</span><span>' + esc(M.file || '') + '</span></footer></div>');
 
@@ -993,6 +1209,43 @@
       tip.classList.add('on');
     });
   });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.mchart'), function (el) {
+    var spec = MCHARTS[+el.getAttribute('data-mchart')];
+    var svg = el.querySelector('svg'), tip = el.querySelector('.tip');
+    var hx = svg.querySelector('.hx'), hit = svg.querySelector('.hit');
+    function hide() { tip.classList.remove('on'); hx.setAttribute('visibility', 'hidden'); }
+    hit.addEventListener('mouseleave', hide);
+    hit.addEventListener('mousemove', function (ev) {
+      var r = svg.getBoundingClientRect();
+      var x = spec.x0 + ((ev.clientX - r.left) / r.width * MW - MML) / (MW - MML - MMR) * (spec.x1 - spec.x0);
+      var d = spec.st.days.reduce(function (b, k) { return Math.abs(k - x) < Math.abs(b - x) ? k : b; });
+      var lines = ['<b>' + fWDay(d) + ' ' + dateOf(d).getUTCFullYear() + '</b>'], tot = 0;
+      spec.st.comps.slice().reverse().forEach(function (c) {
+        var p = c.byX[d];
+        if (!p) return;
+        tot += p.b;
+        lines.push(esc(c.c) + ' <b>' + memSize(p.b) + '</b>' + (memMoved(c, d) ? ' <span class="m">' + memRange(p.lo, p.hi) + ' · ' + p.ops + ' op' + (p.ops === 1 ? '' : 's') + '</span>' : ''));
+      });
+      lines.push('total <b>' + memSize(tot) + '</b>');
+      var px = spec.xs(d);
+      hx.setAttribute('x1', px); hx.setAttribute('x2', px); hx.setAttribute('visibility', 'visible');
+      tip.innerHTML = lines.join('<br>');
+      tip.style.left = Math.max(90, Math.min(r.width - 90, px / MW * r.width)) + 'px';
+      tip.style.top = (MMT / MH * r.height) + 'px';
+      tip.classList.add('on');
+    });
+  });
+
+  /* Print the memory evidence open, then close what the reader had closed. */
+  if (window.addEventListener) {
+    var closed = [];
+    window.addEventListener('beforeprint', function () {
+      closed = Array.prototype.filter.call(document.querySelectorAll('details.mev'), function (el) { return !el.open; });
+      closed.forEach(function (el) { el.open = true; });
+    });
+    window.addEventListener('afterprint', function () { closed.forEach(function (el) { el.open = false; }); });
+  }
 
   Array.prototype.forEach.call(document.querySelectorAll('.heat'), function (el) {
     var tip = document.createElement('div');

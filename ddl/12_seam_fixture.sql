@@ -95,8 +95,8 @@ WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'),
 -- CAPV_PARAMETER / CAPV_ASM_DISKGROUP / CAPV_SEG_STAT / CAPV_PGASTAT and the
 -- memory sources (M26) over CAP_FIXTURE_<view suffix>, e.g. CAPV_MEM_COMP
 -- over CAP_FIXTURE_MEM_COMP (value_num already a NUMBER, group_name without
--- the '+'). test/demo_fixture.sql builds the demo story
--- without these tables, so a missing table gets a zero-row contract stub
+-- the '+'). test/demo_fixture.sql builds the demo story without the ASM
+-- and segment tables, so a missing table gets a zero-row contract stub
 -- instead of an INVALID view. The stub columns are typed constants, not
 -- CAST(NULL ...): with NULL join keys, CAPD_DBTIME_DAILY over a zero-row
 -- CAPV_PARAMETER raised ORA-07445 [qksopVisitOpns] (join predicate push-down)

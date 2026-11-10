@@ -6,7 +6,8 @@
 -- quoted (SET MARKUP CSV ON QUOTE ON): capr_alerts, capr_tbspc_days_to_full,
 -- capr_tbspc_forecast, capr_tbspc_anomalies, capr_cpu_trend,
 -- capr_cpu_anomalies, capr_cpu_shifts, capr_series, capr_fit,
--- capr_anomalies. Every column of the view, every row in the scope (no top_n
+-- capr_anomalies, and the memory sizing views capr_mem_verdict,
+-- capr_mem_evidence, capr_mem_components, capr_mem_comp_points. Every column of the view, every row in the scope (no top_n
 -- bound), so a spreadsheet or a script gets what the reports format. A view
 -- with no rows in the scope leaves an empty file: SQL*Plus prints no header
 -- without a row.
@@ -172,6 +173,42 @@ FROM   capr_anomalies&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY ts, dbid, con_dbid, kind, series, anomaly_kind, baseline_mode;
+SPOOL OFF
+
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_mem_verdict')
+SPOOL &cap_dir/capr_mem_verdict.csv
+SELECT *
+FROM   capr_mem_verdict&cap_s
+WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
+ORDER  BY dbid, rank_mem;
+SPOOL OFF
+
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_mem_evidence')
+SPOOL &cap_dir/capr_mem_evidence.csv
+SELECT *
+FROM   capr_mem_evidence&cap_s
+WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
+ORDER  BY dbid, rank_ev;
+SPOOL OFF
+
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_mem_components')
+SPOOL &cap_dir/capr_mem_components.csv
+SELECT *
+FROM   capr_mem_components&cap_s
+WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
+ORDER  BY dbid, rank_comp;
+SPOOL OFF
+
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_mem_comp_points')
+SPOOL &cap_dir/capr_mem_comp_points.csv
+SELECT *
+FROM   capr_mem_comp_points&cap_s
+WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
+ORDER  BY dbid, instance_number, component, ts;
 SPOOL OFF
 
 SET MARKUP CSV OFF
