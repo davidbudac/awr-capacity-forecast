@@ -31,7 +31,9 @@ for making changes safely.
   limit is `LEAST(AWR limit, live CDB_TABLESPACE_USAGE_METRICS ceiling)`
   (`LIM LIVE`), and `dtf_worst` / `add_gb_90` use the wider of the OLS and
   DRIFT error models around the OLS slope (the median rate is 0 for most
-  real tablespaces, so the slope is never DRIFT's).
+  real tablespaces, so the slope is never DRIFT's). `standalone/README.md`
+  explains its columns and formulas for readers outside the project (it is
+  also pasted into Confluence): change it with the query.
 - **Every seam source read carries the session scope (M24.11).** Each
   `FROM dba_hist_x` / `cap_fixture_x` in repository/seam.sql and ddl/12 (and
   ddl/13, generated) keeps `dbid = NVL(<the CAP_SCOPE expression, inline>, dbid)`:
