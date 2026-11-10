@@ -56,18 +56,18 @@ SET PAGESIZE 500
 COLUMN container   FORMAT A16             HEADING 'CONTAINER'
 COLUMN tablespace  FORMAT A24             HEADING 'TABLESPACE'
 COLUMN lim         FORMAT A5              HEADING 'LIM'
-COLUMN used_gb     FORMAT 9999990.0       HEADING 'USED_GB'
-COLUMN limit_gb    FORMAT 9999990.0       HEADING 'LIMIT_GB'
+COLUMN used_gb     FORMAT 9999990.000     HEADING 'USED_GB'
+COLUMN limit_gb    FORMAT 9999990.000     HEADING 'LIMIT_GB'
 COLUMN pct         FORMAT 990.0           HEADING 'PCT'
-COLUMN mb_day      FORMAT 99999990.0      HEADING 'MB_DAY'
-COLUMN r2          FORMAT 0.00            HEADING 'R2'
+COLUMN mb_day      FORMAT 99999990.000    HEADING 'MB_DAY'
+COLUMN r2          FORMAT 0.000           HEADING 'R2'
 COLUMN fit_days    FORMAT 9990            HEADING 'DAYS'
-COLUMN gb_30       FORMAT 9999990.0       HEADING 'GB_30'
-COLUMN gb_90       FORMAT 9999990.0       HEADING 'GB_90'
+COLUMN gb_30       FORMAT 9999990.000     HEADING 'GB_30'
+COLUMN gb_90       FORMAT 9999990.000     HEADING 'GB_90'
 COLUMN dtf         FORMAT 999990          HEADING 'DTF'
 COLUMN dtf_worst   FORMAT 999990          HEADING 'DTF_WORST'
 COLUMN full_by     FORMAT A10             HEADING 'FULL_BY'
-COLUMN add_gb_90   FORMAT 9999990.0       HEADING 'ADD_GB_90'
+COLUMN add_gb_90   FORMAT 9999990.000     HEADING 'ADD_GB_90'
 COLUMN peak_pct    FORMAT 990.0           HEADING 'PEAK_PCT'
 COLUMN quality     FORMAT A20             HEADING 'QUALITY'
 COLUMN status      FORMAT A6              HEADING 'STATUS'
@@ -283,19 +283,19 @@ WITH prm AS (
 SELECT c.con_name                                               AS container,
        v.tsname                                                 AS tablespace,
        v.lim,
-       v.cur_b   / 1073741824                                   AS used_gb,
-       v.limit_b / 1073741824                                   AS limit_gb,
+       ROUND(v.cur_b   / 1073741824, 3)                         AS used_gb,
+       ROUND(v.limit_b / 1073741824, 3)                         AS limit_gb,
        v.pct,
-       v.slope / 1048576                                        AS mb_day,
-       v.r2,
+       ROUND(v.slope / 1048576, 3)                              AS mb_day,
+       ROUND(v.r2, 3)                                           AS r2,
        v.n                                                      AS fit_days,
-       CASE WHEN v.quality <> 'CYCLIC' THEN (v.cur_b + v.slope * 30) / 1073741824 END AS gb_30,
-       CASE WHEN v.quality <> 'CYCLIC' THEN (v.cur_b + v.slope * 90) / 1073741824 END AS gb_90,
+       CASE WHEN v.quality <> 'CYCLIC' THEN ROUND((v.cur_b + v.slope * 30) / 1073741824, 3) END AS gb_30,
+       CASE WHEN v.quality <> 'CYCLIC' THEN ROUND((v.cur_b + v.slope * 90) / 1073741824, 3) END AS gb_90,
        v.dtf,
        v.dtf_worst,
        TO_CHAR(v.last_day + v.dtf_worst, 'YYYY-MM-DD')          AS full_by,
        CASE WHEN v.quality <> 'CYCLIC' AND v.h90 IS NOT NULL
-            THEN GREATEST(0, v.cur_b + v.slope * 90 + v.h90 - v.limit_b) / 1073741824 END AS add_gb_90,
+            THEN ROUND(GREATEST(0, v.cur_b + v.slope * 90 + v.h90 - v.limit_b) / 1073741824, 3) END AS add_gb_90,
        CASE WHEN v.quality = 'CYCLIC' THEN v.peak_pct END       AS peak_pct,
        v.quality,
        v.status,
