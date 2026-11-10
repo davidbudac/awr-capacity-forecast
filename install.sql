@@ -174,7 +174,7 @@ BEGIN
             FROM   all_objects
             WHERE  owner  = v_owner
               AND  status = 'INVALID'
-              AND  REGEXP_LIKE(object_name, '^CAP[VDFAR]?_')
+              AND  REGEXP_LIKE(object_name, '^CAP[VDFAMR]?_')
               AND  object_type IN ('VIEW', 'PROCEDURE', 'FUNCTION', 'PACKAGE',
                                    'PACKAGE BODY', 'TYPE', 'TYPE BODY',
                                    'TRIGGER', 'SYNONYM')
@@ -221,7 +221,7 @@ BEGIN
         FROM   all_objects
         WHERE  owner  = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
           AND  status = 'INVALID'
-          AND  REGEXP_LIKE(object_name, '^CAP[VDFAR]?_')
+          AND  REGEXP_LIKE(object_name, '^CAP[VDFAMR]?_')
         ORDER BY object_name
     ) LOOP
         v_bad := v_bad + 1;
