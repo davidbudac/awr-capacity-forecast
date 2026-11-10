@@ -31,7 +31,10 @@ for making changes safely.
   limit is `LEAST(AWR limit, live CDB_TABLESPACE_USAGE_METRICS ceiling)`
   (`LIM LIVE`), and `dtf_worst` / `add_gb_90` use the wider of the OLS and
   DRIFT error models around the OLS slope (the median rate is 0 for most
-  real tablespaces, so the slope is never DRIFT's). `standalone/README.md`
+  real tablespaces, so the slope is never DRIFT's). A third: `dtf_shared`
+  / `disk_dtf` forecast every tablespace against one shared disk (free
+  space derived from the `LIVE` caps or `prm.disk_free_gb`), and STATUS
+  uses `dtf_shared`. `standalone/README.md`
   explains its columns and formulas for readers outside the project (it is
   also pasted into Confluence): change it with the query.
 - **Every seam source read carries the session scope (M24.11).** Each

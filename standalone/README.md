@@ -94,6 +94,30 @@ Way 1 alone is too optimistic. Tablespace size is a running total: today's size 
 
 The exact formulas are in the section "Worst-case formulas" below.
 
+### 7. Share the disk
+
+Steps 1 to 6 look at each tablespace alone. In reality the datafiles sit on one disk, and a tablespace that could still grow by its own limit is stuck once the disk is full. This step forecasts all tablespaces together, on the assumption that every datafile is on the same filesystem or disk group and that no storage is added.
+
+- **Each tablespace keeps growing at its own `MB_DAY`.** A shrinking, flat or `CYCLIC` tablespace counts as not growing. A datafile never gives space back to the disk on its own.
+- **Growth first fills the free space inside the datafiles** (allocated size minus used). That costs no disk space.
+- **Only when its files are full does a tablespace take space from the disk,** until it reaches its own limit.
+- **The disk is full on the day all those takes add up to the free space on the disk.** This day is `DISK_DTF`.
+- **After that day a tablespace is stuck the first time it has to extend.** A tablespace with free space left inside its files keeps going until that space is used up.
+
+```
+days until its files are full = (allocated - used) / growth per day
+DTF_SHARED = the earlier of
+               DTF                                        its own limit
+               the later of DISK_DTF and
+                            days until its files are full  the disk
+```
+
+When `DTF_SHARED` is smaller than `DTF`, the disk stops the tablespace before its own limit does.
+
+**Where the free disk space comes from.** Oracle has no general view for filesystem free space. But when it caps a tablespace by storage (`LIM = LIVE`), the live ceiling minus the allocated size is exactly the free space on the disk. The query takes the smallest such value and shows it as `DISK_FREE_GB`. Compare it with `df`. If no tablespace is capped, the free space is not known: `DISK_FREE_GB` and `DISK_DTF` are empty and `DTF_SHARED` equals `DTF`. In that case, or to correct the value, set `disk_free_gb` in the settings.
+
+Everything else on the disk (UNDO, TEMP, redo logs, other files, other databases) is taken as constant. This is the expected case only. It has no worst-case variant.
+
 ## What each column means
 
 GB and MB are binary units: 1 GB = 1024 x 1024 x 1024 bytes, 1 MB = 1024 x 1024 bytes.
@@ -111,13 +135,16 @@ GB and MB are binary units: 1 GB = 1024 x 1024 x 1024 bytes, 1 MB = 1024 x 1024 
 | `DAYS` | Days of history the fit used | Count of daily points in the fit window, after a purge restart. |
 | `GB_30`, `GB_90` | Expected size in 30 and 90 days | `used + growth per day x 30` (or 90). Empty for `CYCLIC`. |
 | `DTF` | Days to full, expected | `(limit - used) / growth per day`, rounded down. Empty when not growing, when `CYCLIC`, or when more than 100 years away. |
+| `DTF_SHARED` | Days until the tablespace is stuck when all tablespaces share one disk | The earlier of `DTF` and the first day it has to extend after the disk is full, see step 7. Same empty rules as `DTF`, except that it can show a value where `DTF` is more than 100 years away. |
 | `DTF_WORST` | Days to full, worst case | `(limit - used) / (growth per day + uncertainty of the growth rate)`, rounded down. Same empty rules as `DTF`. |
 | `FULL_BY` | Worst-case date the tablespace is full | Newest sampled day + `DTF_WORST`. |
 | `ADD_GB_90` | Space to add so that even the worst case stays under the limit for 90 days | `(used + growth per day x 90 + uncertainty at 90 days) - limit`, never below 0. 0 = nothing to add. Empty for `CYCLIC`. |
 | `PEAK_PCT` | Highest fill level in the window, percent of the limit | `100 x highest used / limit`. Shown for `CYCLIC` only. |
 | `QUALITY` | How far the forecast can be trusted | See "Quality grades". |
 | `STATUS` | `CRIT`, `WARN` or `OK` | See "Status rules". |
-| `WHY` | The rule that set the status | For example `pct >= 90` or `dtf <= 30`. Empty for `OK`. |
+| `WHY` | The rule that set the status | For example `pct >= 90`, `dtf <= 30` or `disk dtf <= 30`. Empty for `OK`. |
+| `DISK_FREE_GB` | Free space on the shared disk now | See step 7. The same on every row. Empty = not known. |
+| `DISK_DTF` | Days until the shared disk is full | See step 7. The same on every row. Empty = it does not fill, it is more than 100 years away, or `DISK_FREE_GB` is empty. |
 | `LAST_DAY` | Newest day with a sample for this tablespace | Normally today. |
 
 Rows are sorted by status (`CRIT` first), then by `DTF_WORST` (soonest first), then by `PCT` (fullest first).
@@ -143,16 +170,18 @@ The first rule that matches wins.
 | Order | Rule | Status |
 |---|---|---|
 | 1 | `PCT` is 97 or more | `CRIT` |
-| 2 | Quality is `OK` and `DTF` is 30 days or less | `CRIT` |
+| 2 | Quality is `OK` and `DTF_SHARED` is 30 days or less | `CRIT` |
 | 3 | `PCT` is 90 or more | `WARN` |
-| 4 | Quality is `OK` and `DTF` is 90 days or less | `WARN` |
+| 4 | Quality is `OK` and `DTF_SHARED` is 90 days or less | `WARN` |
 | 5 | Otherwise | `OK` |
 
 Notes:
 
 - For `CYCLIC` tablespaces rules 1 and 3 use `PEAK_PCT` instead of `PCT`.
 - The fill-level rules (1 and 3) apply at any quality. The days-to-full rules (2 and 4) apply only when the quality is `OK`.
-- Status uses the expected `DTF`, not `DTF_WORST`. A row can be `OK` and still show a `FULL_BY` date inside 90 days. Read `FULL_BY` as the planning date for the cautious case.
+- Rules 2 and 4 use `DTF_SHARED`, so a disk that is about to fill turns every growing tablespace with quality `OK` to `WARN` or `CRIT` at once. `WHY` then reads `disk dtf <= 30` (or 90). When the tablespace's own limit comes first it reads `dtf <= 30`.
+- The quality is the tablespace's own. The disk day behind `DTF_SHARED` sums the growth of every tablespace, whatever its quality.
+- Status uses the expected case, not `DTF_WORST`. A row can be `OK` and still show a `FULL_BY` date inside 90 days. Read `FULL_BY` as the planning date for the cautious case.
 
 ## Worked example
 
@@ -177,6 +206,18 @@ ADD_GB_90  = 15.423 + 22.098 - 32.000                    = 5.521 GB
 ```
 
 How to read it: growth as observed fills the tablespace in about 308 days. If growth stays as uneven as it has been, it could be full in 99 days. Adding 5.5 GB keeps even that case under the limit for the next 90 days.
+
+### Shared disk example
+
+The disk has 27.927 GB free. Eight tablespaces grow, together by about 110 MB per day. Three of them:
+
+| Tablespace | Growth per day | Free inside its files lasts | `DTF` (alone) | `DTF_SHARED` |
+|---|---|---|---|---|
+| A | 78.2 MB | 5 days | 305 | 265 |
+| B | 19.3 MB | 5 days | 1486 | 265 |
+| C | 0.14 MB | 1926 days | 9186 | 1926 |
+
+`DISK_DTF` is 265: after 265 days the growth of all tablespaces has used the 27.927 GB. A and B are extending by then, so both are stuck on day 265, long before their own limits. C has enough free space inside its files for 1926 days and is stuck only then.
 
 ## Worst-case formulas
 
@@ -231,13 +272,16 @@ The defaults sit at the top of the query in the `prm` block and can be edited th
 | `dtf_warn` / `dtf_crit` | 90 / 30 | Days to full at or below = `WARN` / `CRIT` |
 | `nearfull_warn_pct` / `nearfull_crit_pct` | 90 / 97 | Percent full at or above = `WARN` / `CRIT` |
 | `stale_days` | 3 | A tablespace not sampled for this long is hidden |
+| `disk_free_gb` | empty | Free GB on the shared disk. Empty = read from the live view, see step 7. |
 | `dbid` | empty | Empty = the database of the newest AWR snapshot |
 
 ## Limits of the forecast
 
 - **It assumes steady growth.** A straight line cannot foresee a one-off bulk load, a new application or a planned purge.
 - **Short history, weak forecast.** With 14 to 30 days the growth rate is uncertain. `DTF_WORST` reflects that; `DTF` does not.
-- **The limit is only as real as the storage.** `LIM = LIVE` corrects a single tablespace. It does not notice several tablespaces competing for the same disk.
+- **The limit is only as real as the storage.** `LIM = LIVE` corrects a single tablespace. `DTF_SHARED` is the column that accounts for several tablespaces competing for the same disk.
+- **The shared-disk forecast rests on its assumptions.** All datafiles on one disk, nothing else on that disk growing, no storage added. UNDO and TEMP files can grow too and are not forecast. Run it in `CDB$ROOT`: inside a PDB the other containers' growth is not seen and `DISK_DTF` is too late.
+- **`DISK_FREE_GB` is derived, not measured.** It is exact for a tablespace with one autoextend datafile. Check it against `df` and set `disk_free_gb` if it differs.
 - **`CYCLIC` tablespaces get no days-to-full.** They are judged on their peak fill level only.
 - **Used space is the value of the day's last AWR snapshot.** The newest day is a partial day.
 - **No history is kept.** Each run recomputes everything from AWR. Results change as AWR ages data out.
