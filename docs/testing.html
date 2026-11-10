@@ -539,8 +539,10 @@
         <p><strong>The other branches.</strong> <span class="inline">run_test.sql</span> reaches the
         grades the shipped fixture does not with knob flips and savepoint DML that it rolls back:
         advisor reset, advised-size list change, pool oscillation, AMM, MANUAL, no memory history. It
-        also asserts from <span class="inline">ALL_DEPENDENCIES</span> that nothing reads a
-        <span class="inline">CAPM_</span> view: no alert, no series.</p>
+        also asserts from <span class="inline">ALL_DEPENDENCIES</span> that only the
+        <span class="inline">CAPR_MEM_</span> report views read a <span class="inline">CAPM_</span>
+        view and nothing reads those: no alert, no series. The report views are asserted too: every
+        headline sentence, the evidence order and the component rows.</p>
       </div>
 
       <h3>The twenty-four fixture tables</h3>
@@ -1115,7 +1117,8 @@ All ML assertions passed.</pre>
 <span class="c-prompt">SQL&gt;</span> @report/report.sql - - - 42424242 42424243   <span class="c-cmt">-- one container (FIXPDB1)</span>
 <span class="c-prompt">SQL&gt;</span> @report/report_html.sql       <span class="c-cmt">-- the HTML twin, same arguments</span>
 <span class="c-prompt">SQL&gt;</span> @report/drill_tbspc.sql FIX_PURGE   <span class="c-cmt">-- one series, arithmetic spelled out</span>
-<span class="c-prompt">SQL&gt;</span> @report/drill_cpu.sql DB_CPU_PCT</pre>
+<span class="c-prompt">SQL&gt;</span> @report/drill_cpu.sql DB_CPU_PCT
+<span class="c-prompt">SQL&gt;</span> @report/drill_mem.sql              <span class="c-cmt">-- the instance's memory verdicts</span></pre>
             </div>
             <div class="term">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
@@ -1141,7 +1144,8 @@ training days; raise DBMS_WORKLOAD_REPOSITORY retention for real trends.
 <span class="c-dim">… section 3: FIX_SPIKE shows one HIGH anomaly, with median / MAD·k / z</span>
 <span class="c-dim">… section 5b: FIXCDB/FIXPDB1 DB_CPU_PCT shifted UP 18 points</span>
 <span class="c-dim">… section 6c: which engine was right over the 28-day holdout</span>
-<span class="c-dim">… section 7: SESSIONS 440/500, 5 days to limit</span></pre>
+<span class="c-dim">… section 7: SESSIONS 440/500, 5 days to limit</span>
+<span class="c-dim">… section 8: PGA target UNDERSIZED (1 GiB to 1792 MiB), buffer cache OVERSIZED</span></pre>
             </div>
             <p>Known answers: <code>FIX_LINEAR</code> +30-day projection
               <b>1,677,721,600 bytes ≈ 1.56&nbsp;GiB</b>, <span class="inline">days_to_full = 4990</span>;

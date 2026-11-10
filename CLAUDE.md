@@ -136,7 +136,8 @@ names the upgrade path, M25) → `20_daily` →
 "Memory verdicts" below) → `45_report_views` (CAPR_CONTAINER,
 CAPR_ANOMALIES, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
 CAPR_SEGMENT_GROWTH, the point feeds CAPR_SERIES_POINTS / CAPR_HOURLY_POINTS,
-CAPR_FIT) → `50_ml` (CAP_ML_MODEL, the temporary CAP_ML_INPUT, pulls `ml/cap_forecast_ml.pks/.pkb`, the
+CAPR_FIT, and the memory report views CAPR_MEM_AREA / CAPR_MEM_VERDICT /
+CAPR_MEM_EVIDENCE / CAPR_MEM_COMPONENTS / CAPR_MEM_COMP_POINTS, M26.4) → `50_ml` (CAP_ML_MODEL, the temporary CAP_ML_INPUT, pulls `ml/cap_forecast_ml.pks/.pkb`, the
 ESM views, CAPF_COMPARE, CAPF_BACKTEST, CAPF_ESM_HEALTH[_SUMMARY]) →
 `55_report_views_ml` (the Tier-2-dependent CAPR_* section views,
 CAPR_FORECAST_POINTS and CAPR_ALERTS, which reads the Tier 2 health views for
@@ -220,7 +221,8 @@ SPOOL one after the other in one session, a failed step logged and skipped
 past, ORA-20080 at the end; where package CAP_REPO exists also
 CAP_COLLECT_JOB hourly :05),
 `report/report_csv.sql` (one CSV per CAPR section view), `report/report_brief.sql`
-(one-page "Runway" briefing from CAPR_FIT + the alert list; demo
+(one-page "Runway" briefing from CAPR_FIT + the alert list, plus one line per
+actionable CAPR_MEM_VERDICT row; demo
 `docs/demo/cap_brief_demo.html`), `report/run_report.sh`
 (cron wrapper: text / --html / --brief / --csv, --scope, --target, --snapshot, non-zero exit on a
 non-zero sqlplus exit or a line starting ORA-/SP2- (an alert message quoting
@@ -235,19 +237,28 @@ renders `docs/demo/cap_report_demo.html` under a stub DOM, no DB needed; the
 demo is `build.py --preview` of a spooled demo-story report with its identity
 strings genericised), `report/drill_tbspc.sql` / `report/drill_cpu.sql`
 (single-series drill-down; drill_tbspc prints "who is filling it" from
-CAPR_SEGMENT_GROWTH). report.sql / report_html.sql / report_brief.sql take
+CAPR_SEGMENT_GROWTH), `report/drill_mem.sql [dbid | target] [instance]` (one
+instance's memory verdicts: startups, evidence, advisor curves, resizes; it
+includes report/scope.sql and reads the CAPM_ views live). report.sql / report_html.sql / report_brief.sql take
 `[top_n] [anomaly_days] [show_esm] [dbid] [con_dbid] [LIVE|SNAPSHOT]`,
 report_csv.sql `[dbid] [con_dbid] [LIVE|SNAPSHOT]`, `-` skips one.
 `test/demo_fixture.sql` fills the CAP_FIXTURE_* tables with a designed 150-day
 "ECOMPRD" story (hourly snapshots, two containers, 32 threads / 16 cores; no
-PARAMETER / ASM / SEG_STAT tables, so those seam views fall back to ddl/12's
-zero-row stubs, typed constants because `CAST(NULL)` join keys raised
-ORA-07445 on 19.27); `docs/demo/` holds the reports generated from it (identity
+ASM / SEG_STAT tables, so those seam views fall back to ddl/12's zero-row
+stubs, typed constants because `CAST(NULL)` join keys raised ORA-07445 on
+19.27; a PARAMETER table with the five memory parameters only). Its memory
+chapter (M26.4) fills PGASTAT and the ten memory tables: ASMM on a 128 GiB
+host, sga_target 48 GiB, PGA target 10 / limit 20 GiB; PGA_TARGET UNDERSIZED
+(14 GiB), SGA_TOTAL and BUFFER_CACHE OVERSIZED (42 and 30 GiB), the rest OK,
+one deferred 1 GiB move from the cache to the shared pool on the release
+day, and a PGA_ALLOC_GB series with no alert. A fixture install with BOTH
+the PGASTAT and the PARAMETER stub fails (ORA-00932 in CAPD_SERIES_DAILY's
+PGA_ALLOC_GB branch, 19.27), so keep both tables. `docs/demo/` holds the reports generated from it (identity
 strings genericised: database ECOMPRD, host db-prod-01.example.com, schema
 CAPMON) for the docs site. Regenerate it in a throwaway schema (not CAPDEMO,
-which feeds the lab dashboards): fixture_remove → demo_fixture → install (fixture) →
-`cap_forecast_ml.train_all` → both report drivers. Not fixture_install first:
-its PARAMETER / ASM / SEG_STAT tables would survive into the demo.
+which feeds the lab dashboards): demo_fixture (it drops every CAP_FIXTURE_*
+table first) → install (fixture) → `cap_forecast_ml.train_all` → the three
+report drivers.
 `elk/` is the Kibana integration (opt-in, outside install.sql):
 `export_capacity.sql` emits one JSON doc per line from the CAPD_/CAPF_/CAPA_/
 CAPR_ views; `export.sh` runs it ON THE DB HOST into Filebeat's `generated/`
@@ -553,9 +564,11 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   (every counter and advisor estimate as increments, one long shape, ONE
   piece of increment logic) → `CAPM_ADVICE` (curve per advised size) →
   the area facts `CAPM_PGA_LIMIT`, `CAPM_AREA` (four advisor areas),
-  `CAPM_SGA_BALANCE` → `CAPM_EVIDENCE` (one row per signal, `kind` USAGE /
-  ADVISOR / SYMPTOM / CONTEXT) → `CAPM_VERDICT`. Areas PGA_LIMIT,
-  PGA_TARGET, BUFFER_CACHE, SHARED_POOL, SGA_TOTAL, SGA_BALANCE.
+  `CAPM_SGA_BALANCE` (over `CAPM_COMP`, the component history as intervals:
+  `net`, `ops`, one row per snapshot and component) → `CAPM_EVIDENCE` (one
+  row per signal, `kind` USAGE / ADVISOR / SYMPTOM / CONTEXT) →
+  `CAPM_VERDICT`. Areas PGA_LIMIT, PGA_TARGET, BUFFER_CACHE, SHARED_POOL,
+  SGA_TOTAL, SGA_BALANCE.
 - **Rules are data.** A new symptom is a `sig` row plus `term` rows in
   `CAPM_EVIDENCE`; an advisor area is a `def` row in `CAPM_AREA` plus a
   branch in `CAPM_ADV_SRC`; a grade is a row of `rule` in `CAPM_VERDICT`
@@ -610,10 +623,23 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   ONE_WAY_SHIFT (`shift_p`: `SGA_POOL_SHIFT_PCT` >= `mem_shift_pct`, the
   larger pool loss from its window peak over sga_target; no suggestion, no
   parameter), else OK / STABLE.
-- **Nothing reads a CAPM_ view** (run_test.sql asserts it from
-  ALL_DEPENDENCIES): no alert, no series. Cost on the real 30-day AWR:
-  `SELECT * FROM capm_verdict` about 11 s, 223 MB PGA, most of it
-  `CAPM_AREA` evaluated twice (under the evidence and for the facts).
+- **Only the CAPR_MEM_ report views read a CAPM_ view, and nothing reads
+  those** (run_test.sql asserts both from ALL_DEPENDENCIES): no alert, no
+  series. Cost on the real 30-day AWR: `SELECT * FROM capm_verdict` about
+  8 s, 150 MB PGA, most of it `CAPM_AREA` evaluated twice (under the
+  evidence and for the facts).
+- **Memory in the reports (M26.4, ddl/45).** `CAPR_MEM_AREA` names and
+  orders the six areas. `CAPR_MEM_VERDICT` adds `reason_text`,
+  `actionable`, the size texts and `headline` (one sentence per row of the
+  `why` / `gr` tables in the view: a new reason or grade is a row there).
+  `CAPR_MEM_EVIDENCE`, `CAPR_MEM_COMPONENTS` and `CAPR_MEM_COMP_POINTS`
+  (daily, the evidence window) complete the set; all but the area view are
+  in the snapshot registry. Rows are instance level (`con_dbid = dbid`), so
+  a PDB-scoped report shows none. Text section 8 / 8b / 8c, the HTML Memory
+  section (blocks `memVerdicts` / `memEvidence` / `memPoints`), the
+  briefing's "Memory sizing" lines and four CSV files read them. Verdicts
+  never enter an alert count. Not built: per-PDB rows, the resize operations
+  view, the verdict history table.
 
 ## Testing on a 19c test database
 

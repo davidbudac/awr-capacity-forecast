@@ -265,6 +265,16 @@ Delivery
 - The seam roughly doubles (13 to about 27 views). Expect a slower refresh. The measurement in the second milestone decides whether the evidence layer needs staging.
 - The `PGA_LIMIT` rule (usage against the ceiling, never `OVERSIZED`) was not put to the user as a question. It follows from the limit having no advisor.
 
+## Reports as built (M26.4)
+
+Decided on 2026-11-10 while building the report milestone. Where this section differs from the "Reports" decisions above, this section wins.
+
+- The report views are `CAPR_MEM_AREA`, `CAPR_MEM_VERDICT`, `CAPR_MEM_EVIDENCE`, `CAPR_MEM_COMPONENTS` and `CAPR_MEM_COMP_POINTS`. Every sentence a report prints (the verdict headline, the reason, the evidence line) is composed in a view, so the text report, the HTML report and the briefing cannot word a verdict differently.
+- The briefing lists the verdicts that advise a change or name a problem: `UNDERSIZED`, `OVERSIZED`, `THRASHING`, `DRIFTING`. `INSUFFICIENT_EVIDENCE` is not listed line by line. One line counts those areas and gives their reasons, so missing data still shows.
+- Component sizes over time are daily, over the evidence window: the size at the day's last snapshot, the day's smallest and largest size and its resize operations.
+- The reports cover what is built. Per-PDB usage, the resize operations detail and the "since when" history are not in any report until their sources exist.
+- A report scoped to a PDB shows no memory rows, as for PROCESSES and SESSIONS: the rows are the root's.
+
 ## Detailed rules for the SGA areas and the PGA target
 
 Decided on 2026-11-09 from a probe of real AWR (19.27, ASMM, one long startup with resizes). Where this section differs from the decisions above, this section wins.

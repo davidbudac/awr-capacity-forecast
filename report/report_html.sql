@@ -2,13 +2,16 @@
 -- report/report_html.sql -- read-only, self-contained HTML capacity report.
 -- =====================================================================
 -- One section per monitored metric (tablespaces, database size, host CPU,
--- DB CPU, sessions, processes, redo, undo, temp, ASM), one card per series,
--- and a chart on every card whether or not anything is wrong.
+-- DB CPU, sessions, processes, PGA, redo, undo, temp, ASM), one card per
+-- series, and a chart on every card whether or not anything is wrong; then
+-- a Memory section, one card per instance with the sizing verdicts.
 --
 -- The SQL here only READS the CAPR point feeds (the APEX contract views:
 -- CAPR_FIT, CAPR_SERIES_POINTS, CAPR_FORECAST_POINTS, CAPR_ANOMALIES,
--- CAPR_ALERTS, CAPR_CONTAINER, plus CAPR_HOURLY_POINTS) and writes them into
--- the page as one JSON block. report/html/report.js draws the page from that
+-- CAPR_ALERTS, CAPR_CONTAINER, plus CAPR_HOURLY_POINTS), the memory views
+-- CAPR_MEM_VERDICT, CAPR_MEM_EVIDENCE and CAPR_MEM_COMP_POINTS, and the
+-- header's CAPR_DATA_WINDOW, CAPR_COVERAGE, CAPF_ESM_HEALTH_SUMMARY,
+-- CAPR_RUNS and CAP_CFG, and writes them into the page as one JSON block. report/html/report.js draws the page from that
 -- block. The page skeleton, the CSS and the renderer come from the generated
 -- report/html/page_head.sql and report/html/page_tail.sql: edit
 -- report/html/report.css / report.js and run `python3 report/html/build.py`,
@@ -510,6 +513,91 @@ BEGIN
     w(']');
     flush_block('hours');
   EXCEPTION WHEN OTHERS THEN fail_block('hours', SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
+  -- memVerdicts: one row per (instance, memory area). Instance level, so
+  -- con_dbid = dbid and a PDB scope leaves the block empty. The sentences
+  -- and display sizes are the view's; bytes ride along for the direction.
+  ----------------------------------------------------------------------
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, instance_number, area, area_label, area_rank, mem_mode, grade,
+                     reason_text, actionable, current_bytes, suggested_bytes, current_size, suggested_size,
+                     change_pct, suggested_param, exceeds_host_ram, exceeds_sga, n_days, window_start,
+                     window_end, headline
+              FROM   capr_mem_verdict&cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+              ORDER  BY dbid, rank_mem) LOOP
+      w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"inst":' || jn(r.instance_number)
+        || ',"area":' || js(r.area) || ',"al":' || js(r.area_label) || ',"ar":' || jn(r.area_rank)
+        || ',"mode":' || js(r.mem_mode) || ',"g":' || js(r.grade) || ',"act":' || js(r.actionable)
+        || ',"cur":' || jn(r.current_bytes) || ',"sug":' || jn(r.suggested_bytes)
+        || ',"curS":' || js(r.current_size) || ',"sugS":' || js(r.suggested_size) || ',"chg":' || jn(r.change_pct)
+        || ',"par":' || js(r.suggested_param) || ',"ram":' || js(r.exceeds_host_ram) || ',"sga":' || js(r.exceeds_sga)
+        || ',"nd":' || jn(r.n_days)
+        || ',"w0":' || jd(r.window_start) || ',"w1":' || jd(r.window_end)
+        || ',"hl":' || js(r.headline) || ',"why":' || js(r.reason_text) || '}');
+      v_sep := ',';
+    END LOOP;
+    w(']');
+    flush_block('memVerdicts');
+  EXCEPTION WHEN OTHERS THEN fail_block('memVerdicts', SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
+  -- memEvidence: one row per signal behind a verdict.
+  ----------------------------------------------------------------------
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, instance_number, area, kind, direction, evidence_text
+              FROM   capr_mem_evidence&cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+              ORDER  BY dbid, rank_ev) LOOP
+      w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"inst":' || jn(r.instance_number)
+        || ',"area":' || js(r.area) || ',"kind":' || js(r.kind) || ',"dir":' || js(r.direction)
+        || ',"txt":' || js(r.evidence_text) || '}');
+      v_sep := ',';
+    END LOOP;
+    w(']');
+    flush_block('memEvidence');
+  EXCEPTION WHEN OTHERS THEN fail_block('memEvidence', SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
+  -- memPoints: the SGA component sizes per day of the evidence window, one
+  -- object per (instance, component): t0 + [day offset, bytes at the day's
+  -- last snapshot, the day's min bytes, max bytes, resize operations].
+  ----------------------------------------------------------------------
+  DECLARE
+    v_key VARCHAR2(400);
+    v_t0  DATE;
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, instance_number, component, ts, bytes, min_bytes, max_bytes, ops
+              FROM   capr_mem_comp_points&cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+              ORDER  BY dbid, instance_number, component, ts) LOOP
+      IF v_key IS NULL OR v_key <> r.dbid || '|' || r.instance_number || '|' || r.component THEN
+        IF v_key IS NOT NULL THEN w(']}'); END IF;
+        v_key := r.dbid || '|' || r.instance_number || '|' || r.component;
+        v_t0  := TRUNC(r.ts);
+        w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid)
+          || ',"inst":' || jn(r.instance_number) || ',"c":' || js(r.component) || ',"t0":' || jd(v_t0) || ',"d":[');
+        v_sep := ',';
+      ELSE
+        w(',');
+      END IF;
+      w('[' || jn(TRUNC(r.ts) - v_t0) || ',' || jn(r.bytes) || ',' || jn(r.min_bytes) || ','
+        || jn(r.max_bytes) || ',' || jn(r.ops) || ']');
+    END LOOP;
+    IF v_key IS NOT NULL THEN w(']}'); END IF;
+    w(']');
+    flush_block('memPoints');
+  EXCEPTION WHEN OTHERS THEN fail_block('memPoints', SQLERRM);
   END;
 
   p(',"errors":[' || v_errs || '],"seconds":{' || v_tlog || '}}');

@@ -697,7 +697,7 @@
 <rect class="n-store" x="12" y="288" width="736" height="32" rx="4"/>
 <text class="nm" x="24" y="308">Configuration</text>
 <text class="sub" x="736" y="307" text-anchor="end">ddl/05 · CAP_CONFIG → CAP_CFG: one row, cross-joined by every view</text>
-<text class="co" x="484" y="232">queried directly: no alert, no report</text>
+<text class="co" x="484" y="232">advice: no alert, reports via CAPR_MEM_</text>
 <line class="rule" x1="12" y1="336" x2="748" y2="336"/>
 <text class="lg" x="12" y="358">LEGEND</text>
 <rect class="n" x="84" y="348" width="16" height="12" rx="3"/>
@@ -1015,7 +1015,7 @@
 <text class="lgt" x="392" y="370">seam views over the copies</text>
 </svg>
 </div>
-<figcaption>Nothing else in the suite reads a <span class="inline">CAPM_</span> view: no alert, no series, no report section.</figcaption>
+<figcaption>Only the <span class="inline">CAPR_MEM_</span> report views read a <span class="inline">CAPM_</span> view: no alert, no series.</figcaption>
 </figure>
 
       <ul>
@@ -1029,7 +1029,8 @@
         <li><b>Advisory.</b> A suggestion that would not fit in host RAM or in
           <code>sga_target</code> is flagged, never reduced.</li>
       </ul>
-      <p>Query it directly; nothing else in the suite reads these views:</p>
+      <p>The reports print the verdicts through the <span class="inline">CAPR_MEM_</span> views
+        (<a href="usage.html#sections">section 8</a>). To query the layer directly:</p>
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>

@@ -20,6 +20,7 @@ The samples are real output from a fictional database with 150 days of test AWR 
 | When does a tablespace fill? | Size at +30 / 90 / 180 / 365 days with 95% bands, `days_to_full` with worst/best case, GiB to add and the date to add them by |
 | How much CPU headroom is left? | Host busy% (average, p95, peak window) and DB CPU per container, days to saturation, level shifts, hosts already hot |
 | Which fixed limits are close? | `processes`, `sessions`, PGA allocated against `pga_aggregate_limit`, redo GiB/day against the FRA, DB size, ASM disk groups, TEMP / UNDO peaks |
+| Is instance memory sized well? | A grade per area (SGA, buffer cache, shared pool, PGA target and limit) from Oracle's advisors and observed symptoms, with the evidence and a suggested size |
 | Is today unusual? | Median + MAD flags against three baselines: last 28 days, same weekday, same weekday and hour (CPU) |
 | Which forecast to trust? | A holdout backtest scores each engine's MAPE and bias |
 | Is instance memory sized right? | `CAPM_VERDICT`: a grade per instance and area (PGA limit, PGA target, buffer cache, shared pool, SGA total, SGA balance) with its evidence and a suggested size. A view to query; not in the reports or alerts yet |
@@ -128,6 +129,7 @@ Run from the repo root (`@@` includes resolve there):
 | `@report/report_brief.sql` | one-page "runway" briefing ([sample](https://davidbudac.github.io/awr-capacity-forecast/demo/cap_brief_demo.html)) |
 | `@report/report_csv.sql` | one CSV per report section |
 | `@report/drill_tbspc.sql <TBSPC>`, `@report/drill_cpu.sql` | one series with its arithmetic spelled out |
+| `@report/drill_mem.sql [DB] [INSTANCE]` | one instance's memory verdicts: evidence, advisor curves, resizes |
 | `report/run_report.sh` | cron wrapper: `--html`, `--brief`, `--csv`, `--target NAME`, `--snapshot` |
 
 Report arguments: `[top_n] [anomaly_days] [show_esm] [dbid] [con_dbid] [LIVE|SNAPSHOT]`;

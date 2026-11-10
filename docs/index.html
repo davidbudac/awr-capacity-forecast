@@ -130,7 +130,7 @@
             <tr><td><b>Fixed-ceiling series</b></td><td>Peak <code>processes</code> / <code>sessions</code> against the init parameters, PGA allocated against <code>pga_aggregate_limit</code>, redo GiB/day with days of FRA, total DB size against the summed tablespace ceilings, ASM diskgroups and TEMP / UNDO peaks, each with days-to-limit</td><td class="def">DBA_HIST_RESOURCE_LIMIT · CON_SYSSTAT · PGASTAT · PARAMETER · ASM_DISKGROUP_STAT · tablespace usage</td></tr>
             <tr><td><b>Anomalies</b></td><td>Median + MAD flags against three baselines (the last 28 days, the same weekday, and for CPU the same weekday and hour), each shown with value, median, k·σ and robust z</td><td class="def">daily values · hourly CPU</td></tr>
             <tr><td><b>Forecast accuracy</b></td><td>A holdout backtest scoring each engine's MAPE and bias on the recent past</td><td class="def">CAPF_BACKTEST</td></tr>
-            <tr><td><b>Memory sizing</b></td><td>One grade per instance and memory area (<code>PGA_LIMIT</code>, <code>PGA_TARGET</code>, <code>BUFFER_CACHE</code>, <code>SHARED_POOL</code>, <code>SGA_TOTAL</code>, <code>SGA_BALANCE</code>): undersized, fine or oversized, with the evidence and a suggested size. Query <span class="inline">CAPM_VERDICT</span>; no report section or alert reads it yet (<a href="architecture.html#memory">Architecture</a>)</td><td class="def">DBA_HIST_PGASTAT · the four memory advisors · MEM_DYNAMIC_COMP · wait events</td></tr>
+            <tr><td><b>Memory sizing</b></td><td>One grade per instance and memory area (<code>PGA_LIMIT</code>, <code>PGA_TARGET</code>, <code>BUFFER_CACHE</code>, <code>SHARED_POOL</code>, <code>SGA_TOTAL</code>, <code>SGA_BALANCE</code>): undersized, fine or oversized, undersized only when Oracle's advisor and an observed symptom agree, with the evidence and a suggested size. In every report (text section 8, the HTML Memory section, the briefing); advice, so no alert (<a href="architecture.html#memory">Architecture</a>)</td><td class="def">DBA_HIST_PGASTAT · the four memory advisors · MEM_DYNAMIC_COMP · wait events</td></tr>
           </tbody>
         </table>
       </div>
@@ -146,7 +146,7 @@
         <span class="inline">CAPV_</span> (source) → <span class="inline">CAPD_</span> (daily) →
         <span class="inline">CAPF_</span> (forecast) / <span class="inline">CAPA_</span> (anomaly) →
         <span class="inline">CAPR_</span> (report). <span class="inline">CAPM_</span> (memory verdicts)
-        reads the seam directly and feeds no report view. See <a href="concepts.html">How it works</a> and
+        reads the seam directly and feeds only the <span class="inline">CAPR_MEM_</span> report views, never an alert. See <a href="concepts.html">How it works</a> and
         <a href="architecture.html">Architecture</a>.</p>
       <svg class="archflow" viewBox="0 0 860 240" role="img"
            aria-label="Architecture: each target's AWR, copied over a database link, or test fixtures feed the CAPV seam, then CAPD daily rollups split into CAPF forecasts and CAPA anomalies, which merge into the CAPR report views.">

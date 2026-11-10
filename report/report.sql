@@ -1,7 +1,8 @@
 --
 -- report/report.sql -- read-only text capacity report.
 -- =====================================================================
--- Spools a plain-text capacity + anomaly report from the CAPF_/CAPA_ views to
+-- Spools a plain-text capacity + anomaly report from the CAPF_/CAPA_ views,
+-- and the instance memory sizing verdicts (section 8), to
 -- reports/cap_report_<db>_<ts>.txt. READ-ONLY: only SELECTs (the CAPF_ESM
 -- views call a pipelined function, which writes nothing). Creates/modifies no
 -- database object.
@@ -185,6 +186,32 @@ CROSS  JOIN (SELECT NVL(SUM(n_ok), 0) AS n_ok, NVL(SUM(n_failed), 0) AS n_failed
                     NVL(SUM(n_stale), 0) AS n_stale
              FROM   capf_esm_health_summary&cap_s) h;
 
+-- Section 8 quotes the memory knobs (RTRIM '.': FM leaves "2." of a whole
+-- number with decimals in the mask). The DEFINEs keep an install without
+-- the M26 knobs from prompting in section 8.
+DEFINE mem_win  = '?'
+DEFINE mem_upt  = '?'
+DEFINE mem_plim = '?'
+DEFINE mem_shrd = '?'
+DEFINE mem_mind = '?'
+DEFINE mem_step = '?'
+DEFINE mem_host = '?'
+COLUMN mem_win  NEW_VALUE mem_win  NOPRINT
+COLUMN mem_upt  NEW_VALUE mem_upt  NOPRINT
+COLUMN mem_plim NEW_VALUE mem_plim NOPRINT
+COLUMN mem_shrd NEW_VALUE mem_shrd NOPRINT
+COLUMN mem_mind NEW_VALUE mem_mind NOPRINT
+COLUMN mem_step NEW_VALUE mem_step NOPRINT
+COLUMN mem_host NEW_VALUE mem_host NOPRINT
+SELECT TO_CHAR(mem_window_days,                     'FM9999990')         AS mem_win,
+       RTRIM(TO_CHAR(mem_min_uptime_hours,         'FM9999990.99'), '.') AS mem_upt,
+       RTRIM(TO_CHAR(mem_pga_limit_pct,            'FM9999990.99'), '.') AS mem_plim,
+       TO_CHAR(mem_shrink_min_days,                 'FM9999990')         AS mem_shrd,
+       TO_CHAR(mem_min_days,                        'FM9999990')         AS mem_mind,
+       RTRIM(TO_CHAR(mem_max_step,                 'FM9999990.99'), '.') AS mem_step,
+       RTRIM(TO_CHAR(mem_host_ram_pct,             'FM9999990.99'), '.') AS mem_host
+FROM   cap_cfg;
+
 -- Defaults first, so a failing lookup below (suite not installed) cannot
 -- leave a variable undefined and make SQL*Plus prompt for it.
 DEFINE cap_scope_lbl = 'see the arguments'
@@ -285,6 +312,11 @@ DEFINE cap_tm_lbl = s7
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('s7 series')
 @@&cap_tm_start
 @@report/sections/07_series.sql
+@@&cap_tm_stop
+DEFINE cap_tm_lbl = s8
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s8 memory')
+@@&cap_tm_start
+@@report/sections/08_memory.sql
 @@&cap_tm_stop
 
 PROMPT

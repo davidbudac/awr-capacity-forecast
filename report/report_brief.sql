@@ -3,9 +3,10 @@
 -- =====================================================================
 -- Spools reports/cap_brief_<db>_<ts>.html for a reader who wants "what
 -- fills, when, what do I do": a headline, the dates each limit is reached on
--- a twelve-month runway, the actions in order, the evidence for the first
--- few and every tablespace as a fill bar. report/report_html.sql stays the
--- full report. READ-ONLY: it SELECTs the CAPR_* views and CAP_CFG only.
+-- a twelve-month runway, the actions in order, the memory sizing advice, the
+-- evidence for the first few and every tablespace as a fill bar.
+-- report/report_html.sql stays the full report. READ-ONLY: it SELECTs the
+-- CAPR_* views and CAP_CFG only.
 --
 -- Two lists are read once at the top and everything else derives from them:
 -- t_fit (CAPR_FIT) and t_al (CAPR_ALERTS, or CAPR_ALERTS_LATEST under
@@ -15,6 +16,8 @@
 -- TBSPC_NEARFULL of one tablespace are one action, the worse severity
 -- wins); the headline, the lede, the timeline highlights and the evidence
 -- panels all read t_act. t_beh is the unusual-behaviour list.
+-- CAPR_MEM_VERDICT is read once, by the memory section alone: a verdict is
+-- advice, raises no alert and changes no headline, action or count.
 --
 -- Run from the REPO ROOT so the @@report/defaults.sql include resolves:
 --   SQL> @report/report_brief.sql
@@ -1274,7 +1277,83 @@ BEGIN
         p('<p class="quiet">' || words(t_act.COUNT - top_n, TRUE) || ' more, in report/report_html.sql.</p>');
       END IF;
     END IF;
-    IF t_beh.COUNT > 0 THEN
+  EXCEPTION
+    WHEN OTHERS THEN sec_failed('what to do', SQLERRM);
+  END;
+
+  -- Memory sizing, under the actions: advice with no date, so it stays out
+  -- of the action list. A PDB scope has no verdict rows and prints nothing.
+  DECLARE
+    CURSOR c_mem IS
+      SELECT dbid, instance_number, db_pdb, grade, actionable, headline, reason_text
+      FROM   capr_mem_verdict~cap_s
+      WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+      ORDER  BY dbid, rank_mem;
+    TYPE mem_tab IS TABLE OF c_mem%ROWTYPE INDEX BY PLS_INTEGER;
+    t     mem_tab;
+    seen  key_tab;
+    n_act PLS_INTEGER := 0;
+    n_ie  PLS_INTEGER := 0;
+    multi BOOLEAN := FALSE;
+    who   VARCHAR2(600);
+    why   VARCHAR2(4000);
+    FUNCTION multi_inst(i IN PLS_INTEGER) RETURN BOOLEAN IS
+    BEGIN
+      FOR j IN 1 .. t.COUNT LOOP
+        IF t(j).dbid = t(i).dbid AND t(j).instance_number <> t(i).instance_number THEN
+          RETURN TRUE;
+        END IF;
+      END LOOP;
+      RETURN FALSE;
+    END multi_inst;
+  BEGIN
+    OPEN c_mem;
+    FETCH c_mem BULK COLLECT INTO t;
+    CLOSE c_mem;
+    FOR i IN 1 .. t.COUNT LOOP
+      multi := multi OR t(i).dbid <> t(1).dbid;
+      IF t(i).actionable = 'Y' THEN
+        n_act := n_act + 1;
+      ELSIF t(i).grade = 'INSUFFICIENT_EVIDENCE' THEN
+        n_ie := n_ie + 1;
+        IF NOT seen.EXISTS(NVL(t(i).reason_text, '-')) THEN
+          seen(NVL(t(i).reason_text, '-')) := 1;
+          why := why || ' ' || esc(t(i).reason_text);
+        END IF;
+      END IF;
+    END LOOP;
+    IF t.COUNT > 0 THEN
+      p('<h3>Memory sizing</h3>');
+      IF n_act > 0 THEN
+        p('<ol class="todo">');
+        FOR i IN 1 .. t.COUNT LOOP
+          IF t(i).actionable = 'Y' THEN
+            who := CASE WHEN multi THEN esc(t(i).db_pdb) END;
+            IF multi_inst(i) THEN
+              who := who || CASE WHEN who IS NOT NULL THEN ' ' END || 'instance ' || t(i).instance_number;
+            END IF;
+            p('<li><span class="by">' || who || '</span><p>' || esc(t(i).headline)
+              || CASE WHEN t(i).reason_text IS NOT NULL THEN '<small>' || esc(t(i).reason_text) || '</small>' END
+              || '</p><span></span></li>');
+          END IF;
+        END LOOP;
+        p('</ol>');
+      ELSIF n_ie < t.COUNT THEN
+        p('<p class="quiet">The memory sizing analysis advises no change'
+          || CASE WHEN n_ie > 0 THEN ' to the areas it could judge' END || '.</p>');
+      END IF;
+      IF n_ie > 0 THEN
+        p('<p class="quiet">' || words(n_ie, TRUE) || CASE WHEN n_ie = 1 THEN ' memory area' ELSE ' memory areas' END
+          || ' could not be judged.' || why || '</p>');
+      END IF;
+    END IF;
+  EXCEPTION
+    WHEN OTHERS THEN sec_failed('memory sizing', SQLERRM);
+  END;
+
+  -- A load failure already has its box under "What to do".
+  BEGIN
+    IF v_load_err IS NULL AND t_beh.COUNT > 0 THEN
       p('<h3>Also unusual, last ' || anomaly_days || ' days</h3>');
       p('<ul class="beh">');
       FOR k IN 1 .. LEAST(t_beh.COUNT, top_n) LOOP
@@ -1287,7 +1366,7 @@ BEGIN
       END IF;
     END IF;
   EXCEPTION
-    WHEN OTHERS THEN sec_failed('what to do', SQLERRM);
+    WHEN OTHERS THEN sec_failed('also unusual', SQLERRM);
   END;
 
   -- Evidence

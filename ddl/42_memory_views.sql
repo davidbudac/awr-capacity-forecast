@@ -18,6 +18,7 @@
 --   CAPM_ADVICE       per advised size: cost and gain against the reference size.
 --   CAPM_PGA_LIMIT    the facts of area PGA_LIMIT.
 --   CAPM_AREA         the facts of each advisor-based area.
+--   CAPM_COMP         the SGA component history as intervals.
 --   CAPM_SGA_BALANCE  resize facts of the SGA pools.
 --   CAPM_EVIDENCE     one row per signal: measured value, unit, threshold,
 --                     direction (PRESSURE / SLACK / NEUTRAL) and a sentence.
@@ -853,14 +854,55 @@ LEFT   JOIN f   ON f.dbid = i.dbid AND f.instance_number = i.instance_number AND
 LEFT   JOIN src s ON s.dbid = i.dbid AND s.instance_number = i.instance_number AND s.area = d.area;
 
 -- --------------------------------------------------------------------
+-- CAPM_COMP -- the SGA component history as intervals, one row per (dbid,
+-- instance_number, snap_id, component). CAPV_MEM_COMP carries a cumulative
+-- operation counter and the type and mode of the last operation on every
+-- snapshot. A component interval is two consecutive snapshots of one startup
+-- that both list the component. 'SGA Target' and 'PGA Target' are targets,
+-- not components, and are left out.
+--   net       the change of current_size over the interval, NULL on the
+--             component's first snapshot of a startup.
+--   ops       the operation counter's increment (0 on a reset), NULL there
+--             too.
+--   is_pool   Y for the DEFAULT buffer cache and the shared pool, the two
+--             pools ASMM trades memory between.
+--   end_time / in_win  CAPM_SNAP's, for the snapshot the interval ends on.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capm_comp AS
+WITH mc AS (
+        SELECT m.dbid, m.instance_number, m.snap_id, m.component, m.current_size,
+               m.oper_count, m.last_oper_type, m.last_oper_mode, s.end_time, s.in_win,
+               LAG(m.current_size) OVER (PARTITION BY m.dbid, m.instance_number, s.startup_time,
+                                                      m.component
+                                         ORDER BY m.snap_id) AS prev_size,
+               LAG(m.oper_count)   OVER (PARTITION BY m.dbid, m.instance_number, s.startup_time,
+                                                      m.component
+                                         ORDER BY m.snap_id) AS prev_ops
+        FROM   capv_mem_comp m
+        JOIN   capm_snap s
+          ON   s.dbid = m.dbid AND s.instance_number = m.instance_number
+         AND   s.snap_id = m.snap_id
+        WHERE  m.component NOT IN ('SGA Target', 'PGA Target')
+     )
+SELECT mc.dbid,
+       mc.instance_number,
+       mc.snap_id,
+       mc.component,
+       mc.end_time,
+       mc.in_win,
+       CAST(CASE WHEN mc.component IN ('DEFAULT buffer cache', 'shared pool') THEN 'Y' ELSE 'N' END
+            AS VARCHAR2(1))                      AS is_pool,
+       mc.current_size,
+       mc.last_oper_type,
+       mc.last_oper_mode,
+       mc.current_size - mc.prev_size           AS net,
+       GREATEST(mc.oper_count - mc.prev_ops, 0) AS ops
+FROM   mc;
+
+-- --------------------------------------------------------------------
 -- CAPM_SGA_BALANCE -- how the instance moved memory between the SGA pools
 -- in the window, one row per instance of CAPM_INST. Read from the component
--- history (CAPV_MEM_COMP), which carries a cumulative operation counter and
--- the mode of the last operation on every snapshot. A component interval is
--- two consecutive snapshots of one startup that both list the component,
--- counted when it ends in the window: ops = the counter's increment (0 on a
--- reset), net = the change of current_size. 'SGA Target' and 'PGA Target'
--- are targets, not components, and are left out.
+-- intervals (CAPM_COMP) that end in the window.
 --   n_days              distinct days with a component row in the window.
 --   n_ops / ops_per_day operations of every SGA component, and per n_days.
 --   n_reversals         over the buffer cache and the shared pool: a net
@@ -888,29 +930,11 @@ LEFT   JOIN src s ON s.dbid = i.dbid AND s.instance_number = i.instance_number A
 --                       the floor suggested when the balance is THRASHING.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capm_sga_balance AS
-WITH mc AS (
-        SELECT m.dbid, m.instance_number, m.snap_id, m.component, m.current_size,
-               m.oper_count, m.last_oper_mode, s.end_time, s.in_win,
-               LAG(m.current_size) OVER (PARTITION BY m.dbid, m.instance_number, s.startup_time,
-                                                      m.component
-                                         ORDER BY m.snap_id) AS prev_size,
-               LAG(m.oper_count)   OVER (PARTITION BY m.dbid, m.instance_number, s.startup_time,
-                                                      m.component
-                                         ORDER BY m.snap_id) AS prev_ops
-        FROM   capv_mem_comp m
-        JOIN   capm_snap s
-          ON   s.dbid = m.dbid AND s.instance_number = m.instance_number
-         AND   s.snap_id = m.snap_id
-        WHERE  m.component NOT IN ('SGA Target', 'PGA Target')
-     ),
-     iv AS (
-        SELECT mc.dbid, mc.instance_number, mc.snap_id, mc.component, mc.current_size,
-               mc.last_oper_mode, mc.end_time,
-               CASE WHEN mc.component IN ('DEFAULT buffer cache', 'shared pool') THEN 'Y' ELSE 'N' END AS is_pool,
-               mc.current_size - mc.prev_size          AS net,
-               GREATEST(mc.oper_count - mc.prev_ops, 0) AS ops
-        FROM   mc
-        WHERE  mc.in_win = 'Y'
+WITH iv AS (
+        SELECT dbid, instance_number, snap_id, component, current_size, last_oper_mode,
+               end_time, is_pool, net, ops
+        FROM   capm_comp
+        WHERE  in_win = 'Y'
      ),
      mv AS (
         SELECT dbid, instance_number, SIGN(net) AS sgn,

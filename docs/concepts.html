@@ -328,7 +328,7 @@
         <div class="layer out">
           <span class="layer__tag">report/</span>
           <div class="layer__body">
-            <h5>Read-only reports: text, HTML, one-page brief, CSV</h5>
+            <h5>Read-only reports: text (sections 0–8), HTML, one-page brief, CSV</h5>
             <p>Every driver reads the <code>CAPR_*</code> views (plus <code>CAP_CFG</code> and the
               Tier 2 health summary), so they can't drift apart. Scope and identity come from
               <code>report/scope.sql</code>: the targets in scope from <code>CAPV_TARGET</code>, not
@@ -454,9 +454,10 @@
           </tbody>
         </table>
       </div>
-      <p>PGA_LIMIT and SGA_BALANCE have their own rows in the same decision table. No report driver
-        and no <span class="inline">CAPR_</span> view reads <span class="inline">CAPM_VERDICT</span>
-        today, and it raises no alert; it is queried directly. Columns:
+      <p>PGA_LIMIT and SGA_BALANCE have their own rows in the same decision table. The reports print the
+        verdicts from the <span class="inline">CAPR_MEM_</span> views (text section 8, the HTML Memory
+        section, the briefing, <span class="inline">report/drill_mem.sql</span>); a verdict raises no
+        alert. Columns:
         <a href="reference.html#objects">object index</a>. Knobs (<code>mem_*</code>):
         <a href="reference.html#config">configuration</a>. Layer diagram:
         <a href="architecture.html#memory">memory verdicts</a>.</p>

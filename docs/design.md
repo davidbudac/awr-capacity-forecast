@@ -1324,15 +1324,27 @@ The views, bottom up:
   `SGA_BALANCE` read `MANUAL_SIZING`. AMM instances are not graded (`AMM`).
   A target whose reader lacks the optional memory views reads
   `NOT_COLLECTED`.
-- **Nothing reads a `CAPM_` view.** No alert, no series, no report driver:
-  a verdict is report content, advice over a 30-day window, not a condition
-  to page on, and it adds no alert kind. `run_test.sql` asserts it from `ALL_DEPENDENCIES`. The one memory figure
-  in the alert path is the `PGA_ALLOC_GB` series (Layer 2b), which gets the
-  ordinary forecast, near-limit and anomaly treatment. The report sections
-  for the verdicts are M26.4, not built yet.
-- **Cost.** Measured at 26.3 on the test CDB's 30-day AWR:
-  `SELECT * FROM capm_verdict` takes about 11 s and 223 MB of PGA, most of
-  it `CAPM_AREA` evaluated twice (under the evidence and for the facts).
+- **Only the `CAPR_MEM_` report views read a `CAPM_` view.** No alert, no
+  series: a verdict is report content, advice over a 30-day window, not a
+  condition to page on, and it adds no alert kind. `run_test.sql` asserts it
+  from `ALL_DEPENDENCIES`, and that nothing reads a `CAPR_MEM_` view. The
+  one memory figure in the alert path is the `PGA_ALLOC_GB` series (Layer
+  2b), which gets the ordinary forecast, near-limit and anomaly treatment.
+- **In the reports (M26.4).** `CAPR_MEM_VERDICT` composes every sentence a
+  report prints (reason, headline with the action and the flags), so the
+  text report (section 8), the HTML Memory section and the briefing word a
+  verdict identically. `CAPR_MEM_EVIDENCE`, `CAPR_MEM_COMPONENTS` and
+  `CAPR_MEM_COMP_POINTS` carry the evidence lines and the SGA component
+  sizes of the window; `CAPM_COMP` holds the component intervals both they
+  and `CAPM_SGA_BALANCE` read. The four views are in the snapshot registry.
+  The briefing lists only the verdicts that advise a change and counts the
+  areas that could not be judged.
+- **Cost.** Measured at 26.4 on the test CDB's AWR (35 days of 15-minute
+  snapshots): `SELECT * FROM capm_verdict` takes about 8 s and 150 MB of
+  PGA, most of it `CAPM_AREA` evaluated twice (under the evidence and for
+  the facts). The cost follows the length of the history, not the window:
+  on the demo story (150 days, hourly) the verdict view takes 28 s and the
+  evidence view 16 s. A SNAPSHOT report reads the stored rows.
 
 ## Layer 5 — Tier 2 OML ESM
 
@@ -2095,11 +2107,12 @@ AWR history. See `bench/README.md`.
 - **M24–M25 — done.** The repository and its fleet (M24), then one
   architecture: every database a target, local mode retired (M25). See
   Deployment above.
-- **M26, verdicts built (suite_version 26.3).** Instance memory sizing:
-  eleven memory seam views with optional repository copies, the
-  `PGA_ALLOC_GB` series and the `CAPM_*` verdicts (Layer 4b). Still open in
-  `PLAN.md`: the report sections for the verdicts (M26.4), per-PDB usage
-  and the persisted verdict history.
+- **M26, verdicts and their reports built (suite_version 26.4).** Instance
+  memory sizing: eleven memory seam views with optional repository copies,
+  the `PGA_ALLOC_GB` series, the `CAPM_*` verdicts (Layer 4b) and, with
+  M26.4, the `CAPR_MEM_*` report views, report section 8, the HTML Memory
+  section, the briefing lines and `report/drill_mem.sql`. Still open in
+  `PLAN.md`: per-PDB usage and the persisted verdict history.
 - **v2** — memory follow-ups to M26 (grading AMM instances, verdicts for the
   In-Memory area and minor pools, verdict panels in the dashboards,
   forecasting SGA components); cross-DBID series stitching

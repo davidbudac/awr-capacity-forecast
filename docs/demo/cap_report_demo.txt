@@ -4,9 +4,9 @@ AWR CAPACITY FORECAST -- capacity + anomaly report
 Database : ECOMPRD
 Host     : db-prod-01.example.com
 Schema   : CAPMON on ECOMPRD
-Generated: 2026-11-09 09:45:06 +00:00
+Generated: 2026-11-10 08:50:10 +00:00
 Config   : days-to-full WARN<=90 CRIT<=30 ; CPU saturation 80%
-Tier 2   : OML ESM forecast models 9 ok, 0 failed, 0 stale
+Tier 2   : OML ESM forecast models 16 ok, 0 failed, 0 stale
 Scope    : every database in this schema
 Source   : LIVE (CAPR views evaluated now)
 ................................................................................
@@ -14,6 +14,7 @@ NOTE: forecasts degrade loudly on short AWR retention -- watch TRAIN_N and
 QUALITY. INSUFFICIENT_HISTORY means fewer than the configured minimum
 training days; raise DBMS_WORKLOAD_REPOSITORY retention for real trends.
 ================================================================================
+Elapsed: 00:00:00.00
 
 == 0. AT A GLANCE (from CAPR_ALERTS, or CAPR_ALERTS_LATEST when the source is SNAPSHOT) ==
 One row per current issue. TBSPC_FULL/CPU_SAT/DBCPU_SAT/SERIES_LIMIT: confident
@@ -27,34 +28,38 @@ The TOTAL row counts the rows below by severity.
 
 COVERAGE
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
-ECOMPRD (dbid 3141592653): current, 151 days of AWR, 24 series (19 OK, 0 low confidence, 4 flat, 0 short history, 1 cyclic), 0 not current
+ECOMPRD (dbid 3141592653): current, 151 days of AWR, 25 series (20 OK, 0 low confidence, 4 flat, 0 short history, 1 cyclic), 0 not current
+Elapsed: 00:00:13.72
 
 RESULTS LAYER
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
 no refresh run yet (live evaluation)
+Elapsed: 00:00:00.02
 
 SEV  KIND             DB/PDB               MESSAGE
 ---- ---------------- -------------------- --------------------------------------------------------------------------------------------------------------------------------------------
      TOTAL                                 CRIT 1, WARN 10, INFO 0
 CRIT TBSPC_FULL       ECOMPRD/SHOP_PDB     Tablespace AUDIT_TRAIL forecast full in 17 days (92.0% used, 613.7 MiB/day)
-WARN CPU_ANOM         ECOMPRD              Host CPU 69.6% busy on 2026-10-30 vs usual 46.4% for that weekday, robust z +7.7 (+50% vs median)
+WARN CPU_ANOM         ECOMPRD              Host CPU 69.8% busy on 2026-11-02 vs usual 46.8% for that weekday, robust z +7.7 (+49% vs median)
 WARN CPU_SAT          ECOMPRD              Host CPU (busy-hour p95) forecast to reach 80% busy in 52 days (now 70.2% busy)
-WARN DBCPU_ANOM       ECOMPRD/SHOP_PDB     13 consecutive days, latest 2026-11-09, peak robust z +6.0: DB CPU 23.1% of logical CPUs on 2026-11-09 vs usual 11.9% for that weekday,
+WARN DBCPU_ANOM       ECOMPRD/SHOP_PDB     13 consecutive days, latest 2026-11-10, peak robust z +6.0: DB CPU 23.1% of logical CPUs on 2026-11-10 vs usual 11.9% for that weekday,
                                            robust z +3.7 (+94% vs median)
 
-WARN SERIES_ANOM      ECOMPRD              3 consecutive days, latest 2026-10-30, peak robust z +11.9: REDO_GB_DAY at 73.49 GiB/day on 2026-10-30 vs usual 50.09 GiB/day over the last
-                                           28 days, robust z +11.9 (+47% vs median)
+WARN SERIES_ANOM      ECOMPRD              2 consecutive days, latest 2026-10-30, peak robust z +3.6: REDO_GB_DAY at 56.81 GiB/day on 2026-10-30 vs usual 50.09 GiB/day over the last
+                                           28 days, robust z +3.6 (+13% vs median)
 
-WARN SERIES_ANOM      ECOMPRD              3 consecutive days, latest 2026-11-04, peak robust z +3.4: REDO_GB_DAY at 56.90 GiB/day on 2026-11-04 vs usual 50.84 GiB/day over the last
-                                           28 days, robust z +3.0 (+12% vs median)
+WARN SERIES_ANOM      ECOMPRD              2 consecutive days, latest 2026-11-03, peak robust z +13.0: REDO_GB_DAY at 57.07 GiB/day on 2026-11-03 vs usual 50.70 GiB/day over the last
+                                           28 days, robust z +3.5 (+13% vs median)
 
-WARN SERIES_ANOM      ECOMPRD/SHOP_PDB     DB_SIZE_GB grew 44.53 GiB on 2026-11-03 vs usual 6.41 GiB/day over the last 28 days, robust z +107.0 (+595% vs median)
+WARN SERIES_ANOM      ECOMPRD/SHOP_PDB     DB_SIZE_GB grew 44.53 GiB on 2026-11-04 vs usual 6.44 GiB/day over the last 28 days, robust z +121.2 (+592% vs median)
 WARN SERIES_LIMIT     ECOMPRD/SHOP_PDB     SESSIONS forecast to reach 90% of its limit (1300 COUNT) in 34 days (now 1094, 84.2% of limit)
-WARN TBSPC_ANOM       ECOMPRD/SHOP_PDB     Tablespace ANALYTICS_STAGE grew 39.07 GiB on 2026-11-03 vs usual 1016.8 MiB/day over the last 28 days, robust z +295.9 (+3834% vs median),
+WARN TBSPC_ANOM       ECOMPRD/SHOP_PDB     Tablespace ANALYTICS_STAGE grew 39.07 GiB on 2026-11-04 vs usual 1016.8 MiB/day over the last 28 days, robust z +295.9 (+3834% vs median),
                                            +3830% vs 90-day avg rate
 
 WARN TBSPC_NEARFULL   ECOMPRD/SHOP_PDB     Tablespace AUDIT_TRAIL is 92.0% full now (119.60 of 130.00 GiB; forecast quality OK)
 WARN TBSPC_NEARFULL   ECOMPRD/SHOP_PDB     Tablespace CUSTOMER_DATA is 95.0% full now (152.02 of 160.00 GiB; forecast quality OK)
+Elapsed: 00:00:10.35
+Elapsed: 00:00:00.00
 
 == 1a. TABLESPACES BY DAYS-TO-FULL (any quality; top 10) ==
 SEV: CRIT<=30 days, WARN<=90 days (or the tablespace's own override),
@@ -74,13 +79,14 @@ limit for 90 days. ADD_BY = the worst-case fill date (last day + WORST).
 
 DB/PDB               TABLESPACE         PCT_USED   CUR_GIB LIMIT_GIB     MIB/DAY DAYS_FULL     WORST      BEST SEV  GATE     QUALITY                ACCEL CYC_D  PEAK% NEED_90_GIB ADD_BY
 -------------------- ------------------ -------- --------- --------- ----------- --------- --------- --------- ---- -------- -------------------- ------- ----- ------ ----------- ----------
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL            92.0    119.60    130.00     613.664        17        16        18 CRIT          OK                      1.92                    54.40 2026-11-25
-ECOMPRD/SHOP_PDB     ORDERS_DATA            79.8    479.04    600.00    1208.636       102       102       102 OK            OK                      1.03                     0.00 2027-02-19
-ECOMPRD/SHOP_PDB     ANALYTICS_STAGE        50.5    202.02    400.00    1206.476       168       158       179 OK            OK                      2.15                     0.00 2027-04-16
-ECOMPRD/SHOP_PDB     ORDERS_IDX             67.7    203.00    300.00     561.719       176       176       177 OK            OK                      0.99                     0.00 2027-05-04
-ECOMPRD/SHOP_PDB     CUSTOMER_DATA          95.0    152.02    160.00      20.480       399       398       399 OK            OK                      1.00                     0.00 2027-12-12
-ECOMPRD              SYSAUX                 39.2     12.53     32.00      30.720       648       648       649 OK            OK                      1.00                     0.00 2028-08-18
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL            92.0    119.60    130.00     613.664        17        16        18 CRIT          OK                      1.92                    54.40 2026-11-26
+ECOMPRD/SHOP_PDB     ORDERS_DATA            79.8    479.04    600.00    1208.636       102       102       102 OK            OK                      1.03                     0.00 2027-02-20
+ECOMPRD/SHOP_PDB     ANALYTICS_STAGE        50.5    202.02    400.00    1206.476       168       158       179 OK            OK                      2.15                     0.00 2027-04-17
+ECOMPRD/SHOP_PDB     ORDERS_IDX             67.7    203.00    300.00     561.719       176       176       177 OK            OK                      0.99                     0.00 2027-05-05
+ECOMPRD/SHOP_PDB     CUSTOMER_DATA          95.0    152.02    160.00      20.480       399       398       399 OK            OK                      1.00                     0.00 2027-12-13
+ECOMPRD              SYSAUX                 39.2     12.53     32.00      30.720       648       648       649 OK            OK                      1.00                     0.00 2028-08-19
 ECOMPRD/SHOP_PDB     SESSION_STORE          21.7     65.00    300.00    -112.211                               OK   cyclic   CYCLIC                          30   30.8
+Elapsed: 00:00:05.37
 
 == 1b. NEAR-FULL NOW (by PCT_USED, independent of fit quality; top 10) ==
 SEV: CRIT>=97%, WARN>=90% used. A tablespace can be nearly full
@@ -97,6 +103,8 @@ ECOMPRD/SHOP_PDB     ANALYTICS_STAGE        50.5    202.02    400.00       168 O
 ECOMPRD              SYSAUX                 39.2     12.53     32.00       648 OK   OK
 ECOMPRD              SYSTEM                 27.5      1.10      4.00           OK   FLAT
 ECOMPRD/SHOP_PDB     SESSION_STORE          21.7     65.00    300.00           OK   CYCLIC
+Elapsed: 00:00:05.98
+Elapsed: 00:00:00.01
 
 == 2. TABLESPACE FORECAST (GiB): current / +30 / +90 / +180, plus the ESM point ==
 Showing 9 of 9 tablespace(s): growing, near-full, or >= 1 GiB
@@ -110,7 +118,7 @@ horizon); the +30/+90/+365 bands are in CAPF_TBSPC_FORECAST (proj_*_lo/hi).
 
 DB/PDB               TABLESPACE       TRAIN_N   CUR_GIB   +30_GIB   +90_GIB  +180_GIB    180_LO    180_HI      R2 QUALITY                ESM_GIB ESM_H
 -------------------- ---------------- ------- --------- --------- --------- --------- --------- --------- ------- -------------------- --------- -----
-ECOMPRD/SHOP_PDB     ORDERS_DATA           90    479.04    514.45    585.27    691.50    690.42    692.57   1.000 OK                      514.96    30
+ECOMPRD/SHOP_PDB     ORDERS_DATA           90    479.04    514.45    585.27    691.50    690.42    692.57   1.000 OK                      515.01    30
 ECOMPRD/SHOP_PDB     ORDERS_IDX            90    203.00    219.45    252.37    301.74    301.27    302.20   1.000 OK                      219.34    30
 ECOMPRD/SHOP_PDB     ANALYTICS_STAGE       90    202.02    237.37    308.06    414.10    389.34    438.85   0.919 OK                      231.84    30
 ECOMPRD/SHOP_PDB     CUSTOMER_DATA         90    152.02    152.62    153.82    155.62    155.62    155.62   1.000 OK                      152.62    30
@@ -119,6 +127,8 @@ ECOMPRD              SYSAUX                90     12.53     13.43     15.23     
 ECOMPRD/SHOP_PDB     SESSION_STORE         90     65.00     61.71     55.14     45.28    -13.21    103.77   0.017 CYCLIC
 ECOMPRD/SHOP_PDB     PRODUCT_CATALOG       90     12.00     12.00     12.00     12.00     12.00     12.00   1.000 FLAT
 ECOMPRD              SYSTEM                90      1.10      1.10      1.10      1.10      1.10      1.10   1.000 FLAT
+Elapsed: 00:00:12.99
+Elapsed: 00:00:00.00
 
 == 3. TABLESPACE GROWTH ANOMALIES (last 30 days) ==
 Anomaly on the per-day growth RATE (delta/gap), judged against two baselines (MODE):
@@ -130,50 +140,52 @@ VS_MED% / VS_AVG% = growth rate vs the baseline median / the train_days average,
 
 DB/PDB               TABLESPACE       DAY        MODE  GAP  DELTA_MIB RATE_MIB/D  MED_MIB/D  THR_MIB/D ROBUST_Z N_HIST  VS_MED%  VS_AVG% FLAG
 -------------------- ---------------- ---------- ---- ---- ---------- ---------- ---------- ---------- -------- ------ -------- -------- -----
-ECOMPRD/SHOP_PDB     ORDERS_IDX       2026-11-05 DOW     1      465.6      465.6      579.6      100.0     -3.4      8      -20      -17 LOW
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-11-04 DOW     1     1117.6     1117.6      399.1      295.9      7.3      8     +180      +85 HIGH
-ECOMPRD/SHOP_PDB     ANALYTICS_STAGE  2026-11-03 TRL     1    40003.2    40003.2     1016.8      395.3    295.9     28    +3834    +3830 HIGH
-ECOMPRD/SHOP_PDB     ANALYTICS_STAGE  2026-11-03 DOW     1    40003.2    40003.2      981.6      212.2    551.6      8    +3975    +3830 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-11-03 DOW     1     1199.2     1199.2      357.5      202.1     12.5      8     +235     +101 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-11-02 DOW     1     1155.7     1155.7      406.1      388.6      5.8      8     +185      +97 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-11-01 DOW     1     1145.1     1145.1      397.0      332.0      6.8      8     +188      +98 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-31 DOW     1     1175.5     1175.5      385.3      309.0      7.7      8     +205     +106 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-30 DOW     1     1144.5     1144.5      383.1      293.9      7.8      8     +199     +104 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-29 DOW     1     1127.4     1127.4      388.1      175.2     12.7      8     +191     +104 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-28 DOW     1     1217.0     1217.0      383.0      159.8     15.7      8     +218     +124 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-27 DOW     1     1207.4     1207.4      339.8      117.4     22.2      8     +255     +126 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-26 DOW     1     1129.6     1129.6      366.8      208.8     11.0      8     +208     +115 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-25 DOW     1     1206.0     1206.0      388.7      205.1     12.0      8     +210     +133 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-24 DOW     1     1189.7     1189.7      356.4      168.2     14.9      8     +234     +134 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-23 DOW     1     1206.7     1206.7      369.7      190.3     13.2      8     +226     +142 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-22 DOW     1     1222.4     1222.4      374.0      100.0     25.5      8     +227     +150 HIGH
-ECOMPRD/SHOP_PDB     SESSION_STORE    2026-10-22 TRL     1   -74240.0   -74240.0     2560.0      100.0  -2304.0     28    -3000          LOW
-ECOMPRD/SHOP_PDB     SESSION_STORE    2026-10-22 DOW     1   -74240.0   -74240.0     2560.0      100.0  -2304.0      8    -3000          LOW
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-21 TRL     1     1193.7     1193.7      396.5      393.9      6.1     28     +201     +149 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-21 DOW     1     1193.7     1193.7      376.7      159.8     15.3      8     +217     +149 HIGH
-ECOMPRD/SHOP_PDB     ANALYTICS_STAGE  2026-10-20 DOW     1      890.4      890.4     1001.7      100.0     -3.3      8      -11      -12 LOW
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-20 TRL     1     1191.3     1191.3      388.2      356.6      6.8     28     +207     +154 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-20 DOW     1     1191.3     1191.3      327.1      100.1     25.9      8     +264     +154 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-19 TRL     1     1204.5     1204.5      388.2      314.1      7.8     28     +210     +162 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-19 DOW     1     1204.5     1204.5      345.8      120.4     21.4      8     +248     +162 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-18 TRL     1     1179.1     1179.1      379.9      277.3      8.6     28     +210     +161 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-18 DOW     1     1179.1     1179.1      384.1      112.7     21.2      8     +207     +161 HIGH
-ECOMPRD/SHOP_PDB     ORDERS_DATA      2026-10-18 DOW     1      738.9      738.9      962.6      123.6     -5.4      8      -23      -39 LOW
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-17 TRL     1     1117.3     1117.3      379.9      246.5      9.0     28     +194     +152 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-17 DOW     1     1117.3     1117.3      356.4      168.2     13.6      8     +213     +152 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-16 TRL     1     1179.9     1179.9      374.1      214.1     11.3     28     +215     +172 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-16 DOW     1     1179.9     1179.9      367.9      130.4     18.7      8     +221     +172 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-15 TRL     1     1237.8     1237.8      373.9      206.6     12.5     28     +231     +192 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-15 DOW     1     1237.8     1237.8      374.0      100.0     25.9      8     +231     +192 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-14 TRL     1     1216.9     1216.9      373.9      197.4     12.8     28     +225     +194 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-14 DOW     1     1216.9     1216.9      356.9      120.4     21.4      8     +241     +194 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-13 TRL     1     1187.9     1187.9      368.9      169.9     14.5     28     +222     +193 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-13 DOW     1     1187.9     1187.9      327.1      100.1     25.8      8     +263     +193 HIGH
-ECOMPRD/SHOP_PDB     ANALYTICS_STAGE  2026-10-12 DOW     1     1162.4     1162.4      946.2      175.1      3.7      8      +23      +16 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-12 TRL     1     1131.1     1131.1      363.8      155.1     14.8     28     +211     +185 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-12 DOW     1     1131.1     1131.1      345.8      120.4     19.6      8     +227     +185 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-11 TRL     1     1232.9     1232.9      363.8      147.2     17.7     28     +239     +218 HIGH
-ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-11 DOW     1     1232.9     1232.9      375.4      100.0     25.7      8     +228     +218 HIGH
+ECOMPRD/SHOP_PDB     ORDERS_IDX       2026-11-06 DOW     1      465.6      465.6      579.6      100.0     -3.4      8      -20      -17 LOW
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-11-05 DOW     1     1117.6     1117.6      399.1      295.9      7.3      8     +180      +85 HIGH
+ECOMPRD/SHOP_PDB     ANALYTICS_STAGE  2026-11-04 TRL     1    40003.2    40003.2     1016.8      395.3    295.9     28    +3834    +3830 HIGH
+ECOMPRD/SHOP_PDB     ANALYTICS_STAGE  2026-11-04 DOW     1    40003.2    40003.2      981.6      212.2    551.6      8    +3975    +3830 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-11-04 DOW     1     1199.2     1199.2      357.5      202.1     12.5      8     +235     +101 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-11-03 DOW     1     1155.7     1155.7      406.1      388.6      5.8      8     +185      +97 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-11-02 DOW     1     1145.1     1145.1      397.0      332.0      6.8      8     +188      +98 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-11-01 DOW     1     1175.5     1175.5      385.3      309.0      7.7      8     +205     +106 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-31 DOW     1     1144.5     1144.5      383.1      293.9      7.8      8     +199     +104 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-30 DOW     1     1127.4     1127.4      388.1      175.2     12.7      8     +191     +104 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-29 DOW     1     1217.0     1217.0      383.0      159.8     15.7      8     +218     +124 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-28 DOW     1     1207.4     1207.4      339.8      117.4     22.2      8     +255     +126 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-27 DOW     1     1129.6     1129.6      366.8      208.8     11.0      8     +208     +115 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-26 DOW     1     1206.0     1206.0      388.7      205.1     12.0      8     +210     +133 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-25 DOW     1     1189.7     1189.7      356.4      168.2     14.9      8     +234     +134 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-24 DOW     1     1206.7     1206.7      369.7      190.3     13.2      8     +226     +142 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-23 DOW     1     1222.4     1222.4      374.0      100.0     25.5      8     +227     +150 HIGH
+ECOMPRD/SHOP_PDB     SESSION_STORE    2026-10-23 TRL     1   -74240.0   -74240.0     2560.0      100.0  -2304.0     28    -3000          LOW
+ECOMPRD/SHOP_PDB     SESSION_STORE    2026-10-23 DOW     1   -74240.0   -74240.0     2560.0      100.0  -2304.0      8    -3000          LOW
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-22 TRL     1     1193.7     1193.7      396.5      393.9      6.1     28     +201     +149 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-22 DOW     1     1193.7     1193.7      376.7      159.8     15.3      8     +217     +149 HIGH
+ECOMPRD/SHOP_PDB     ANALYTICS_STAGE  2026-10-21 DOW     1      890.4      890.4     1001.7      100.0     -3.3      8      -11      -12 LOW
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-21 TRL     1     1191.3     1191.3      388.2      356.6      6.8     28     +207     +154 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-21 DOW     1     1191.3     1191.3      327.1      100.1     25.9      8     +264     +154 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-20 TRL     1     1204.5     1204.5      388.2      314.1      7.8     28     +210     +162 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-20 DOW     1     1204.5     1204.5      345.8      120.4     21.4      8     +248     +162 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-19 TRL     1     1179.1     1179.1      379.9      277.3      8.6     28     +210     +161 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-19 DOW     1     1179.1     1179.1      384.1      112.7     21.2      8     +207     +161 HIGH
+ECOMPRD/SHOP_PDB     ORDERS_DATA      2026-10-19 DOW     1     1148.5     1148.5     1372.3      123.6     -5.4      8      -16       -5 LOW
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-18 TRL     1     1117.3     1117.3      379.9      246.5      9.0     28     +194     +152 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-18 DOW     1     1117.3     1117.3      356.4      168.2     13.6      8     +213     +152 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-17 TRL     1     1179.9     1179.9      374.1      214.1     11.3     28     +215     +172 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-17 DOW     1     1179.9     1179.9      367.9      130.4     18.7      8     +221     +172 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-16 TRL     1     1237.8     1237.8      373.9      206.6     12.5     28     +231     +192 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-16 DOW     1     1237.8     1237.8      374.0      100.0     25.9      8     +231     +192 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-15 TRL     1     1216.9     1216.9      373.9      197.4     12.8     28     +225     +194 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-15 DOW     1     1216.9     1216.9      356.9      120.4     21.4      8     +241     +194 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-14 TRL     1     1187.9     1187.9      368.9      169.9     14.5     28     +222     +193 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-14 DOW     1     1187.9     1187.9      327.1      100.1     25.8      8     +263     +193 HIGH
+ECOMPRD/SHOP_PDB     ANALYTICS_STAGE  2026-10-13 DOW     1     1162.4     1162.4      946.2      175.1      3.7      8      +23      +16 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-13 TRL     1     1131.1     1131.1      363.8      155.1     14.8     28     +211     +185 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-13 DOW     1     1131.1     1131.1      345.8      120.4     19.6      8     +227     +185 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-12 TRL     1     1232.9     1232.9      363.8      147.2     17.7     28     +239     +218 HIGH
+ECOMPRD/SHOP_PDB     AUDIT_TRAIL      2026-10-12 DOW     1     1232.9     1232.9      375.4      100.0     25.7      8     +228     +218 HIGH
+Elapsed: 00:00:02.47
+Elapsed: 00:00:00.00
 
 == 4. CPU TREND (host busy% avg / p95 / peak window, DB CPU sec and % of logical CPUs) ==
 BUSY_PCT = daily average; BUSY_P95 / BUSY_PEAK = the busy hour (p95 of the
@@ -192,18 +204,21 @@ would-be CPU_SAT / DBCPU_SAT does not page (low-q, short = the trend is not OK).
 TREND SETTINGS
 --------------------------------------------------------------------------------------------------------------
 fit on weekday / weekend demeaned values (cpu_deseason = 1); OK = slope significant (cpu_quality_gate = 1)
+Elapsed: 00:00:00.00
 
 DB/PDB               METRIC       TRAIN_N      CURRENT     SLOPE/DAY      R2  DAYS_SAT     WORST      BEST QUALITY                    ANCHOR SIG HOT SEV  GATE
 -------------------- ------------ ------- ------------ ------------- ------- --------- --------- --------- -------------------- ------------ --- --- ---- --------
-ECOMPRD              BUSY_P95          90        70.22        0.1972   0.695        52        46        61 OK                          69.60 Y   N   WARN
-ECOMPRD              BUSY_PCT          90        54.44        0.1450   0.744       179       160       205 OK                          53.92 Y       OK
-ECOMPRD              BUSY_PEAK         90        67.08        0.1979   0.689        68        60        80 OK                          66.40 Y       OK
-ECOMPRD              DB_CPU_P95        90         1.05        0.0030   0.695     26696     23410     31056 OK                           1.04 Y   N   OK
-ECOMPRD              DB_CPU_PCT        90         0.82        0.0022   0.744     36417     32390     41587 OK                           0.81 Y       OK
-ECOMPRD              DB_CPU_SEC        90     22577.85       60.1218   0.744                               OK                       22359.67 Y       OK
-ECOMPRD/SHOP_PDB     DB_CPU_P95        90        29.84        0.1501   0.480       335       275       430 OK                          29.58 Y   N   OK
-ECOMPRD/SHOP_PDB     DB_CPU_PCT        90        23.14        0.1142   0.478       499       409       641 OK                          22.91 Y       OK
-ECOMPRD/SHOP_PDB     DB_CPU_SEC        90    639705.76     3157.4046   0.478                               OK                      633524.09 Y       OK
+ECOMPRD              BUSY_P95          90        70.22        0.1984   0.702        52        46        60 OK                          69.60 Y   N   WARN
+ECOMPRD              BUSY_PCT          90        54.44        0.1454   0.747       179       159       204 OK                          53.92 Y       OK
+ECOMPRD              BUSY_PEAK         90        67.08        0.1987   0.691        68        59        79 OK                          66.40 Y       OK
+ECOMPRD              DB_CPU_P95        90         1.05        0.0030   0.702     26531     23315     30776 OK                           1.04 Y   N   OK
+ECOMPRD              DB_CPU_PCT        90         0.82        0.0022   0.747     36297     32312     41405 OK                           0.81 Y       OK
+ECOMPRD              DB_CPU_SEC        90     22577.85       60.3198   0.747                               OK                       22359.67 Y       OK
+ECOMPRD/SHOP_PDB     DB_CPU_P95        90        29.84        0.1507   0.483       334       274       428 OK                          29.58 Y   N   OK
+ECOMPRD/SHOP_PDB     DB_CPU_PCT        90        23.14        0.1144   0.480       498       408       639 OK                          22.91 Y       OK
+ECOMPRD/SHOP_PDB     DB_CPU_SEC        90    639705.76     3164.1938   0.480                               OK                      633524.09 Y       OK
+Elapsed: 00:00:10.49
+Elapsed: 00:00:00.00
 
 == 5. CPU ANOMALIES vs trailing / same-weekday / hour-of-week baselines (last 30 days) ==
 METRIC BUSY_PCT = host busy%, DB_CPU_PCT = a container's DB CPU as % of logical CPUs.
@@ -214,77 +229,81 @@ N_HIST = baseline points behind the median. VS_MED% = value vs that median, as a
 
 DB/PDB               METRIC     MODE WHEN                   VALUE%  MEDIAN%  THRESH% ROBUST_Z N_HIST  VS_MED% FLAG
 -------------------- ---------- ---- -------------------- -------- -------- -------- -------- ------ -------- -----
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-09              23.14    12.29     9.00      3.6     28      +88 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-09              23.14    11.93     9.00      3.7      8      +94 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-08              21.67    12.28     9.00      3.1     28      +77 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-08              21.67    11.05     9.00      3.5      8      +96 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-07              21.62    12.23     9.00      3.1     28      +77 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-07              21.62    10.95     9.00      3.6      8      +97 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-06              23.24    12.15     9.00      3.7     28      +91 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-06              23.24    11.78     9.00      3.8      8      +97 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-06 Fri 11:00    30.22    15.09    15.00      3.0      8     +100 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-05              22.96    12.08     9.00      3.6     28      +90 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-05              22.96    11.69     9.00      3.8      8      +96 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-05 Thu 16:00    29.44    14.30    15.00      3.0      8     +106 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-04              22.90    12.04     9.00      3.6     28      +90 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-04              22.90    11.69     9.00      3.7      8      +96 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-04 Wed 10:00    30.09    14.48    15.00      3.1      8     +108 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-04 Wed 12:00    29.98    14.85    15.00      3.0      8     +102 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-04 Wed 14:00    29.81    14.59    15.00      3.0      8     +104 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-03              22.91    12.00     9.00      3.6     28      +91 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-03              22.91    11.73     9.00      3.7      8      +95 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-03 Tue 14:00    29.80    14.78    15.00      3.0      8     +102 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-02              22.97    11.97     9.00      3.7     28      +92 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-02              22.97    11.70     9.00      3.8      8      +96 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 17:00    29.78    14.66    15.00      3.0      8     +103 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-01              21.45    11.96     9.00      3.2     28      +79 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-01              21.45    10.90     9.00      3.5      8      +97 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-10-31              21.38    11.91     9.00      3.2     28      +79 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-10-31              21.38    10.69     9.00      3.6      8     +100 HIGH
-ECOMPRD              BUSY_PCT   TRL  2026-10-30              69.59    47.43     9.00      7.4     28      +47 HIGH
-ECOMPRD              BUSY_PCT   DOW  2026-10-30              69.59    46.36     9.00      7.7      8      +50 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 08:00    78.31    40.11    15.00      7.6      8      +95 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 09:00    74.73    40.91    15.00      6.8      8      +83 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 10:00    97.00    59.64    15.00      7.5      8      +63 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 11:00    97.00    59.89    15.00      7.4      8      +62 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 12:00    97.00    58.29    15.00      7.7      8      +66 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 13:00    97.00    58.48    15.00      7.7      8      +66 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 14:00    97.00    58.13    15.00      7.8      8      +67 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 15:00    97.00    60.21    15.00      7.4      8      +61 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 16:00    97.00    58.80    15.00      7.6      8      +65 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 17:00    97.00    58.69    15.00      7.7      8      +65 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 18:00    97.00    59.63    15.00      7.5      8      +63 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 19:00    84.24    48.34    15.00      7.2      8      +74 HIGH
-ECOMPRD              BUSY_PCT   HOW  2026-10-30 Fri 20:00    88.28    47.18    15.00      8.2      8      +87 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-10-30              29.58    11.86     9.00      5.9     28     +149 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-10-30              29.58    11.59     9.00      6.0      8     +155 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 08:00    33.28    10.03    15.00      4.7      8     +232 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 09:00    31.76    10.23    15.00      4.3      8     +211 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 10:00    41.23    14.91    15.00      5.3      8     +176 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 11:00    41.23    14.97    15.00      5.3      8     +175 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 12:00    41.23    14.57    15.00      5.3      8     +183 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 13:00    41.23    14.62    15.00      5.3      8     +182 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 14:00    41.23    14.53    15.00      5.3      8     +184 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 15:00    41.23    15.05    15.00      5.2      8     +174 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 16:00    41.23    14.70    15.00      5.3      8     +180 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 17:00    41.23    14.67    15.00      5.3      8     +181 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 18:00    41.23    14.91    15.00      5.3      8     +177 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 19:00    35.80    12.08    15.00      4.7      8     +196 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 20:00    37.52    11.80    15.00      5.1      8     +218 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-10-29              22.86    11.83     9.00      3.7     28      +93 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-10-29              22.86    11.47     9.00      3.8      8      +99 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-29 Thu 16:00    29.49    14.24    15.00      3.0      8     +107 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-10-28              22.71    11.81     9.00      3.6     28      +92 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-10-28              22.71    11.48     9.00      3.7      8      +98 HIGH
-ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-28 Wed 10:00    29.35    14.15    15.00      3.0      8     +107 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-10              23.14    12.33     9.00      3.6     28      +88 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-10              23.14    11.93     9.00      3.7      8      +94 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-09              23.18    12.28     9.00      3.6     28      +89 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-09              23.18    11.87     9.00      3.8      8      +95 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-09 Mon 10:00    30.20    14.87    15.00      3.1      8     +103 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-09 Mon 11:00    30.06    14.92    15.00      3.0      8     +101 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-08              21.62    12.23     9.00      3.1     28      +77 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-08              21.62    10.95     9.00      3.6      8      +97 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-07              21.74    12.15     9.00      3.2     28      +79 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-07              21.74    10.96     9.00      3.6      8      +98 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-06              22.96    12.10     9.00      3.6     28      +90 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-06              22.96    11.69     9.00      3.8      8      +96 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-06 Fri 16:00    29.44    14.30    15.00      3.0      8     +106 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-05              22.90    12.06     9.00      3.6     28      +90 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-05              22.90    11.69     9.00      3.7      8      +96 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-05 Thu 10:00    30.09    14.48    15.00      3.1      8     +108 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-05 Thu 12:00    29.98    14.85    15.00      3.0      8     +102 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-05 Thu 14:00    29.81    14.59    15.00      3.0      8     +104 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-04              22.91    12.04     9.00      3.6     28      +90 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-04              22.91    11.73     9.00      3.7      8      +95 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-04 Wed 14:00    29.80    14.78    15.00      3.0      8     +102 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-03              22.97    12.00     9.00      3.7     28      +91 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-03              22.97    11.70     9.00      3.8      8      +96 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-03 Tue 17:00    29.78    14.66    15.00      3.0      8     +103 HIGH
+ECOMPRD              BUSY_PCT   TRL  2026-11-02              69.80    47.89     9.00      7.3     28      +46 HIGH
+ECOMPRD              BUSY_PCT   DOW  2026-11-02              69.80    46.82     9.00      7.7      8      +49 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 08:00    75.10    42.00    15.00      6.6      8      +79 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 09:00    78.31    43.09    15.00      7.0      8      +82 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 10:00    97.00    58.96    15.00      7.6      8      +65 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 11:00    97.00    59.11    15.00      7.6      8      +64 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 12:00    97.00    59.57    15.00      7.5      8      +63 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 13:00    97.00    60.40    15.00      7.3      8      +61 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 14:00    97.00    59.69    15.00      7.5      8      +63 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 15:00    97.00    57.81    15.00      7.8      8      +68 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 16:00    97.00    58.11    15.00      7.8      8      +67 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 17:00    97.00    61.02    15.00      7.2      8      +59 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 18:00    97.00    57.19    15.00      8.0      8      +70 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 19:00    88.48    46.97    15.00      8.3      8      +88 HIGH
+ECOMPRD              BUSY_PCT   HOW  2026-11-02 Mon 20:00    85.29    47.70    15.00      7.5      8      +79 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-02              29.66    11.97     9.00      5.9     28     +148 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-02              29.66    11.70     9.00      6.0      8     +153 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 08:00    31.92    10.50    15.00      4.3      8     +204 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 09:00    33.28    10.77    15.00      4.5      8     +209 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 10:00    41.23    14.74    15.00      5.3      8     +180 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 11:00    41.23    14.78    15.00      5.3      8     +179 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 12:00    41.23    14.89    15.00      5.3      8     +177 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 13:00    41.23    15.10    15.00      5.2      8     +173 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 14:00    41.23    14.92    15.00      5.3      8     +176 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 15:00    41.23    14.45    15.00      5.4      8     +185 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 16:00    41.23    14.53    15.00      5.3      8     +184 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 17:00    41.23    15.25    15.00      5.2      8     +170 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 18:00    41.23    14.30    15.00      5.4      8     +188 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 19:00    37.61    11.74    15.00      5.2      8     +220 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-11-02 Mon 20:00    36.25    11.92    15.00      4.9      8     +204 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-11-01              21.38    11.96     9.00      3.1     28      +79 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-11-01              21.38    10.69     9.00      3.6      8     +100 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-10-31              21.35    11.91     9.00      3.1     28      +79 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-10-31              21.35    10.78     9.00      3.5      8      +98 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-10-30              22.86    11.86     9.00      3.7     28      +93 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-10-30              22.86    11.47     9.00      3.8      8      +99 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-30 Fri 16:00    29.49    14.24    15.00      3.0      8     +107 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT TRL  2026-10-29              22.71    11.83     9.00      3.6     28      +92 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT DOW  2026-10-29              22.71    11.48     9.00      3.7      8      +98 HIGH
+ECOMPRD/SHOP_PDB     DB_CPU_PCT HOW  2026-10-29 Thu 10:00    29.35    14.15    15.00      3.0      8     +107 HIGH
+Elapsed: 00:00:02.13
 
 == 5b. CPU LEVEL SHIFTS (sustained step, not a one-day outlier) ==
 Recent-window median vs the baseline median before it. Flagged only when
 the gap exceeds THRESH points AND every day of the recent window sits
 above (UP) or below (DOWN) the baseline median +/- its MAD sigma.
+Elapsed: 00:00:00.77
+Elapsed: 00:00:00.00
 
 == 6. TIER 2 (ESM) vs TIER 1 (REGR) ==
-OML ESM forecast models: 9 ok, 0 failed, 0 stale (detail: CAPF_ESM_HEALTH).
+OML ESM forecast models: 16 ok, 0 failed, 0 stale (detail: CAPF_ESM_HEALTH).
 If none: run  EXEC cap_forecast_ml.train_all
 The ESM value is the model's furthest step, at most +30 (19c hard cap).
 ESM_AT shows that step when it is not +30 (short history: rows/4).
@@ -298,7 +317,7 @@ section 2 (growing, near-full, or >= 1 GiB used, top 10):
 
 DB/PDB               TABLESPACE       HORIZON  REGR_GIB   ESM_GIB    ESM_LO    ESM_HI ESM_MODEL ESM_AT AGE_D
 -------------------- ---------------- ------- --------- --------- --------- --------- --------- ------ -----
-ECOMPRD/SHOP_PDB     ORDERS_DATA           30    514.45    514.96    511.74    518.18 HOLT                 0
+ECOMPRD/SHOP_PDB     ORDERS_DATA           30    514.45    515.01    511.62    518.40 HOLT                 0
 ECOMPRD/SHOP_PDB     ORDERS_DATA           90    585.27
 ECOMPRD/SHOP_PDB     ORDERS_DATA          180    691.50
 ECOMPRD/SHOP_PDB     ORDERS_DATA          365    909.85
@@ -334,29 +353,31 @@ ECOMPRD              SYSTEM                30      1.10
 ECOMPRD              SYSTEM                90      1.10
 ECOMPRD              SYSTEM               180      1.10
 ECOMPRD              SYSTEM               365      1.10
+Elapsed: 00:00:13.23
 
 6b. CPU (busy% / DB CPU sec):
 
 DB/PDB               METRIC       HORIZON         REGR          ESM       ESM_LO       ESM_HI ESM_MODEL ESM_AT AGE_D
 -------------------- ------------ ------- ------------ ------------ ------------ ------------ --------- ------ -----
-ECOMPRD              BUSY_P95          30        75.52
-ECOMPRD              BUSY_P95          90        87.35
-ECOMPRD              BUSY_PCT          30        58.26        58.23        49.20        67.26 ADDW                 0
-ECOMPRD              BUSY_PCT          90        66.96
-ECOMPRD              BUSY_PEAK         30        72.34
-ECOMPRD              BUSY_PEAK         90        84.21
+ECOMPRD              BUSY_P95          30        75.56
+ECOMPRD              BUSY_P95          90        87.46
+ECOMPRD              BUSY_PCT          30        58.28        59.10        49.42        68.79 ADDW                 0
+ECOMPRD              BUSY_PCT          90        67.01
+ECOMPRD              BUSY_PEAK         30        72.36
+ECOMPRD              BUSY_PEAK         90        84.28
 ECOMPRD              DB_CPU_P95        30         1.13
 ECOMPRD              DB_CPU_P95        90         1.31
 ECOMPRD              DB_CPU_PCT        30         0.87
-ECOMPRD              DB_CPU_PCT        90         1.00
-ECOMPRD              DB_CPU_SEC        30     24163.33     23725.80     19958.96     27492.64 ADDW                 0
-ECOMPRD              DB_CPU_SEC        90     27770.64
-ECOMPRD/SHOP_PDB     DB_CPU_P95        30        34.09
-ECOMPRD/SHOP_PDB     DB_CPU_P95        90        43.09
-ECOMPRD/SHOP_PDB     DB_CPU_PCT        30        26.34
-ECOMPRD/SHOP_PDB     DB_CPU_PCT        90        33.19
-ECOMPRD/SHOP_PDB     DB_CPU_SEC        30    728246.23    681150.83    367181.19    995120.46 ADDW                 0
-ECOMPRD/SHOP_PDB     DB_CPU_SEC        90    917690.50
+ECOMPRD              DB_CPU_PCT        90         1.01
+ECOMPRD              DB_CPU_SEC        30     24169.27     23288.97     19264.00     27313.95 ADDW                 0
+ECOMPRD              DB_CPU_SEC        90     27788.45
+ECOMPRD/SHOP_PDB     DB_CPU_P95        30        34.10
+ECOMPRD/SHOP_PDB     DB_CPU_P95        90        43.15
+ECOMPRD/SHOP_PDB     DB_CPU_PCT        30        26.35
+ECOMPRD/SHOP_PDB     DB_CPU_PCT        90        33.21
+ECOMPRD/SHOP_PDB     DB_CPU_SEC        30    728449.90    683570.47    408966.05    958174.90 ADDW                 0
+ECOMPRD/SHOP_PDB     DB_CPU_SEC        90    918301.52
+Elapsed: 00:00:13.27
 
 6c. Backtest -- which engine was right over the held-out window (M9.4):
 Each engine forecast the last holdout window from data BEFORE it
@@ -369,25 +390,30 @@ ESM_PICK (M10.4) = the model type AUTO chose and why, as
 
 DB/PDB               KIND   SERIES           CUTOFF     REGR_MAPE% REGR_BIAS% ESM_MAPE% ESM_BIAS% BETTER ESM_PICK
 -------------------- ------ ---------------- ---------- ---------- ---------- --------- --------- ------ ------------------------
-ECOMPRD              CPU    BUSY_PCT         2026-10-12       5.45      -3.85      5.78     -4.50 REGR   ADDW (default)
-ECOMPRD              CPU    DB_CPU_SEC       2026-10-12       5.45      -3.85      6.00     -4.83 REGR   ADDW (default)
-ECOMPRD              TBSPC  SYSAUX           2026-10-12       0.00      +0.00      0.00     +0.00 ESM    HOLT tie H=0.00 W=0.00
-ECOMPRD              TBSPC  SYSTEM           2026-10-12       0.00      +0.00
-ECOMPRD/SHOP_PDB     CPU    DB_CPU_SEC       2026-10-12      22.91     -21.31     23.23    -22.07 REGR   ADDW (default)
-ECOMPRD/SHOP_PDB     TBSPC  ANALYTICS_STAGE  2026-10-12       4.95      -4.94      4.88     -4.88 ESM    HOLT tie H=4.88 W=4.95
-ECOMPRD/SHOP_PDB     TBSPC  AUDIT_TRAIL      2026-10-12      10.65     -10.65      0.48     -0.48 ESM    HOLT H=0.48 W=1.50
-ECOMPRD/SHOP_PDB     TBSPC  CUSTOMER_DATA    2026-10-12       0.00      -0.00      0.00     -0.00 ESM    HOLT tie H=0.00 W=0.00
-ECOMPRD/SHOP_PDB     TBSPC  ORDERS_DATA      2026-10-12       0.10      -0.06      0.08     -0.04 ESM    HOLT tie H=0.08 W=0.06
-ECOMPRD/SHOP_PDB     TBSPC  ORDERS_IDX       2026-10-12       0.11      +0.10      0.14     +0.14 REGR   HOLT tie H=0.14 W=0.12
-ECOMPRD/SHOP_PDB     TBSPC  PRODUCT_CATALOG  2026-10-12       0.00      +0.00
-ECOMPRD/SHOP_PDB     TBSPC  SESSION_STORE    2026-10-12      60.91     +51.23
+ECOMPRD              CPU    BUSY_PCT         2026-10-13       5.49      -3.81      5.09     -2.95 ESM    ADDW (default)
+ECOMPRD              CPU    DB_CPU_SEC       2026-10-13       5.49      -3.81      5.84     -4.22 REGR   ADDW (default)
+ECOMPRD              TBSPC  SYSAUX           2026-10-13       0.00      +0.00      0.00     +0.00 ESM    HOLT tie H=0.00 W=0.00
+ECOMPRD              TBSPC  SYSTEM           2026-10-13       0.00      +0.00
+ECOMPRD/SHOP_PDB     CPU    DB_CPU_SEC       2026-10-13      22.97     -21.28     23.20    -21.58 REGR   ADDW (default)
+ECOMPRD/SHOP_PDB     TBSPC  ANALYTICS_STAGE  2026-10-13       4.95      -4.94      4.88     -4.88 ESM    HOLT tie H=4.88 W=4.95
+ECOMPRD/SHOP_PDB     TBSPC  AUDIT_TRAIL      2026-10-13      10.65     -10.65      0.48     -0.48 ESM    HOLT H=0.48 W=1.50
+ECOMPRD/SHOP_PDB     TBSPC  CUSTOMER_DATA    2026-10-13       0.00      -0.00      0.00     -0.00 ESM    HOLT tie H=0.00 W=0.00
+ECOMPRD/SHOP_PDB     TBSPC  ORDERS_DATA      2026-10-13       0.09      -0.04      0.07     -0.01 ESM    HOLT tie H=0.07 W=0.06
+ECOMPRD/SHOP_PDB     TBSPC  ORDERS_IDX       2026-10-13       0.11      +0.10      0.14     +0.14 REGR   HOLT tie H=0.14 W=0.12
+ECOMPRD/SHOP_PDB     TBSPC  PRODUCT_CATALOG  2026-10-13       0.00      +0.00
+ECOMPRD/SHOP_PDB     TBSPC  SESSION_STORE    2026-10-13      60.91     +51.23
+Elapsed: 00:00:01.76
+Elapsed: 00:00:00.00
 
-== 7. FIXED-CEILING SERIES (processes / sessions / redo / DB size / ASM / TEMP / UNDO) ==
+== 7. FIXED-CEILING SERIES (processes / sessions / PGA / redo / DB size / ASM / TEMP / UNDO) ==
 PROCESSES, SESSIONS  peak concurrency (AWR max_utilization, a
 high-water mark since instance startup) against
 the init parameter. RAC: summed over instances,
 and INST_PCT is the worst instance's percent of
 its own limit (SERIES_NEARLIMIT judges the larger).
+PGA_ALLOC_GB         the day's highest sampled PGA allocation, GiB,
+against pga_aggregate_limit (no ceiling when 0).
+RAC: summed, INST_PCT as for SESSIONS.
 REDO_GB_DAY          redo written per day, GiB. No ceiling -- it is a
 trend for FRA / archive-destination sizing.
 FRA_DAYS = days of redo db_recovery_file_dest_size
@@ -407,10 +433,13 @@ DB/PDB               SERIES               UNIT        TRAIN_N      CURRENT      
 -------------------- -------------------- ----------- ------- ------------ ------------ ------------ ------- -------- ------------- ------- --------- --------- --------- ---- --------------------
   FRA_DAYS
 ----------
-ECOMPRD/SHOP_PDB     SESSIONS             COUNT            90      1094.00      1300.00      1170.00    84.2     84.2        2.1969   0.998        34        34        34 WARN OK
+ECOMPRD/SHOP_PDB     SESSIONS             COUNT            90      1094.00      1300.00      1170.00    84.2     84.2        2.2009   0.998        34        34        34 WARN OK
 
 
 ECOMPRD/SHOP_PDB     DB_SIZE_GB           GIB              90      1232.67      1906.00      1715.40    64.7                 3.4168   0.923       141       133       150 OK   OK
+
+
+ECOMPRD              PGA_ALLOC_GB         GIB              90        13.00        20.00        18.00    65.0     65.0        0.0100   1.000       499       499       500 OK   OK
 
 
 ECOMPRD              DB_SIZE_GB           GIB              90        13.63        36.00        32.40    37.9                 0.0300   1.000       625       625       625 OK   OK
@@ -422,9 +451,10 @@ ECOMPRD/SHOP_PDB     PROCESSES            COUNT            90       912.00      
 ECOMPRD              UNDO_PEAK:UNDOTBS1   GIB              90         6.00        12.00        10.80    50.0                 0.0000   1.000                               OK   FLAT
 
 
-ECOMPRD              REDO_GB_DAY          GIB_PER_DAY      90        57.49                                                   0.1516   0.657                               OK   OK
+ECOMPRD              REDO_GB_DAY          GIB_PER_DAY      90        57.49                                                   0.1536   0.663                               OK   OK
 
 
+Elapsed: 00:00:05.73
 
 == 7b. SERIES ANOMALIES (last 30 days) ==
 PROCESSES / SESSIONS / REDO_GB_DAY are scored on their daily level, DB_SIZE_GB on its
@@ -434,39 +464,144 @@ floored); N_HIST = baseline days behind the median. One row per flagging mode.
 
 DB/PDB               SERIES       UNIT        DAY        MODE        VALUE       MEDIAN    THRESHOLD ROBUST_Z N_HIST  VS_MED% FLAG
 -------------------- ------------ ----------- ---------- ---- ------------ ------------ ------------ -------- ------ -------- -----
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-08 DOW         53.84        46.68         6.21      3.5      8      +15 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-07 DOW         53.72        46.25         7.41      3.0      8      +16 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-06 DOW         57.75        49.75         6.61      3.6      8      +16 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-04 TRL         56.90        50.84         6.01      3.0     28      +12 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-04 DOW         56.90        49.39         7.15      3.2      8      +15 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-03 TRL         56.93        50.70         5.53      3.4     28      +12 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-03 DOW         56.93        49.53         6.08      3.7      8      +15 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-11-03 TRL         44.53         6.41         1.07    107.0     28     +595 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-11-03 DOW         44.53         5.80         1.39     83.9      8     +668 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-02 TRL         57.07        50.58         5.66      3.4     28      +13 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-02 DOW         57.07        49.43         7.10      3.2      8      +15 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-01 DOW         53.29        46.03         5.98      3.6      8      +16 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-31 DOW         53.11        45.14         6.69      3.6      8      +18 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-30 TRL         73.49        50.09         5.92     11.9     28      +47 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-30 DOW         73.49        48.96         5.74     12.8      8      +50 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-29 TRL         56.81        49.98         5.33      3.8     28      +14 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-29 DOW         56.81        48.45         5.37      4.7      8      +17 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-29 DOW          6.73         5.78         0.86      3.3      8      +16 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-28 TRL         56.42        49.90         5.02      3.9     28      +13 HIGH
-ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-28 DOW         56.42        48.49         7.76      3.1      8      +16 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-28 DOW          6.62         5.86         0.71      3.2      8      +13 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-27 DOW          6.71         5.80         0.76      3.6      8      +16 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-24 DOW          6.28         5.30         0.94      3.1      8      +18 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-22 TRL        -68.28         5.97         1.93   -115.3     28    -1243 LOW
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-22 DOW        -68.28         5.78         0.73   -305.8      8    -1280 LOW
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-21 DOW          6.41         5.86         0.50      3.3      8       +9 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-19 DOW          6.41         5.64         0.50      4.6      8      +14 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-16 DOW          6.86         5.74         0.64      5.3      8      +20 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-15 DOW          6.43         5.73         0.59      3.6      8      +12 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-14 DOW          6.62         5.78         0.52      4.9      8      +15 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-13 DOW          6.51         5.66         0.64      4.0      8      +15 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-12 DOW          6.69         5.56         0.50      6.8      8      +20 HIGH
-ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-11 DOW          6.20         5.29         0.63      4.3      8      +17 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-09 DOW         57.59        50.15         6.77      3.3      8      +15 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-08 DOW         53.72        46.25         7.41      3.0      8      +16 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-07 DOW         54.02        46.30         6.05      3.8      8      +17 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-05 DOW         56.90        49.39         7.15      3.2      8      +15 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-04 DOW         56.93        49.53         6.08      3.7      8      +15 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-11-04 TRL         44.53         6.44         0.94    121.2     28     +592 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-11-04 DOW         44.53         5.80         1.39     83.9      8     +668 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-03 TRL         57.07        50.70         5.53      3.5     28      +13 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-03 DOW         57.07        49.43         7.10      3.2      8      +15 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-02 TRL         73.71        50.57         5.32     13.0     28      +46 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-02 DOW         73.71        49.44         6.53     11.1      8      +49 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-11-01 DOW         53.11        45.14         6.69      3.6      8      +18 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-31 DOW         53.04        45.54         5.47      4.1      8      +16 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-30 TRL         56.81        50.09         5.54      3.6     28      +13 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-30 DOW         56.81        48.45         5.37      4.7      8      +17 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-30 DOW          6.73         5.78         0.86      3.3      8      +16 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-29 TRL         56.42        49.97         5.50      3.5     28      +13 HIGH
+ECOMPRD              REDO_GB_DAY  GIB_PER_DAY 2026-10-29 DOW         56.42        48.49         7.76      3.1      8      +16 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-29 DOW          6.62         5.86         0.71      3.2      8      +13 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-28 DOW          6.71         5.80         0.76      3.6      8      +16 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-25 DOW          6.28         5.30         0.94      3.1      8      +18 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-23 TRL        -68.28         5.97         1.87   -119.0     28    -1243 LOW
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-23 DOW        -68.28         5.78         0.73   -305.8      8    -1280 LOW
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-22 DOW          6.41         5.86         0.50      3.3      8       +9 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-20 DOW          6.41         5.64         0.50      4.6      8      +14 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-17 DOW          6.46         5.34         0.64      5.3      8      +21 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-16 DOW          6.43         5.73         0.59      3.6      8      +12 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-15 DOW          6.62         5.78         0.52      4.9      8      +15 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-14 DOW          6.51         5.66         0.64      4.0      8      +15 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-13 DOW          6.69         5.56         0.50      6.8      8      +20 HIGH
+ECOMPRD/SHOP_PDB     DB_SIZE_GB   GIB_PER_DAY 2026-10-12 DOW          6.60         5.69         0.63      4.3      8      +16 HIGH
+Elapsed: 00:00:02.01
+Elapsed: 00:00:00.00
+
+== 8. INSTANCE MEMORY (SGA / PGA sizing verdicts) ==
+One row per instance and memory area, judged on the last 30 days of AWR up to the
+database's newest snapshot (WINDOW; DAYS = days sampled in it). An uptime shorter than
+24 hours adds no advisor evidence (a cold cache distorts the estimates); its symptoms count.
+UNDERSIZED: the advisor estimates a material gain at a larger size AND a pressure symptom
+was observed. Either one alone grades OK, and the reason names it. The PGA limit has no
+advisor: it is UNDERSIZED when a window peak reached 90% of pga_aggregate_limit.
+OVERSIZED: the advisor estimates almost no cost at a smaller size, no pressure was observed,
+and at least 21 days were sampled. OK: no change advised. INSUFFICIENT_EVIDENCE: the
+reason says what is missing (advisor history, AMM, memory history, 7 sampled days).
+SGA balance: THRASHING = ASMM keeps moving memory between the buffer cache and the shared
+pool, DRIFTING = it squeezed one pool in favour of the other. MODE: ASMM, AMM or MANUAL.
+SUGGESTED: a size the advisor evaluated (PGA limit: the size that puts the peak at 90%),
+at most 2 times and at least 1/2 of the current size. It is one step: re-evaluate
+after the change. Empty: no change advised. Under ASMM a buffer cache or shared pool
+suggestion is a floor (the least ASMM may give the pool), not a fixed size, and so is the
+floor of a THRASHING balance.
+HOST = Y: the suggestion plus the rest of the instance passes 80% of the host's physical
+memory (empty: unknown, or nothing suggested). Other instances on the same host are not seen.
+SGA = Y: the buffer cache or shared pool floor is more than the two pools hold together now,
+so it cannot fit in sga_target: raise sga_target first.
+Advice only: the suite never changes a parameter, and memory verdicts raise no alert.
+
+DB/PDB                INST AREA         MODE   GRADE                 CURRENT   SUGGESTED CHANGE% PARAMETER            HOST SGA  DAYS WINDOW
+-------------------- ----- ------------ ------ --------------------- --------- --------- ------- -------------------- ---- --- ----- ----------------------
+ECOMPRD                  1 SGA total    ASMM   OVERSIZED             48 GiB    42 GiB      -12.5 sga_target           N           30 2026-10-11..2026-11-10
+ECOMPRD                  1 Buffer cache ASMM   OVERSIZED             37 GiB    30 GiB      -18.9 db_cache_size             N      30 2026-10-11..2026-11-10
+ECOMPRD                  1 Shared pool  ASMM   OK                    9 GiB                       shared_pool_size                 30 2026-10-11..2026-11-10
+ECOMPRD                  1 SGA balance  ASMM   OK                    48 GiB                                                       30 2026-10-11..2026-11-10
+ECOMPRD                  1 PGA target   ASMM   UNDERSIZED            10 GiB    14 GiB      +40.0 pga_aggregate_target N           30 2026-10-11..2026-11-10
+ECOMPRD                  1 PGA limit    ASMM   OK                    20 GiB                      pga_aggregate_limit              30 2026-10-11..2026-11-10
+Elapsed: 00:01:00.46
+
+What each verdict says, and why.
+
+DB/PDB                INST AREA         VERDICT                                                                               WHY
+-------------------- ----- ------------ ------------------------------------------------------------------------------------- ----------------------------------------------------------------------
+ECOMPRD                  1 SGA total    SGA total is oversized. It could shrink from 48 GiB to 42 GiB.                        The advisor estimates almost no cost at a smaller size, and no
+                                                                                                                              pressure was observed.
+
+ECOMPRD                  1 Buffer cache Buffer cache is oversized. It could shrink from 37 GiB to 30 GiB.                     The advisor estimates almost no cost at a smaller size, and no
+                                                                                                                              pressure was observed.
+
+ECOMPRD                  1 Shared pool  Shared pool needs no change.                                                          Neither a larger nor a smaller size would change much.
+ECOMPRD                  1 SGA balance  SGA balance needs no change.                                                          The split between the buffer cache and the shared pool is stable.
+ECOMPRD                  1 PGA target   PGA target is undersized. Raise pga_aggregate_target from 10 GiB to 14 GiB.           The advisor estimates a material gain at a larger size, and a pressure
+                                                                                                                              symptom was observed.
+
+ECOMPRD                  1 PGA limit    PGA limit needs no change.                                                            PGA allocation stayed clear of pga_aggregate_limit.
+Elapsed: 00:00:56.62
+
+== 8b. MEMORY EVIDENCE (every signal behind the verdicts) ==
+KIND: USAGE (PGA allocation against the limit), ADVISOR (an advisor estimate at another
+size), SYMPTOM (pressure observed in the window), CONTEXT (shown, never decides).
+DIRECTION: PRESSURE (argues for more memory), SLACK (for less), NEUTRAL (neither).
+A verdict is derived from these lines only. Each sentence carries its value and threshold.
+
+DB/PDB                INST AREA         KIND    DIRECTION EVIDENCE
+-------------------- ----- ------------ ------- --------- --------------------------------------------------------------------------------------------------------------------------------------------
+ECOMPRD                  1 SGA total    ADVISOR SLACK     The SGA advisor estimates 0.40% of DB time lost at 42.00 GiB against the current 48.00 GiB (threshold 0.5%).
+ECOMPRD                  1 SGA total    ADVISOR NEUTRAL   The SGA advisor estimates 0.20% of DB time saved at 72.00 GiB against the current 48.00 GiB (threshold 1%).
+ECOMPRD                  1 SGA total    SYMPTOM NEUTRAL   An SGA component was grown by force (IMMEDIATE) in 0 snapshot intervals of the window (threshold 1).
+ECOMPRD                  1 SGA total    SYMPTOM NEUTRAL   0 of the buffer cache and the shared pool show a pressure symptom in the window (threshold 2).
+ECOMPRD                  1 Buffer cache ADVISOR SLACK     The buffer cache advisor estimates 0.40% of DB time lost at 30.00 GiB against the current 37.00 GiB (threshold 0.5%).
+ECOMPRD                  1 Buffer cache ADVISOR NEUTRAL   The buffer cache advisor estimates 0.15% of DB time saved at 64.00 GiB against the current 37.00 GiB (threshold 1%).
+ECOMPRD                  1 Buffer cache SYMPTOM NEUTRAL   Free buffer waits took 0.02% of DB time in the window (threshold 0.1%).
+ECOMPRD                  1 Buffer cache SYMPTOM NEUTRAL   The instance grew the buffer cache in 0 snapshot intervals of the window (threshold 1).
+ECOMPRD                  1 Shared pool  ADVISOR NEUTRAL   The shared pool advisor estimates 0.18% of DB time saved at 11.50 GiB against the current 9.00 GiB (threshold 1%).
+ECOMPRD                  1 Shared pool  ADVISOR NEUTRAL   The shared pool advisor estimates 0.60% of DB time lost at 8.50 GiB against the current 9.00 GiB (threshold 0.5%).
+ECOMPRD                  1 Shared pool  SYMPTOM NEUTRAL   The shared pool was grown by force (IMMEDIATE) in 0 snapshot intervals of the window (threshold 1).
+ECOMPRD                  1 Shared pool  SYMPTOM NEUTRAL   Library cache reloads were 0.30% of pins in the window (threshold 1%).
+ECOMPRD                  1 Shared pool  SYMPTOM NEUTRAL   Dictionary cache misses were 1.50% of gets in the window (threshold 5%).
+ECOMPRD                  1 Shared pool  SYMPTOM NEUTRAL   Shared pool latch, library cache mutex and load lock waits and forced component growth took 0.03% of DB time in the window (threshold 0.1%).
+ECOMPRD                  1 Shared pool  CONTEXT NEUTRAL   The smallest free share of the shared pool was 4.38% at 2026-10-29 09:00 (threshold 25%).
+ECOMPRD                  1 SGA balance  SYMPTOM NEUTRAL   The buffer cache shrank from its window peak of 38.00 GiB to 37.00 GiB while the shared pool grew from its window low of 8.00 GiB to 9.00
+                                                          GiB, a shift of 2.08% of sga_target (threshold 10%).
+
+ECOMPRD                  1 SGA balance  SYMPTOM NEUTRAL   The SGA components were resized 0.07 times per sampled day in the window (threshold 10 a day).
+ECOMPRD                  1 SGA balance  SYMPTOM NEUTRAL   The buffer cache and the shared pool reversed direction 0 times in the window (threshold 2).
+ECOMPRD                  1 PGA target   ADVISOR PRESSURE  The PGA advisor estimates a cache hit gain of 12.00 points at 20.00 GiB against the current 10.00 GiB (threshold 2 points).
+ECOMPRD                  1 PGA target   ADVISOR PRESSURE  The PGA advisor counted 90 over-allocations in the window at the current 10.00 GiB (threshold 1).
+ECOMPRD                  1 PGA target   ADVISOR NEUTRAL   The PGA advisor estimates a cache hit loss of 6.00 points at 7.50 GiB against the current 10.00 GiB (threshold 0.5 points).
+ECOMPRD                  1 PGA target   SYMPTOM PRESSURE  Multi-pass executions were 0.31% of all work area executions in the window (threshold 0.1%).
+ECOMPRD                  1 PGA target   SYMPTOM PRESSURE  The instance over-allocated PGA memory 90 times in the window (threshold 1).
+ECOMPRD                  1 PGA target   SYMPTOM PRESSURE  Direct path I/O on temporary segments took 6.00% of DB time in the window (threshold 5%).
+ECOMPRD                  1 PGA target   SYMPTOM NEUTRAL   One-pass executions were 3.75% of all work area executions in the window (threshold 5%).
+ECOMPRD                  1 PGA target   CONTEXT NEUTRAL   The smallest share of the PGA target left for automatic work areas was 30.00% at 2026-11-10 03:00.
+ECOMPRD                  1 PGA limit    USAGE   NEUTRAL   The PGA high-water mark rose to 13.39 GiB at 2026-11-10 03:00, 66.95% of pga_aggregate_limit 20.00 GiB (threshold 90%).
+ECOMPRD                  1 PGA limit    USAGE   NEUTRAL   The highest sampled PGA allocation was 13.00 GiB at 2026-11-10 03:00, 65.00% of pga_aggregate_limit 20.00 GiB (threshold 90%).
+Elapsed: 00:00:27.11
+
+== 8c. SGA COMPONENTS (where the SGA goes, over the window) ==
+Sizes in MiB: CURRENT at the latest snapshot, MIN / MAX over the window. PCT = share of the
+listed components. OPS = resize operations; GROWS / SHRINKS = snapshot intervals in which the
+component rose / fell; FORCED = rises whose last operation was IMMEDIATE (to avoid an
+allocation failure). The minor pools and the In-Memory area are listed with no grade.
+
+DB/PDB                INST COMPONENT                     CURRENT      MIN      MAX    PCT     OPS  GROWS  SHRINKS  FORCED LAST_RESIZE
+-------------------- ----- ---------------------------- -------- -------- -------- ------ ------- ------ -------- ------- ----------------
+ECOMPRD                  1 DEFAULT buffer cache            37888    37888    38912   77.9       1      0        1       0 2026-10-29 10:00
+ECOMPRD                  1 shared pool                      9216     8192     9216   18.9       1      1        0       0 2026-10-29 10:00
+ECOMPRD                  1 large pool                       1024     1024     1024    2.1       0      0        0       0
+ECOMPRD                  1 java pool                         512      512      512    1.1       0      0        0       0
+Elapsed: 00:00:00.05
 
 ================================================================================
 End of report -- read-only run, no database objects created or modified.
