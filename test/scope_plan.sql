@@ -4,7 +4,7 @@
 --   @test/scope_plan.sql [VIEW_LIKE] [DETAIL]
 --
 -- Test-only, read-only. EXPLAINs SELECT * FROM <view> for every CAPV / CAPD /
--- CAPF / CAPA / CAPR view of CURRENT_SCHEMA (VIEW_LIKE narrows the list, a
+-- CAPF / CAPA / CAPM / CAPR view of CURRENT_SCHEMA (VIEW_LIKE narrows the list, a
 -- LIKE pattern, default CAP%) and counts the plan's reads of a seam source
 -- (CAP_H_* copies, CAP_FIXTURE_* tables, SYS.WRH$_* / WRM$_*) whose
 -- predicates do not carry the CAP_SCOPE filter (the CLIENT_INFO lookup).
@@ -45,7 +45,7 @@ BEGIN
               FROM   all_views
               WHERE  owner = v_owner
                 AND  view_name LIKE v_like
-                AND  REGEXP_LIKE(view_name, '^CAP[VDFAR]_')
+                AND  REGEXP_LIKE(view_name, '^CAP[VDFAMR]_')
               ORDER  BY view_name) LOOP
         v_id := 'CAPSP' || TO_CHAR(v_views);
         v_views := v_views + 1;

@@ -48,6 +48,7 @@ const families = [
   ['tablespaces', f => f.k === 'TBSPC'], ['host-cpu', f => f.k === 'CPU' && f.s === 'BUSY_P95'],
   ['db-cpu', f => f.k === 'CPU' && f.s === 'DB_CPU_P95'], ['db-size', f => f.s === 'DB_SIZE_GB'],
   ['sessions', f => f.s === 'SESSIONS'], ['processes', f => f.s === 'PROCESSES'],
+  ['pga', f => f.s === 'PGA_ALLOC_GB'],
   ['redo', f => f.s === 'REDO_GB_DAY'], ['undo', f => /^UNDO_PEAK:/.test(f.s)],
   ['temp', f => /^TEMP_PEAK:/.test(f.s)], ['asm', f => /^ASM_DG:/.test(f.s)]
 ];

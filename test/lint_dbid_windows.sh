@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test/lint_dbid_windows.sh -- every analytic window in the CAPD / CAPF / CAPA /
-# CAPR views (ddl/20..ddl/55) partitions by dbid, so one database's ranks and
+# CAPM / CAPR views (ddl/20..ddl/55) partitions by dbid, so one database's ranks and
 # anchors never depend on another target's rows (M24.13). A scoped report
 # (seam scope) and the unscoped refresh that fills the SNAPSHOT tables then
 # agree row for row. ALLOW lists "<file>:<clause prefix>" for a window over a

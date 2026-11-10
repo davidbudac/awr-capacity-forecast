@@ -230,6 +230,67 @@ BEGIN
                 'F',
                 q'~dbid, con_dbid, instance_number, snap_id, ts#, obj#, dataobj#, space_used_delta, space_allocated_delta~',
                 q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || TO_CHAR(ts#) || '|' || TO_CHAR(obj#) || '|' || TO_CHAR(dataobj#) || '|' || TO_CHAR(space_used_delta) || '|' || TO_CHAR(space_allocated_delta)~');
+            one('pgastat',
+                'F',
+                q'~dbid, con_dbid, instance_number, snap_id, name, value~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || name || '|' || TO_CHAR(value)~');
+            one('mem_dynamic_comp',
+                'F',
+                q'~dbid, con_dbid, instance_number, snap_id, component, current_size, min_size, max_size, user_specified_size, oper_count, last_oper_type, last_oper_mode, last_oper_time, granule_size~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || component || '|' || TO_CHAR(current_size) || '|' || TO_CHAR(min_size) || '|' || TO_CHAR(max_size) || '|' || TO_CHAR(user_specified_size) || '|' || TO_CHAR(oper_count) || '|' || last_oper_type || '|' || last_oper_mode || '|' || last_oper_time || '|' || TO_CHAR(granule_size)~');
+            one('sql_workarea_hstgrm',
+                'F',
+                q'~dbid, con_dbid, instance_number, snap_id, low_optimal_size, high_optimal_size, optimal_executions, onepass_executions, multipasses_executions, total_executions~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || TO_CHAR(low_optimal_size) || '|' || TO_CHAR(high_optimal_size) || '|' || TO_CHAR(optimal_executions) || '|' || TO_CHAR(onepass_executions) || '|' || TO_CHAR(multipasses_executions) || '|' || TO_CHAR(total_executions)~');
+            one('pga_target_advice',
+                'F',
+                q'~dbid, con_dbid, instance_number, snap_id, pga_target_for_estimate, pga_target_factor, advice_status, bytes_processed, estd_time, estd_extra_bytes_rw, estd_pga_cache_hit_percentage, estd_overalloc_count~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || TO_CHAR(pga_target_for_estimate) || '|' || TO_CHAR(pga_target_factor) || '|' || advice_status || '|' || TO_CHAR(bytes_processed) || '|' || TO_CHAR(estd_time) || '|' || TO_CHAR(estd_extra_bytes_rw) || '|' || TO_CHAR(estd_pga_cache_hit_percentage) || '|' || TO_CHAR(estd_overalloc_count)~');
+            one('sga_target_advice',
+                'F',
+                q'~dbid, con_dbid, instance_number, snap_id, sga_size, sga_size_factor, estd_db_time, estd_physical_reads~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || TO_CHAR(sga_size) || '|' || TO_CHAR(sga_size_factor) || '|' || TO_CHAR(estd_db_time) || '|' || TO_CHAR(estd_physical_reads)~');
+            one('db_cache_advice',
+                'F',
+                q'~dbid, con_dbid, instance_number, snap_id, bpid, name, block_size, advice_status, size_for_estimate, size_factor, buffers_for_estimate, physical_reads, base_physical_reads, actual_physical_reads, estd_physical_read_time~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || TO_CHAR(bpid) || '|' || name || '|' || TO_CHAR(block_size) || '|' || advice_status || '|' || TO_CHAR(size_for_estimate) || '|' || TO_CHAR(size_factor) || '|' || TO_CHAR(buffers_for_estimate) || '|' || TO_CHAR(physical_reads) || '|' || TO_CHAR(base_physical_reads) || '|' || TO_CHAR(actual_physical_reads) || '|' || TO_CHAR(estd_physical_read_time)~');
+            one('shared_pool_advice',
+                'F',
+                q'~dbid, con_dbid, instance_number, snap_id, shared_pool_size_for_estimate, shared_pool_size_factor, estd_lc_size, estd_lc_memory_objects, estd_lc_time_saved, estd_lc_time_saved_factor, estd_lc_load_time, estd_lc_load_time_factor, estd_lc_memory_object_hits~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || TO_CHAR(shared_pool_size_for_estimate) || '|' || TO_CHAR(shared_pool_size_factor) || '|' || TO_CHAR(estd_lc_size) || '|' || TO_CHAR(estd_lc_memory_objects) || '|' || TO_CHAR(estd_lc_time_saved) || '|' || TO_CHAR(estd_lc_time_saved_factor) || '|' || TO_CHAR(estd_lc_load_time) || '|' || TO_CHAR(estd_lc_load_time_factor) || '|' || TO_CHAR(estd_lc_memory_object_hits)~');
+            one('sgastat',
+                'F',
+                q'~dbid, con_dbid, con_id, instance_number, snap_id, pool, name, bytes~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(con_id) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || pool || '|' || name || '|' || TO_CHAR(bytes)~',
+                p_filter => q'~name = 'free memory'~');
+            one('librarycache',
+                'F',
+                q'~dbid, con_dbid, instance_number, snap_id, namespace, gets, gethits, pins, pinhits, reloads, invalidations~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || namespace || '|' || TO_CHAR(gets) || '|' || TO_CHAR(gethits) || '|' || TO_CHAR(pins) || '|' || TO_CHAR(pinhits) || '|' || TO_CHAR(reloads) || '|' || TO_CHAR(invalidations)~');
+            one('rowcache_summary',
+                'F',
+                q'~dbid, con_dbid, instance_number, snap_id, parameter, gets, getmisses~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || parameter || '|' || TO_CHAR(gets) || '|' || TO_CHAR(getmisses)~');
+            one('system_event',
+                'F',
+                q'~dbid, con_dbid, instance_number, snap_id, event_name, wait_class, total_waits, time_waited_micro~',
+                q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || event_name || '|' || wait_class || '|' || TO_CHAR(total_waits) || '|' || TO_CHAR(time_waited_micro)~',
+                p_filter => q'~event_name IN (
+             'free buffer waits',
+             'write complete waits',
+             'buffer busy waits',
+             'latch: cache buffers lru chain',
+             'latch: shared pool',
+             'library cache: mutex X',
+             'library cache load lock',
+             'library cache lock',
+             'cursor: pin S wait on X',
+             'SGA: allocation forcing component growth',
+             'latch: row cache objects',
+             'row cache lock',
+             'row cache mutex',
+             'direct path read temp',
+             'direct path write temp')~');
             one('tablespace',
                 'D',
                 q'~dbid, con_dbid, ts#, tsname, contents, block_size~',

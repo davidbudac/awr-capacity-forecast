@@ -5,7 +5,7 @@
 -- ddl/13_seam_repository.sql by renaming every dba_hist_<x> to cap_h_<x>,
 -- the copies a repository pulls from its targets.
 --
--- These thirteen views (plus the CAPV_CONTRACT diagnostic at the bottom) are
+-- These twenty-four views (plus the CAPV_CONTRACT diagnostic at the bottom) are
 -- the ONLY place the analytics touch AWR data. Everything downstream
 -- (CAPD_/CAPF_/CAPA_/report) is written once against CAPV_* and runs
 -- byte-identically over ddl/13 (repository) or ddl/12_seam_fixture.sql
@@ -38,9 +38,11 @@
 --     one row per snapshot under the CDB's con_dbid, and that row is the
 --     CDB total. They are used only as the non-CDB fallback below.
 --   * Root only, by nature: DBA_HIST_OSSTAT (host level),
---     DBA_HIST_RESOURCE_LIMIT (instance level) and DBA_HIST_ASM_DISKGROUP_STAT
---     (host level). DBA_HIST_PARAMETER has root rows plus PDB rows for the
---     parameters set at PDB level; CAPV_PARAMETER keeps the root rows.
+--     DBA_HIST_RESOURCE_LIMIT, DBA_HIST_PGASTAT and the memory sources but
+--     DBA_HIST_SGASTAT (instance level) and
+--     DBA_HIST_ASM_DISKGROUP_STAT (host level). DBA_HIST_PARAMETER has root
+--     rows plus PDB rows for the parameters set at PDB level; CAPV_PARAMETER
+--     keeps the root rows.
 --   * In the CON_ views the root row covers CDB$ROOT alone. The CDB total is
 --     the SUM over containers.
 --
@@ -361,6 +363,239 @@ WHERE  parameter_name IN ('cpu_count','processes','sessions',
   AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 -- --------------------------------------------------------------------
+-- CAPV_PGASTAT (M26) -- instance PGA statistics per snapshot, in bytes.
+--   * 'total PGA allocated' is the PGA in use when the snapshot was taken (a
+--     sample). 'maximum PGA allocated' is a HIGH-WATER MARK since instance
+--     startup: it resets at a restart, and only its advances between two
+--     snapshots of one startup say when a peak happened (CAPM_PGA_LIMIT).
+--   * Instance level, so con_dbid := dbid. In CDB$ROOT every row is under
+--     the root's con_dbid (verified on 19.27: 19 names per snapshot); the
+--     NVL(con_dbid, dbid) = dbid guard keeps a PDB row out, as in
+--     CAPV_PARAMETER.
+--   * Filtered to the names the PGA limit and PGA target analyses read.
+--     Every one but the two samples ('total PGA allocated' / 'inuse') and
+--     the parameters is cumulative since startup or a high-water mark. The
+--     repository copies every name (repository/build.py): a copy cannot be
+--     backfilled.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capv_pgastat AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       name                     AS stat_name,
+       value                    AS value
+FROM   dba_hist_pgastat
+WHERE  name IN ('total PGA allocated','maximum PGA allocated',
+                'total PGA inuse','aggregate PGA target parameter',
+                'aggregate PGA auto target','over allocation count',
+                'bytes processed','extra bytes read/written',
+                'cache hit percentage','maximum PGA used for auto workareas')
+  AND  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- --------------------------------------------------------------------
+-- The memory sizing sources (M26). Instance level unless noted: on 19.27 in
+-- CDB$ROOT every row is under the root's con_dbid (con_id 0, the system
+-- events con_id 1), so con_dbid := dbid with the NVL(con_dbid, dbid) = dbid
+-- guard of CAPV_PGASTAT. Sizes are bytes, times as the source names them.
+-- Counters and advisor estimates are cumulative since instance startup
+-- (the buffer cache advisor restarts at a resize of the cache), so the
+-- analysis differences consecutive snapshots of one startup. Each is an
+-- optional repository copy, like CAPV_PGASTAT.
+-- --------------------------------------------------------------------
+
+-- CAPV_MEM_COMP -- SGA / PGA component sizes per snapshot (ASMM / AMM
+-- state), with the cumulative resize counter oper_count, the last
+-- operation and the granule size.
+CREATE OR REPLACE VIEW capv_mem_comp AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       component                AS component,
+       current_size             AS current_size,
+       min_size                 AS min_size,
+       max_size                 AS max_size,
+       user_specified_size      AS user_specified_size,
+       oper_count               AS oper_count,
+       last_oper_type           AS last_oper_type,
+       last_oper_mode           AS last_oper_mode,
+       last_oper_time           AS last_oper_time,
+       granule_size             AS granule_size
+FROM   dba_hist_mem_dynamic_comp
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- CAPV_WORKAREA_HSTGRM -- work area executions by optimal size bucket:
+-- optimal, one-pass and multi-pass counts, cumulative.
+CREATE OR REPLACE VIEW capv_workarea_hstgrm AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       low_optimal_size         AS low_optimal_size,
+       high_optimal_size        AS high_optimal_size,
+       optimal_executions       AS optimal_executions,
+       onepass_executions       AS onepass_executions,
+       multipasses_executions   AS multipasses_executions,
+       total_executions         AS total_executions
+FROM   dba_hist_sql_workarea_hstgrm
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- CAPV_PGA_ADVICE -- the PGA target advisor: per advised target, the
+-- estimated cache hit percentage, extra bytes read / written and
+-- over-allocation count. No rows when the advisor is off.
+CREATE OR REPLACE VIEW capv_pga_advice AS
+SELECT dbid                           AS dbid,
+       dbid                           AS con_dbid,
+       instance_number                AS instance_number,
+       snap_id                        AS snap_id,
+       pga_target_for_estimate        AS pga_target_for_estimate,
+       pga_target_factor              AS pga_target_factor,
+       advice_status                  AS advice_status,
+       bytes_processed                AS bytes_processed,
+       estd_time                      AS estd_time,
+       estd_extra_bytes_rw            AS estd_extra_bytes_rw,
+       estd_pga_cache_hit_percentage  AS estd_pga_cache_hit_percentage,
+       estd_overalloc_count           AS estd_overalloc_count
+FROM   dba_hist_pga_target_advice
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- CAPV_SGA_ADVICE -- the SGA target advisor: per advised sga_target (MB),
+-- the estimated DB time and physical reads.
+CREATE OR REPLACE VIEW capv_sga_advice AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       sga_size                 AS sga_size,
+       sga_size_factor          AS sga_size_factor,
+       estd_db_time             AS estd_db_time,
+       estd_physical_reads      AS estd_physical_reads
+FROM   dba_hist_sga_target_advice
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- CAPV_CACHE_ADVICE -- the buffer cache advisor, per buffer pool (bpid,
+-- name, block size) and advised size (MB): estimated physical reads and
+-- read time.
+CREATE OR REPLACE VIEW capv_cache_advice AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       bpid                     AS bpid,
+       name                     AS name,
+       block_size               AS block_size,
+       advice_status            AS advice_status,
+       size_for_estimate        AS size_for_estimate,
+       size_factor              AS size_factor,
+       buffers_for_estimate     AS buffers_for_estimate,
+       physical_reads           AS physical_reads,
+       base_physical_reads      AS base_physical_reads,
+       actual_physical_reads    AS actual_physical_reads,
+       estd_physical_read_time  AS estd_physical_read_time
+FROM   dba_hist_db_cache_advice
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- CAPV_SHPOOL_ADVICE -- the shared pool advisor: per advised size (MB), the
+-- estimated library cache size, load time and time saved.
+CREATE OR REPLACE VIEW capv_shpool_advice AS
+SELECT dbid                           AS dbid,
+       dbid                           AS con_dbid,
+       instance_number                AS instance_number,
+       snap_id                        AS snap_id,
+       shared_pool_size_for_estimate  AS shared_pool_size_for_estimate,
+       shared_pool_size_factor        AS shared_pool_size_factor,
+       estd_lc_size                   AS estd_lc_size,
+       estd_lc_memory_objects         AS estd_lc_memory_objects,
+       estd_lc_time_saved             AS estd_lc_time_saved,
+       estd_lc_time_saved_factor      AS estd_lc_time_saved_factor,
+       estd_lc_load_time              AS estd_lc_load_time,
+       estd_lc_load_time_factor       AS estd_lc_load_time_factor,
+       estd_lc_memory_object_hits     AS estd_lc_memory_object_hits
+FROM   dba_hist_shared_pool_advice
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- CAPV_SGASTAT -- free memory per SGA pool, a sample per snapshot.
+--   * DBA_HIST_SGASTAT has rows per container (con_id 0 instance wide, 1
+--     the root, 3.. the PDBs), so con_dbid is the source's, minus PDB$SEED
+--     as in CAPV_TIME_MODEL. On 19.27 every 'free memory' row is con_id 0
+--     (instance wide, under the root's con_dbid), one per pool.
+CREATE OR REPLACE VIEW capv_sgastat AS
+SELECT dbid                     AS dbid,
+       con_dbid                 AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       pool                     AS pool,
+       name                     AS name,
+       bytes                    AS bytes
+FROM   dba_hist_sgastat
+WHERE  name = 'free memory'
+  AND  NVL(con_id, 0) <> 2
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- CAPV_LIBRARYCACHE -- library cache gets, pins, reloads and invalidations
+-- per namespace, cumulative.
+CREATE OR REPLACE VIEW capv_librarycache AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       namespace                AS namespace,
+       gets                     AS gets,
+       gethits                  AS gethits,
+       pins                     AS pins,
+       pinhits                  AS pinhits,
+       reloads                  AS reloads,
+       invalidations            AS invalidations
+FROM   dba_hist_librarycache
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- CAPV_ROWCACHE -- dictionary cache gets and misses per parameter,
+-- cumulative.
+CREATE OR REPLACE VIEW capv_rowcache AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       parameter                AS parameter,
+       gets                     AS gets,
+       getmisses                AS getmisses
+FROM   dba_hist_rowcache_summary
+WHERE  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- CAPV_SYSTEM_EVENT -- waits and time waited (microseconds), cumulative,
+-- for the memory pressure events only. An event never waited for has no
+-- row (on 19.27 'latch: row cache objects').
+CREATE OR REPLACE VIEW capv_system_event AS
+SELECT dbid                     AS dbid,
+       dbid                     AS con_dbid,
+       instance_number          AS instance_number,
+       snap_id                  AS snap_id,
+       event_name               AS event_name,
+       wait_class               AS wait_class,
+       total_waits              AS total_waits,
+       time_waited_micro        AS time_waited_micro
+FROM   dba_hist_system_event
+WHERE  event_name IN ('free buffer waits','write complete waits','buffer busy waits',
+                      'latch: cache buffers lru chain','latch: shared pool',
+                      'library cache: mutex X','library cache load lock',
+                      'library cache lock','cursor: pin S wait on X',
+                      'SGA: allocation forcing component growth',
+                      'latch: row cache objects','row cache lock','row cache mutex',
+                      'direct path read temp','direct path write temp')
+  AND  NVL(con_dbid, dbid) = dbid
+  AND  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
+
+-- --------------------------------------------------------------------
 -- CAPV_ASM_DISKGROUP -- ASM diskgroup size per snapshot, named.
 --   * DBA_HIST_ASM_DISKGROUP_STAT carries TOTAL_MB / FREE_MB per snapshot
 --     and group number. DBA_HIST_ASM_DISKGROUP is the name dimension, joined
@@ -425,9 +660,11 @@ WHERE  s.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'
 -- snapshot end time. per_container_expected = 'Y' where the contract wants
 -- one series per container (TBSPC_USAGE, TIME_MODEL, SYSSTAT, SEG_STAT) and 'N' where
 -- the source is host / instance / spine level (OSSTAT, RESOURCE_LIMIT,
--- PARAMETER, ASM_DISKGROUP, SNAPSHOT), so n_con_dbid = 1 against a 'Y' means
--- the per-PDB series are missing. SEG_STAT is per container too. ASM_DISKGROUP
--- has n_rows = 0 on a database without ASM. A diagnostic for doctor.sql: it
+-- PARAMETER, ASM_DISKGROUP, PGASTAT, the memory sources, SNAPSHOT), so n_con_dbid = 1 against a 'Y' means
+-- the per-PDB series are missing. SEG_STAT is per container too. SGASTAT
+-- keeps the source's con_dbid but is 'N': its free memory rows are
+-- instance wide on 19.27. ASM_DISKGROUP
+-- has n_rows = 0 on a database without ASM, the advisors when they are off. A diagnostic for doctor.sql: it
 -- full-scans every source, and no analytic view selects from it. The body
 -- reads only CAPV_* and is the same in all three seam files.
 -- --------------------------------------------------------------------
@@ -442,6 +679,17 @@ WITH src AS (
         UNION ALL SELECT 'PARAMETER',      dbid, con_dbid, snap_id FROM capv_parameter
         UNION ALL SELECT 'ASM_DISKGROUP',  dbid, con_dbid, snap_id FROM capv_asm_diskgroup
         UNION ALL SELECT 'SEG_STAT',       dbid, con_dbid, snap_id FROM capv_seg_stat
+        UNION ALL SELECT 'PGASTAT',        dbid, con_dbid, snap_id FROM capv_pgastat
+        UNION ALL SELECT 'MEM_COMP',       dbid, con_dbid, snap_id FROM capv_mem_comp
+        UNION ALL SELECT 'WORKAREA_HSTGRM', dbid, con_dbid, snap_id FROM capv_workarea_hstgrm
+        UNION ALL SELECT 'PGA_ADVICE',     dbid, con_dbid, snap_id FROM capv_pga_advice
+        UNION ALL SELECT 'SGA_ADVICE',     dbid, con_dbid, snap_id FROM capv_sga_advice
+        UNION ALL SELECT 'CACHE_ADVICE',   dbid, con_dbid, snap_id FROM capv_cache_advice
+        UNION ALL SELECT 'SHPOOL_ADVICE',  dbid, con_dbid, snap_id FROM capv_shpool_advice
+        UNION ALL SELECT 'SGASTAT',        dbid, con_dbid, snap_id FROM capv_sgastat
+        UNION ALL SELECT 'LIBRARYCACHE',   dbid, con_dbid, snap_id FROM capv_librarycache
+        UNION ALL SELECT 'ROWCACHE',       dbid, con_dbid, snap_id FROM capv_rowcache
+        UNION ALL SELECT 'SYSTEM_EVENT',   dbid, con_dbid, snap_id FROM capv_system_event
      ),
      per_con AS (
         SELECT source_name, dbid, con_dbid,
@@ -467,6 +715,17 @@ WITH src AS (
         UNION ALL SELECT 'PARAMETER',      'N' FROM dual
         UNION ALL SELECT 'ASM_DISKGROUP',  'N' FROM dual
         UNION ALL SELECT 'SEG_STAT',       'Y' FROM dual
+        UNION ALL SELECT 'PGASTAT',        'N' FROM dual
+        UNION ALL SELECT 'MEM_COMP',       'N' FROM dual
+        UNION ALL SELECT 'WORKAREA_HSTGRM', 'N' FROM dual
+        UNION ALL SELECT 'PGA_ADVICE',     'N' FROM dual
+        UNION ALL SELECT 'SGA_ADVICE',     'N' FROM dual
+        UNION ALL SELECT 'CACHE_ADVICE',   'N' FROM dual
+        UNION ALL SELECT 'SHPOOL_ADVICE',  'N' FROM dual
+        UNION ALL SELECT 'SGASTAT',        'N' FROM dual
+        UNION ALL SELECT 'LIBRARYCACHE',   'N' FROM dual
+        UNION ALL SELECT 'ROWCACHE',       'N' FROM dual
+        UNION ALL SELECT 'SYSTEM_EVENT',   'N' FROM dual
      )
 SELECT k.source_name,
        NVL(SUM(p.n_rows), 0)        AS n_rows,

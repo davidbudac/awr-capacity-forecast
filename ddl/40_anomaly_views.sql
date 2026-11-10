@@ -45,7 +45,8 @@ SET DEFINE OFF
 -- Key (dbid, con_dbid, kind, series, grain, ts). The registry of WHAT is
 -- scored and HOW:
 --   kind / series  TBSPC / tablespace; CPU / BUSY_PCT (host, OSSTAT) and
---                  DB_CPU_PCT (per container); SERIES / the M11 names.
+--                  DB_CPU_PCT (per container); SERIES / the M11 names and
+--                  PGA_ALLOC_GB (M26).
 --   grain / ts     DAY rows carry day_dt; HOUR rows (CPU only) the END-hour
 --                  bucket of CAPD_CPU_HOURLY.
 --   value          the number the baselines compare: TBSPC the gap-normalised
@@ -77,12 +78,14 @@ WITH ufloor AS (
         UNION ALL SELECT 'PCT',         'HOUR', cfg.mad_k * cfg.cpu_min_mad_pct_hour FROM cap_cfg cfg
         UNION ALL SELECT 'COUNT',       'DAY',  cfg.series_floor_count               FROM cap_cfg cfg
         UNION ALL SELECT 'GIB_PER_DAY', 'DAY',  cfg.series_floor_gib                 FROM cap_cfg cfg
+        UNION ALL SELECT 'GIB',         'DAY',  cfg.series_floor_gib                 FROM cap_cfg cfg
      ),
      sreg AS (
         SELECT 'PROCESSES' AS series, 'LEVEL' AS basis, 'COUNT' AS unit, 'SERIES_LEVEL' AS anomaly_kind FROM dual
         UNION ALL SELECT 'SESSIONS',    'LEVEL', 'COUNT',       'SERIES_LEVEL'  FROM dual
         UNION ALL SELECT 'REDO_GB_DAY', 'LEVEL', 'GIB_PER_DAY', 'SERIES_LEVEL'  FROM dual
         UNION ALL SELECT 'DB_SIZE_GB',  'RATE',  'GIB_PER_DAY', 'SERIES_GROWTH' FROM dual
+        UNION ALL SELECT 'PGA_ALLOC_GB','LEVEL', 'GIB',         'SERIES_LEVEL'  FROM dual
      ),
      ser AS (
         SELECT s.dbid, s.con_dbid, s.series, s.day_dt, s.value, s.day_gap,

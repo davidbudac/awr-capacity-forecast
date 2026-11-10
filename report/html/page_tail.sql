@@ -176,6 +176,8 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },~');
   DBMS_OUTPUT.PUT_LINE(q'~    { id: 'processes', perContainer: true, title: 'Processes', noun: 'container', match: seriesIs('PROCESSES'),~');
   DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },~');
+  DBMS_OUTPUT.PUT_LINE(q'~    { id: 'pga', perContainer: true, title: 'PGA', noun: 'instance', match: seriesIs('PGA_ALLOC_GB'),~');
+  DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },~');
   DBMS_OUTPUT.PUT_LINE(q'~    { id: 'redo', perContainer: true, title: 'Redo', noun: 'database', match: seriesIs('REDO_GB_DAY'),~');
   DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return conName(f.dbid, f.con); }, facts: redoFacts },~');
   DBMS_OUTPUT.PUT_LINE(q'~    { id: 'undo', title: 'Undo', noun: 'tablespace', match: seriesPrefix('UNDO_PEAK:'),~');
@@ -400,11 +402,11 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  function horizon(m) {~');
-  DBMS_OUTPUT.PUT_LINE(q'~    var f = m.f, h = 90;~');
-  DBMS_OUTPUT.PUT_LINE(q'~    var reach = m.fc.reduce(function (r, k) { return k.m === 'REGR' ? Math.max(r, k.h) : r; }, 30);~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~    var f = m.f, h = 90;~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var reach = m.fc.reduce(function (r, k) { return k.m === 'REGR' ? Math.max(r, k.h) : r; }, 30);~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (f.dtf != null && f.dtf > 60 && f.dtf <= 330) h = Math.ceil((f.dtf + 20) / 30) * 30;~');
   DBMS_OUTPUT.PUT_LINE(q'~    return Math.min(h, reach);~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
@@ -803,11 +805,11 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      dbs.forEach(function (m) {~');
   DBMS_OUTPUT.PUT_LINE(q'~        var f = m.f, obs = observedChange(m.pts, 30);~');
   DBMS_OUTPUT.PUT_LINE(q'~        out.push(spaceRow(m, [m.unit.fmt(f.v), m.unit.rate(f.slope),~');
-  DBMS_OUTPUT.PUT_LINE(q'~          f.slope == null ? '\u2013' : sign(f.slope) + m.unit.fmt(Math.abs(f.slope) * 30),~');
-  DBMS_OUTPUT.PUT_LINE(q'~          obs ? sign(obs.d) + m.unit.fmt(Math.abs(obs.d)) : '\u2013']));~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~          f.slope == null ? '\u2013' : sign(f.slope) + m.unit.fmt(Math.abs(f.slope) * 30),~');
+  DBMS_OUTPUT.PUT_LINE(q'~          obs ? sign(obs.d) + m.unit.fmt(Math.abs(obs.d)) : '\u2013']));~');
   DBMS_OUTPUT.PUT_LINE(q'~      });~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (ts.length) {~');

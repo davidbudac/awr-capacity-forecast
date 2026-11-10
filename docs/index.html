@@ -275,7 +275,7 @@
       <h3>Reads, writes and load</h3>
       <ul>
         <li>Reads AWR only through each target's read-only reader, over a database link: the
-          seventeen <code>DBA_HIST_*</code> views it copies. It does not change AWR settings, snapshot
+          twenty-eight <code>DBA_HIST_*</code> views it copies. It does not change AWR settings, snapshot
           interval or retention.</li>
         <li>Writes only its own tables (and OML model tables). No DML or DDL on any other schema.</li>
         <li>Load happens only when a report, <code>cap_results.refresh</code> or a training call runs:
@@ -291,7 +291,7 @@
       <h3 id="fleet-impact">On a measured database</h3>
       <p>A measured database, the repository's own one included, gets one read-only common user,
         <span class="inline">C##AWRRDR</span>, with <code>CREATE SESSION</code>, direct
-        <code>SELECT</code> on the seventeen <code>DBA_HIST_*</code> views and
+        <code>SELECT</code> on the twenty-eight <code>DBA_HIST_*</code> views and
         <code>CONTAINER_DATA = ALL</code>. No tables, packages, jobs or models, and its AWR settings
         stay as they are. Its load is the hourly collect: one <code>SELECT</code> per copied view over
         a database link, for the snapshots taken since the last one. The forecasting, the reports and

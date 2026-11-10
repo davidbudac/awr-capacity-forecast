@@ -12,7 +12,7 @@ for making changes safely.
   the Tier 2 registry `CAP_ML_MODEL` (written by `cap_forecast_ml`) and the
   results layer `CAP_RUN` / `CAP_FIT_HIST` / `CAP_ALERT_STATE` /
   `CAP_ALERT_EVENT` (written only by `cap_results`). The reports and every
-  `CAPV/CAPD/CAPF/CAPA/CAPR` view only SELECT. In repository mode
+  `CAPV/CAPD/CAPF/CAPA/CAPM/CAPR` view only SELECT. In repository mode
   `cap_repo` writes `CAP_TARGET` / `CAP_TARGET_DBID` / `CAP_COLLECT_LOG` and
   the `CAP_H_*` copies, and runs only SELECTs on a target (plus one
   `dbms_application_info.set_module@link` that labels its session there).
@@ -127,12 +127,13 @@ for making changes safely.
 
 `install.sql` includes, in order: `ddl/00_drop` → `05_config` (CAP_CONFIG,
 CAP_CFG, CAP_CFG_CHECK, CAP_SCOPE, CAP_TBSPC_OVERRIDE) → the seam (`13`/`12` for
-`deploy_mode` repository / fixture: thirteen CAPV_* views + CAPV_CONTRACT;
+`deploy_mode` repository / fixture: twenty-four CAPV_* views + CAPV_CONTRACT;
 `13`, generated from `repository/seam.sql`, also creates the copies and pulls
 `repository/cap_repo.sql`; the retired `local` aborts before any DDL and
 names the upgrade path, M25) → `20_daily` →
 `25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `35_series_forecast`
-(CAPF_SERIES_FORECAST) → `40_anomaly` → `45_report_views` (CAPR_CONTAINER,
+(CAPF_SERIES_FORECAST) → `40_anomaly` → `42_memory_views` (M26 verdicts, see
+"Memory verdicts" below) → `45_report_views` (CAPR_CONTAINER,
 CAPR_ANOMALIES, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
 CAPR_SEGMENT_GROWTH, the point feeds CAPR_SERIES_POINTS / CAPR_HOURLY_POINTS,
 CAPR_FIT) → `50_ml` (CAP_ML_MODEL, the temporary CAP_ML_INPUT, pulls `ml/cap_forecast_ml.pks/.pkb`, the
@@ -146,6 +147,12 @@ last `cap_results.build_snap_tables`, which re-creates the SNAPSHOT cache
 `<view>_S` of every view in `cap_results.snap_views` (M24.13).
 `docs/reference.html` "Object index" lists every object (`test/docs_lint.sh`
 checks it).
+M26 memory seam views (instance level, `con_dbid := dbid`, optional
+repository copies, empty fixture tables `CAP_FIXTURE_<suffix>`): CAPV_PGASTAT,
+CAPV_MEM_COMP, CAPV_WORKAREA_HSTGRM, CAPV_PGA_ADVICE, CAPV_SGA_ADVICE,
+CAPV_CACHE_ADVICE, CAPV_SHPOOL_ADVICE, CAPV_SGASTAT (free memory only, the
+source's con_dbid), CAPV_LIBRARYCACHE, CAPV_ROWCACHE, CAPV_SYSTEM_EVENT (a
+fixed list of memory pressure events).
 M15 objects: ddl/20 `CAPD_CPU_INTERVAL` / `CAPD_DBTIME_INTERVAL` (one row per
 valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 (BUSY_PCT + DB_CPU_PCT per END-hour bucket, the HOUR_OF_WEEK source); ddl/25
@@ -265,7 +272,8 @@ a given workspace/schema/app id; `apex/workspace.sql` creates the workspace
 and accounts; `apex/publish.sh` is the lab wrapper for the `23cfree` docker
 instance (see `LAB.md`). Edit the builder, never the generated export.
 Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomaly →
-`CAPR_` integration (display labels + pollable alerts).
+`CAPM_` memory verdicts (report content, no alerts) → `CAPR_` integration
+(display labels + pollable alerts).
 
 ## SQL\*Plus gotchas that already bit us
 
@@ -427,6 +435,30 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   SERIES_LIMIT, FRA flat), `CAP_FIXTURE_SEG_STAT` (three segments in
   `FIX_FILLING`, 70/20/10 % of its growth) and a 3-day burst on `FIX_GAP`
   (one anomaly episode).
+- **PGA fixture (M26):** `CAP_FIXTURE_PGASTAT`, root only, both PGA_LIMIT
+  names on every snapshot. `total PGA allocated` 0.5 GiB at 06:00, 1 + i/1200 at
+  18:00: `PGA_ALLOC_GB` exactly linear, 1.1 of 2 GiB (55%), no alert, no
+  anomaly, days_to_limit 840 (839 when REGR_SLOPE's last digit rounds down).
+  `maximum PGA allocated` 1.2 GiB, 1.25 from the day-60 restart, 1.9 from
+  day 110 18:00: the one advance in the 30-day window, 95%, so CAPM_VERDICT
+  PGA_LIMIT is UNDERSIZED / PEAK_NEAR_LIMIT, suggested 2162 MiB. OSSTAT
+  carries `PHYSICAL_MEMORY_BYTES` 16 GiB beside the CPU rows (5 names, not 4).
+- **Memory fixture (M26):** the ten `CAP_FIXTURE_*` memory tables and five
+  more PGASTAT names, root only, every snapshot. Each counter and advisor
+  estimate reads k x its increment on the k-th snapshot of a startup, so it
+  drops at both restarts and ratios are those of the increments. `MEM_U` =
+  ROUND(window DB time / 6000) seconds: an increment of a x u an interval is
+  a percent of DB time. Shipped knobs: PGA_TARGET UNDERSIZED (best gain 10
+  points at 2 GiB, knee 1.5 GiB, no over-allocation from 1.75 GiB: suggested
+  1792 MiB), BUFFER_CACHE OVERSIZED (1536 MiB loses 0.45%), SHARED_POOL OK /
+  ADVISOR_ONLY (gain 1.5%, waits 0.04%), SGA_TOTAL OK / SIZED_RIGHT,
+  SGA_BALANCE OK / STABLE. `over allocation count` has no row until its
+  first use in a startup and then only on the 18:00 snapshots: 30 in the
+  window, 123 with `mem_window_days` 120. `free buffer waits` first appears
+  at day 100 06:00 (its first row counts in full). A KEEP pool and a 16 KiB
+  DEFAULT pool in the cache advisor must be ignored. run_test.sql drives the
+  other branches with knob flips and savepoint DML (advisor reset, list
+  change, oscillation, AMM, MANUAL, no memory history).
 - **The fixture's injected Tuesday (`INJECTED_TUE`) is always a FIXPDB1
   `DB_CPU_PCT` step day** (latest Tuesday in 90..120; the step covers the last
   7 days), and M15 scores that series. A bare `day_dt = d_inj` CPU anomaly
@@ -507,6 +539,76 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   statement is ORA-00984 ("column not allowed here"); assign it to a local
   variable first.
 
+## Memory verdicts (M26, ddl/42)
+
+- **Layers, bottom up:** `CAPM_SNAP` (window, startup, previous snapshot of
+  the same startup, `seg_ok`) → `CAPM_INST` (mode, parameters, host RAM) →
+  `CAPM_ADV_SRC` (four advisors, one shape, sizes in bytes) → `CAPM_DELTA`
+  (every counter and advisor estimate as increments, one long shape, ONE
+  piece of increment logic) → `CAPM_ADVICE` (curve per advised size) →
+  the area facts `CAPM_PGA_LIMIT`, `CAPM_AREA` (four advisor areas),
+  `CAPM_SGA_BALANCE` → `CAPM_EVIDENCE` (one row per signal, `kind` USAGE /
+  ADVISOR / SYMPTOM / CONTEXT) → `CAPM_VERDICT`. Areas PGA_LIMIT,
+  PGA_TARGET, BUFFER_CACHE, SHARED_POOL, SGA_TOTAL, SGA_BALANCE.
+- **Rules are data.** A new symptom is a `sig` row plus `term` rows in
+  `CAPM_EVIDENCE`; an advisor area is a `def` row in `CAPM_AREA` plus a
+  branch in `CAPM_ADV_SRC`; a grade is a row of `rule` in `CAPM_VERDICT`
+  (first match by `n`, NULL flag = any). Do not add CASE ladders.
+- **Increments only.** Nothing is differenced across a restart. A missing
+  row pairs with the key's previous present row. AWR writes no row for a PGA
+  statistic or wait event that is still zero (verified 19.27), so for those
+  sources (`zero_fill`) a key's first row in a startup counts in full.
+  Advisor rows never zero-fill. A negative step is dropped (the buffer cache
+  advisor resets at a resize).
+- **Advisor facts (verified 19.27):** the SGA, cache and shared pool
+  advisors list MB, the PGA advisor bytes. The lists are ragged: the shared
+  pool list moves with the pool, low sizes come and go, some lists stop
+  short (30 different lists in 502 intervals). Gain = percent of instance
+  DB time (PGA: cache hit points). The cache advisor's factor 1 size can
+  differ from the component's size.
+- **One interval set per area.** Every size is compared over the reference
+  size's intervals (`advr` rows with `size_bytes = ref_bytes`). Where an
+  interval has no increment for a size, the largest listed size below it
+  stands in (`filled`: LAST_VALUE IGNORE NULLS over the interval's sizes,
+  probe rows after listed rows), which understates a gain and overstates a
+  loss. No size at or below it = the interval does not count, and a
+  candidate needs `n_intervals` equal to the reference's. Per-size interval
+  sets made the curve non-monotonic and the suggestion jump between two
+  snapshots (1776 to 1296 MiB); run_test.sql asserts the gain never falls
+  with size.
+- **Reference size (26.3).** `ref` in `CAPM_ADVICE`: the advised size nearest
+  to the current (factor 1) one, the larger on a tie, with own coverage >=
+  `mem_min_uptime_hours`, within `mem_ref_tolerance_pct` of it. The current
+  size wins whenever it has the hours (distance 0). `reference_fallback = Y`
+  when it is another size: rows are then every size listed in the window,
+  not the latest list; the reference is no candidate; grow / shrink sides
+  stay relative to `current_bytes`; ADVISOR sentences say "measured
+  against". No reference = `advisor_thin` = ADVISOR_THIN. Without fallback
+  the rows stay the latest list (the "left the list, no row" assertion).
+  `cur_cost` / `cur_hit_pct` / `cur_overalloc` are the reference size's.
+- **`CAPM_ADVICE` never joins the increments to themselves,** and never
+  outer-joins the sizes to the aggregation. A self-join on the interval is
+  sizes x sizes (2.2M rows, 20 s on a 30-size list, an order the optimizer
+  did pick). `sizes LEFT JOIN agg` was estimated at one row and ran the
+  whole aggregation once per size (`SELECT * FROM capm_area` 5 minutes,
+  19.27): the sizes ride into `agg` as rows of a UNION ALL, carrying
+  `current_bytes` / `reference_bytes`. Time `capm_advice`, `capm_area` AND
+  `capm_verdict` after any change here; the plans differ.
+- **`exceeds_sga`** (CAPM_VERDICT, last column): a BUFFER_CACHE or
+  SHARED_POOL suggestion under ASMM above `cache_bytes + shpool_bytes` of
+  CAPM_SGA_BALANCE cannot fit in sga_target. Flagged, never reduced, like
+  `exceeds_host_ram`. NULL without a suggestion, under MANUAL, without the
+  component sizes.
+- **SGA_BALANCE grades:** THRASHING / RESIZE_CHURN (`churn_p`: operations
+  or reversals row in PRESSURE, floor suggested), then DRIFTING /
+  ONE_WAY_SHIFT (`shift_p`: `SGA_POOL_SHIFT_PCT` >= `mem_shift_pct`, the
+  larger pool loss from its window peak over sga_target; no suggestion, no
+  parameter), else OK / STABLE.
+- **Nothing reads a CAPM_ view** (run_test.sql asserts it from
+  ALL_DEPENDENCIES): no alert, no series. Cost on the real 30-day AWR:
+  `SELECT * FROM capm_verdict` about 11 s, 223 MB PGA, most of it
+  `CAPM_AREA` evaluated twice (under the evidence and for the facts).
+
 ## Testing on a 19c test database
 
 AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
@@ -573,7 +675,7 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
 
 - **Every install is a repository (M25).** A target gets only
   `target/prepare.sql` (a read-only common user, direct SELECT on the
-  seventeen views, nothing else) and the repository runs the suite with
+  twenty-eight views, nothing else) and the repository runs the suite with
   `deploy_mode=repository` over `CAP_H_*` copies that `cap_repo.collect`
   pulls over one DB link per target. Standalone is the same install with the
   repository as its own target over a loopback link (target/self.sql +
@@ -599,6 +701,15 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
   edit either; change the manifest or seam.sql and rerun it. `--check` (also
   run by the dbmint scripts) fails on a stale generated file or when
   seam.sql or target/prepare.sql name other views than the manifest.
+- **Optional sources (M26).** `Source(optional=True)` (`CAP_REPO_SOURCE.optional
+  = 'Y'`: `PGASTAT`, copied with every name, and the ten memory sizing
+  sources) is a view a target's reader may lack: `probe` / `ping` warn instead of failing, and `collect`
+  skips its pull on SQLCODE -942 / -1031 (over the link ORA-00942 +
+  ORA-02063), copies the rest, moves the high-water mark, says one `[WARN]`
+  per target and names it in the OK log row. No backfill once the grant
+  arrives. Doctor section 11 WARNs once per target and DBID with copied snapshots,
+  naming each optional copy without a row for it; its CAPM_VERDICT reads
+  NOT_COLLECTED when `CAP_H_PGASTAT` is the empty one.
 - **CONTAINER_DATA (verified 19.27).** A common user without `CONTAINER_DATA
   = ALL` that reads `DBA_HIST_*` in CDB$ROOT sees the root's rows only (1
   container instead of 3). The filter follows the querying session, so SYS
@@ -676,5 +787,5 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
 
 ## Not yet built (see PLAN.md milestones)
 
-- Memory forecasting (v2 scope; the 19c source is `DBA_HIST_MEM_DYNAMIC_COMP`,
-  plus `DBA_HIST_PGASTAT`). Cross-DBID series stitching (v2).
+- Memory forecasting (v2 scope; its sources are in the seam since M26:
+  `CAPV_MEM_COMP`, `CAPV_PGASTAT`). Cross-DBID series stitching (v2).

@@ -335,7 +335,7 @@ Report written to: reports/cap_report_CDB1_202611090823.txt</pre>
           <caption>What each side gets</caption>
           <thead><tr><th scope="col">Database</th><th scope="col">Gets</th><th scope="col">Writes</th></tr></thead>
           <tbody>
-            <tr><td><b>Target</b>, each measured database</td><td class="def">A read-only common user <span class="inline">C##AWRRDR</span>: <code>CREATE SESSION</code>, direct <code>SELECT</code> on the seventeen <span class="inline">DBA_HIST_*</span> views the suite reads, and <code>CONTAINER_DATA = ALL</code> so it sees every PDB. No suite objects.</td><td class="def">Nothing. Every statement the repository runs there is a <code>SELECT</code>.</td></tr>
+            <tr><td><b>Target</b>, each measured database</td><td class="def">A read-only common user <span class="inline">C##AWRRDR</span>: <code>CREATE SESSION</code>, direct <code>SELECT</code> on the twenty-eight <span class="inline">DBA_HIST_*</span> views the suite reads, and <code>CONTAINER_DATA = ALL</code> so it sees every PDB. No suite objects.</td><td class="def">Nothing. Every statement the repository runs there is a <code>SELECT</code>.</td></tr>
             <tr><td><b>Repository</b>, any 19c database or PDB that can reach each target's listener</td><td class="def">The whole suite in <span class="inline">deploy_mode = repository</span>, the target registry, one copy table per AWR view, the hourly collect job and the nightly job, which also purges old copies. It reads no AWR of its own.</td><td class="def">Its own <span class="inline">CAP_*</span> tables only.</td></tr>
           </tbody>
         </table>

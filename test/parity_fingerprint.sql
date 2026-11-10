@@ -11,7 +11,7 @@
 --   seam   the CAPV_* views but CAPV_CONTRACT and CAPV_TARGET; a view with a
 --          SNAP_ID column counts only rows with snap_id <= cut, so a snapshot
 --          that lands between the two runs does not show up as a difference.
---   stack  every CAPD_ / CAPF_ / CAPA_ / CAPR_ view but CAPR_TARGETS, whole.
+--   stack  every CAPD_ / CAPF_ / CAPA_ / CAPM_ / CAPR_ view but CAPR_TARGETS, whole.
 --          Only equal when both installs see the same snapshots, so run both
 --          right after a collect and check that CAPV_SNAPSHOT's newest
 --          snap_id matches.
@@ -52,7 +52,7 @@ BEGIN
         END IF;
         v_pat := '^CAPV_';
     ELSIF v_layer = 'stack' THEN
-        v_pat := '^CAP[DFAR]_';
+        v_pat := '^CAP[DFAMR]_';
     ELSE
         RAISE_APPLICATION_ERROR(-20001, 'layer must be seam or stack, not "' || v_layer || '"');
     END IF;

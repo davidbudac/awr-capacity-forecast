@@ -15,6 +15,11 @@
 --                'redo size' counter deltas). unit GIB_PER_DAY. NO limit --
 --                FRA / archive-destination sizing is an operator decision, so
 --                the series is a trend, not a days-to-limit.
+--   PGA_ALLOC_GB (M26) the day's highest sampled 'total PGA allocated'
+--                (CAPV_PGASTAT) in GiB, against pga_aggregate_limit
+--                (CAPV_PARAMETER at the same snapshot; 0 = no limit = NULL).
+--                unit GIB. A sample: PGA allocated between two snapshots is
+--                not seen (CAPM_PGA_LIMIT reads the high-water mark for that).
 --   DB_SIZE_GB   (M11.3) total database size = SUM(used_bytes) over
 --                CAPD_TBSPC_DAILY, with SUM(limit_bytes) as the ceiling.
 --                unit GIB.
@@ -40,12 +45,14 @@
 --   (dbid, con_dbid, series, day_dt, value, limit_value, unit, n_samples,
 --    covered_sec, is_complete, day_gap, max_interval_hours, gap_flag,
 --    worst_inst_pct, worst_inst)
--- limit_value is NULL when the series has no ceiling (REDO_GB_DAY) or when it
--- could not be resolved (an UNLIMITED / non-numeric resource limit).
+-- limit_value is NULL when the series has no ceiling (REDO_GB_DAY, and
+-- PGA_ALLOC_GB under pga_aggregate_limit 0) or when it could not be resolved
+-- (an UNLIMITED / non-numeric resource limit).
 -- covered_sec / is_complete mean what they mean in CAPD_CPU_DAILY, and only a
 -- flow series has them: REDO_GB_DAY sums counter deltas, so a day with half
 -- its intervals reads half the redo. The level series (PROCESSES, SESSIONS,
--- DB_SIZE_GB, ASM_DG, TEMP_PEAK, UNDO_PEAK) read samples of a level, so they
+-- PGA_ALLOC_GB, DB_SIZE_GB, ASM_DG, TEMP_PEAK, UNDO_PEAK) read samples of a
+-- level, so they
 -- carry covered_sec NULL and is_complete 'Y'.
 -- M15 gap columns, read by the anomaly layer (a gap day is neither scored
 -- nor used as baseline):
@@ -57,12 +64,13 @@
 --                        redo); for DB_SIZE_GB when n_samples differs from the
 --                        previous row's (the tablespace SET changed, so the
 --                        day-over-day move measures membership, not growth);
---                        else 'N'. ASM_DG / TEMP_PEAK / UNDO_PEAK count
---                        samples, not members, so they read 'N'.
+--                        else 'N'. ASM_DG / TEMP_PEAK / UNDO_PEAK /
+--                        PGA_ALLOC_GB count samples, not members, so they
+--                        read 'N'.
 --
--- worst_inst_pct / worst_inst (RAC) are filled on PROCESSES / SESSIONS only,
--- NULL on every other series: the day's highest per-instance
--- 100 * max_utilization / limit, and the instance_number that had it (the
+-- worst_inst_pct / worst_inst (RAC) are filled on PROCESSES / SESSIONS /
+-- PGA_ALLOC_GB only, NULL on every other series: the day's highest
+-- per-instance 100 * value / limit, and the instance_number that had it (the
 -- highest number on a tie). The series value / limit_value stay the summed
 -- fleet figures, so a node at 990 of 1000 beside one at 10 of 1000 reads 50%
 -- there and 99% here; SERIES_NEARLIMIT judges the larger (ddl/45
@@ -100,7 +108,8 @@
 --     DBA_HIST_CON_SYSSTAT). The log stream is shared, so the CDB's redo is
 --     the SUM over its containers.
 --   * PROCESSES / SESSIONS are CDB-wide: DBA_HIST_RESOURCE_LIMIT is root-only
---     in CDB$ROOT.
+--     in CDB$ROOT. So is PGA_ALLOC_GB: DBA_HIST_PGASTAT and the
+--     pga_aggregate_limit row CAPV_PARAMETER keeps are the root's.
 --
 SET DEFINE OFF
 
@@ -112,11 +121,14 @@ WITH snap AS (
         SELECT dbid, instance_number, snap_id, end_interval_time, startup_time
         FROM   capv_snapshot
      ),
-     -- ---------------- PROCESSES / SESSIONS (M11.1) ----------------
+     -- ------- PROCESSES / SESSIONS (M11.1), PGA_ALLOC_GB (M26) -------
+     -- One row per snapshot and instance: the sampled level and the
+     -- instance's ceiling at that snapshot.
      rl AS (
         SELECT r.dbid, r.con_dbid, r.instance_number,
                TRUNC(s.end_interval_time)  AS day_dt,
                UPPER(r.resource_name)      AS series,
+               'COUNT'                     AS unit,
                r.max_utilization           AS util,
                r.limit_value               AS lim
         FROM   capv_resource_limit r
@@ -124,19 +136,37 @@ WITH snap AS (
           ON   s.dbid = r.dbid AND s.snap_id = r.snap_id
          AND   s.instance_number = r.instance_number
         WHERE  r.max_utilization IS NOT NULL
+        UNION ALL
+        -- pga_aggregate_limit 0 means no limit: NULL, not a zero ceiling.
+        SELECT p.dbid, p.con_dbid, p.instance_number,
+               TRUNC(s.end_interval_time),
+               'PGA_ALLOC_GB',
+               'GIB',
+               p.value / 1073741824,
+               NULLIF(l.value_num, 0) / 1073741824
+        FROM   capv_pgastat p
+        JOIN   snap s
+          ON   s.dbid = p.dbid AND s.snap_id = p.snap_id
+         AND   s.instance_number = p.instance_number
+        LEFT   JOIN capv_parameter l
+          ON   l.dbid = p.dbid AND l.snap_id = p.snap_id
+         AND   l.instance_number = p.instance_number
+         AND   l.parameter_name = 'pga_aggregate_limit'
+        WHERE  p.stat_name = 'total PGA allocated'
+          AND  p.value IS NOT NULL
      ),
      -- Per instance first (the limit is per instance), then summed.
      rl_inst AS (
-        SELECT dbid, con_dbid, series, day_dt, instance_number,
+        SELECT dbid, con_dbid, series, unit, day_dt, instance_number,
                MAX(util) AS util,
                MAX(lim)  AS lim,
                COUNT(*)  AS n_samples,
                100 * MAX(util) / NULLIF(MAX(lim), 0) AS pct
         FROM   rl
-        GROUP  BY dbid, con_dbid, series, day_dt, instance_number
+        GROUP  BY dbid, con_dbid, series, unit, day_dt, instance_number
      ),
      rl_day AS (
-        SELECT dbid, con_dbid, series, day_dt,
+        SELECT dbid, con_dbid, series, unit, day_dt,
                SUM(util)      AS val,
                -- NULL (not an understated sum) if any instance is UNLIMITED.
                CASE WHEN COUNT(*) = COUNT(lim) THEN SUM(lim) END AS lim,
@@ -148,7 +178,7 @@ WITH snap AS (
                     THEN MAX(instance_number) KEEP (DENSE_RANK LAST ORDER BY pct NULLS FIRST)
                END            AS worst_inst
         FROM   rl_inst
-        GROUP  BY dbid, con_dbid, series, day_dt
+        GROUP  BY dbid, con_dbid, series, unit, day_dt
      ),
      -- ---------------- REDO_GB_DAY (M11.2) ----------------
      -- 'redo size' is a cumulative BYTE counter, differenced once in
@@ -256,7 +286,7 @@ WITH snap AS (
      ),
      u AS (
         SELECT dbid, con_dbid, series, day_dt, val, lim,
-               'COUNT'       AS unit, n_samples,
+               unit, n_samples,
                CAST(NULL AS NUMBER) AS covered_sec, 'Y' AS is_complete,
                CAST(NULL AS NUMBER) AS max_ivl,
                worst_pct, worst_inst

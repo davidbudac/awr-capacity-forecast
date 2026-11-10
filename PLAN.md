@@ -1156,10 +1156,98 @@ check uses. M25.3 and M25.4 are independent. Nothing on dbmint is dropped
 without asking: M25.7 uninstalls C##CAPLOC only after a yes, and C##AWRRDR
 stays because every loopback uses it.
 
+## M26 — Instance memory sizing (SGA / PGA)
+
+Spec: `docs/specs/memory-sizing.md`. A verdict layer (`UNDERSIZED` / `OK` /
+`OVERSIZED` / `INSUFFICIENT_EVIDENCE` per instance and memory area, with
+evidence and a suggested size), not a forecast. Instance memory only; the
+host's physical memory size is read for one flag. No verdict alerts.
+
+Built first, as one vertical cut across M26.1-M26.3: the `PGA_LIMIT` area
+(suite_version 26.1). `CAPV_PGASTAT` in all three seams with an optional
+repository copy (`CAP_H_PGASTAT`, every statistic name; a reader without the
+grant is skipped by collect, not failed), the `PGA_ALLOC_GB` series (named so
+for its GiB unit, not `PGA_ALLOC`) in `CAPD_SERIES_DAILY` and every layer above
+it, `ddl/42_memory_views.sql` (`CAPM_PGA_LIMIT`, `CAPM_EVIDENCE`,
+`CAPM_VERDICT`), the knobs `mem_window_days`, `mem_min_days`,
+`mem_pga_limit_pct`, `mem_max_step`, `mem_host_ram_pct`, fixture rows and
+closed-form assertions. No report section yet (M26.4).
+
+Built second (suite_version 26.2): the advisor-based areas `PGA_TARGET`,
+`BUFFER_CACHE`, `SHARED_POOL`, `SGA_TOTAL` and `SGA_BALANCE`, by the spec's
+"Detailed rules" section. `ddl/42_memory_views.sql` is now ten views:
+`CAPM_SNAP`, `CAPM_INST`, `CAPM_ADV_SRC`, `CAPM_DELTA` (every counter and
+advisor estimate as increments inside a startup), `CAPM_ADVICE` (the curve
+per advised size), the facts `CAPM_PGA_LIMIT`, `CAPM_AREA`,
+`CAPM_SGA_BALANCE`, then `CAPM_EVIDENCE` (`kind` added) and `CAPM_VERDICT`
+(`suggested_param` added, one decision table for every area). Sixteen `mem_`
+knobs. The ten memory fixture tables are filled and every grade, reason and
+suggested size is asserted against closed forms. Verified on the real AWR in
+both modes: the ten views fingerprint equal, `SELECT * FROM capm_verdict`
+takes about 10 s and 205 MB of PGA in local mode. Changed against the spec
+and recorded there: a counter AWR omits while zero counts its first row in
+full, and a PGA target that over-allocates at every size inside the step cap
+is advised the largest candidate. Not built: per-PDB usage, the history
+table, report sections, the snapshot registry entries, doctor readiness.
+
+Built third (suite_version 26.3), from the first read of the real verdicts:
+two rule changes, both in the spec's "Detailed rules" section. An advisor
+area whose current size has too little advisor history is measured against
+the nearest advised size that has it (`mem_ref_tolerance_pct`,
+`CAPM_ADVICE.reference_bytes` / `reference_fallback`), so a shared pool that
+has just been resized is graded instead of reading `ADVISOR_THIN`. A pool
+squeezed one way is a balance finding: signal `SGA_POOL_SHIFT_PCT`
+(`mem_shift_pct`) and grade `DRIFTING` / `ONE_WAY_SHIFT`, after `THRASHING`
+in rule order, with no suggested size. On the real AWR `SGA_BALANCE` now
+reads `DRIFTING` (buffer cache 256 MiB to 48 MiB under a 1536 MiB
+`sga_target`) and `SHARED_POOL` reads `UNDERSIZED` against a reference of
+1056 MiB. `SELECT * FROM capm_verdict` takes about 11 s and 223 MB of PGA in
+local mode.
+
+Fixed in 26.3 after reading those verdicts again. The shared pool suggestion
+moved from 1776 MiB to 1296 MiB between two snapshots 15 minutes apart: each
+advised size was compared over only the intervals that listed it, the lists
+are ragged, and so every size had its own interval set. Every size is now
+compared over the reference size's intervals, the largest listed size below
+it standing in where an interval does not list it, and a candidate must
+count in all of them. The curve rises with size by construction (asserted).
+And a pool suggestion could pass `sga_target`: `CAPM_VERDICT.exceeds_sga`
+flags a buffer cache or shared pool floor above what the two pools hold
+together, without reducing it. On the real AWR the shared pool reads
+`UNDERSIZED`, 1872 MiB, `exceeds_sga = Y`, beside `SGA_TOTAL` `UNDERSIZED`,
+2688 MiB.
+
+- [ ] **M26.1 Seam.** Fourteen new `CAPV_*` views (component history, resize
+      operations, PGA statistics, work area histogram, the PGA / SGA / cache /
+      shared pool advisors, SGA statistics, library cache, row cache, buffer
+      pool statistics, system events, per-PDB resource metrics) in all three
+      seams, plus the missing memory parameters and system statistics.
+      Repository copies in the manifest, grants in `target/prepare.sql` and
+      `create_owner.sql`, a collect that skips a memory view it cannot read,
+      doctor probes, fixture tables. Confirm the open facts the spec lists.
+      Built so far: the ten sources the spec's detailed rules name
+      (`CAPV_MEM_COMP`, `CAPV_WORKAREA_HSTGRM`, `CAPV_PGA_ADVICE`,
+      `CAPV_SGA_ADVICE`, `CAPV_CACHE_ADVICE`, `CAPV_SHPOOL_ADVICE`,
+      `CAPV_SGASTAT`, `CAPV_LIBRARYCACHE`, `CAPV_ROWCACHE`,
+      `CAPV_SYSTEM_EVENT`) and the wider `CAPV_PGASTAT` filter, optional copies,
+      grants, probes, empty fixture tables. Deferred: resize operations, buffer
+      pool statistics, per-PDB resource metrics, the memory parameters.
+- [ ] **M26.2 Evidence.** Startup segments inside the window, evidence rows
+      per signal, advisor curves combined across segments, the `PGA_ALLOC_GB`
+      series against `pga_aggregate_limit` in `CAPD_SERIES_DAILY` (built). Measure
+      refresh time and peak PGA with the scale lever.
+- [ ] **M26.3 Verdicts.** Grades, knee-based suggested sizes, the host memory
+      flag, `SGA_BALANCE` (`THRASHING` and a pool floor), per-PDB usage and
+      limit verdicts, the persisted history table written by
+      `cap_results.refresh`.
+- [ ] **M26.4 Reports.** Text section, HTML cards, briefing lines, CSV,
+      `report/drill_mem.sql`, docs, a memory chapter in the demo story.
+
 ## v2 (unchanged)
 
-- [ ] Memory forecasting (SGA/PGA from `DBA_HIST_MEM_DYNAMIC_COMP` (the
-      19c view name) / `DBA_HIST_PGASTAT`).
+- [ ] Memory follow-ups to M26: grading AMM instances, verdicts for the
+      In-Memory area and minor pools, verdict panels in the dashboards,
+      forecasting SGA components.
 - [ ] Cross-DBID series stitching (non-CDB → PDB migrations) keyed on a stable
       `CAP_TARGET.target_id`.
 
