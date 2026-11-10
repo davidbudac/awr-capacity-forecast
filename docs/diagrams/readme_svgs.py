@@ -19,6 +19,7 @@ CSS = ROOT / "docs/assets/style.css"
 DIAGRAMS = {
     "forecast": ("docs/index.html", 'class="herochart"'),
     "dataflow": ("docs/index.html", 'class="archflow"'),
+    "architecture": ("docs/architecture.html", 'aria-labelledby="dd-arch-context-title'),
     "deploy": ("docs/start.html", 'aria-labelledby="dd-deploy-title'),
     "consumers": ("docs/concepts.html", 'aria-label="Every consumer reads'),
     "alert-lifecycle": ("docs/concepts.html", 'aria-label="Alert states written'),

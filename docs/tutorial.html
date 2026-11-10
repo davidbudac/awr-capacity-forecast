@@ -135,10 +135,11 @@
       <a class="nav-page" href="tutorial.html"><span class="n">03</span> Tutorial</a>
       <div class="nav__group">Guides</div>
       <a class="nav-page" href="concepts.html"><span class="n">04</span> How it works</a>
-      <a class="nav-page" href="usage.html"><span class="n">05</span> Usage</a>
-      <a class="nav-page" href="testing.html"><span class="n">06</span> Testing</a>
+      <a class="nav-page" href="architecture.html"><span class="n">05</span> Architecture</a>
+      <a class="nav-page" href="usage.html"><span class="n">06</span> Usage</a>
+      <a class="nav-page" href="testing.html"><span class="n">07</span> Testing</a>
       <div class="nav__group">Reference</div>
-      <a class="nav-page" href="reference.html"><span class="n">07</span> Reference</a>
+      <a class="nav-page" href="reference.html"><span class="n">08</span> Reference</a>
     </nav>
     <div class="sidebar__foot">
       <button class="theme-toggle" id="themeBtn" type="button">◐ System</button>
@@ -344,7 +345,7 @@ SEV  KIND             DB/PDB               MESSAGE
             <tr><td class="kt">4</td><td class="def">CPU trend and days until 80% busy.</td></tr>
             <tr><td class="kt">5 · 5b</td><td class="def">Unusual CPU days and hours; sustained CPU level shifts.</td></tr>
             <tr><td class="kt">6</td><td class="def">The optional Tier 2 (OML exponential smoothing) second opinion and a backtest of both engines.</td></tr>
-            <tr><td class="kt">7 · 7b</td><td class="def">Sessions, processes, redo, DB size, ASM, TEMP and UNDO against their ceilings, and their unusual days.</td></tr>
+            <tr><td class="kt">7 · 7b</td><td class="def">Sessions, processes, PGA, redo, DB size, ASM, TEMP and UNDO against their ceilings, and their unusual days.</td></tr>
           </tbody>
         </table>
       </div>
@@ -371,8 +372,12 @@ SEV  KIND             DB/PDB               MESSAGE
         <span class="inline">--csv</span> for one CSV per section view, and
         <span class="inline">--scope 3141592653:3141592654</span> to report on one container only, or
         <span class="inline">--target NAME</span> to report on one target by name (<span class="inline">CAPR_TARGETS</span>).
-        The drivers by hand: <span class="inline">@report/report.sql</span>,
-        <span class="inline">@report/report_html.sql</span> and
+        <span class="inline">--brief</span> writes the one-page briefing, and
+        <span class="inline">--snapshot</span> reads the tables of the last
+        <span class="inline">cap_results.refresh</span> instead of evaluating the views, which takes
+        about a second. The drivers by hand: <span class="inline">@report/report.sql</span>,
+        <span class="inline">@report/report_html.sql</span>,
+        <span class="inline">@report/report_brief.sql</span> and
         <span class="inline">@report/report_csv.sql</span>.</p>
 
       <h3>Poll the alerts</h3>
@@ -446,17 +451,19 @@ SEV  KIND             DB/PDB               MESSAGE
       <p>An escalation or a reopen clears the ack.</p>
 
       <h3>Let the scheduler do it</h3>
-      <p><span class="inline">install_jobs.sql</span> creates one DBMS_SCHEDULER job in the suite's
-        schema, disabled. <span class="inline">CAP_NIGHTLY_JOB</span> runs daily at 01:00 and does the
-        night's work one step after the other: the Tier 2 retrain, then
-        <span class="inline">cap_results.refresh</span>, then the alert snapshot file. In repository
-        mode it purges old copies first, and the script also creates
-        <span class="inline">CAP_COLLECT_JOB</span> (see <a href="reference.html#jobs">Scheduler jobs</a>):</p>
+      <p><span class="inline">install_jobs.sql</span> creates two DBMS_SCHEDULER jobs in the suite's
+        schema, disabled. <span class="inline">CAP_COLLECT_JOB</span> copies new AWR snapshots hourly
+        at :05. <span class="inline">CAP_NIGHTLY_JOB</span> runs daily at 01:00 and does the night's
+        work one step after the other: it purges copies older than
+        <span class="inline">repo_retention_days</span>, retrains Tier 2, runs
+        <span class="inline">cap_results.refresh</span> and writes the alert snapshot file
+        (see <a href="reference.html#jobs">Scheduler jobs</a>):</p>
 
       <div class="term in">
         <div class="term__bar"><span class="term__title">SQL*Plus · suite owner</span><span class="term__tag in">optional</span></div>
 <pre><span class="c-prompt">SQL&gt;</span> @install_jobs.sql
-<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_NIGHTLY_JOB')   <span class="c-cmt">-- daily 01:00: retrain, refresh, alert snapshot file</span></pre>
+<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_COLLECT_JOB')   <span class="c-cmt">-- hourly at :05</span>
+<span class="c-prompt">SQL&gt;</span> EXEC DBMS_SCHEDULER.ENABLE('CAP_NIGHTLY_JOB')   <span class="c-cmt">-- daily 01:00: purge, retrain, refresh, alert snapshot file</span></pre>
       </div>
 
       <p>The retrain step is for Tier 2 only. Without Tier 2, name the steps you want before
@@ -682,7 +689,9 @@ robust z    (69.59 − 46.36) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
         <span class="ico">▸</span>
         <p><strong>Tuning.</strong> Thresholds are knobs in <span class="inline">CAP_CONFIG</span>;
         per-tablespace ceilings and thresholds go in <span class="inline">CAP_TBSPC_OVERRIDE</span>.
-        Both survive a re-install. Knob list: <a href="reference.html#config">Reference</a>.</p>
+        Both survive a re-install. Knob list: <a href="reference.html#config">Reference</a>.
+        Memory sizing is not in the report yet: query <span class="inline">CAPM_VERDICT</span>
+        (<a href="usage.html#memory">Usage</a>).</p>
       </div>
 
       <!-- ===================== NEXT ===================== -->
@@ -692,7 +701,7 @@ robust z    (69.59 − 46.36) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
       </div>
       <div class="cardgrid">
         <a class="card" href="usage.html">
-          <div class="k">05 · Guide</div>
+          <div class="k">06 · Guide</div>
           <h3>Usage</h3>
           <p>Every report section column by column, overrides, Tier 2, the dashboards.</p>
           <div class="go">Usage →</div>
@@ -704,7 +713,7 @@ robust z    (69.59 − 46.36) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
           <div class="go">How it works →</div>
         </a>
         <a class="card" href="reference.html">
-          <div class="k">07 · Reference</div>
+          <div class="k">08 · Reference</div>
           <h3>Reference</h3>
           <p>Every knob, every object, the advanced install and the caveats.</p>
           <div class="go">Reference →</div>
@@ -796,7 +805,7 @@ robust z    (69.59 − 46.36) / 3.00 = +7.7   → |z| &gt; 3 → HIGH</div>
       ["DBA_HIST_TBSPC_SPACE_USAGE",
        "One row per tablespace per snapshot, here hourly. Read only. On 2026-11-09 the last snapshot of the day has AUDIT_TRAIL at 119.60 GiB used, maxsize 130.00 GiB."],
       ["CAPV_TBSPC_USAGE",
-       "The seam: the only layer that knows the row source. Local AWR, a repository's copies and the test fixture present the same columns."],
+       "The seam: the only layer that knows the row source. A repository's copies of its targets' AWR (its own database's included) and the test fixture present the same columns."],
       ["CAPD_TBSPC_DAILY",
        "One row per tablespace per day, from the day's last snapshot: 2026-11-09, 119.60 GiB used, 1.21 GiB more than the day before. CPU: CAPD_CPU_DAILY."],
       ["CAPF_TBSPC_FORECAST · CAPA_ANOM",

@@ -19,9 +19,10 @@ The samples are real output from a fictional database with 150 days of test AWR 
 |----------|--------|
 | When does a tablespace fill? | Size at +30 / 90 / 180 / 365 days with 95% bands, `days_to_full` with worst/best case, GiB to add and the date to add them by |
 | How much CPU headroom is left? | Host busy% (average, p95, peak window) and DB CPU per container, days to saturation, level shifts, hosts already hot |
-| Which fixed limits are close? | `processes`, `sessions`, redo GiB/day against the FRA, DB size, ASM disk groups, TEMP / UNDO peaks |
+| Which fixed limits are close? | `processes`, `sessions`, PGA allocated against `pga_aggregate_limit`, redo GiB/day against the FRA, DB size, ASM disk groups, TEMP / UNDO peaks |
 | Is today unusual? | Median + MAD flags against three baselines: last 28 days, same weekday, same weekday and hour (CPU) |
 | Which forecast to trust? | A holdout backtest scores each engine's MAPE and bias |
+| Is instance memory sized right? | `CAPM_VERDICT`: a grade per instance and area (PGA limit, PGA target, buffer cache, shared pool, SGA total, SGA balance) with its evidence and a suggested size. A view to query; not in the reports or alerts yet |
 
 Every number can be checked by hand: the anomaly flags show value, median,
 threshold and robust z, and the `drill_*` scripts print the fit arithmetic.
@@ -39,7 +40,14 @@ threshold and robust z, and the `drill_*` scripts print the fit arithmetic.
   smoothing as a second opinion, at most +30 days on 19c.
 - Thresholds live in the `CAP_CONFIG` table, never in the SQL.
 
-Details: [How it works](https://davidbudac.github.io/awr-capacity-forecast/concepts.html).
+The whole system, measured databases on the left and consumers on the right:
+
+![Each measured database keeps its AWR and a read-only reader; the repository pulls AWR over a database link hourly into its own copies, computes everything as views over them, stores results and alert state, and serves reports, dashboards and monitoring](docs/diagrams/readme/architecture.svg)
+
+Details: [How it works](https://davidbudac.github.io/awr-capacity-forecast/concepts.html)
+(the mathematics) and
+[Architecture](https://davidbudac.github.io/awr-capacity-forecast/architecture.html)
+(components and data flows, in diagrams).
 
 ## Install
 

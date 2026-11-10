@@ -34,10 +34,11 @@
       <a class="nav-page" href="tutorial.html"><span class="n">03</span> Tutorial</a>
       <div class="nav__group">Guides</div>
       <a class="nav-page" href="concepts.html"><span class="n">04</span> How it works</a>
-      <a class="nav-page" href="usage.html"><span class="n">05</span> Usage</a>
-      <a class="nav-page" href="testing.html"><span class="n">06</span> Testing</a>
+      <a class="nav-page" href="architecture.html"><span class="n">05</span> Architecture</a>
+      <a class="nav-page" href="usage.html"><span class="n">06</span> Usage</a>
+      <a class="nav-page" href="testing.html"><span class="n">07</span> Testing</a>
       <div class="nav__group">Reference</div>
-      <a class="nav-page" href="reference.html"><span class="n">07</span> Reference</a>
+      <a class="nav-page" href="reference.html"><span class="n">08</span> Reference</a>
     </nav>
     <div class="sidebar__foot">
       <button class="theme-toggle" id="themeBtn" type="button">◐ System</button>
@@ -126,9 +127,10 @@
           <tbody>
             <tr><td><b>Tablespace growth</b></td><td>Projected size at +30 / +90 / +180 / +365 days with 95% prediction bands, and <code>days_to_full</code> with a worst/best-case range</td><td class="def">DBA_HIST_TBSPC_SPACE_USAGE</td></tr>
             <tr><td><b>CPU headroom</b></td><td>Host busy% (daily average, p95 "busy hour" and peak-window) plus DB CPU per container as a percent of the host's logical CPUs, days-to-saturation, level shifts, and a host already at the saturation line</td><td class="def">DBA_HIST_OSSTAT · CON_SYS_TIME_MODEL</td></tr>
-            <tr><td><b>Fixed-ceiling series</b></td><td>Peak <code>processes</code> / <code>sessions</code> against the init parameters, redo GiB/day with days of FRA, total DB size against the summed tablespace ceilings, ASM diskgroups and TEMP / UNDO peaks, each with days-to-limit</td><td class="def">DBA_HIST_RESOURCE_LIMIT · CON_SYSSTAT · PARAMETER · ASM_DISKGROUP_STAT · tablespace usage</td></tr>
+            <tr><td><b>Fixed-ceiling series</b></td><td>Peak <code>processes</code> / <code>sessions</code> against the init parameters, PGA allocated against <code>pga_aggregate_limit</code>, redo GiB/day with days of FRA, total DB size against the summed tablespace ceilings, ASM diskgroups and TEMP / UNDO peaks, each with days-to-limit</td><td class="def">DBA_HIST_RESOURCE_LIMIT · CON_SYSSTAT · PGASTAT · PARAMETER · ASM_DISKGROUP_STAT · tablespace usage</td></tr>
             <tr><td><b>Anomalies</b></td><td>Median + MAD flags against three baselines (the last 28 days, the same weekday, and for CPU the same weekday and hour), each shown with value, median, k·σ and robust z</td><td class="def">daily values · hourly CPU</td></tr>
             <tr><td><b>Forecast accuracy</b></td><td>A holdout backtest scoring each engine's MAPE and bias on the recent past</td><td class="def">CAPF_BACKTEST</td></tr>
+            <tr><td><b>Memory sizing</b></td><td>One grade per instance and memory area (<code>PGA_LIMIT</code>, <code>PGA_TARGET</code>, <code>BUFFER_CACHE</code>, <code>SHARED_POOL</code>, <code>SGA_TOTAL</code>, <code>SGA_BALANCE</code>): undersized, fine or oversized, with the evidence and a suggested size. Query <span class="inline">CAPM_VERDICT</span>; no report section or alert reads it yet (<a href="architecture.html#memory">Architecture</a>)</td><td class="def">DBA_HIST_PGASTAT · the four memory advisors · MEM_DYNAMIC_COMP · wait events</td></tr>
           </tbody>
         </table>
       </div>
@@ -143,7 +145,9 @@
         included, over a loopback link) or to test fixtures. Layers:
         <span class="inline">CAPV_</span> (source) → <span class="inline">CAPD_</span> (daily) →
         <span class="inline">CAPF_</span> (forecast) / <span class="inline">CAPA_</span> (anomaly) →
-        <span class="inline">CAPR_</span> (report). See <a href="concepts.html">How it works</a>.</p>
+        <span class="inline">CAPR_</span> (report). <span class="inline">CAPM_</span> (memory verdicts)
+        reads the seam directly and feeds no report view. See <a href="concepts.html">How it works</a> and
+        <a href="architecture.html">Architecture</a>.</p>
       <svg class="archflow" viewBox="0 0 860 240" role="img"
            aria-label="Architecture: each target's AWR, copied over a database link, or test fixtures feed the CAPV seam, then CAPD daily rollups split into CAPF forecasts and CAPA anomalies, which merge into the CAPR report views.">
         <defs>
@@ -224,12 +228,12 @@
           <caption>Objects install.sql creates in the target schema</caption>
           <thead><tr><th scope="col">Object</th><th scope="col">Count</th><th scope="col">Notes</th></tr></thead>
           <tbody>
-            <tr><td>Views (<code>CAPV_ CAPD_ CAPF_ CAPA_ CAPR_</code>, <code>CAP_CFG</code>)</td><td>about 60</td><td>No storage. They compute when queried.</td></tr>
-            <tr><td>Tables</td><td>7 (10 and the 17 <code>CAP_H_*</code> copies on a repository)</td><td><span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span>, <span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>, <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span></td></tr>
-            <tr><td>PL/SQL packages</td><td>2</td><td><span class="inline">CAP_FORECAST_ML</span> (Tier 2 training), <span class="inline">CAP_RESULTS</span> (results layer). Definer's rights.</td></tr>
+            <tr><td>Views (<code>CAPV_ CAPD_ CAPF_ CAPA_ CAPM_ CAPR_</code>, <code>CAP_CFG</code>)</td><td>about 90</td><td>No storage. They compute when queried.</td></tr>
+            <tr><td>Tables</td><td>7 persisted. A repository adds 3 registry tables (<span class="inline">CAP_TARGET</span>, <span class="inline">CAP_TARGET_DBID</span>, <span class="inline">CAP_COLLECT_LOG</span>) and the 28 <code>CAP_H_*</code> copies. Also one <code>_S</code> snapshot table per report view, refilled by every refresh, and the temporary <span class="inline">CAP_ML_INPUT</span></td><td><span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span>, <span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>, <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span></td></tr>
+            <tr><td>PL/SQL packages</td><td>2 (3 on a repository)</td><td><span class="inline">CAP_FORECAST_ML</span> (Tier 2 training), <span class="inline">CAP_RESULTS</span> (results layer) and, on a repository, <span class="inline">CAP_REPO</span> (the collector). Definer's rights.</td></tr>
             <tr><td>Object types</td><td>2</td><td><span class="inline">CAP_ESM_ROW</span>, <span class="inline">CAP_ESM_TAB</span></td></tr>
             <tr><td>OML models (Tier 2, optional)</td><td>one per series: top 20 tablespaces by default, CPU series, backtest twins (27 in the demo)</td><td>Created only by <code>cap_forecast_ml.train_*</code>. Oracle adds 2 <code>DM$</code> tables and 4 <code>DM$</code> views per model.</td></tr>
-            <tr><td>Scheduler jobs (optional)</td><td>1 (2 in repository mode)</td><td><span class="inline">install_jobs.sql</span> only, created disabled: <span class="inline">CAP_NIGHTLY_JOB</span> 01:00, which retrains, refreshes and writes the alert file one step after the other, plus procedures <span class="inline">CAP_NIGHTLY</span> and <span class="inline">CAP_REPORT_SPOOL</span>. In repository mode the nightly job purges old copies first, and <span class="inline">CAP_COLLECT_JOB</span> runs hourly.</td></tr>
+            <tr><td>Scheduler jobs (optional)</td><td>2 (1 on a fixture install)</td><td><span class="inline">install_jobs.sql</span> only, created disabled: <span class="inline">CAP_NIGHTLY_JOB</span> 01:00, which purges old copies, retrains, refreshes and writes the alert file one step after the other, and <span class="inline">CAP_COLLECT_JOB</span>, which copies new snapshots hourly at :05. Plus procedures <span class="inline">CAP_NIGHTLY</span> and <span class="inline">CAP_REPORT_SPOOL</span>.</td></tr>
           </tbody>
         </table>
       </div>
@@ -243,10 +247,13 @@
           refresh run; <span class="inline">CAP_RUN</span> one row per run;
           <span class="inline">CAP_ALERT_EVENT</span> one row per alert state change. A daily
           refresh on 25 series adds roughly 2 MB per year.</li>
-        <li>Nothing is purged automatically. <code>cap_results.purge(p_keep_days =&gt; 400)</code>
-          deletes older results.</li>
-        <li><span class="inline">create_owner.sql</span> sets a 1 GB quota by default
-          (<code>owner_quota</code>).</li>
+        <li>The results tables are not purged automatically:
+          <code>cap_results.purge(p_keep_days =&gt; 400)</code> deletes older results. The
+          <code>CAP_H_*</code> copies are: the nightly job's PURGE step deletes those older than
+          <span class="inline">repo_retention_days</span> (400).</li>
+        <li><span class="inline">create_owner.sql</span> sets a 1 GB quota when run by hand
+          (<code>owner_quota</code>); <span class="inline">quickstart.sh</span> and the shipped
+          <span class="inline">install.sh</span> profiles pass <code>UNLIMITED</code>.</li>
       </ul>
 
       <h3>Privileges</h3>
@@ -263,7 +270,7 @@
             <tr><td><code>CREATE MINING MODEL</code></td><td>Tier 2 only</td></tr>
             <tr><td><code>CREATE JOB</code></td><td>the optional scheduler jobs</td></tr>
             <tr><td><code>CREATE DATABASE LINK</code></td><td>one link per target, created by <span class="inline">cap_repo.add_target</span></td></tr>
-            <tr><td><code>QUOTA 1G</code> on the default permanent tablespace</td><td>the tables and models</td></tr>
+            <tr><td><code>QUOTA</code> on the default permanent tablespace (1G by hand, <code>UNLIMITED</code> from quickstart and the profiles)</td><td>the tables and models</td></tr>
           </tbody>
         </table>
       </div>
@@ -297,7 +304,7 @@
         a database link, for the snapshots taken since the last one. The forecasting, the reports and
         the PGA they need all run on the repository. The repository adds a target registry, a collect
         log and one copy table per view, about 0.25&nbsp;MB of rows a day for a three-container
-        test CDB. Its nightly work grows in proportion to the number of targets, about seven
+        test CDB. Its nightly work grows in proportion to the number of targets, about six
         minutes per target on a two-vCPU test VM, while each session's PGA stays the same
         (<a href="reference.html#fleet-size">How many targets</a>).</p>
 
@@ -324,17 +331,29 @@
           <p>The view layers, forecast quality grading and both engines.</p>
           <div class="go">How it works →</div>
         </a>
-        <a class="card" href="usage.html">
+        <a class="card" href="architecture.html">
           <div class="k">05 · Guide</div>
+          <h3>Architecture</h3>
+          <p>Components and data flows, from the whole system down to each layer, in diagrams.</p>
+          <div class="go">Architecture →</div>
+        </a>
+        <a class="card" href="usage.html">
+          <div class="k">06 · Guide</div>
           <h3>Usage</h3>
           <p>Reports, knobs, Tier 2, and the Kibana, Grafana and APEX paths.</p>
           <div class="go">Usage →</div>
         </a>
         <a class="card" href="testing.html">
-          <div class="k">06 · Guide</div>
+          <div class="k">07 · Guide</div>
           <h3>Testing</h3>
           <p>The fixture self-check against known answers.</p>
           <div class="go">Testing →</div>
+        </a>
+        <a class="card" href="reference.html">
+          <div class="k">08 · Reference</div>
+          <h3>Reference</h3>
+          <p>Every knob, every object, the advanced install and the caveats.</p>
+          <div class="go">Reference →</div>
         </a>
       </div>
 
