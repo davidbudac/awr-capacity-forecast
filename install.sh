@@ -532,6 +532,17 @@ DEFINE report_dir       = '${CFG[REPORT_DIR]}'
 DEFINE nightly_interval = '${CFG[NIGHTLY_INTERVAL]}'
 @@install_jobs.sql
 $STRICT
+DECLARE
+    v_n NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_n FROM all_scheduler_jobs
+    WHERE  owner = '&cap_target' AND job_name = 'CAP_NIGHTLY_JOB';
+    IF v_n = 0 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'install.sh: install_jobs.sql created no CAP_NIGHTLY_JOB.'
+            || ' See the ORA- lines above (CREATE JOB privilege, nightly_interval).');
+    END IF;
+END;
+/
 EOF
     [[ ${CFG[JOBS_ENABLE]} == Y ]] && cat <<EOF
 BEGIN
