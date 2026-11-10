@@ -133,14 +133,19 @@
 
       <h3>Without an install: one query</h3>
       <p><span class="inline">@standalone/tbspc_capacity.sql</span> runs on the measured database
-        itself and reads <span class="inline">DBA_HIST_*</span> (Diagnostics Pack). It creates and
-        spools nothing. One row per container and permanent tablespace: used, limit, percent, MB/day,
+        itself and reads <span class="inline">DBA_HIST_*</span> (Diagnostics Pack) plus the live
+        <span class="inline">CDB_TABLESPACE_USAGE_METRICS</span>. It creates and spools nothing. One row per container and permanent tablespace: used, limit, percent, MB/day,
         R², +30 / +90, <code>dtf</code> / <code>dtf_worst</code>, <code>full_by</code>,
         <code>add_gb_90</code>, quality, status. It is the Tier 1 OLS fit with the knob defaults
-        inlined in the <code>prm</code> CTE: no overrides, no ML, no anomalies, no history. Run it in
+        inlined in the <code>prm</code> CTE: no overrides, no ML, no anomalies, no history. Two things
+        differ from the suite. The limit is the live ceiling when that is lower (<code>LIM LIVE</code>:
+        Oracle caps autoextend by the free space of the storage behind it, AWR does not). The worst
+        case (<code>dtf_worst</code>, <code>full_by</code>, <code>add_gb_90</code>) takes the wider of
+        the OLS error and the day-over-day rate error, so it is never later than the suite's. Run it in
         <code>CDB$ROOT</code> to see every container. It needs <code>SELECT</code> on six
-        <span class="inline">DBA_HIST</span> views (<code>SELECT_CATALOG_ROLE</code> has them), and a
-        common user needs <code>CONTAINER_DATA = ALL</code>.</p>
+        <span class="inline">DBA_HIST</span> views and that live view (<code>SELECT_CATALOG_ROLE</code>
+        has them), and a common user needs <code>CONTAINER_DATA = ALL</code>. Stock AWR keeps 8 days,
+        under <code>min_train_days</code>: every row then reads <code>INSUFFICIENT_HISTORY</code>.</p>
 
       <div class="section-head" id="html">
         <span class="eyebrow">Generate · alternative</span>

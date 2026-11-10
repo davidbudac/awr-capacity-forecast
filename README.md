@@ -100,8 +100,8 @@ EXEC DBMS_SCHEDULER.ENABLE('C##AWRCAP.CAP_NIGHTLY_JOB')
 ### No install: one tablespace query
 
 `standalone/tbspc_capacity.sql` is the tablespace forecast as one read-only
-SELECT over `DBA_HIST_*`, run on the database itself (CDB$ROOT shows every
-container). It creates nothing and keeps no history:
+SELECT over `DBA_HIST_*` and the live `CDB_TABLESPACE_USAGE_METRICS`, run on
+the database itself (CDB$ROOT shows every container). It creates nothing and keeps no history:
 
 ```
 SQL> @standalone/tbspc_capacity.sql

@@ -246,9 +246,18 @@ The M25 choices, made 2026-11-09:
   it is the target steps and the repository steps on one database.
 - **A query for a database with nothing installed.**
   `standalone/tbspc_capacity.sql` is one SELECT over `DBA_HIST_*` that
-  re-derives the Tier 1 tablespace fit (Layers 2 and 3, OLS only) with the
+  re-derives the Tier 1 tablespace fit (Layers 2 and 3, OLS slope) with the
   knob defaults inlined. It sits outside the suite and its seam, so a change
-  to the tablespace fit is mirrored there by hand.
+  to the tablespace fit is mirrored there by hand. It departs from the suite
+  in two places, both towards the cautious side. Its limit is the live
+  ceiling of `CDB_TABLESPACE_USAGE_METRICS` when that is lower: Oracle caps
+  autoextend by the free space of the storage behind it and AWR's maxsize
+  does not, and the query runs on the measured database, where the live view
+  is at hand. Its worst case (`dtf_worst`, `full_by`, `add_gb_90`) takes the
+  wider of the OLS error and DRIFT's rate error around the OLS slope. The
+  slope is not DRIFT's: a tablespace grows an extent at a time, so the
+  median daily rate is 0 for most real series (8 of 9 growing ones on the
+  19.27 test database).
 
 A warehouse mode, a seam over the `../awr-fleet-warehouse` collector,
 predated M24. M24.9 retired it, so repository mode is the one fleet path;

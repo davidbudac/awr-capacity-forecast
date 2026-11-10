@@ -27,7 +27,11 @@ for making changes safely.
   `standalone/` is outside the suite and its seam: one SELECT over
   `DBA_HIST_*` for a database with nothing installed, re-deriving the Tier 1
   tablespace fit with the knob defaults inlined. Mirror a change to the
-  ddl/20 / ddl/30 tablespace fit there.
+  ddl/20 / ddl/30 tablespace fit there. Its two deliberate departures: the
+  limit is `LEAST(AWR limit, live CDB_TABLESPACE_USAGE_METRICS ceiling)`
+  (`LIM LIVE`), and `dtf_worst` / `add_gb_90` use the wider of the OLS and
+  DRIFT error models around the OLS slope (the median rate is 0 for most
+  real tablespaces, so the slope is never DRIFT's).
 - **Every seam source read carries the session scope (M24.11).** Each
   `FROM dba_hist_x` / `cap_fixture_x` in repository/seam.sql and ddl/12 (and
   ddl/13, generated) keeps `dbid = NVL(<the CAP_SCOPE expression, inline>, dbid)`:
