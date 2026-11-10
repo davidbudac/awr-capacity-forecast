@@ -24,6 +24,10 @@ for making changes safely.
   reader's grants and checks), plus test/ and bench/.
   `test/lint_dba_hist.sh` enforces it. That is what keeps repository and
   fixture modes byte-identical downstream.
+  `standalone/` is outside the suite and its seam: one SELECT over
+  `DBA_HIST_*` for a database with nothing installed, re-deriving the Tier 1
+  tablespace fit with the knob defaults inlined. Mirror a change to the
+  ddl/20 / ddl/30 tablespace fit there.
 - **Every seam source read carries the session scope (M24.11).** Each
   `FROM dba_hist_x` / `cap_fixture_x` in repository/seam.sql and ddl/12 (and
   ddl/13, generated) keeps `dbid = NVL((SELECT scope_dbid FROM cap_scope), dbid)`:
