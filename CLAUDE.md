@@ -32,8 +32,10 @@ for making changes safely.
   (`LIM LIVE`), and `dtf_worst` / `add_gb_90` use the wider of the OLS and
   DRIFT error models around the OLS slope (the median rate is 0 for most
   real tablespaces, so the slope is never DRIFT's). A third: `dtf_shared`
-  / `disk_dtf` forecast every tablespace against one shared disk (free
-  space derived from the `LIVE` caps or `prm.disk_free_gb`), and STATUS
+  / `dtf_shared_worst` / `limit_shared_gb` / `disk_dtf` forecast every tablespace against one shared disk (free
+  space derived from the `LIVE` caps or `prm.disk_free_gb`: the view's
+  ceiling is `LEAST(sum of maxbytes, allocated + device free)` per tablespace
+  at any file count, verified 19.27), and STATUS
   uses `dtf_shared`. `standalone/README.md`
   explains its columns and formulas for readers outside the project (it is
   also pasted into Confluence): change it with the query.

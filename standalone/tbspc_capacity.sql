@@ -32,6 +32,14 @@
 --                         limit, or the first day it has to extend after
 --                         the disk is full, whichever comes first. Below
 --                         dtf = the disk stops it before its own limit.
+--   limit_shared_gb       the largest size the tablespace reaches on that
+--                         shared disk: its size on the day it is stuck.
+--                         A tablespace that is not growing keeps the
+--                         size it has allocated. Equal to limit_gb when
+--                         the disk does not fill or disk_free_gb is empty.
+--   dtf_shared_worst      dtf_shared when every tablespace grows at the
+--                         top of its 95% CI at once (below). Empty = not
+--                         growing, or too few days for a CI.
 --   full_by               newest day + dtf_worst (the worst-case fill date)
 --   add_gb_90             space to add so the high edge of the 95% band
 --                         stays under the limit through +90 days
@@ -65,16 +73,25 @@
 -- The slope stays OLS: a tablespace grows an extent at a time, and the
 -- median daily rate DRIFT fits is 0 for most real series.
 --
--- Shared disk (dtf_shared, disk_dtf): every datafile is taken to sit on one
--- filesystem / diskgroup that gets no more storage. Each tablespace grows
--- at its own mb_day (any quality. CYCLIC and shrinking ones count as not
--- growing, a datafile never gives space back). Growth first fills the free
--- space inside the tablespace's files (allocated - used) and only then
--- takes from the disk, until the tablespace reaches its own limit. The
--- disk is full on the day those takes add up to disk_free_gb. From then on
--- a tablespace is stuck the first time it has to extend. Everything else
--- on the disk (UNDO, TEMP, redo, other files and databases) is taken as
--- constant, and this is the expected case, with no error band.
+-- Shared disk (dtf_shared, dtf_shared_worst, limit_shared_gb, disk_dtf):
+-- every datafile is
+-- taken to sit on one filesystem / diskgroup that gets no more storage.
+-- Each tablespace grows at its own mb_day (any quality. CYCLIC and
+-- shrinking ones count as not growing, a datafile never gives space back).
+-- Growth first fills the free space inside the tablespace's files
+-- (allocated - used) and only then takes from the disk, until the
+-- tablespace reaches its own limit. The disk is full on the day those
+-- takes add up to disk_free_gb. From then on a tablespace is stuck the
+-- first time it has to extend, and the size it has then is
+-- limit_shared_gb. Over all tablespaces, limit_shared_gb minus the
+-- allocated size adds up to disk_free_gb: it is each one's share of the
+-- free space. Everything else on the disk (UNDO, TEMP, redo, other files
+-- and databases) is taken as constant.
+-- dtf_shared_worst repeats the whole simulation with every tablespace at
+-- mb_day + its slope CI (the rate behind dtf_worst), all at the same time:
+-- the disk fills sooner and each tablespace is stuck sooner. All of them
+-- at the top of their range together is less likely than any one of them,
+-- so read it as the cautious edge, not as a 95% bound for the disk.
 -- disk_free_gb comes from the live view: where Oracle caps a tablespace by
 -- storage (LIM LIVE), ceiling - allocated is the free space, and the
 -- smallest such value is used. No tablespace capped = not known, and
@@ -102,7 +119,7 @@ SET FEEDBACK OFF
 SET VERIFY OFF
 SET TRIMSPOOL ON
 SET SQLBLANKLINES ON
-SET LINESIZE 285
+SET LINESIZE 315
 SET PAGESIZE 500
 
 COLUMN container   FORMAT A16             HEADING 'CONTAINER'
@@ -118,7 +135,9 @@ COLUMN gb_30       FORMAT 9999990.000     HEADING 'GB_30'
 COLUMN gb_90       FORMAT 9999990.000     HEADING 'GB_90'
 COLUMN dtf         FORMAT 999990          HEADING 'DTF'
 COLUMN dtf_shared  FORMAT 999990          HEADING 'DTF_SHARED'
+COLUMN limit_shared_gb FORMAT 9999990.000 HEADING 'LIMIT_SHARED_GB'
 COLUMN dtf_worst   FORMAT 999990          HEADING 'DTF_WORST'
+COLUMN dtf_shared_worst FORMAT 999990     HEADING 'DTF_SHARED_WORST'
 COLUMN full_by     FORMAT A10             HEADING 'FULL_BY'
 COLUMN add_gb_90   FORMAT 9999990.000     HEADING 'ADD_GB_90'
 COLUMN peak_pct    FORMAT 990.0           HEADING 'PEAK_PCT'
@@ -328,12 +347,29 @@ WITH prm AS (
                  s.rate_t * (s.rate_sd * SQRT(90) + 90 * s.rate_se)) END AS h90,
                CASE WHEN s.resid_se IS NOT NULL THEN GREATEST(
                  s.tval * s.resid_se / SQRT(s.sxx),
-                 s.rate_t * s.rate_se) END                               AS slope_ci,
-               CASE WHEN s.is_cyclic = 0 AND s.slope > 0
-                    THEN (s.limit_b - s.cur_b) / s.slope END             AS own_days,
-               CASE WHEN s.is_cyclic = 0 AND s.slope > 0
-                    THEN (s.alloc_b - s.cur_b) / s.slope END             AS ext_days
+                 s.rate_t * s.rate_se) END                               AS slope_ci
         FROM   se s
+     ),
+     -- Every forecast below runs twice. E: each tablespace grows at its
+     -- fitted rate. W: each grows at the top of its 95% CI, all at once.
+     scen AS (
+        SELECT 'E' AS scen, 0 AS ci_k FROM dual
+        UNION  ALL
+        SELECT 'W', 1 FROM dual
+     ),
+     -- Per tablespace and scenario: its rate, and at that rate the days
+     -- until its files are full (ext_days) and until its own limit
+     -- (own_days). Not growing = all three NULL.
+     path AS (
+        SELECT p.*,
+               (p.alloc_b - p.cur_b) / p.rate AS ext_days,
+               (p.limit_b - p.cur_b) / p.rate AS own_days
+        FROM  (SELECT b.con_dbid, b.tablespace_id, b.is_current, b.cur_b, b.alloc_b, b.limit_b,
+                      sc.scen,
+                      CASE WHEN b.is_cyclic = 0 AND b.slope > 0
+                           THEN b.slope + sc.ci_k * NVL(b.slope_ci, 0) END AS rate
+               FROM   band b
+               CROSS  JOIN scen sc) p
      ),
      -- ---- Shared disk (header, "Shared disk") ----
      dfree AS (
@@ -347,41 +383,55 @@ WITH prm AS (
      -- A growing tablespace takes from the disk from the day its files are
      -- full (ext_days) to the day it reaches its own limit (own_days).
      grower AS (
-        SELECT b.slope AS rate, GREATEST(0, b.ext_days) AS t_from, b.own_days AS t_to
-        FROM   band b
-        WHERE  b.is_current = 1
-          AND  b.own_days > GREATEST(0, b.ext_days)
+        SELECT p.scen, p.rate, GREATEST(0, p.ext_days) AS t_from, p.own_days AS t_to
+        FROM   path p
+        WHERE  p.is_current = 1
+          AND  p.own_days > GREATEST(0, p.ext_days)
      ),
      -- The disk's daily take changes only on those days. One row per stretch
      -- between two of them: its rate, and what was taken before it starts.
      ev AS (
-        SELECT t, SUM(dr) AS dr
-        FROM  (SELECT t_from AS t, rate AS dr FROM grower
+        SELECT scen, t, SUM(dr) AS dr
+        FROM  (SELECT scen, t_from AS t, rate AS dr FROM grower
                UNION  ALL
-               SELECT t_to, -rate FROM grower)
-        GROUP  BY t
+               SELECT scen, t_to, -rate FROM grower)
+        GROUP  BY scen, t
      ),
      seg AS (
-        SELECT t, rate, t_next,
-               NVL(SUM(rate * (t_next - t)) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING
-                                                                  AND 1 PRECEDING), 0) AS taken
-        FROM  (SELECT t,
-                      SUM(dr) OVER (ORDER BY t) AS rate,
-                      LEAD(t) OVER (ORDER BY t) AS t_next
+        SELECT scen, t, rate, t_next,
+               NVL(SUM(rate * (t_next - t)) OVER (PARTITION BY scen ORDER BY t
+                                                  ROWS BETWEEN UNBOUNDED PRECEDING
+                                                           AND 1 PRECEDING), 0) AS taken
+        FROM  (SELECT scen, t,
+                      SUM(dr) OVER (PARTITION BY scen ORDER BY t) AS rate,
+                      LEAD(t) OVER (PARTITION BY scen ORDER BY t) AS t_next
                FROM   ev)
      ),
      -- full_day = the day the take reaches the free space, inside the one
      -- stretch that crosses it. The last stretch has every grower at its
      -- limit (rate 0) and is left out.
      disk AS (
-        SELECT MAX(f.free_b) AS free_b,
+        SELECT sc.scen,
+               MAX(f.free_b) AS free_b,
                CASE WHEN MAX(f.free_b) <= 0 THEN 0
                     ELSE MIN(s.t + (f.free_b - s.taken) / s.rate) END AS full_day
         FROM   dfree f
+        CROSS  JOIN scen sc
         LEFT   JOIN seg s
-          ON   s.t_next IS NOT NULL AND s.rate > 0
+          ON   s.scen = sc.scen
+         AND   s.t_next IS NOT NULL AND s.rate > 0
          AND   s.taken < f.free_b
          AND   s.taken + s.rate * (s.t_next - s.t) >= f.free_b
+        GROUP  BY sc.scen
+     ),
+     -- stuck_days = the day the tablespace is stuck: at its own limit, or
+     -- the first day it has to extend once the disk is full.
+     stuck AS (
+        SELECT p.con_dbid, p.tablespace_id, p.scen, p.rate, p.own_days,
+               dk.free_b, dk.full_day,
+               LEAST(p.own_days, NVL(GREATEST(dk.full_day, p.ext_days), p.own_days)) AS stuck_days
+        FROM   path p
+        JOIN   disk dk ON dk.scen = p.scen
      ),
      fc AS (
         SELECT b.*,
@@ -393,23 +443,30 @@ WITH prm AS (
                     WHEN b.r2 < prm.r2_gate                      THEN 'LOW_CONFIDENCE'
                     ELSE                                              'OK'
                END AS quality,
-               GREATEST(0, FLOOR(b.own_days))                                               AS dtf_raw,
-               GREATEST(0, FLOOR(LEAST(b.own_days,
-                                       NVL(GREATEST(dk.full_day, b.ext_days), b.own_days)))) AS dtf_shared_raw,
-               CASE WHEN b.is_cyclic = 0 AND b.slope > 0 AND b.slope_ci IS NOT NULL
-                    THEN GREATEST(0, FLOOR((b.limit_b - b.cur_b) / (b.slope + b.slope_ci))) END AS dtf_worst_raw,
-               dk.free_b                                                                    AS disk_free_b,
-               FLOOR(dk.full_day)                                                           AS disk_dtf_raw
+               GREATEST(0, FLOOR(e.own_days))                                   AS dtf_raw,
+               GREATEST(0, FLOOR(e.stuck_days))                                 AS dtf_shared_raw,
+               CASE WHEN b.slope_ci IS NOT NULL
+                    THEN GREATEST(0, FLOOR(w.own_days)) END                     AS dtf_worst_raw,
+               CASE WHEN b.slope_ci IS NOT NULL
+                    THEN GREATEST(0, FLOOR(w.stuck_days)) END                   AS dtf_shared_worst_raw,
+               CASE WHEN e.full_day IS NULL THEN b.limit_b
+                    ELSE LEAST(b.limit_b,
+                               GREATEST(b.alloc_b,
+                                        b.cur_b + NVL(e.rate, 0) * e.full_day)) END AS limit_shared_b,
+               e.free_b                                                         AS disk_free_b,
+               FLOOR(e.full_day)                                                AS disk_dtf_raw
         FROM   band b
-        CROSS  JOIN disk dk
+        JOIN   stuck e ON e.con_dbid = b.con_dbid AND e.tablespace_id = b.tablespace_id AND e.scen = 'E'
+        JOIN   stuck w ON w.con_dbid = b.con_dbid AND w.tablespace_id = b.tablespace_id AND w.scen = 'W'
         CROSS  JOIN prm
      ),
      res AS (
         SELECT f.*,
-               CASE WHEN f.dtf_raw        <= 36500 THEN f.dtf_raw        END AS dtf,
-               CASE WHEN f.dtf_shared_raw <= 36500 THEN f.dtf_shared_raw END AS dtf_shared,
-               CASE WHEN f.dtf_worst_raw  <= 36500 THEN f.dtf_worst_raw  END AS dtf_worst,
-               CASE WHEN f.disk_dtf_raw   <= 36500 THEN f.disk_dtf_raw   END AS disk_dtf
+               CASE WHEN f.dtf_raw              <= 36500 THEN f.dtf_raw              END AS dtf,
+               CASE WHEN f.dtf_shared_raw       <= 36500 THEN f.dtf_shared_raw       END AS dtf_shared,
+               CASE WHEN f.dtf_worst_raw        <= 36500 THEN f.dtf_worst_raw        END AS dtf_worst,
+               CASE WHEN f.dtf_shared_worst_raw <= 36500 THEN f.dtf_shared_worst_raw END AS dtf_shared_worst,
+               CASE WHEN f.disk_dtf_raw         <= 36500 THEN f.disk_dtf_raw         END AS disk_dtf
         FROM   fc f
      ),
      graded AS (
@@ -451,7 +508,9 @@ SELECT c.con_name                                               AS container,
        CASE WHEN v.quality <> 'CYCLIC' THEN ROUND((v.cur_b + v.slope * 90) / 1073741824, 3) END AS gb_90,
        v.dtf,
        v.dtf_shared,
+       ROUND(v.limit_shared_b / 1073741824, 3)                  AS limit_shared_gb,
        v.dtf_worst,
+       v.dtf_shared_worst,
        TO_CHAR(v.last_day + v.dtf_worst, 'YYYY-MM-DD')          AS full_by,
        CASE WHEN v.quality <> 'CYCLIC' AND v.h90 IS NOT NULL
             THEN ROUND(GREATEST(0, v.cur_b + v.slope * 90 + v.h90 - v.limit_b) / 1073741824, 3) END AS add_gb_90,
@@ -483,7 +542,9 @@ COLUMN gb_30 CLEAR
 COLUMN gb_90 CLEAR
 COLUMN dtf CLEAR
 COLUMN dtf_shared CLEAR
+COLUMN limit_shared_gb CLEAR
 COLUMN dtf_worst CLEAR
+COLUMN dtf_shared_worst CLEAR
 COLUMN full_by CLEAR
 COLUMN add_gb_90 CLEAR
 COLUMN peak_pct CLEAR
