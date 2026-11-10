@@ -111,7 +111,8 @@
       <!-- ===================== HTML REPORT ===================== -->
       <h3>CSV and cron</h3>
       <p><span class="inline">@report/report_csv.sql [dbid] [con_dbid] [source]</span> writes one CSV per CAPR
-        section view (alerts, days to full, forecast, anomalies, CPU trend and shifts, series, fit) into
+        section view (alerts, days to full, forecast, anomalies, CPU trend and shifts, series, fit, and
+        the four memory views: verdicts, evidence, components and component points) into
         <span class="inline">reports/cap_csv_&lt;db&gt;_&lt;ts&gt;/</span>: every column and row in
         scope, a header line, every value quoted.
         <span class="inline">report/run_report.sh [connect] [--html] [--csv] [--scope D[:C]] [--target NAME]
@@ -141,7 +142,7 @@
 
       <p>A single self-contained page. Same defaults file, knobs and read-only behaviour as the text
         report. One section per metric: tablespaces, database size, host CPU, DB CPU, sessions,
-        processes, redo, undo, temp and ASM disk groups. Each series is a card with status, current
+        processes, PGA, redo, undo, temp and ASM disk groups, then memory. Each series is a card with status, current
         value, share of the limit, growth, days to the limit, and a chart (drawn for every series):
         history, the dashed forecast with its 95% band, the limit and its warning line, a “today”
         divider, rings on anomalous days, the ESM point, and a dot where the forecast crosses the line
@@ -159,10 +160,19 @@
         offline, needs JavaScript. A view that fails leaves its block empty and the page names it.
         <a href="demo/cap_report_demo.html" target="_blank" rel="noopener">Sample report</a>.</p>
 
+      <p>The <b>Memory</b> section has one card per instance: the six sizing verdicts of
+        <a href="#sections">section 8</a> (grade, current size, suggested size and its parameter, the
+        verdict sentence and its reason), the evidence of each area behind a fold, and a chart of the
+        SGA component sizes per day of the evidence window with a table of each component's size,
+        share and resizes. Its rows come from <span class="inline">CAPR_MEM_VERDICT</span>,
+        <span class="inline">CAPR_MEM_EVIDENCE</span> and <span class="inline">CAPR_MEM_COMP_POINTS</span>.
+        The verdicts are advice: they are not counted in the alert totals or the banner.</p>
+
       <p><span class="inline">report/report_brief.sql</span> is a one-page briefing: one sentence (what
         fills, when, how much to add), a 12-month timeline of the date each limit is reached, the
-        actions in date order with worst-case dates, the evidence chart for the first few, and one fill
-        bar per tablespace for today and +90 days. Same arguments, read-only, printable;
+        actions in date order with worst-case dates, the memory sizing advice (one line per verdict
+        that advises a change, and a count of the areas that could not be judged), the evidence chart
+        for the first few, and one fill bar per tablespace for today and +90 days. Same arguments, read-only, printable;
         <span class="inline">run_report.sh --brief</span> writes it from cron.
         <a href="demo/cap_brief_demo.html" target="_blank" rel="noopener">Sample briefing</a>.</p>
 
@@ -181,7 +191,7 @@
       </div>
       <div class="tablewrap">
         <table>
-          <caption>Sections 0–7 and the views behind each</caption>
+          <caption>Sections 0–8 and the views behind each</caption>
           <thead><tr><th class="num" scope="col">#</th><th scope="col">Section</th><th scope="col">What to read</th></tr></thead>
           <tbody>
             <tr>
@@ -216,6 +226,10 @@
               <td class="num">7</td><td><b>Fixed-ceiling series</b><br><span class="small"><span class="inline">CAPR_SERIES</span> · <span class="inline">CAPR_SERIES_ANOMALIES</span></span></td>
               <td class="def"><code>PROCESSES</code>, <code>SESSIONS</code>: peak concurrency (AWR high-water mark since instance startup, summed across RAC instances) against the init parameter. <code>PGA_ALLOC_GB</code>: the day's highest sampled PGA allocation in GiB against <span class="inline">pga_aggregate_limit</span>. <code>REDO_GB_DAY</code>: redo per day, no ceiling; a trend for FRA / archive-destination sizing. <code>DB_SIZE_GB</code>: permanent-tablespace bytes used against the summed tablespace ceilings. <code>ASM_DG:+&lt;group&gt;</code>: diskgroup GiB used against its total. <code>TEMP_PEAK:&lt;ts&gt;</code> / <code>UNDO_PEAK:&lt;ts&gt;</code>: the day's highest sampled TEMP / UNDO usage against maxsize. <code>FRA_DAYS</code> on the <code>REDO_GB_DAY</code> row: <span class="inline">db_recovery_file_dest_size</span> over the current redo rate. <code>DAYS_LIM</code> projects when the series reaches <span class="inline">series_sat_pct</span>% of its limit (default 90, because reaching <code>processes</code> exactly is an outage). <b>7b</b> (<span class="inline">CAPR_SERIES_ANOMALIES</span>): flagged anomalies, one line per (day, mode); <code>PROCESSES</code>, <code>SESSIONS</code>, <code>PGA_ALLOC_GB</code> and <code>REDO_GB_DAY</code> on level, <code>DB_SIZE_GB</code> on daily growth in GiB.</td>
             </tr>
+            <tr>
+              <td class="num">8</td><td><b>Instance memory</b><br><span class="small"><span class="inline">CAPR_MEM_VERDICT</span> · <span class="inline">CAPR_MEM_EVIDENCE</span> · <span class="inline">CAPR_MEM_COMPONENTS</span></span></td>
+              <td class="def">One grade per instance and memory area (SGA total, buffer cache, shared pool, SGA balance, PGA target, PGA limit), judged on the last <span class="inline">mem_window_days</span> (30) of AWR. <code>UNDERSIZED</code>: Oracle's advisor estimates a material gain at a larger size <b>and</b> a pressure symptom was observed; either one alone grades <code>OK</code> and the reason says which. <code>OVERSIZED</code>: the advisor estimates almost no cost at a smaller size, no pressure was observed and enough days were sampled. <code>INSUFFICIENT_EVIDENCE</code>: the reason says what is missing (advisor history, AMM, memory history not collected). SGA balance reads <code>THRASHING</code> when ASMM keeps moving memory between the buffer cache and the shared pool, <code>DRIFTING</code> when it squeezed one of them. <code>SUGGESTED</code> is a size the advisor evaluated, at most <span class="inline">mem_max_step</span> times (or one over it) the current size: one step, then judge again. Under ASMM a buffer cache or shared pool suggestion is a floor. <code>HOST</code> = Y: the suggestion plus the rest of the instance passes <span class="inline">mem_host_ram_pct</span> of the host's memory (other instances on the host are not seen); <code>SGA</code> = Y: a pool floor that does not fit in <code>sga_target</code>. Under the table each verdict is one sentence with its reason. <b>8b</b>: every signal behind the verdicts, with its value and threshold (<code>ADVISOR</code>, <code>SYMPTOM</code>, <code>USAGE</code>, <code>CONTEXT</code>; <code>PRESSURE</code> / <code>SLACK</code> / <code>NEUTRAL</code>). <b>8c</b>: the SGA components with their current, smallest and largest size in the window and their resizes. The rows are instance level, so a report scoped to a PDB shows none. Advice only: no alert is raised and the suite never changes a parameter. <span class="inline">report/drill_mem.sql</span> shows the arithmetic.</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -243,10 +257,13 @@
 
 <span class="c-prompt">SQL&gt;</span> @report/drill_cpu.sql                     <span class="c-cmt">-- BUSY_PCT, all containers</span>
 <span class="c-prompt">SQL&gt;</span> @report/drill_cpu.sql BUSY_P95
-<span class="c-prompt">SQL&gt;</span> @report/drill_cpu.sql DB_CPU_PCT 2482321331</pre>
+<span class="c-prompt">SQL&gt;</span> @report/drill_cpu.sql DB_CPU_PCT 2482321331
+
+<span class="c-prompt">SQL&gt;</span> @report/drill_mem.sql                     <span class="c-cmt">-- the only database, its only instance</span>
+<span class="c-prompt">SQL&gt;</span> @report/drill_mem.sql CDB1 2</pre>
       </div>
 
-      <p>Each prints to screen and spools
+      <p>The two series drills print to screen and spool
         <span class="inline">reports/cap_drill_&lt;name&gt;_&lt;ts&gt;.txt</span> with four blocks:</p>
       <ul>
         <li><b>Fit header</b>: slope, intercept, R², the 95% slope CI, days-to-full or
@@ -275,6 +292,25 @@
         For those two it adds a block of flagged HOUR_OF_WEEK hours: weekday and hour, baseline size,
         expected value, sigma and threshold. Both scripts are read-only, never prompt, and
         <code>UNDEFINE</code> their arguments at the end.</p>
+
+      <p><span class="inline">drill_mem.sql [database] [instance]</span> does the same for the memory
+        verdicts of one instance. The database is a dbid or a target name and may be omitted when the
+        schema holds one database; the instance defaults to the only one, else 1. It spools
+        <span class="inline">reports/cap_drill_mem_&lt;db&gt;_&lt;instance&gt;_&lt;ts&gt;.txt</span> with five
+        blocks:</p>
+      <ul>
+        <li><b>The instance</b>: memory mode, <code>sga_target</code>, the PGA target and limit, host
+          memory and the evidence window, then the six verdicts with their sentences.</li>
+        <li><b>The startups of the window</b>: each uptime with its snapshots and hours, and whether its
+          advisor evidence was used or skipped (shorter than
+          <span class="inline">mem_min_uptime_hours</span>; its symptoms still count).</li>
+        <li><b>Every evidence line</b> with value, unit, threshold and direction.</li>
+        <li><b>The advisor curves</b>: every advised size of each area with the hours and intervals it
+          covers, its cost relative to the reference size, its gain or loss, and marks on the current,
+          reference and suggested sizes.</li>
+        <li><b>Resize activity</b>: every interval in which a component changed size or counted an
+          operation, then the component summary.</li>
+      </ul>
 
       <!-- ===================== MONITORING ===================== -->
       <div class="section-head" id="monitoring">

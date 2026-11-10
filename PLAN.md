@@ -1188,7 +1188,8 @@ takes about 10 s and 205 MB of PGA in local mode. Changed against the spec
 and recorded there: a counter AWR omits while zero counts its first row in
 full, and a PGA target that over-allocates at every size inside the step cap
 is advised the largest candidate. Not built: per-PDB usage, the history
-table, report sections, the snapshot registry entries, doctor readiness.
+table, doctor readiness (the report sections and the snapshot registry
+entries came with 26.4).
 
 Built third (suite_version 26.3), from the first read of the real verdicts:
 two rule changes, both in the spec's "Detailed rules" section. An advisor
@@ -1217,6 +1218,32 @@ together, without reducing it. On the real AWR the shared pool reads
 `UNDERSIZED`, 1872 MiB, `exceeds_sga = Y`, beside `SGA_TOTAL` `UNDERSIZED`,
 2688 MiB.
 
+Built fourth (suite_version 26.4): M26.4, the reports, over what the first
+three steps built. `ddl/45` gains the report views `CAPR_MEM_AREA` (the six
+areas, their labels and order), `CAPR_MEM_VERDICT` (reason sentence,
+`actionable`, size texts, one `headline` sentence per row), `CAPR_MEM_EVIDENCE`,
+`CAPR_MEM_COMPONENTS` and `CAPR_MEM_COMP_POINTS` (daily component sizes of the
+evidence window); the last four are in the snapshot registry. `ddl/42` gains
+`CAPM_COMP`, the component intervals `CAPM_SGA_BALANCE` used to compute
+inline, so the reports and the drill read the same increments. Consumers:
+text section 8 / 8b / 8c (`report/sections/08_memory.sql`), the HTML report's
+Memory section (one card per instance: verdicts, folded evidence, a stacked
+chart of the SGA components), "Memory sizing" lines in the briefing (one per
+actionable verdict, a count of the areas that could not be judged), four CSV
+files, and `report/drill_mem.sql` (startups, evidence, advisor curves,
+resizes of one instance). Verdicts stay out of every alert count. The demo
+story has a memory chapter (`test/demo_fixture.sql`: PGA target undersized,
+SGA total and buffer cache oversized) and `docs/demo/` is regenerated from
+it. Asserted on the fixture: every headline of the shipped knobs and of the
+AMM, floor-over-SGA, drifting, thrashing and host-flag scenarios, the
+evidence order, and the component rows through a one-way shift and an
+oscillation. Left out because their sources are not built (M26.1 / M26.3
+below): per-PDB rows, the resize operations detail and "since when" from the
+verdict history. Found while building the demo: a fixture install with both
+the PGASTAT and the PARAMETER stub fails with ORA-00932 in
+`CAPD_SERIES_DAILY` (19.27); not fixed here, the demo now carries both
+tables.
+
 - [ ] **M26.1 Seam.** Fourteen new `CAPV_*` views (component history, resize
       operations, PGA statistics, work area histogram, the PGA / SGA / cache /
       shared pool advisors, SGA statistics, library cache, row cache, buffer
@@ -1240,8 +1267,10 @@ together, without reducing it. On the real AWR the shared pool reads
       flag, `SGA_BALANCE` (`THRASHING` and a pool floor), per-PDB usage and
       limit verdicts, the persisted history table written by
       `cap_results.refresh`.
-- [ ] **M26.4 Reports.** Text section, HTML cards, briefing lines, CSV,
+- [x] **M26.4 Reports.** Text section, HTML cards, briefing lines, CSV,
       `report/drill_mem.sql`, docs, a memory chapter in the demo story.
+      Per-PDB rows, resize operations and verdict history join the reports
+      when M26.1 / M26.3 build their sources.
 
 ## v2 (unchanged)
 
