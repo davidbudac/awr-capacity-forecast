@@ -258,6 +258,16 @@ The M25 choices, made 2026-11-09:
   slope is not DRIFT's: a tablespace grows an extent at a time, so the
   median daily rate is 0 for most real series (8 of 9 growing ones on the
   19.27 test database).
+  `standalone/tbspc_monitor.sql` is its monitoring companion: the same CTE
+  chain, with a verdict on the live `USED_PERCENT` in place of the report
+  grade. A plain "critical at 90% used" alarm misleads for a very large
+  tablespace that is 90% full and months from full, so a ceiling of
+  `alert_big_gb` or more is held back as WATCH while `dtf_shared_worst`
+  (every tablespace at the top of its CI at once) is above `alert_dtf`,
+  and only when the fit's quality is OK or FLAT (a tablespace that does not
+  grow is a confident "no growth", WATCH): any other quality
+  (LOW_CONFIDENCE, INSUFFICIENT_HISTORY, CYCLIC) is CRIT from `alert_pct`.
+  The forecast lives in two files, so a change to the fit goes into both.
 
 A warehouse mode, a seam over the `../awr-fleet-warehouse` collector,
 predated M24. M24.9 retired it, so repository mode is the one fleet path;

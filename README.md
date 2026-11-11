@@ -113,6 +113,12 @@ and CRIT / WARN / OK. It is the suite's OLS fit, restarted after a purge, with
 the knob defaults in the `prm` CTE. No overrides, CYCLIC peak line, anomalies
 or ML.
 
+`standalone/tbspc_monitor.sql` is its monitoring companion: the same forecast,
+but it returns only the tablespaces that need an alarm (CRIT or WATCH). It
+replaces a plain "critical at 90% used" alarm, which is misleading for a very
+large tablespace that is 90% full and months from full. Run it hourly from a
+monitoring tool. See [`standalone/tbspc_monitor.md`](standalone/tbspc_monitor.md).
+
 Step by step: [Getting started](https://davidbudac.github.io/awr-capacity-forecast/start.html).
 Manual install, modes, privileges: [Reference](https://davidbudac.github.io/awr-capacity-forecast/reference.html#installer).
 

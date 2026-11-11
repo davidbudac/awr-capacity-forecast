@@ -146,6 +146,12 @@
         <span class="inline">DBA_HIST</span> views and that live view (<code>SELECT_CATALOG_ROLE</code>
         has them), and a common user needs <code>CONTAINER_DATA = ALL</code>. Stock AWR keeps 8 days,
         under <code>min_train_days</code>: every row then reads <code>INSUFFICIENT_HISTORY</code>.</p>
+      <p><span class="inline">@standalone/tbspc_monitor.sql</span> is its alarm companion, for a
+        monitoring tool. It shares the forecast but returns only the tablespaces that need an alarm,
+        <code>CRIT</code> or <code>WATCH</code>. It judges the live percent used. A plain alarm at 90%
+        is misleading for a very large tablespace that is 90% full and months from full, so such a
+        tablespace is held back as <code>WATCH</code> while its worst-case days to full are more than
+        30. Run it hourly and alarm on <code>CRIT</code>.</p>
 
       <div class="section-head" id="html">
         <span class="eyebrow">Generate · alternative</span>

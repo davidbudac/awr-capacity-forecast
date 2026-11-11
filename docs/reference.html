@@ -767,7 +767,8 @@
           <span class="inline">quickstart.sh</span> and <span class="inline">./install.sh --profile standalone</span>
           run the steps below in one SQL*Plus session, as SYSDBA in <span class="inline">CDB$ROOT</span>.
           The query <span class="inline">standalone/tbspc_capacity.sql</span> is something else: one SELECT
-          for a database with nothing installed (<a href="#drivers">Report drivers</a>).</p>
+          for a database with nothing installed (<a href="#drivers">Report drivers</a>), and
+          <span class="inline">standalone/tbspc_monitor.sql</span> is its alarm companion.</p>
       </div>
       <div class="tablewrap">
         <table>
@@ -1597,6 +1598,11 @@ EXEC DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_NIGHTLY_JOB')</pre>
               <td><span class="inline">standalone/tbspc_capacity.sql</span></td>
               <td class="def">none</td>
               <td class="def">Outside the suite: one read-only SELECT over <span class="kt">DBA_HIST_*</span> and the live <span class="kt">CDB_TABLESPACE_USAGE_METRICS</span> on a database with nothing installed. The Tier 1 tablespace fit (OLS, purge reset, <code>CYCLIC</code>, 95% bands) with the knob defaults inlined in its <code>prm</code> CTE; no <span class="inline">CAP_CONFIG</span>, no overrides, no anomalies, no ML. Unlike the suite, its limit is the live storage-capped ceiling when that is lower (<code>LIM LIVE</code>), and its worst case (<code>dtf_worst</code>, <code>full_by</code>, <code>add_gb_90</code>) takes the wider of the OLS error and the day-over-day rate error. Run it in <span class="inline">CDB$ROOT</span> (or a non-CDB) to see every container; the reading user needs SELECT on six <span class="kt">DBA_HIST_*</span> views (<code>SNAPSHOT</code>, <code>TBSPC_SPACE_USAGE</code>, <code>TABLESPACE</code>, <code>DATAFILE</code>, <code>PDB_INSTANCE</code>, <code>DATABASE_INSTANCE</code>) and on that live view, or <code>SELECT_CATALOG_ROLE</code>, and a common user needs <code>CONTAINER_DATA = ALL</code> to see more than the root. Not the <a href="#standalone">standalone install</a>.</td>
+            </tr>
+            <tr>
+              <td><span class="inline">standalone/tbspc_monitor.sql</span></td>
+              <td class="def">none</td>
+              <td class="def">The monitoring companion of <span class="inline">standalone/tbspc_capacity.sql</span>: the same read-only SELECT and the same forecast (its CTEs <code>db</code> to <code>res</code> are the same text), cut to an alarm. It replaces a plain critical-at-90%-used alarm. It judges the live <code>USED_PERCENT</code> of <span class="kt">CDB_TABLESPACE_USAGE_METRICS</span>: <code>CRIT</code> from 95%, and from 90% unless the ceiling is 1024 GB or more and the worst case (<code>dtf_shared_worst</code>) is more than 30 days away, which is <code>WATCH</code>. The forecast holds a tablespace back only at quality <code>OK</code> or <code>FLAT</code> (a tablespace that does not grow is <code>WATCH</code>, not growing): any other quality (<code>LOW_CONFIDENCE</code>, <code>INSUFFICIENT_HISTORY</code>, <code>CYCLIC</code>) is <code>CRIT</code> from 90%. It returns only the rows with an alert unless <code>alerts_only</code> is 0. Same grants and place to run as the capacity query. Not covered: UNDO and TEMP, so keep a plain percent alarm at 95% beside it. Own document: <span class="inline">standalone/tbspc_monitor.md</span>.</td>
             </tr>
             <tr>
               <td><span class="inline">awrcap/metrics</span><br><span class="small">ORDS GET</span></td>

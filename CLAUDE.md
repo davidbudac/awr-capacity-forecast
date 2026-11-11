@@ -44,6 +44,17 @@ for making changes safely.
   The suite restarts at a purge cliff only. `standalone/README.md`
   explains its columns and formulas for readers outside the project (it is
   also pasted into Confluence): change it with the query.
+  `standalone/tbspc_monitor.sql` is its monitoring companion (own doc
+  `standalone/tbspc_monitor.md`, also pasted into Confluence): the same CTE
+  chain `db` .. `res`, kept textually identical except the two `live_pct`
+  lines (`live` and `lim`), so a change to the fit goes into both files.
+  Its rule judges the live `USED_PERCENT`: CRIT from `alert_pct_max` 95,
+  from `alert_pct` 90 unless the ceiling is `alert_big_gb` or more and
+  `dtf_shared_worst` is above `alert_dtf` (or absent: not growing), then
+  WATCH. The forecast holds a tablespace back only at quality OK or FLAT:
+  any other quality (LOW_CONFIDENCE, INSUFFICIENT_HISTORY, CYCLIC) is CRIT
+  from `alert_pct`.
+  `alerts_only` 1 by default.
 - **Every seam source read carries the session scope (M24.11).** Each
   `FROM dba_hist_x` / `cap_fixture_x` in repository/seam.sql and ddl/12 (and
   ddl/13, generated) keeps `dbid = NVL(<the CAP_SCOPE expression, inline>, dbid)`:
