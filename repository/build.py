@@ -67,6 +67,12 @@ class Source:
 
 
 TIME_NAMES = "stat_name IN ('DB CPU','DB time','background cpu time')"
+# 'redo size' (REDO_GB_DAY) and the four I/O totals (IOPS, IO_MBPS). A name
+# added here is copied from the first collect after the upgrade: collect
+# starts above the high-water mark, so older snapshots are not backfilled.
+SYSSTAT_NAMES = ("stat_name IN ('redo size',\n             "
+                 "'physical read total IO requests','physical write total IO requests',\n             "
+                 "'physical read total bytes','physical write total bytes')")
 KEYS = [("dbid", N), ("con_dbid", N), ("instance_number", N), ("snap_id", N)]
 # The memory pressure events ddl/10's CAPV_SYSTEM_EVENT reads, one per line
 # so the pull statement keeps its lines short.
@@ -105,11 +111,11 @@ SOURCES = [
            filter="resource_name IN ('processes','sessions')"),
     Source("SYSSTAT", "F", [("dbid", N), ("con_dbid", N), ("instance_number", N),
                             ("snap_id", N), ("stat_name", v(64)), ("value", N)],
-           filter="stat_name = 'redo size'"),
+           filter=SYSSTAT_NAMES),
     Source("CON_SYSSTAT", "F", [("dbid", N), ("con_dbid", N), ("con_id", N),
                                 ("instance_number", N), ("snap_id", N),
                                 ("stat_name", v(64)), ("value", N)],
-           filter="stat_name = 'redo size'"),
+           filter=SYSSTAT_NAMES),
     Source("PARAMETER", "F", [("dbid", N), ("con_dbid", N), ("instance_number", N),
                               ("snap_id", N), ("parameter_name", v(64)), ("value", v(512))],
            filter="parameter_name IN ('cpu_count','processes','sessions',"

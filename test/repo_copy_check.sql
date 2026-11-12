@@ -211,12 +211,16 @@ BEGIN
                 'F',
                 q'~dbid, con_dbid, instance_number, snap_id, stat_name, value~',
                 q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || stat_name || '|' || TO_CHAR(value)~',
-                p_filter => q'~stat_name = 'redo size'~');
+                p_filter => q'~stat_name IN ('redo size',
+             'physical read total IO requests','physical write total IO requests',
+             'physical read total bytes','physical write total bytes')~');
             one('con_sysstat',
                 'F',
                 q'~dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value~',
                 q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(con_id) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || stat_name || '|' || TO_CHAR(value)~',
-                p_filter => q'~stat_name = 'redo size'~');
+                p_filter => q'~stat_name IN ('redo size',
+             'physical read total IO requests','physical write total IO requests',
+             'physical read total bytes','physical write total bytes')~');
             one('parameter',
                 'F',
                 q'~dbid, con_dbid, instance_number, snap_id, parameter_name, value~',

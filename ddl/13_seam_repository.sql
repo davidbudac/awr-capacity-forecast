@@ -180,13 +180,17 @@ SELECT 7 AS seq, 'SYSSTAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_
        q'~INSERT INTO cap_h_sysstat (dbid, con_dbid, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
            FROM dba_hist_sysstat@{LINK}
-           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name = 'redo size')~' AS pull_sql FROM dual
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name IN ('redo size',
+             'physical read total IO requests','physical write total IO requests',
+             'physical read total bytes','physical write total bytes'))~' AS pull_sql FROM dual
 UNION ALL
 SELECT 8 AS seq, 'CON_SYSSTAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_CON_SYSSTAT' AS copy_table,
        q'~INSERT INTO cap_h_con_sysstat (dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value
            FROM dba_hist_con_sysstat@{LINK}
-           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name = 'redo size')~' AS pull_sql FROM dual
+           WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name IN ('redo size',
+             'physical read total IO requests','physical write total IO requests',
+             'physical read total bytes','physical write total bytes'))~' AS pull_sql FROM dual
 UNION ALL
 SELECT 9 AS seq, 'PARAMETER' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_PARAMETER' AS copy_table,
        q'~INSERT INTO cap_h_parameter (dbid, con_dbid, instance_number, snap_id, parameter_name, value)
@@ -516,13 +520,17 @@ SELECT c.dbid                   AS dbid,
        c.stat_name              AS stat_name,
        c.value                  AS value
 FROM   cap_h_con_sysstat c
-WHERE  c.stat_name = 'redo size'
+WHERE  c.stat_name IN ('redo size',
+                        'physical read total IO requests', 'physical write total IO requests',
+                        'physical read total bytes', 'physical write total bytes')
   AND  NVL(c.con_id, 0) <> 2
   AND  c.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), c.dbid)
 UNION ALL
 SELECT s.dbid, s.con_dbid, s.instance_number, s.snap_id, s.stat_name, s.value
 FROM   cap_h_sysstat s
-WHERE  s.stat_name = 'redo size'
+WHERE  s.stat_name IN ('redo size',
+                        'physical read total IO requests', 'physical write total IO requests',
+                        'physical read total bytes', 'physical write total bytes')
   AND  s.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), s.dbid)
   AND  NOT EXISTS (SELECT 1
                    FROM   cap_h_con_sysstat c

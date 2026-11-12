@@ -297,9 +297,16 @@ WHERE  resource_name IN ('processes','sessions')
 
 -- --------------------------------------------------------------------
 -- CAPV_SYSSTAT (M11.2) -- system statistics PER CONTAINER, filtered to the
--- one counter the redo series needs. 'redo size' is a CUMULATIVE BYTE counter
--- since instance startup (like the OSSTAT/time-model counters), so the daily
--- layer differences consecutive snaps and drops restart-spanning intervals.
+-- counters the series read: 'redo size' (REDO_GB_DAY) and the four physical
+-- I/O totals (IOPS, IO_MBPS: read / write requests and bytes, every I/O the
+-- instance issues for the container, not only buffer cache I/O). All are
+-- CUMULATIVE counters since instance startup (like the OSSTAT/time-model
+-- counters), so the daily layer differences consecutive snaps and drops
+-- restart-spanning intervals.
+--   * AWR writes no row for a container's statistic that is still zero
+--     since startup (19.27: a PDB had 1265 'physical write total IO
+--     requests' rows beside 1572 read rows), so a name can be absent on a
+--     snapshot that carries the others.
 --   * Source DBA_HIST_CON_SYSSTAT, for the same reason as CAPV_TIME_MODEL:
 --     DBA_HIST_SYSSTAT in CDB$ROOT carries the root's con_dbid only. The log
 --     stream is shared, so the CDB's redo is the SUM over containers.
@@ -313,13 +320,17 @@ SELECT c.dbid                   AS dbid,
        c.stat_name              AS stat_name,
        c.value                  AS value
 FROM   dba_hist_con_sysstat c
-WHERE  c.stat_name = 'redo size'
+WHERE  c.stat_name IN ('redo size',
+                        'physical read total IO requests', 'physical write total IO requests',
+                        'physical read total bytes', 'physical write total bytes')
   AND  NVL(c.con_id, 0) <> 2
   AND  c.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), c.dbid)
 UNION ALL
 SELECT s.dbid, s.con_dbid, s.instance_number, s.snap_id, s.stat_name, s.value
 FROM   dba_hist_sysstat s
-WHERE  s.stat_name = 'redo size'
+WHERE  s.stat_name IN ('redo size',
+                        'physical read total IO requests', 'physical write total IO requests',
+                        'physical read total bytes', 'physical write total bytes')
   AND  s.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), s.dbid)
   AND  NOT EXISTS (SELECT 1
                    FROM   dba_hist_con_sysstat c
