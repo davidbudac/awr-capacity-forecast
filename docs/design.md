@@ -1462,10 +1462,13 @@ no partitioned ESM) via `DBMS_DATA_MINING.CREATE_MODEL2(mining_function =>
   complete training days (the live `anc` anchor, exposed as `anchor_val`), and
   CPU days count only when `is_complete = 'Y'`, both as training rows and as
   holdout actuals (so a partial day is neither fitted nor scored). The cutoff
-  still comes from every day with a value, which is what the twins train
+  is the last complete day minus the holdout, which is what the twins train
   through. CPU deseasoning is not replayed: it changes the slope input, not
-  the anchor. `CAPF_ESM_CANDIDATE` applies the same complete-day rule to its
-  CPU actuals; the twins and `CAPF_ESM_HEALTH` still read every day. ESM may
+  the anchor. All of Tier 2 reads complete CPU days only: the models and the
+  twins train on them, `CAPF_ESM_CANDIDATE` scores on them, and
+  `CAPF_ESM_HEALTH` takes the series' last day from them, so a model trained
+  today has age 0 while today's partial day already has a value. A day left
+  out is a missing date to ESM (`EXSM_SETMISSING` AUTO). ESM may
   cover fewer than holdout_days days (30-step cap + the rows/4 floor);
   `n_days` records actual coverage. `train_all(p_top_n, p_backtest => TRUE)`
   refreshes the twins of every series it trains, the CPU ones included, so

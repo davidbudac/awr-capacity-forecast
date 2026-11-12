@@ -521,15 +521,15 @@ fixture harness and both reports.
       `test/docs_lint.sh` checks the knob table, the object index and the
       alert kinds against the DDL, and rejects assertion counts and
       "generated" claims. (branch rf/u10-docs)
-- [ ] **M21.5 Follow-ups.** (`suite_version` bumped to 22 by M22.) Tier 2 still trains on
-      incomplete days (`is_complete` not applied in ml/ or `CAPF_ESM_HEALTH`).
-      Done since: `CAPF_BACKTEST` CPU rows use complete days only and anchor at
+- [ ] **M21.5 Follow-ups.** (`suite_version` bumped to 22 by M22.)
+      Done since: Tier 2 reads complete days only (`is_complete = 'Y'`).
+      `CAPF_BACKTEST` CPU rows use complete days only and anchor at
       the median of the last `shift_days` training days like the live fit
-      (new `anchor_val` column, cutoff still from all days so it matches the
-      twins), and `CAPF_ESM_CANDIDATE` scores CPU holdout actuals on complete
-      days. Left: the ml/ training input and the `CAPF_ESM_HEALTH` last_day
-      (a complete-only filter there would give negative ages while the twins
-      train through an incomplete last day).
+      (new `anchor_val` column), `CAPF_ESM_CANDIDATE` scores CPU holdout
+      actuals on complete days, the CPU models and twins train on them, and
+      (2026-11) the `CAPF_BACKTEST` cutoff and the `CAPF_ESM_HEALTH` series
+      last day come from them too, so both follow the day the trainers train
+      through while the newest day is still partial.
       `test/fixture_remove.sql` does not drop `CAP_FIXTURE_SEG_STAT`.
       `CAP_TBSPC_OVERRIDE` does not apply to the TEMP / UNDO peak series;
       PDB-level `cpu_count` is unused. ELK forecast doc ids hash

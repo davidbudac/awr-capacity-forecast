@@ -260,7 +260,7 @@ WHERE  m.status IN ('OK', 'FAILED')
 -- CPU series have a single candidate, so they appear here with one row.
 -- Like CAPF_BACKTEST's REGR row, CPU holdout actuals count only on complete
 -- days (is_complete = 'Y'), so both engines are scored on the same days. The
--- twins themselves still train on every day (ml/ package, PLAN.md M21.5).
+-- twins train on complete days only as well (ml/ package).
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capf_esm_candidate AS
 WITH act AS (
@@ -308,8 +308,9 @@ GROUP  BY h.dbid, h.con_dbid, h.series_kind, h.series_key,
 --   stale_flag      'Y' when model_age_days > esm_max_age_days. CAPF_COMPARE
 --                   drops a stale model's ESM row.
 -- The series last day uses the same filters as the Tier 1 last_day (CPU and
--- DB CPU days with a NULL value do not count), so a model trained through the
--- current last day has age 0.
+-- DB CPU: complete days with a value, as CAPF_CPU_TREND.last_day), which is
+-- the day the trainers train through. So a model trained in the current run
+-- has age 0 on any day, also while today's partial day already has a value.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capf_esm_health AS
 WITH m AS (
@@ -322,10 +323,12 @@ WITH m AS (
                                          AND d.tablespace_name = r.series_key)
                    WHEN 'CPU'   THEN (SELECT MAX(d.day_dt) FROM capd_cpu_daily d
                                        WHERE d.dbid = r.dbid AND d.con_dbid = r.con_dbid
-                                         AND d.busy_pct IS NOT NULL)
+                                         AND d.busy_pct IS NOT NULL
+                                         AND d.is_complete = 'Y')
                    WHEN 'DBCPU' THEN (SELECT MAX(d.day_dt) FROM capd_dbtime_daily d
                                        WHERE d.dbid = r.dbid AND d.con_dbid = r.con_dbid
-                                         AND d.db_cpu_sec IS NOT NULL)
+                                         AND d.db_cpu_sec IS NOT NULL
+                                         AND d.is_complete = 'Y')
                END AS last_day
         FROM   cap_ml_model r
      ),
@@ -451,10 +454,11 @@ WHERE  e.step_days = e.esm_horizon_days
 --                 CPU days count only when is_complete = 'Y' (the live CPU
 --                 fit's rule), in the training window AND as holdout
 --                 actuals; a partial day (restart, first day) is neither
---                 fitted nor scored. last_day / cutoff_day still come from
---                 ALL days with a value, so the cutoff matches the ESM
---                 twins', which train on every day. anchor_val is exposed on
---                 the REGR row (NULL on the ESM row).
+--                 fitted nor scored. last_day / cutoff_day come from the
+--                 complete days too (CAPF_CPU_TREND.last_day), so the cutoff
+--                 is the one the ESM twins train through, also while the
+--                 newest day is still partial. anchor_val is exposed on the
+--                 REGR row (NULL on the ESM row).
 --                 The slope follows slope_method, as the live fits do: OLS
 --                 (0), Theil-Sen over the window's pairs (1), or DRIFT, the
 --                 median day-over-day rate of the window (2). slope_method
@@ -484,25 +488,24 @@ WHERE  e.step_days = e.esm_horizon_days
 CREATE OR REPLACE VIEW capf_backtest AS
 WITH act AS (
         SELECT dbid, con_dbid, 'TBSPC' AS series_kind, tablespace_name AS series_key,
-               day_dt, used_bytes AS val, 'Y' AS is_complete
+               day_dt, used_bytes AS val
         FROM   capd_tbspc_daily
         UNION ALL
-        SELECT dbid, con_dbid, 'CPU', 'BUSY_PCT', day_dt, busy_pct, is_complete
-        FROM   capd_cpu_daily WHERE busy_pct IS NOT NULL
+        SELECT dbid, con_dbid, 'CPU', 'BUSY_PCT', day_dt, busy_pct
+        FROM   capd_cpu_daily WHERE busy_pct IS NOT NULL AND is_complete = 'Y'
         UNION ALL
-        SELECT dbid, con_dbid, 'CPU', 'DB_CPU_SEC', day_dt, db_cpu_sec, is_complete
-        FROM   capd_dbtime_daily WHERE db_cpu_sec IS NOT NULL
+        SELECT dbid, con_dbid, 'CPU', 'DB_CPU_SEC', day_dt, db_cpu_sec
+        FROM   capd_dbtime_daily WHERE db_cpu_sec IS NOT NULL AND is_complete = 'Y'
      ),
-     -- b0 takes last_day over ALL days with a value (the ESM twins' cutoff
-     -- basis) and b then keeps the complete days every fit and score uses.
-     b0 AS (
+     -- Complete days only: the fit, the score and last_day (the cutoff basis,
+     -- which is the ESM twins' too).
+     b AS (
         SELECT a.*,
                a.day_dt - DATE '2020-01-01' AS day_n,
                MAX(a.day_dt) OVER (PARTITION BY a.dbid, a.con_dbid,
                                    a.series_kind, a.series_key) AS last_day
         FROM   act a
      ),
-     b AS (SELECT * FROM b0 WHERE is_complete = 'Y'),
      -- The training window: the train_days days ending at the cutoff.
      tw AS (
         SELECT b.*,

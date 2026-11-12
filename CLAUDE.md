@@ -588,6 +588,14 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   fixture's snapshots are 12 h apart (06:00 / 18:00) and, more importantly,
   because `gap_flag` SUPPRESSES anomaly scoring — an over-sensitive default
   silences the whole CPU anomaly layer on a site with wide AWR intervals.
+- **Tier 2 reads complete CPU days only** (`is_complete = 'Y'`): the CPU
+  models and twins train on them, `CAPF_ESM_CANDIDATE` and `CAPF_BACKTEST`
+  score on them, and the `CAPF_BACKTEST` cutoff and `CAPF_ESM_HEALTH`'s
+  series last day are `CAPF_CPU_TREND.last_day` (the last complete day). A
+  model trained today has age 0 while today's partial day has a value. A day
+  left out is a missing date to ESM (`EXSM_MISS_AUTO`), like a restart day.
+  Fixture rows: PDB DB_CPU_SEC 121 - 3 (first, partial, restart day), the
+  root's CPU series 121 - 4 (the AWR gap day too).
 - Backtest ESM twins (`train_backtest`) share the 19c 30-step cap AND the
   `FLOOR(rows/4)` floor, so they may cover fewer than holdout_days forecast
   days (fixture: 93 rows -> 23 of 28). `CAPF_BACKTEST.n_days` reports actual

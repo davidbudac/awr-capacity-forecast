@@ -334,6 +334,8 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
     -- ----------------------------------------------------------------
     -- BACKTEST twins for the two CPU series. Single candidate
     -- (EXSM_ADDWINTERS/7 -- CPU really is weekly-seasonal), so no selection.
+    -- Complete days only, as do_cpu: last_day is the last complete day, so
+    -- the cutoff is CAPF_BACKTEST's (ddl/50), also on a partial newest day.
     -- ----------------------------------------------------------------
     PROCEDURE backtest_cpu(p_holdout_days IN NUMBER) IS
         v_hold  NUMBER := NVL(p_holdout_days, cfg_num('backtest_holdout_days', 28));
