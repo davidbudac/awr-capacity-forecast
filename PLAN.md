@@ -1242,7 +1242,7 @@ below): per-PDB rows, the resize operations detail and "since when" from the
 verdict history. Found while building the demo: a fixture install with both
 the PGASTAT and the PARAMETER stub fails with ORA-00932 in
 `CAPD_SERIES_DAILY` (19.27); not fixed here, the demo now carries both
-tables.
+tables. (Fixed later: the stubs are opaque, see M27.)
 
 - [ ] **M26.1 Seam.** Fourteen new `CAPV_*` views (component history, resize
       operations, PGA statistics, work area histogram, the PGA / SGA / cache /

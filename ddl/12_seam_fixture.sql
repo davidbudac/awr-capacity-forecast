@@ -100,8 +100,14 @@ WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'),
 -- instead of an INVALID view. The stub columns are typed constants, not
 -- CAST(NULL ...): with NULL join keys, CAPD_DBTIME_DAILY over a zero-row
 -- CAPV_PARAMETER raised ORA-07445 [qksopVisitOpns] (join predicate push-down)
--- on 19.27. The lookup goes
--- through ALL_TABLES on CURRENT_SCHEMA because USER_TABLES follows the
+-- on 19.27. A stub ends in WHERE ROWNUM < 1, not WHERE 1 = 0: ROWNUM keeps
+-- the optimizer from merging the stub into its reader. Merged, its constants
+-- replaced the columns, and NULLIF(<constant of an outer-joined stub>, 0)
+-- raised ORA-00932 "expected - got CHAR" at parse (19.27): the PGA_ALLOC_GB
+-- branch of CAPD_SERIES_DAILY over the PGASTAT and PARAMETER stubs. Every
+-- view above it failed to parse, and with them cap_results.build_snap_tables.
+-- test/dbmint_stub_install.sh installs over every stub at once. The lookup
+-- goes through ALL_TABLES on CURRENT_SCHEMA because USER_TABLES follows the
 -- session user (SYSDBA + CURRENT_SCHEMA installs).
 DECLARE
     PROCEDURE mk(p_table VARCHAR2, p_pass VARCHAR2, p_stub VARCHAR2) IS
@@ -122,7 +128,7 @@ BEGIN
        q'[CREATE OR REPLACE VIEW capv_parameter AS
           SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
                  CAST('-' AS VARCHAR2(64)) AS parameter_name, 0 AS value_num
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_ASM_DISKGROUP',
        q'[CREATE OR REPLACE VIEW capv_asm_diskgroup AS
           SELECT dbid, con_dbid, snap_id, group_name, total_mb, free_mb, usable_file_mb
@@ -132,7 +138,7 @@ BEGIN
           SELECT 0 AS dbid, 0 AS con_dbid, 0 AS snap_id,
                  CAST('-' AS VARCHAR2(128)) AS group_name,
                  0 AS total_mb, 0 AS free_mb, 0 AS usable_file_mb
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_SEG_STAT',
        q'[CREATE OR REPLACE VIEW capv_seg_stat AS
           SELECT dbid, con_dbid, instance_number, snap_id, tablespace_id, tablespace_name,
@@ -146,7 +152,7 @@ BEGIN
                  CAST('-' AS VARCHAR2(128)) AS owner, CAST('-' AS VARCHAR2(128)) AS object_name,
                  CAST('-' AS VARCHAR2(128)) AS subobject_name, CAST('-' AS VARCHAR2(18)) AS object_type,
                  0 AS space_used_delta, 0 AS space_allocated_delta
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_PGASTAT',
        q'[CREATE OR REPLACE VIEW capv_pgastat AS
           SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
@@ -155,7 +161,7 @@ BEGIN
        q'[CREATE OR REPLACE VIEW capv_pgastat AS
           SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
                  CAST('-' AS VARCHAR2(64)) AS stat_name, 0 AS value
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_MEM_COMP',
        q'[CREATE OR REPLACE VIEW capv_mem_comp AS
           SELECT dbid, con_dbid, instance_number, snap_id, component, current_size,
@@ -170,7 +176,7 @@ BEGIN
                  0 AS oper_count, CAST('-' AS VARCHAR2(13)) AS last_oper_type,
                  CAST('-' AS VARCHAR2(9)) AS last_oper_mode,
                  DATE '1970-01-01' AS last_oper_time, 0 AS granule_size
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_WORKAREA_HSTGRM',
        q'[CREATE OR REPLACE VIEW capv_workarea_hstgrm AS
           SELECT dbid, con_dbid, instance_number, snap_id, low_optimal_size,
@@ -183,7 +189,7 @@ BEGIN
                  0 AS low_optimal_size, 0 AS high_optimal_size, 0 AS optimal_executions,
                  0 AS onepass_executions, 0 AS multipasses_executions,
                  0 AS total_executions
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_PGA_ADVICE',
        q'[CREATE OR REPLACE VIEW capv_pga_advice AS
           SELECT dbid, con_dbid, instance_number, snap_id, pga_target_for_estimate,
@@ -198,7 +204,7 @@ BEGIN
                  CAST('-' AS VARCHAR2(3)) AS advice_status, 0 AS bytes_processed,
                  0 AS estd_time, 0 AS estd_extra_bytes_rw,
                  0 AS estd_pga_cache_hit_percentage, 0 AS estd_overalloc_count
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_SGA_ADVICE',
        q'[CREATE OR REPLACE VIEW capv_sga_advice AS
           SELECT dbid, con_dbid, instance_number, snap_id, sga_size, sga_size_factor,
@@ -209,7 +215,7 @@ BEGIN
           SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
                  0 AS sga_size, 0 AS sga_size_factor, 0 AS estd_db_time,
                  0 AS estd_physical_reads
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_CACHE_ADVICE',
        q'[CREATE OR REPLACE VIEW capv_cache_advice AS
           SELECT dbid, con_dbid, instance_number, snap_id, bpid, name, block_size,
@@ -225,7 +231,7 @@ BEGIN
                  0 AS size_factor, 0 AS buffers_for_estimate, 0 AS physical_reads,
                  0 AS base_physical_reads, 0 AS actual_physical_reads,
                  0 AS estd_physical_read_time
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_SHPOOL_ADVICE',
        q'[CREATE OR REPLACE VIEW capv_shpool_advice AS
           SELECT dbid, con_dbid, instance_number, snap_id,
@@ -242,7 +248,7 @@ BEGIN
                  0 AS estd_lc_time_saved, 0 AS estd_lc_time_saved_factor,
                  0 AS estd_lc_load_time, 0 AS estd_lc_load_time_factor,
                  0 AS estd_lc_memory_object_hits
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_SGASTAT',
        q'[CREATE OR REPLACE VIEW capv_sgastat AS
           SELECT dbid, con_dbid, instance_number, snap_id, pool, name, bytes
@@ -252,7 +258,7 @@ BEGIN
           SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
                  CAST('-' AS VARCHAR2(30)) AS pool, CAST('-' AS VARCHAR2(64)) AS name,
                  0 AS bytes
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_LIBRARYCACHE',
        q'[CREATE OR REPLACE VIEW capv_librarycache AS
           SELECT dbid, con_dbid, instance_number, snap_id, namespace, gets, gethits,
@@ -263,7 +269,7 @@ BEGIN
           SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
                  CAST('-' AS VARCHAR2(15)) AS namespace, 0 AS gets, 0 AS gethits,
                  0 AS pins, 0 AS pinhits, 0 AS reloads, 0 AS invalidations
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_ROWCACHE',
        q'[CREATE OR REPLACE VIEW capv_rowcache AS
           SELECT dbid, con_dbid, instance_number, snap_id, parameter, gets, getmisses
@@ -272,7 +278,7 @@ BEGIN
        q'[CREATE OR REPLACE VIEW capv_rowcache AS
           SELECT 0 AS dbid, 0 AS con_dbid, 0 AS instance_number, 0 AS snap_id,
                  CAST('-' AS VARCHAR2(32)) AS parameter, 0 AS gets, 0 AS getmisses
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
     mk('CAP_FIXTURE_SYSTEM_EVENT',
        q'[CREATE OR REPLACE VIEW capv_system_event AS
           SELECT dbid, con_dbid, instance_number, snap_id, event_name, wait_class,
@@ -284,7 +290,7 @@ BEGIN
                  CAST('-' AS VARCHAR2(64)) AS event_name,
                  CAST('-' AS VARCHAR2(64)) AS wait_class, 0 AS total_waits,
                  0 AS time_waited_micro
-          FROM   dual WHERE 1 = 0]');
+          FROM   dual WHERE ROWNUM < 1]');
 END;
 /
 

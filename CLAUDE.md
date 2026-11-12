@@ -303,9 +303,12 @@ chapter (M26.4) fills PGASTAT and the ten memory tables: ASMM on a 128 GiB
 host, sga_target 48 GiB, PGA target 10 / limit 20 GiB; PGA_TARGET UNDERSIZED
 (14 GiB), SGA_TOTAL and BUFFER_CACHE OVERSIZED (42 and 30 GiB), the rest OK,
 one deferred 1 GiB move from the cache to the shared pool on the release
-day, and a PGA_ALLOC_GB series with no alert. A fixture install with BOTH
-the PGASTAT and the PARAMETER stub fails (ORA-00932 in CAPD_SERIES_DAILY's
-PGA_ALLOC_GB branch, 19.27), so keep both tables. `docs/demo/` holds the reports generated from it (identity
+day, and a PGA_ALLOC_GB series with no alert. A stub is opaque (`WHERE
+ROWNUM < 1`, never `WHERE 1 = 0`): merged into its reader, a stub's
+constants made `NULLIF(<outer-joined stub column>, 0)` raise ORA-00932 at
+parse (19.27; CAPD_SERIES_DAILY's PGA_ALLOC_GB branch over the PGASTAT and
+PARAMETER stubs). `test/dbmint_stub_install.sh <SCHEMA>` installs over all
+fourteen stubs and checks that nothing is INVALID. `docs/demo/` holds the reports generated from it (identity
 strings genericised: database ECOMPRD, host db-prod-01.example.com, schema
 CAPMON) for the docs site. Regenerate it in a throwaway schema (not CAPDEMO,
 which feeds the lab dashboards): demo_fixture (it drops every CAP_FIXTURE_*
