@@ -40,7 +40,9 @@ for making changes safely.
   stopped or began (`RESTART` STOP / START beside PURGE, `prm.quiet_days` 0 =
   off), judged on growth days (new highs) and the pauses between them: a
   pause of `quiet_days`, `quiet_ratio` x the longest other pause, and a
-  chance `(span / (span + pause)) ^ (growth days - 1)` under `quiet_chance`.
+  chance `(span / (span + pause)) ^ growth days` (START: `growth days - 1`)
+  under `quiet_chance`. One growth day has span 0: STOP after `quiet_days`
+  (a single load is not fitted as a step), START never.
   The suite restarts at a purge cliff only. `standalone/README.md`
   explains its columns and formulas for readers outside the project (it is
   also pasted into Confluence): change it with the query.
@@ -48,6 +50,8 @@ for making changes safely.
   `standalone/tbspc_monitor.md`, also pasted into Confluence): the same CTE
   chain `db` .. `res`, kept textually identical except the two `live_pct`
   lines (`live` and `lim`), so a change to the fit goes into both files.
+  `test/standalone_test.sh <SCHEMA>` checks that and tests both files
+  ("Standalone lever" below): run it after any change to either.
   Its rule judges the live `USED_PERCENT`: CRIT from `alert_pct_max` 95,
   from `alert_pct` 90 unless the ceiling is `alert_big_gb` or more and
   `dtf_shared_worst` is above `alert_dtf` (or absent: not growing), then
@@ -746,6 +750,24 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
   `C##M25_EXPIRY` is unused). C##CAPLOC in the root is an empty common user
   since M25.7 (its local install uninstalled, its grants revoked).
   Shared schemas collide (ORA-04063 / ORA-00942 mid-reinstall).
+- **Standalone lever:** `test/standalone_test.sh <SCHEMA> [--no-fixture]`
+  (CAPS1 in PDB1 is its throwaway schema; log
+  `/tmp/standalone_test_<SCHEMA>.log`, under a minute). The two standalone
+  files name their sources unqualified, so `test/standalone_fixture.sql`
+  creates views named `DBA_HIST_*` / `CDB_TABLESPACE_USAGE_METRICS` in
+  CURRENT_SCHEMA over designed series (`SA_TS` / `SA_DAY`; it refuses an
+  Oracle-maintained schema and qualifies every DDL with the schema).
+  `SA_CTX (world, asof_i)` picks what they show: world W1 the growth shapes,
+  W2 one shared disk, W3 the monitoring rule, and "today" as a day index
+  (the queries take today from the newest snapshot, never SYSDATE). The
+  script cuts each file's SELECT into a view at test time (`SA_CAP_V`,
+  `SA_MON_V`, plus three with one `prm` knob edited by sed), so the shipped
+  text runs. `test/standalone_test.sql` asserts closed forms and prints
+  `RESULT:`. The script also diffs the `db` .. `res` chain of the two files
+  and runs both as they are against the fixture. Design every days-to-full
+  quotient with a fraction (x.5): an exact integer flips with the last
+  digit of REGR_SLOPE. A new shape is a series in the fixture's `f` plus
+  its assertions.
 - **Copy check (M25.1, replaced the M24.5 parity lever):**
   `test/dbmint_copy_check.sh <REPO_SCHEMA> [TARGET] [--collect] [--plant SRC]`
   runs the generated `test/repo_copy_check.sql` in PDB1: per target, DBID and

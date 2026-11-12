@@ -82,15 +82,6 @@ So nobody re-audits them:
 
 The maintainer chose not to plan these yet; they remain open findings.
 
-- **Standalone query has no automated test** (`standalone/tbspc_capacity.sql`).
-  Its six AWR-reading CTEs use unqualified names, so views named
-  `DBA_HIST_*` / `CDB_TABLESPACE_USAGE_METRICS` in a throwaway schema would
-  feed the unchanged file with designed series.
-- **STOP cannot fire with one or two growth days in the window**
-  (`standalone/tbspc_capacity.sql:367`: `POWER(span / (span + trail), g - 1)`
-  is 1 for `g = 1`). A monthly tablespace flips from STOP to "no restart" for
-  the days its ramp's tail sits at the window's left edge, and a one-day bulk
-  load followed by weeks of nothing is fitted as a step with quality OK.
 - **A purge spread over two days counts as two cliffs = CYCLIC**
   (`ddl/30_forecast_views.sql:257-275`, mirrored in the standalone query
   `:301-311`): no reset, and the tablespace's full-date alert is off for up
@@ -108,6 +99,17 @@ The maintainer chose not to plan these yet; they remain open findings.
   in place; a re-install does not quiesce running jobs.**
 - **HTML page robustness**: unguarded `JSON.parse`, hour 24 not drawn, hover
   on an empty card throws (`report/html/report.js:4,633,1176`).
+
+## Findings closed outside a plan
+
+- **Standalone query has no automated test**: closed 2026-11-12 (improve
+  program unit U01). `test/standalone_test.sh <SCHEMA>` feeds the unchanged
+  `standalone/tbspc_capacity.sql` and `tbspc_monitor.sql` with designed
+  series through views named like their sources.
+- **STOP cannot fire with one or two growth days in the window**: closed
+  2026-11-12 (U01). STOP's chance term is `(span / (span + pause)) ^ g`
+  instead of `^ (g - 1)`, in both files. The lever was red on exactly these
+  cases before the change. START keeps `g - 1`.
 
 ## Direction options (not planned; the maintainer said "none for now")
 

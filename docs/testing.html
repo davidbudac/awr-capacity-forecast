@@ -55,7 +55,9 @@
         <h1>Testing</h1>
         <p class="lead"><strong>Track A</strong>: fixture data with closed-form answers.
           <strong>Track B</strong>: the same code against live AWR.
-          <a href="#bench">Track C</a> (optional): a swingbench workload that generates AWR history.</p>
+          <a href="#bench">Track C</a> (optional): a swingbench workload that generates AWR history.
+          The two no-install queries under <span class="inline">standalone/</span> have
+          <a href="#standalone-queries">their own lever</a>.</p>
       </section>
 
       <!-- ===================== BEFORE YOU START ===================== -->
@@ -1378,6 +1380,57 @@ test/dbmint_copy_check.sh CAPM5 --plant OSSTAT</pre>
           </div>
         </div>
       </div><!-- /steps -->
+
+      <!-- ===================== STANDALONE QUERIES ===================== -->
+      <div class="section-head" id="standalone-queries">
+        <span class="eyebrow">Outside the suite</span>
+        <h2>The standalone queries</h2>
+        <p><span class="inline">standalone/tbspc_capacity.sql</span> and
+          <span class="inline">standalone/tbspc_monitor.sql</span> install nothing and read AWR
+          directly, so the fixture harness does not reach them.
+          <span class="inline">test/standalone_test.sh &lt;SCHEMA&gt; [--no-fixture]</span> tests them
+          against designed series, in under a minute. Log:
+          <span class="inline">/tmp/standalone_test_&lt;SCHEMA&gt;.log</span>.</p>
+      </div>
+
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">workstation · bash</span><span class="term__tag in">you run</span></div>
+<pre>test/standalone_test.sh CAPS1</pre>
+      </div>
+
+      <ul>
+        <li><strong>How the unchanged files get test data.</strong> Both files name their sources
+          without a schema. <span class="inline">test/standalone_fixture.sql</span> creates views
+          named like them (<span class="inline">DBA_HIST_SNAPSHOT</span>,
+          <span class="inline">DBA_HIST_TBSPC_SPACE_USAGE</span>,
+          <span class="inline">CDB_TABLESPACE_USAGE_METRICS</span> and four more) in a throwaway
+          schema. Under <span class="inline">ALTER SESSION SET CURRENT_SCHEMA</span> the queries
+          read those instead of the real AWR. The script refuses an Oracle-maintained schema.</li>
+        <li><strong>The shipped text runs.</strong> The lever cuts each file's SELECT out of the
+          file and puts <span class="inline">CREATE OR REPLACE VIEW</span> in front of it. Three
+          more views carry one edited setting each (<span class="inline">quiet_days</span> 0,
+          <span class="inline">disk_free_gb</span> set, <span class="inline">alerts_only</span> 0).
+          At the end both files also run as they are, with <span class="inline">@file</span>.</li>
+        <li><strong>Today is a setting.</strong> The queries take today from the newest snapshot.
+          The one-row table <span class="inline">SA_CTX</span> holds a world and a day index, and
+          the views show the snapshots up to that day. So one series is judged on many days, for
+          example a month's tablespace on every day from the day its growth stopped until its
+          last growth day has left the 90-day window.</li>
+        <li><strong>Three worlds.</strong> W1 holds the growth shapes: a steady grower, a month
+          that fills and stops, one bulk load, two growth days, rare steps, a weekly batch, a
+          purge, a sawtooth, the status thresholds and what must not be listed. W2 holds four
+          tablespaces on one shared disk. W3 holds one tablespace per branch of the monitoring
+          rule.</li>
+        <li><strong>Closed forms.</strong> <span class="inline">test/standalone_test.sql</span>
+          asserts restart, fit window, growth per day, quality, days to full, the shared-disk
+          columns, status and alert from the series as designed. It prints PASS or FAIL per check
+          and a <span class="inline">RESULT:</span> line, and exits non-zero on a failure.</li>
+        <li><strong>One forecast in two files.</strong> Before it syncs, the lever compares the
+          CTE chain <span class="inline">db</span> to <span class="inline">res</span> of the two
+          files and stops when they differ in more than the monitor's
+          <span class="inline">live_pct</span> lines.</li>
+      </ul>
 
       <!-- ===================== BENCH ===================== -->
       <div class="section-head" id="bench">
