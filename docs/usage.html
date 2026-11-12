@@ -1215,7 +1215,7 @@ COMMIT;</pre>
       <div class="term in">
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">SQL*Plus</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-prompt">SQL&gt;</span> EXEC cap_forecast_ml.train_all(20);       <span class="c-cmt">-- top-20 tablespaces + CPU series + their backtest twins</span>
+<pre><span class="c-prompt">SQL&gt;</span> EXEC cap_forecast_ml.train_all(20);       <span class="c-cmt">-- top 20 tablespaces of each database + CPU series + their backtest twins</span>
 <span class="c-prompt">SQL&gt;</span> EXEC cap_forecast_ml.train_tablespace('ORDERS_DATA');   <span class="c-cmt">-- retrain one series</span>
 <span class="c-prompt">SQL&gt;</span> @report/report.sql                        <span class="c-cmt">-- section 6 now shows ESM vs REGR</span>
 
@@ -1229,7 +1229,10 @@ COMMIT;</pre>
         backtest MAPE. <span class="inline">esm_select_by_backtest</span> 0 skips those two trainings
         and AUTO falls back to Holt; <span class="inline">esm_tbspc_model</span> 0 or 1 pins the type.
         <span class="inline">train_all</span> also refreshes the backtest twins of the series it trains
-        (<code>p_backtest =&gt; FALSE</code> skips them). Each build runs under a temporary name and
+        (<code>p_backtest =&gt; FALSE</code> skips them). The top N is counted per database, and a full run
+        (<span class="inline">train_all</span>, <span class="inline">train_tablespaces</span>) drops the
+        models and twins of tablespaces it no longer selects; <span class="inline">train_tablespace</span>
+        with one name drops nothing. Each build runs under a temporary name and
         replaces the old model only on success; a failure keeps the previous model, records
         <code>FAILED</code> with <code>last_error</code> in <span class="inline">CAP_ML_MODEL</span>, and
         the procedure raises ORA-20060 after the batch. <span class="inline">CAPF_ESM_HEALTH</span>

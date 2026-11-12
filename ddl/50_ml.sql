@@ -389,8 +389,8 @@ GROUP  BY dbid, con_dbid;
 --                +22, and an exact-+30 match would show nothing at all.
 --                ESM rows are gated on AGE: model_age_days (series last day -
 --                trained_through, from CAPF_ESM_HEALTH) <= esm_max_age_days,
---                so a weekly retrain stays visible all week and a model left
---                behind by a later top-N retrain eventually drops out.
+--                so a weekly retrain stays visible all week and a full
+--                retrain drops the models it no longer selects.
 --   esm_horizon_days / model_age_days are NULL on REGR rows. horizon_days is
 --   the comparison bucket; the ESM value sits at trained_through +
 --   esm_horizon_days, i.e. esm_horizon_days - model_age_days past the series'

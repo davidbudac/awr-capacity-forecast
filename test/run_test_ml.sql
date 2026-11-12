@@ -11,6 +11,7 @@
 -- model, and the AUTO tie margin. Complete days: the CPU models and twins
 -- train on is_complete = 'Y' days only, and CAPF_ESM_HEALTH / CAPF_BACKTEST
 -- take the series' last day from them (a partial newest day does not count).
+-- Last: a full tablespace run retires the models it no longer selects.
 -- Exits NON-ZERO on failure.
 --
 -- Prereqs: fixtures installed, suite installed (deploy_mode=fixture), schema has
@@ -25,6 +26,7 @@ WHENEVER SQLERROR EXIT FAILURE
 
 DECLARE
     g_fail  PLS_INTEGER := 0;
+    g_pass  PLS_INTEGER := 0;
     v_status VARCHAR2(200);
     d30     DATE;
     v_exp   NUMBER;
@@ -53,9 +55,10 @@ DECLARE
     v_tt2   DATE;
     v_d     DATE;
     v_pdb   NUMBER;        -- FIXPDB1's con_dbid (FIXPDB2 is the next one)
+    v_cpu_before NUMBER;   -- CPU registry rows before the retirement block
     v_cpu   NUMBER;        -- eligible CPU series (one model + one twin each)
 
-    PROCEDURE pass(p VARCHAR2) IS BEGIN DBMS_OUTPUT.PUT_LINE('  PASS  ' || p); END;
+    PROCEDURE pass(p VARCHAR2) IS BEGIN g_pass := g_pass + 1; DBMS_OUTPUT.PUT_LINE('  PASS  ' || p); END;
     PROCEDURE fail(p VARCHAR2) IS BEGIN g_fail := g_fail + 1; DBMS_OUTPUT.PUT_LINE('* FAIL  ' || p); END;
     PROCEDURE note(p VARCHAR2) IS BEGIN DBMS_OUTPUT.PUT_LINE('  ....  ' || p); END;
 
@@ -701,7 +704,59 @@ BEGIN
                 CASE WHEN v_h < v_saved THEN 'AUTO_TIE' ELSE 'AUTO_BACKTEST' END);
     END IF;
 
+    ------------------------------------------------------------------
+    -- A full run owns the tablespace models: a smaller top N retires the
+    -- rest (forecast models and twins), the default brings them back. The
+    -- two kept are the two most critical of the database, by the cursor's
+    -- order (days_to_full, NULL last, then the larger cur_used).
+    ------------------------------------------------------------------
+    DBMS_OUTPUT.PUT_LINE('=== train_tablespaces(2): the unselected models are retired ===');
+    SELECT COUNT(*) INTO v_cpu_before FROM cap_ml_model WHERE series_kind <> 'TBSPC';
+    cap_forecast_ml.train_tablespaces(2);
+    SELECT COUNT(*) INTO v_n FROM cap_ml_model
+    WHERE  series_kind = 'TBSPC' AND purpose = 'FORECAST';
+    chk_num('train_tablespaces(2): forecast models left', v_n, 2);
+    SELECT COUNT(DISTINCT series_key) INTO v_n FROM cap_ml_model
+    WHERE  series_kind = 'TBSPC';
+    chk_num('train_tablespaces(2): series with any model or twin', v_n, 2);
+    SELECT COUNT(*) INTO v_n
+    FROM   cap_ml_model m
+    JOIN  (SELECT f.dbid, f.con_dbid, f.tablespace_name,
+                  ROW_NUMBER() OVER (PARTITION BY f.dbid
+                                     ORDER BY CASE WHEN f.days_to_full IS NULL THEN 1 ELSE 0 END,
+                                              f.days_to_full, f.cur_used DESC,
+                                              f.con_dbid, f.tablespace_name) AS rn
+           FROM   capf_tbspc_forecast f
+           WHERE  f.quality IN ('OK', 'LOW_CONFIDENCE') AND f.train_n >= v_min) t
+      ON   t.dbid = m.dbid AND t.con_dbid = m.con_dbid AND t.tablespace_name = m.series_key
+    WHERE  m.series_kind = 'TBSPC' AND m.purpose = 'FORECAST' AND m.status = 'OK'
+      AND  t.rn <= 2;
+    chk_num('train_tablespaces(2): the two kept are the two nearest to full', v_n, 2);
+    SELECT COUNT(*) INTO v_n FROM all_mining_models mm
+    WHERE  mm.owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+      AND  REGEXP_LIKE(mm.model_name, '^(CAPT|CBTT)_[0-9A-F]{16}(_N)?$')
+      AND  NOT EXISTS (SELECT 1 FROM cap_ml_model r WHERE r.model_name = mm.model_name);
+    chk_num('train_tablespaces(2): no OML tablespace model without a registry row', v_n, 0);
+    SELECT COUNT(*) INTO v_n FROM cap_ml_model WHERE series_kind <> 'TBSPC';
+    chk_num('train_tablespaces(2): CPU models untouched', v_n, v_cpu_before);
+    SELECT COUNT(*) INTO v_n FROM capr_alerts WHERE kind = 'MODEL_HEALTH';
+    chk_num('train_tablespaces(2): no MODEL_HEALTH from retired models', v_n, 0);
+    -- One name never retires another series' model.
+    SELECT MIN(series_key) INTO v_txt FROM cap_ml_model
+    WHERE  series_kind = 'TBSPC' AND purpose = 'FORECAST';
+    cap_forecast_ml.train_tablespace(v_txt);
+    SELECT COUNT(*) INTO v_n FROM cap_ml_model
+    WHERE  series_kind = 'TBSPC' AND purpose = 'FORECAST' AND status = 'OK';
+    chk_num('train_tablespace(' || v_txt || '): the other model stays', v_n, 2);
+    cap_forecast_ml.train_tablespaces;
+    SELECT COUNT(*) INTO v_n FROM cap_ml_model
+    WHERE  series_kind = 'TBSPC' AND purpose = 'FORECAST' AND status = 'OK';
+    SELECT COUNT(*) INTO v_n2 FROM capf_tbspc_forecast
+    WHERE  quality IN ('OK', 'LOW_CONFIDENCE') AND train_n >= v_min;
+    chk_num('train_tablespaces: every eligible tablespace has its model again', v_n, v_n2);
+
     DBMS_OUTPUT.PUT_LINE('----------------------------------------');
+    DBMS_OUTPUT.PUT_LINE('RESULT: ' || g_pass || ' passed, ' || g_fail || ' failed');
     IF g_fail > 0 THEN
         RAISE_APPLICATION_ERROR(-20051, 'ML TESTS FAILED: ' || g_fail || ' assertion(s)');
     END IF;

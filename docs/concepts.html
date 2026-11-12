@@ -271,7 +271,7 @@
             <span class="layer__tag">ESM</span>
             <div class="layer__body">
               <h5>OML exponential smoothing + backtest</h5>
-              <p>One model per eligible tablespace (top 20 by days to full) and per CPU series (host
+              <p>One model per eligible tablespace (top 20 of each database by days to full) and per CPU series (host
                 <code>BUSY_PCT</code>, each container's <code>DB_CPU_SEC</code>) via
                 <code>DBMS_DATA_MINING</code>, plus holdout twins that score every engine against the
                 recent past. The fixed-ceiling series are Tier 1 only.</p>
@@ -1072,7 +1072,7 @@
         <div class="track-card b">
           <div class="tk">Tier 2 · optional</div>
           <h4>OML ESM (exponential smoothing)</h4>
-          <p>One model per eligible tablespace (top 20 by days to full) and per CPU series (host
+          <p>One model per eligible tablespace (top 20 of each database by days to full) and per CPU series (host
             <code>BUSY_PCT</code>, each container's <code>DB_CPU_SEC</code>) via
             <code>DBMS_DATA_MINING</code>; the fixed-ceiling series are Tier 1 only. CPU uses additive Winters (weekly
             seasonality); tablespaces default to AUTO (backtest picks Holt or additive Winters per

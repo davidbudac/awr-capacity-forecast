@@ -1442,7 +1442,7 @@ Next: repository/self.sql  (registers this database as target CDB1)
             <tr>
               <td><code>RETRAIN</code></td>
               <td><span class="inline">cap_forecast_ml.train_all</span></td>
-              <td class="def">Retrains the Tier 2 OML ESM models. Nightly because a model counts only while it is at most <span class="inline">esm_max_age_days</span> (7) old. A failed build raises ORA-20060 after the batch, so the step fails; <span class="inline">CAPF_ESM_HEALTH.last_error</span> says why. Needs <span class="k">CREATE MINING MODEL</span>.</td>
+              <td class="def">Retrains the Tier 2 OML ESM models: the top 20 tablespaces of each database and the CPU series. It drops the models of tablespaces it no longer selects. Nightly because a model counts only while it is at most <span class="inline">esm_max_age_days</span> (7) old. A failed build raises ORA-20060 after the batch, so the step fails; <span class="inline">CAPF_ESM_HEALTH.last_error</span> says why. Needs <span class="k">CREATE MINING MODEL</span>.</td>
             </tr>
             <tr>
               <td><code>REFRESH</code></td>

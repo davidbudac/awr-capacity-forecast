@@ -1423,8 +1423,9 @@ no partitioned ESM) via `DBMS_DATA_MINING.CREATE_MODEL2(mining_function =>
   ESM rows are gated on **age**, not exact-day freshness: `model_age_days`
   (series last day minus `trained_through`) must be `<= esm_max_age_days`
   (default 7). The old exact-day rule hid ESM six days out of seven under a
-  weekly retrain. A model left behind by a later top-N retrain still drops out
-  once it is older than the limit. The ESM value is dated `trained_through +
+  weekly retrain. A full retrain drops the models of tablespaces it no longer
+  selects (top N per database, quality gate), so no stale registry row is left
+  behind. The ESM value is dated `trained_through +
   esm_horizon_days`; `CAPR_FORECAST_POINTS` turns that into a horizon from the
   series' last day (`esm_horizon_days - model_age_days`), and section 6 prints
   the step as `+22` when it is not 30, plus the model age. Model names hash

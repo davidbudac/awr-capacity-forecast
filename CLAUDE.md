@@ -479,6 +479,13 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   AS day_dt, val AS <target> FROM cap_ml_input`. Every data query must start
   `SELECT day_dt, <target>`. One that starts with `WITH` builds an EMPTY
   model, no error (verified 19.27).
+- **ESM selection is per database and a full run owns the set.** `c_tbspc`
+  ranks with `PARTITION BY dbid` and keeps the top `p_top_n` of each
+  database (`test/lint_dbid_windows.sh` reads the package body too). A full
+  run (`train_all` / `train_tablespaces`) that selected at least one series
+  drops the models and twins of every tablespace it did not select;
+  `train_tablespace(name)` drops nothing. Models per night: `p_top_n` x
+  databases.
 - `DM$VP<model>` result view columns: `PARTITION_NAME, CASE_ID, VALUE,
   PREDICTION, LOWER, UPPER`. `get_forecast` reads the last five.
 - **In CDB$ROOT the SYS_ time model and sysstat are CDB-wide.**

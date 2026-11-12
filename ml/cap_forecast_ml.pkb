@@ -142,7 +142,7 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
 
     -- ----------------------------------------------------------------
     -- Drop one OML model (and any half-built <name>_N) + its registry row.
-    -- Used by the twin purge below.
+    -- Used by the twin purge below and by do_tablespaces' retirement.
     -- ----------------------------------------------------------------
     PROCEDURE drop_one(p_model IN VARCHAR2) IS
     BEGIN
@@ -462,6 +462,8 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
         v_min  NUMBER := cfg_num('min_train_days', 14);   -- packaged fn can't be called inside SQL
         v_hold NUMBER := cfg_num('backtest_holdout_days', 28);
         v_n    PLS_INTEGER := 0;
+        TYPE t_seen IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(400);
+        l_seen t_seen;
     BEGIN
         DBMS_APPLICATION_INFO.SET_ACTION('tablespaces');
         -- AUTO: build both candidates' holdout twins first, so CAPF_ESM_CANDIDATE
@@ -473,9 +475,26 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
         END IF;
 
         FOR r IN c_tbspc(p_top_n, p_name, p_con_dbid, v_min) LOOP
+            l_seen(r.dbid || '|' || r.con_dbid || '|' || r.tablespace_name) := 1;
             prod_tbspc(r.dbid, r.con_dbid, r.tablespace_name, r.last_day);
             v_n := v_n + 1;
         END LOOP;
+
+        -- A full run (no name filter) that selected something owns the set of
+        -- tablespace models: a series it did not select has left the top N or
+        -- the quality gate, and its registry row would otherwise stay stale or
+        -- FAILED for good (a MODEL_HEALTH alert nothing can resolve). v_n = 0
+        -- retires nothing: an empty selection is more likely a problem
+        -- upstream than twenty tablespaces going FLAT at once.
+        IF p_name IS NULL AND p_con_dbid IS NULL AND v_n > 0 THEN
+            FOR s IN (SELECT model_name, dbid, con_dbid, series_key
+                      FROM   cap_ml_model
+                      WHERE  series_kind = 'TBSPC') LOOP
+                IF NOT l_seen.EXISTS(s.dbid || '|' || s.con_dbid || '|' || s.series_key) THEN
+                    drop_one(s.model_name);
+                END IF;
+            END LOOP;
+        END IF;
 
         IF p_name IS NOT NULL AND v_n = 0 THEN
             RAISE_APPLICATION_ERROR(-20061,
