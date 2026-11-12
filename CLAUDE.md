@@ -524,7 +524,24 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   logical CPUs.
 - **Fixture partial day:** one weekday at fixture index 14..20 (about 100 days back, far outside the 35-day shift windows) restarts at noon
   and keeps only its 06:00 interval: `covered_sec` 43200, `is_complete = 'N'`
-  (below `complete_day_pct` 80). CPU and REDO fits read complete days only.
+  (below `complete_day_pct` 80). CPU, REDO and I/O fits read complete days only.
+- **I/O series (M27):** `IOPS` / `IO_MBPS` in `CAPD_SERIES_DAILY`, per
+  container, from four `CAPV_SYSSTAT` counters (`physical read / write total
+  IO requests`, `... total bytes`) through `CAPD_COUNTER_DELTA`. Daily value
+  = `PERCENTILE_CONT(0.95)` of the day's per-snapshot rates (the BUSY_P95
+  precedent, not MAX), units `IO_PER_SEC` / `MB_PER_SEC` (MB = 2^20), no
+  limit, so no SERIES_LIMIT / SERIES_NEARLIMIT. Flow series like REDO:
+  `covered_sec` / `is_complete` / `gap_flag`. Scored by `CAPA_OBS` on the
+  level, floors `series_floor_iops` 100 / `series_floor_mbps` 10. AWR writes
+  no row for a container's statistic that is still zero since startup
+  (19.27: a PDB had 1265 write rows beside 1572 read rows), so an interval
+  counts with one side present. The counters join the copies at the first
+  collect after the upgrade (no backfill). Fixture, root only: night
+  interval 1000 requests/s and 20 MB/s, day interval 2000 + 10i and 50, so
+  `IOPS = 1950 + 9.5i` (OK, slope 9.5, cur 3090) and `IO_MBPS = 48.5`
+  (FLAT). Day 0 reads 2000 / 50 and the partial day 1000 / 20, both
+  incomplete. No row on the restart day, no alert, no anomaly. Not in the
+  demo fixture or the ELK / Grafana / APEX boards.
 - **Other fixture series** (closed forms in run_test.sql): `FIX_CYCLIC` /
   `FIX_CYCLIC_UP` (30-day sawtooths graded CYCLIC, flat vs growing peaks),
   `FIX_OVERFULL` (override ceiling below usage: `limit_below_used`, clamped

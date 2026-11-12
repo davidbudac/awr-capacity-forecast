@@ -605,8 +605,9 @@ raise `gap_flag`: the first day of AWR history, today (a row exists as soon as
 the first snapshot after midnight lands), and a restart or outage day, whose
 restart-spanning interval is dropped *before* `max_interval_hours` is taken.
 On such a day the flow totals (`db_cpu_sec`, `host_busy_sec`, `REDO_GB_DAY`)
-read low. So `CAPD_CPU_DAILY`, `CAPD_DBTIME_DAILY` and the `REDO_GB_DAY` rows
-of `CAPD_SERIES_DAILY` expose:
+read low, and an `IOPS` / `IO_MBPS` day may have lost its busy hours. So
+`CAPD_CPU_DAILY`, `CAPD_DBTIME_DAILY` and the `REDO_GB_DAY`, `IOPS` and
+`IO_MBPS` rows of `CAPD_SERIES_DAILY` expose:
 
 - `covered_sec`: the seconds of valid (non-restart) intervals ending that
   day, per instance (summed, then divided by the instances that reported).
@@ -846,6 +847,8 @@ n_samples, covered_sec, is_complete, day_gap, max_interval_hours, gap_flag)` —
 | `PROCESSES` / `SESSIONS` | daily `MAX(max_utilization)` per instance, **summed** across instances | the `processes` / `sessions` parameter, summed across instances | `COUNT` |
 | `PGA_ALLOC_GB` | daily `MAX('total PGA allocated')/2³⁰` per instance (`CAPV_PGASTAT`), **summed** across instances | `pga_aggregate_limit/2³⁰` at the same snapshot, summed; NULL when 0 | `GIB` |
 | `REDO_GB_DAY` | `SUM('redo size' deltas)/2³⁰` for the day | NULL — no ceiling | `GIB_PER_DAY` |
+| `IOPS` | p95 of the day's per-interval `(read + write 'total IO requests' deltas) / ivl_sec` | NULL: no ceiling | `IO_PER_SEC` |
+| `IO_MBPS` | p95 of the day's per-interval `(read + write 'total bytes' deltas) / ivl_sec / 2²⁰` | NULL: no ceiling | `MB_PER_SEC` |
 | `DB_SIZE_GB` | `SUM(used_bytes)/2³⁰` over `CAPD_TBSPC_DAILY` | `SUM(limit_bytes)/2³⁰` | `GIB` |
 | `ASM_DG:+<group>` | `(total_mb − free_mb)/1024` at the day's **last** sample (`CAPV_ASM_DISKGROUP`) | `total_mb/1024` | `GIB` |
 | `TEMP_PEAK:<ts>` / `UNDO_PEAK:<ts>` | the day's **MAX** of used blocks · block size / 2³⁰ for a `TEMPORARY` / `UNDO` tablespace | the day's MAX of (maxsize when autoextend, else size) · block size / 2³⁰ | `GIB` |
@@ -873,11 +876,27 @@ n_samples, covered_sec, is_complete, day_gap, max_interval_hours, gap_flag)` —
   here, so it carries `covered_sec` / `is_complete` (Layer 2, day coverage);
   the level series carry NULL / `'Y'`. It is per container (the CDB's redo is
   the sum).
+- `IOPS` / `IO_MBPS` (M27) read the four physical I/O totals of
+  `CAPV_SYSSTAT` through the same `CAPD_COUNTER_DELTA` rows, per container.
+  An interval's rate is (read delta + write delta) / `ivl_sec`; the two sides
+  pair up only over the same pair of snapshots, and neither may span a
+  restart. AWR writes no row for a container's statistic that is still zero
+  since startup, so one present side is enough and the missing one reads 0.
+  The interval in which a counter first appears has no delta for it. The
+  day's value is `PERCENTILE_CONT(0.95)` of its snapshots' rates: the
+  statistic `BUSY_P95` and `DB_CPU_P95` use for a rate. A maximum would let
+  one short interval set the day; an average would hide the busy hours. An
+  interval longer than `cpu_gap_hours` has no rate (it averages across an
+  outage), and a day with no rate has no row. They are flow series too:
+  `covered_sec` / `is_complete` as for `REDO_GB_DAY`, because a day that
+  lost half its intervals may have lost its busy hours. No ceiling: what the
+  storage can deliver is not in AWR. RAC (untested): a snapshot's rate is
+  the sum of its instances' rates.
 - `PROCESSES` / `SESSIONS` are CDB-wide: `DBA_HIST_RESOURCE_LIMIT` is
   root-only in `CDB$ROOT`.
 - The M15 gap columns feed the anomaly layer: `day_gap` (days since the
-  series' previous row), `max_interval_hours` (`REDO_GB_DAY` only) and
-  `gap_flag` (`REDO_GB_DAY` over `cpu_gap_hours`; `DB_SIZE_GB` when
+  series' previous row), `max_interval_hours` (`REDO_GB_DAY`, `IOPS`, `IO_MBPS`) and
+  `gap_flag` (those three over `cpu_gap_hours`; `DB_SIZE_GB` when
   `n_samples` changed, see Layer 4).
 - `DB_SIZE_GB` inherits everything `CAPD_TBSPC_DAILY` already decided: **UNDO
   and TEMPORARY are excluded**, and M9.5 overrides / exclusions are applied. So
@@ -980,6 +999,8 @@ ts)`. Each branch states what is scored, in which unit, and with which floor:
 | `SERIES` / `PROCESSES`, `SESSIONS` | DAY | the level | same | `COUNT` | `series_floor_count` | `SERIES_LEVEL` → `SERIES_ANOM` |
 | `SERIES` / `REDO_GB_DAY` | DAY | the level (GiB/day) | same | `GIB_PER_DAY` | `series_floor_gib` | `SERIES_LEVEL` → `SERIES_ANOM` |
 | `SERIES` / `PGA_ALLOC_GB` | DAY | the level (GiB) | same | `GIB` | `series_floor_gib` | `SERIES_LEVEL` → `SERIES_ANOM` |
+| `SERIES` / `IOPS` | DAY | the level (requests/s) | same | `IO_PER_SEC` | `series_floor_iops` | `SERIES_LEVEL` → `SERIES_ANOM` |
+| `SERIES` / `IO_MBPS` | DAY | the level (MB/s) | same | `MB_PER_SEC` | `series_floor_mbps` | `SERIES_LEVEL` → `SERIES_ANOM` |
 | `SERIES` / `DB_SIZE_GB` | DAY | growth, GiB moved ÷ `day_gap` | GiB moved | `GIB_PER_DAY` | `series_floor_gib` | `SERIES_GROWTH` → `SERIES_ANOM` |
 
 The M11 rows come from an inline `sreg` registry (series, LEVEL or RATE basis,
@@ -1074,6 +1095,8 @@ A gap row is never scored and never enters a baseline, in any mode.
 - **`REDO_GB_DAY`**: a day carrying an interval longer than `cpu_gap_hours`
   holds more than a day of redo, so it is a gap day; partial days are
   `is_complete = 'N'`.
+- **`IOPS` / `IO_MBPS`**: the same two rules. The long interval's rate also
+  stays out of the day's percentile.
 - **`DB_SIZE_GB`**: a day whose `n_samples` (the number of tablespaces summed)
   differs from the previous row's is a gap day. A tablespace that enters,
   leaves, or misses an AWR sample moves the total by its whole size, which

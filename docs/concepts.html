@@ -357,7 +357,7 @@
         <span class="inline">(dbid, con_dbid)</span> to a database and PDB name (reports print
         <code>DB/PDB</code>), <span class="inline">CAPV_RESOURCE_LIMIT</span> carries
         <code>processes</code> / <code>sessions</code> utilisation against the init parameters, and
-        <span class="inline">CAPV_SYSSTAT</span> carries the <code>redo size</code> counter.
+        <span class="inline">CAPV_SYSSTAT</span> carries the <code>redo size</code> counter and the four physical I/O totals (read and write requests and bytes).
         <span class="inline">CAPV_PARAMETER</span> (cpu_count, FRA size, memory parameters),
         <span class="inline">CAPV_ASM_DISKGROUP</span> and <span class="inline">CAPV_SEG_STAT</span>
         feed the CPU ceiling, the ASM series and "who is filling it";
@@ -379,7 +379,7 @@
         an interval spanning a restart (<span class="inline">startup_time</span> changed) or with a
         negative delta is dropped. <span class="inline">CAPD_COUNTER_DELTA</span> differences every
         cumulative counter once per interval, with the restart flag, and feeds both interval views
-        and <code>REDO_GB_DAY</code>. Deltas expose <span class="inline">day_gap</span> so a multi-day AWR
+        <code>REDO_GB_DAY</code>, <code>IOPS</code> and <code>IO_MBPS</code>. Deltas expose <span class="inline">day_gap</span> so a multi-day AWR
         gap becomes a rate, not a spike. <span class="inline">CAPD_SERIES_DAILY</span> holds every
         series with a ceiling, keyed by a <code>series</code> name.
         <span class="inline">CAPD_CPU_INTERVAL</span> and <span class="inline">CAPD_DBTIME_INTERVAL</span>
@@ -811,6 +811,7 @@
             <tr><td><span class="k">PROCESSES</span> / <span class="k">SESSIONS</span></td><td class="def">Day's peak <code>MAX_UTILIZATION</code>, summed across RAC instances. The worst instance's percent of its own limit is kept too; the near-limit alert uses the larger</td><td class="def">Summed init parameters. NULL if any instance reads <code>UNLIMITED</code></td></tr>
             <tr><td><span class="k">PGA_ALLOC_GB</span></td><td class="def">Day's highest sampled <code>total PGA allocated</code> in GiB, summed across RAC instances, worst instance kept as for <code>SESSIONS</code>. A sample: the high-water mark between snapshots is verdict evidence (<code>CAPM_PGA_LIMIT</code>), not this series</td><td class="def"><code>pga_aggregate_limit</code>, summed. None when it is 0</td></tr>
             <tr><td><span class="k">REDO_GB_DAY</span></td><td class="def">Redo per day in GiB from <code>redo size</code> deltas, one row per container (the CDB's redo is their sum)</td><td class="def">None: no limit alert (<code>SERIES_ANOM</code> still scores the level); <code>fra_days_at_cur</code> shows the days of redo the FRA holds</td></tr>
+            <tr><td><span class="k">IOPS</span> / <span class="k">IO_MBPS</span></td><td class="def">Physical I/O requests per second and MB per second (MB = 2<sup>20</sup> bytes), read + write, one row per container: the 95th percentile of the day's snapshot-interval rates, from the <code>physical read / write total IO requests</code> and <code>total bytes</code> deltas</td><td class="def">None: AWR does not hold what the storage can deliver, so there is no limit alert (<code>SERIES_ANOM</code> still scores the level)</td></tr>
             <tr><td><span class="k">DB_SIZE_GB</span></td><td class="def">Summed used bytes across permanent tablespaces</td><td class="def">Summed tablespace ceilings, with the UNDO/TEMP exclusion and operator overrides</td></tr>
             <tr><td><span class="k">ASM_DG:+&lt;diskgroup&gt;</span></td><td class="def">Used raw GiB of one ASM diskgroup at the day's last sample, <code>(total_mb − free_mb)/1024</code></td><td class="def"><code>total_mb/1024</code></td></tr>
             <tr><td><span class="k">TEMP_PEAK:&lt;ts&gt;</span> / <span class="k">UNDO_PEAK:&lt;ts&gt;</span></td><td class="def">Day's peak sampled used GiB of a TEMPORARY / UNDO tablespace</td><td class="def">Day's max of <code>maxsize</code> when autoextend, else the allocated size. <code>CAP_TBSPC_OVERRIDE</code> does not apply</td></tr>
@@ -873,7 +874,7 @@
             <tr><td><span class="k">Tablespaces</span></td><td class="def">growth rate (delta ÷ days since the last sample)</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>TBSPC_ANOM</code></td></tr>
             <tr><td><span class="k">BUSY_PCT</span></td><td class="def">host busy%, per day and per hour</td><td class="def">all three</td><td class="def"><code>CPU_ANOM</code></td></tr>
             <tr><td><span class="k">DB_CPU_PCT</span></td><td class="def">DB CPU as a percent of the host's CPUs, per container, per day and per hour</td><td class="def">all three</td><td class="def"><code>DBCPU_ANOM</code></td></tr>
-            <tr><td><span class="k">PROCESSES</span> / <span class="k">SESSIONS</span> / <span class="k">PGA_ALLOC_GB</span> / <span class="k">REDO_GB_DAY</span></td><td class="def">the daily level</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>SERIES_ANOM</code></td></tr>
+            <tr><td><span class="k">PROCESSES</span> / <span class="k">SESSIONS</span> / <span class="k">PGA_ALLOC_GB</span> / <span class="k">REDO_GB_DAY</span> / <span class="k">IOPS</span> / <span class="k">IO_MBPS</span></td><td class="def">the daily level</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>SERIES_ANOM</code></td></tr>
             <tr><td><span class="k">DB_SIZE_GB</span></td><td class="def">daily growth in GiB</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>SERIES_ANOM</code></td></tr>
           </tbody>
         </table>
@@ -885,7 +886,7 @@
         grain: <span class="inline">abs_floor_bytes</span> (100&nbsp;MiB/day) for tablespaces,
         9 points for a CPU day (<span class="inline">mad_k · cpu_min_mad_pct</span>), 15 for a CPU hour
         (<span class="inline">cpu_min_mad_pct_hour</span>; hourly values are noisier),
-        <span class="inline">series_floor_count</span> and <span class="inline">series_floor_gib</span>
+        <span class="inline">series_floor_count</span>, <span class="inline">series_floor_gib</span>, <span class="inline">series_floor_iops</span> and <span class="inline">series_floor_mbps</span>
         for the fixed-ceiling series. A flat baseline still flags a real jump, sub-floor wiggles never
         flag, and <span class="inline">|robust_z| &gt; mad_k</span> always means flagged. For
         tablespaces and host busy% this is the pre-M15 rule.</p>

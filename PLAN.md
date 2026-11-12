@@ -1272,6 +1272,29 @@ tables. (Fixed later: the stubs are opaque, see M27.)
       Per-PDB rows, resize operations and verdict history join the reports
       when M26.1 / M26.3 build their sources.
 
+## M27 — I/O series and stub installs (done)
+
+- [x] **M27.1 Opaque fixture stubs.** A fixture install without
+      `CAP_FIXTURE_PGASTAT` and `CAP_FIXTURE_PARAMETER` failed with ORA-00932
+      (19.27): the optimizer merged the `FROM dual WHERE 1 = 0` stubs into
+      their reader, and `NULLIF(<constant of an outer-joined stub>, 0)` no
+      longer parsed. The fourteen stubs of `ddl/12_seam_fixture.sql` now end
+      in `WHERE ROWNUM < 1`. `test/dbmint_stub_install.sh <SCHEMA>` installs
+      over all of them and checks that no `CAP%` object is INVALID.
+- [x] **M27.2 `IOPS` and `IO_MBPS`.** Two series in `CAPD_SERIES_DAILY`, per
+      container: physical I/O requests per second and MB per second, read +
+      write, from four more `CAPV_SYSSTAT` counters. The day's value is the
+      95th percentile of its snapshot-interval rates (the `BUSY_P95`
+      precedent). No ceiling, so a trend (`CAPF_SERIES_FORECAST`) and an
+      anomaly baseline (`CAPA_OBS`, floors `series_floor_iops` /
+      `series_floor_mbps`), no limit alert. Text section 7, the HTML report
+      (two sections), the briefing labels and the CSV carry them. The
+      repository copies gain the four names from the first collect after the
+      upgrade, with no backfill. Not done: the demo fixture and `docs/demo/`
+      (a regeneration in a throwaway schema), the ELK / Grafana / APEX
+      boards, a storage ceiling to forecast against (AWR has none),
+      `suite_version` (left at 26.4 for the release that lands this).
+
 ## v2 (unchanged)
 
 - [ ] Memory follow-ups to M26: grading AMM instances, verdicts for the

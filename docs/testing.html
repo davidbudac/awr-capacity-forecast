@@ -172,7 +172,7 @@
         <li><b>Restart day (<span class="inline">i = 60</span>)</b>: no 06:00 snapshot. The 18:00
           snapshot has a new <span class="inline">startup_time</span> and reset counters, so its
           interval spans the restart and the startup-time guard drops it. The day is absent from the
-          CPU series and <span class="inline">REDO_GB_DAY</span>.</li>
+          CPU series, <span class="inline">REDO_GB_DAY</span>, <span class="inline">IOPS</span> and <span class="inline">IO_MBPS</span>.</li>
         <li><b>CPU gap day</b> (latest <b>Sunday</b> in <span class="inline">i = 70..80</span>): both
           snapshots exist but carry no OSSTAT / time-model rows. The next 06:00 interval differences
           against 18:00 of the day before and spans <b>36&nbsp;h</b>.</li>
@@ -472,6 +472,9 @@
             <tr><td class="def"><code>REDO_GB_DAY</code></td>
                 <td><code>redo size</code> cumulative counter, +1&nbsp;GiB per 12&nbsp;h interval, reset at the restart</td>
                 <td>exactly <b>2.0 GiB/day</b>, no ceiling ⇒ <code>days_to_limit</code> NULL, never alerts; no row on the restart day. A decoy stat (<code>user commits</code>, absurd value) catches a missing <code>redo size</code> filter</td></tr>
+            <tr><td class="def"><code>IOPS</code> / <code>IO_MBPS</code></td>
+                <td>four cumulative I/O counters beside <code>redo size</code>, same resets. Night interval 600 read + 400 write requests/s and 15 + 5&nbsp;MB/s; day interval (1400 + 10·i) + 600 requests/s and 30 + 20&nbsp;MB/s</td>
+                <td>the day's p95 of its two interval rates, lo + 0.95·(hi − lo): <code>IOPS = 1950 + 9.5·i</code> (slope 9.5/day, R² = 1, <code>OK</code>), <code>IO_MBPS = 48.5</code> (<code>FLAT</code>); no ceiling, no alert, no anomaly. Day 0 and the partial day read their one interval (2000 and 1000 requests/s) and are incomplete; no row on the restart day. A caged PDB with read counters only proves one side of a pair is enough</td></tr>
             <tr><td class="def"><code>DB_SIZE_GB</code></td>
                 <td>no fixture table; derived from <code>CAPD_TBSPC_DAILY</code></td>
                 <td>re-derived <code>SUM(used_bytes)</code>, positive fittable slope. UNDO/TEMPORARY excluded, M9.5 overrides and exclusions applied</td></tr>
@@ -561,7 +564,7 @@
             <tr><td class="def"><code>CAP_FIXTURE_OSSTAT</code></td><td><code>DBA_HIST_OSSTAT</code>: cumulative centiseconds and the CPU counts, root only; <code>PHYSICAL_MEMORY_BYTES</code> 16&nbsp;GiB (M26)</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_TIME_MODEL</code></td><td><code>DBA_HIST_CON_SYS_TIME_MODEL</code>: cumulative microseconds, all three containers</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_RESOURCE_LIMIT</code></td><td><code>DBA_HIST_RESOURCE_LIMIT</code> (M11): <code>processes</code> / <code>sessions</code></td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_SYSSTAT</code></td><td><code>DBA_HIST_CON_SYSSTAT</code> (M11): <code>redo size</code> + one decoy stat</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SYSSTAT</code></td><td><code>DBA_HIST_CON_SYSSTAT</code> (M11): <code>redo size</code>, the four I/O totals (M27) + one decoy stat</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_PARAMETER</code></td><td><code>DBA_HIST_PARAMETER</code>: nine numeric init parameters, as numbers</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_ASM_DISKGROUP</code></td><td><code>DBA_HIST_ASM_DISKGROUP_STAT</code> + <code>DBA_HIST_ASM_DISKGROUP</code>: diskgroups DATA and FRA</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_PGASTAT</code></td><td><code>DBA_HIST_PGASTAT</code> (M26), root only: <code>total PGA allocated</code> (0.5&nbsp;GiB at 06:00, 1&nbsp;+&nbsp;i/1200&nbsp;GiB at 18:00) and <code>maximum PGA allocated</code> (1.2, 1.25, then 1.9&nbsp;GiB from day 110 18:00); <code>bytes processed</code> and <code>extra bytes read/written</code> on every snapshot; <code>over allocation count</code>, absent until its first use in a startup and then on the 18:00 snapshots only, one more a day; <code>aggregate PGA auto target</code> 0.75 of the 1&nbsp;GiB <code>aggregate PGA target parameter</code>, 0.6&nbsp;GiB once in the window</td></tr>
