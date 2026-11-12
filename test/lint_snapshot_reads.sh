@@ -15,9 +15,10 @@
 # Exit 1 and list the offenders on a violation.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. test/repo_files.sh
 LIVE_OK='cap_cfg capr_runs capr_alerts_latest capr_fit_history dual'
-python3 - "$LIVE_OK" <<'EOF'
-import glob, re, sys
+python3 - "$LIVE_OK" $(repo_only report/sections/*.sql) <<'EOF'
+import re, sys
 live_ok = set(sys.argv[1].split())
 ddl60 = open('ddl/60_results.sql').read()
 m = re.search(r'FUNCTION snap_views RETURN SYS\.ODCIVARCHAR2LIST IS\s+BEGIN\s+RETURN SYS\.ODCIVARCHAR2LIST\((.*?)\);', ddl60, re.S)
@@ -30,7 +31,7 @@ for v in sorted(reg):
     if "'" + v.upper() + "'" not in drop:
         print(f'lint_snapshot_reads: {v} is in snap_views but not in ddl/00_drop.sql'); bad = 1
 files = ['report/report.sql', 'report/report_html.sql', 'report/report_brief.sql',
-         'report/report_csv.sql'] + sorted(glob.glob('report/sections/*.sql'))
+         'report/report_csv.sql'] + sorted(sys.argv[2:])
 for f in files:
     for n, line in enumerate(open(f), 1):
         code = line.split('--', 1)[0]

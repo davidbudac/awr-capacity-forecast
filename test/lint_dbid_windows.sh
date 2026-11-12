@@ -9,10 +9,11 @@
 # Exit 1 and list the offenders on a violation.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. test/repo_files.sh
 ALLOW='ddl/40_anomaly_views.sql:order by o.dbid, o.con_dbid, o.kind, o.series, o.grain, o.ts
 ddl/40_anomaly_views.sql:partition by h.pid
 ddl/50_ml.sql:partition by m.model_name'
-python3 - "$ALLOW" ddl/2[0-9]_*.sql ddl/3[0-9]_*.sql ddl/4[0-9]_*.sql ddl/5[0-9]_*.sql <<'EOF'
+python3 - "$ALLOW" $(repo_only ddl/2[0-9]_*.sql ddl/3[0-9]_*.sql ddl/4[0-9]_*.sql ddl/5[0-9]_*.sql) <<'EOF'
 import re, sys
 allow = set(sys.argv[1].splitlines())
 bad = 0
