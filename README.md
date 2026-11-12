@@ -137,6 +137,7 @@ Run from the repo root (`@@` includes resolve there):
 | `@report/drill_tbspc.sql <TBSPC>`, `@report/drill_cpu.sql` | one series with its arithmetic spelled out |
 | `@report/drill_mem.sql [DB] [INSTANCE]` | one instance's memory verdicts: evidence, advisor curves, resizes |
 | `report/run_report.sh` | cron wrapper: `--html`, `--brief`, `--csv`, `--target NAME`, `--snapshot` |
+| `report/notify.sh` | cron: mail and / or webhook for new and escalated alerts, each event once |
 
 Report arguments: `[top_n] [anomaly_days] [show_esm] [dbid] [con_dbid] [LIVE|SNAPSHOT]`;
 `-` skips one. `SNAPSHOT` reads the tables of the last `cap_results.refresh`
@@ -163,6 +164,15 @@ SELECT severity, kind, db_pdb, message FROM capr_alerts ORDER BY sev_rank;
 SELECT * FROM capr_alerts_latest;       -- open, not acknowledged
 EXEC cap_results.ack('<state_key>', SYSDATE + 7, 'disk ordered')
 SELECT * FROM capr_weekly_digest;
+```
+
+`report/notify.sh` delivers the changes from cron: one mail or webhook message
+per run that lists the new, escalated and reopened alerts by target. It keeps
+the position of the last delivery in a state file, so an event is sent once.
+
+```sh
+report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run   # print, send nothing
+20 * * * * /opt/awrcap/report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --mail-to dba@example.com
 ```
 
 Alert kinds: [Usage → Alerts](https://davidbudac.github.io/awr-capacity-forecast/usage.html#alerts).

@@ -442,6 +442,48 @@
         <code>NEW</code>, <code>ESCALATED</code>, <code>DEESCALATED</code>, <code>RESOLVED</code>,
         <code>REOPENED</code> (<a href="#results">Alert state</a>).</p>
 
+      <h3 id="notify">Level 3 delivered: mail or webhook from cron</h3>
+      <p><span class="inline">report/notify.sh</span> does that polling for you. It reads the events
+        after the last one it delivered and sends one message that lists them by target: a mail through
+        the local <code>mailx</code> or <code>sendmail</code>, a JSON POST to a webhook, or both. The
+        subject counts the events by severity. Nothing is sent from inside the database: the script
+        runs <span class="inline">report/alert_events.sql</span>, which only SELECTs.</p>
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">shell</span><span class="term__tag in">try it, then schedule it</span></div>
+<pre><span class="c-cmt"># print the message, send nothing, change nothing</span>
+report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
+
+<span class="c-cmt"># crontab: hourly at :20, mail and a Slack-style webhook</span>
+20 * * * * . ~/.bash_profile; AWRCAP_WEBHOOK_URL="$(cat ~/.awrcap_webhook)" /opt/awrcap/report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --mail-to dba@example.com --webhook-format slack &gt;&gt; /var/log/awrcap_notify.log 2&gt;&amp;1</pre>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <caption>report/notify.sh options</caption>
+          <thead><tr><th scope="col">Option</th><th scope="col">Default</th><th scope="col">Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>--mail-to A[,B]</code></td><td class="def">none</td><td class="def">Mail the message. The command is <code>mailx</code>, else <code>mail</code>, else <code>sendmail -t</code>; <code>AWRCAP_MAIL_CMD</code> (mailx style) or <code>AWRCAP_SENDMAIL_CMD</code> names another.</td></tr>
+            <tr><td><code>--webhook URL</code>, <code>--webhook-file F</code>, <code>AWRCAP_WEBHOOK_URL</code></td><td class="def">none</td><td class="def">POST the message with <code>curl</code>. The URL is usually a secret: the file and the environment variable keep it off the command line, curl gets it on stdin, and no output line contains it.</td></tr>
+            <tr><td><code>--webhook-format</code></td><td class="def"><code>generic</code></td><td class="def"><code>generic</code>: <code>subject</code>, <code>text</code>, <code>counts</code>, <code>position</code> and one object per event with every field. <code>slack</code>: <code>{"text": …}</code> only, for Slack and other endpoints that take that shape.</td></tr>
+            <tr><td><code>--min-severity</code></td><td class="def"><code>WARN</code></td><td class="def"><code>INFO</code>, <code>WARN</code> or <code>CRIT</code>. An event passes when its severity or its previous severity is at least this.</td></tr>
+            <tr><td><code>--transitions LIST</code>, <code>--include-resolved</code></td><td class="def"><code>NEW,ESCALATED,REOPENED</code></td><td class="def">Which events. <code>--include-resolved</code> adds <code>RESOLVED</code>.</td></tr>
+            <tr><td><code>--target NAME</code>, <code>--scope D[:C]</code></td><td class="def">every database</td><td class="def">One target, dbid or container, as in <span class="inline">run_report.sh</span>.</td></tr>
+            <tr><td><code>--state-file F</code></td><td class="def"><span class="inline">reports/notify.state</span></td><td class="def">Holds the <code>event_id</code> of the last delivery. One file per job: two jobs with different selections or channels need two files.</td></tr>
+            <tr><td><code>--since-hours N</code></td><td class="def">24</td><td class="def">Only without a state file, so on the first run: events older than this are not sent, and a new job does not mail the whole history.</td></tr>
+            <tr><td><code>--dry-run</code></td><td class="def"></td><td class="def">Print the message and the JSON body. Nothing is sent and no state file is written.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Once, in order.</strong> The position moves only after every channel accepted the
+        message. A failed delivery or a failed query leaves it, the script exits non-zero so cron
+        reports it, and the next run sends the same events again. With two channels in one job a
+        failing webhook therefore repeats the mail: use one job per channel, each with its own state
+        file, to keep them independent. Exit status: 0 delivered or nothing to send, 1 a failure,
+        2 a usage error. An acknowledgement hides an alert from
+        <span class="inline">CAPR_ALERTS_LATEST</span> but an escalation or a reopen clears it, so
+        those events are delivered. <span class="inline">test/notify_sh_test.sh</span> tests the script
+        without a database.</p>
+
       <div class="callout">
         <span class="ico">i</span>
         <p><strong>Stale data.</strong> If AWR stops, the forecast freezes and no alerts fire. Alarm on

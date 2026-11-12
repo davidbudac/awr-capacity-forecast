@@ -261,7 +261,18 @@ actionable CAPR_MEM_VERDICT row; demo
 (cron wrapper: text / --html / --brief / --csv, --scope, --target, --snapshot, non-zero exit on a
 non-zero sqlplus exit or a line starting ORA-/SP2- (an alert message quoting
 an ORA- mid-line is content); `test/run_report_sh_test.sh` is its
-mock-sqlplus test, no DB needed), `report/report_html.sql` (one section per
+mock-sqlplus test, no DB needed), `report/notify.sh` (cron alert delivery,
+shell side only: runs `report/alert_events.sql`, which prints the
+CAPR_ALERT_EVENTS rows after an event_id as escaped TAB-separated lines
+between a BEGIN line with the position and an END line with the count, and
+sends ONE message per run, events grouped by target, by mail (mailx / mail /
+sendmail, `AWRCAP_MAIL_CMD` / `AWRCAP_SENDMAIL_CMD`) and / or webhook (curl,
+URL on stdin, never printed; `AWRCAP_WEBHOOK_URL` or `--webhook-file`). The
+position, `event_id` = `run_id * 100000 + n` in commit order, lives in
+`reports/notify.state` and moves only after every channel succeeded; no
+state file = only the last `--since-hours`. Its awk uses no `gsub`: awks
+disagree on backslashes in the replacement. `test/notify_sh_test.sh` is its
+offline test: mock sqlplus, mail and curl), `report/report_html.sql` (one section per
 metric, one card per series: it spools the point-feed views as one JSON block
 between the generated `report/html/page_head.sql` / `page_tail.sql`; edit
 `report/html/report.css` / `report.js`, run `python3 report/html/build.py`,
