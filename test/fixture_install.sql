@@ -83,6 +83,10 @@
 --                  REDO_GB_DAY = 2.0 GiB/day, no ceiling, no alert. A second
 --                  ('user commits') stat name is present purely so the
 --                  downstream 'redo size' filter is exercised.
+--                  Four I/O counters (M27) beside it: IOPS = 1950 + 9.5*i
+--                  (p95 of a 1000/s night and a (2000 + 10*i)/s day
+--                  interval), IO_MBPS = 48.5 (p95 of 20 and 50), no
+--                  ceiling, no alert.
 --   CONTAINER    : FIXCDB root row + FIXPDB1 and FIXPDB2 rows (M7.2 labels).
 --   PARAMETER    : the nine CAPV_PARAMETER names on every snapshot, cpu_count
 --                  8 = NUM_CPUS (no CPU number moves) and
@@ -1385,6 +1389,18 @@ END;
 --   REDO       +1 GiB per 12 h interval -> 2 GiB/day every full day, i.e. a
 --              PERFECTLY FLAT GiB/day series with NO ceiling: it must produce
 --              a REDO_GB_DAY value of exactly 2.0 and never an alert.
+--   I/O (M27)  four cumulative counters beside 'redo size', same resets.
+--              Night interval (ends 06:00): 600 read + 400 write requests/s,
+--              15 + 5 MB/s. Day interval (ends 18:00): (1400 + 10*i) read +
+--              600 write requests/s, 30 + 20 MB/s. The daily value is the
+--              p95 of the day's two interval rates, lo + 0.95 * (hi - lo):
+--                IOPS    = 1000 + 0.95 * (1000 + 10*i) = 1950 + 9.5*i
+--                          -> slope 9.5/day, R^2 1, OK, no ceiling, no alert
+--                IO_MBPS = 20 + 0.95 * 30 = 48.5 -> FLAT, no alert
+--              A day with one valid interval reads that interval's rate:
+--              day 0 the day rate (2000, 50), the partial day the night
+--              rate (1000, 20), both is_complete 'N'. No row on the restart
+--              day. The same complete days as REDO_GB_DAY.
 DECLARE
     c_dbid   CONSTANT NUMBER := 42424242;
     c_con    CONSTANT NUMBER := 42424242;
@@ -1396,6 +1412,12 @@ DECLARE
     c_proclim CONSTANT NUMBER := 300;
     c_satpct CONSTANT NUMBER := 90;               -- shipped series_sat_pct
     v_redo   NUMBER := 0;
+    c_ivl    CONSTANT NUMBER := 43200;            -- seconds per interval
+    c_mb     CONSTANT NUMBER := 1048576;
+    v_rreq   NUMBER := 0;                         -- read requests
+    v_wreq   NUMBER := 0;                         -- write requests
+    v_rbyt   NUMBER := 0;                         -- read bytes
+    v_wbyt   NUMBER := 0;                         -- write bytes
     v_probe  PLS_INTEGER;
     v_partial PLS_INTEGER;
 
@@ -1417,6 +1439,24 @@ DECLARE
         rlim(p_snap, 'sessions',  180 + 2 * p_i, 200 + 2 * p_i, c_sesslim);
         rlim(p_snap, 'processes', 120,           150,           c_proclim);
     END;
+    -- One interval of I/O at the given per-second rates, then the four
+    -- counters at the snapshot that ends it.
+    PROCEDURE io_ivl(p_snap NUMBER, p_rreq NUMBER, p_wreq NUMBER,
+                     p_rmb NUMBER, p_wmb NUMBER) IS
+    BEGIN
+        v_rreq := v_rreq + p_rreq * c_ivl;
+        v_wreq := v_wreq + p_wreq * c_ivl;
+        v_rbyt := v_rbyt + p_rmb * c_mb * c_ivl;
+        v_wbyt := v_wbyt + p_wmb * c_mb * c_ivl;
+        sstat(p_snap, 'physical read total IO requests',  v_rreq);
+        sstat(p_snap, 'physical write total IO requests', v_wreq);
+        sstat(p_snap, 'physical read total bytes',        v_rbyt);
+        sstat(p_snap, 'physical write total bytes',       v_wbyt);
+    END;
+    PROCEDURE io_reset IS
+    BEGIN
+        v_rreq := 0; v_wreq := 0; v_rbyt := 0; v_wbyt := 0;
+    END;
 BEGIN
     SELECT nval INTO v_probe   FROM cap_fixture_meta WHERE mkey = 'PROBE_DAY';
     SELECT nval INTO v_partial FROM cap_fixture_meta WHERE mkey = 'PARTIAL_DAY';
@@ -1432,17 +1472,20 @@ BEGIN
         -- restart exactly like the OSSTAT / time-model counters above.
         IF i = c_restart THEN
             v_redo := 0;
+            io_reset;
         ELSE
             v_redo := v_redo + c_gib;
             sstat(2000 + 2 * i, 'redo size', v_redo);
             -- Noise: a stat name the series must ignore. Its value is chosen
             -- to be absurd on the redo scale, so a missing filter is loud.
             sstat(2000 + 2 * i, 'user commits', 987654321 + i);
+            io_ivl(2000 + 2 * i, 600, 400, 15, 5);
         END IF;
-        IF i = v_partial THEN v_redo := 0; END IF;
+        IF i = v_partial THEN v_redo := 0; io_reset; END IF;
         v_redo := v_redo + c_gib;
         sstat(2001 + 2 * i, 'redo size', v_redo);
         sstat(2001 + 2 * i, 'user commits', 987654321 + i);
+        io_ivl(2001 + 2 * i, 1400 + 10 * i, 600, 30, 20);
     END LOOP;
 
     -- ---- expected values for run_test.sql ----
@@ -1454,6 +1497,15 @@ BEGIN
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PROC_LIMIT', c_proclim);
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('REDO_PROBE_GB', 2);
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('REDO_PARTIAL_GB', 1);
+    -- I/O: p95 of two interval rates = lo + 0.95 * (hi - lo).
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_NIGHT',    600 + 400);                          -- 1000
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_DAY0',     1400 + 600);                         -- 2000
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_SLOPE',    0.95 * 10);                          -- 9.5
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_BASE',     (600 + 400) + 0.95 * ((1400 + 600) - (600 + 400)));  -- 1950
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_CUR',      (600 + 400) + 0.95 * ((1400 + 10 * c_nd + 600) - (600 + 400)));  -- 3090
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IO_MBPS_NIGHT', 15 + 5);                             -- 20
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IO_MBPS_DAY',   30 + 20);                            -- 50
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IO_MBPS_P95',   (15 + 5) + 0.95 * ((30 + 20) - (15 + 5)));  -- 48.5
     COMMIT;
 
     DBMS_OUTPUT.PUT_LINE('M11 fixtures loaded: sessions 200..'

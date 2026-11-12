@@ -45,8 +45,8 @@ SET DEFINE OFF
 -- Key (dbid, con_dbid, kind, series, grain, ts). The registry of WHAT is
 -- scored and HOW:
 --   kind / series  TBSPC / tablespace; CPU / BUSY_PCT (host, OSSTAT) and
---                  DB_CPU_PCT (per container); SERIES / the M11 names and
---                  PGA_ALLOC_GB (M26).
+--                  DB_CPU_PCT (per container); SERIES / the M11 names,
+--                  PGA_ALLOC_GB (M26), IOPS and IO_MBPS (M27).
 --   grain / ts     DAY rows carry day_dt; HOUR rows (CPU only) the END-hour
 --                  bucket of CAPD_CPU_HOURLY.
 --   value          the number the baselines compare: TBSPC the gap-normalised
@@ -57,7 +57,7 @@ SET DEFINE OFF
 --   gap_flag       'Y' rows are never scored and never baseline.
 --                  anomaly_hour_grain = 0 drops the HOUR rows (no hourly
 --                  scoring at all).
---   is_complete    'N' on a CPU / DB time / REDO_GB_DAY day whose valid
+--   is_complete    'N' on a CPU / DB time / REDO_GB_DAY / IOPS / IO_MBPS day whose valid
 --                  intervals cover less than complete_day_pct of it (first
 --                  day, restart day, today): never scored, never baseline.
 --                  'Y' everywhere else, hour rows included.
@@ -79,6 +79,8 @@ WITH ufloor AS (
         UNION ALL SELECT 'COUNT',       'DAY',  cfg.series_floor_count               FROM cap_cfg cfg
         UNION ALL SELECT 'GIB_PER_DAY', 'DAY',  cfg.series_floor_gib                 FROM cap_cfg cfg
         UNION ALL SELECT 'GIB',         'DAY',  cfg.series_floor_gib                 FROM cap_cfg cfg
+        UNION ALL SELECT 'IO_PER_SEC',  'DAY',  cfg.series_floor_iops                FROM cap_cfg cfg
+        UNION ALL SELECT 'MB_PER_SEC',  'DAY',  cfg.series_floor_mbps                FROM cap_cfg cfg
      ),
      sreg AS (
         SELECT 'PROCESSES' AS series, 'LEVEL' AS basis, 'COUNT' AS unit, 'SERIES_LEVEL' AS anomaly_kind FROM dual
@@ -86,6 +88,8 @@ WITH ufloor AS (
         UNION ALL SELECT 'REDO_GB_DAY', 'LEVEL', 'GIB_PER_DAY', 'SERIES_LEVEL'  FROM dual
         UNION ALL SELECT 'DB_SIZE_GB',  'RATE',  'GIB_PER_DAY', 'SERIES_GROWTH' FROM dual
         UNION ALL SELECT 'PGA_ALLOC_GB','LEVEL', 'GIB',         'SERIES_LEVEL'  FROM dual
+        UNION ALL SELECT 'IOPS',        'LEVEL', 'IO_PER_SEC',  'SERIES_LEVEL'  FROM dual
+        UNION ALL SELECT 'IO_MBPS',     'LEVEL', 'MB_PER_SEC',  'SERIES_LEVEL'  FROM dual
      ),
      ser AS (
         SELECT s.dbid, s.con_dbid, s.series, s.day_dt, s.value, s.day_gap,

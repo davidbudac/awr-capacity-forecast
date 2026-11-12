@@ -1317,6 +1317,9 @@ BEGIN
           WHERE kind = 'SERIES_LIMIT' AND series_key NOT IN ('SESSIONS','ASM_DG:+DATA');
         chk_int('SERIES_LIMIT only for SESSIONS and ASM_DG:+DATA', v_n, 0);
         SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap
+          WHERE series_key IN ('IOPS', 'IO_MBPS');
+        chk_int('no alert of any kind for IOPS / IO_MBPS', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap
           WHERE kind = 'SERIES_NEARLIMIT' AND series_key = 'SESSIONS';
         chk_int('no SERIES_NEARLIMIT for SESSIONS (88%, under 90)', v_n, 0);
         SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap
@@ -1331,6 +1334,194 @@ BEGIN
         chk_int('CAPR_SERIES SESSIONS ranks first', v_num, 1);
         SELECT COUNT(*) INTO v_n FROM capr_series WHERE db_pdb <> 'FIXCDB';
         chk_int('CAPR_SERIES resolves db_pdb', v_n, 0);
+    END;
+
+    -- M27 I/O series. The fixture's closed form (test/fixture_install.sql):
+    -- a night interval at IOPS_NIGHT / IO_MBPS_NIGHT and a day interval at
+    -- IOPS_DAY0 + 10 * i / IO_MBPS_DAY, so the day's p95 of its two interval
+    -- rates is lo + 0.95 * (hi - lo): IOPS = IOPS_BASE + IOPS_SLOPE * i and
+    -- IO_MBPS = IO_MBPS_P95 on every complete day.
+    DECLARE
+        d_last  DATE   := meta_d('LAST_DAY');
+        d_base  DATE   := meta_d('BASE_DAY');
+        d_part  DATE   := meta_d('PARTIAL_DAY');
+        n_days  NUMBER := meta_d('LAST_DAY') - meta_d('BASE_DAY') + 1;
+        n_base  NUMBER := meta_n('IOPS_BASE');
+        n_slp   NUMBER := meta_n('IOPS_SLOPE');
+        n_mb    NUMBER := meta_n('IO_MBPS_P95');
+        n_pdb   NUMBER := meta_n('PDB_CON_DBID');
+        v_u     VARCHAR2(40);
+        v_c     VARCHAR2(1);
+        v_lim   NUMBER;
+        v_cov   NUMBER;
+        v_ivl   NUMBER;
+        d_row   DATE;
+    BEGIN
+        DBMS_OUTPUT.PUT_LINE('=== M27 I/O series (IOPS / IO_MBPS) ===');
+        SELECT COUNT(*), COUNT(DISTINCT stat_name) INTO v_n, v_num FROM capv_sysstat
+          WHERE stat_name IN ('physical read total IO requests', 'physical write total IO requests',
+                              'physical read total bytes', 'physical write total bytes');
+        chk_int('CAPV_SYSSTAT I/O rows (241 snaps x 4 counters)', v_n, 964);
+        chk_int('CAPV_SYSSTAT I/O counter names', v_num, 4);
+
+        SELECT value, unit, limit_value, n_samples, covered_sec, is_complete, max_interval_hours
+          INTO v_num, v_u, v_lim, v_n, v_cov, v_c, v_ivl
+          FROM capd_series_daily
+          WHERE dbid = v_dbid AND con_dbid = v_dbid AND series = 'IOPS' AND day_dt = d_probe;
+        chk_close('IOPS probe day = p95 of the night and day interval rates',
+                  v_num, n_base + n_slp * (d_probe - d_base), 0.000000001);
+        chk_str  ('IOPS unit', v_u, 'IO_PER_SEC');
+        chk_true ('IOPS has no ceiling on the probe day', v_lim IS NULL);
+        chk_int  ('IOPS probe day n_samples (two snapshots)', v_n, 2);
+        chk_int  ('IOPS probe day covered_sec', v_cov, 86400);
+        chk_str  ('IOPS probe day is_complete', v_c, 'Y');
+        chk_int  ('IOPS probe day max_interval_hours', v_ivl, 12);
+        SELECT value, unit, limit_value, n_samples, covered_sec, is_complete
+          INTO v_num, v_u, v_lim, v_n, v_cov, v_c
+          FROM capd_series_daily
+          WHERE dbid = v_dbid AND con_dbid = v_dbid AND series = 'IO_MBPS' AND day_dt = d_probe;
+        chk_close('IO_MBPS probe day = p95 of 20 and 50 MB/s', v_num, n_mb, 0.000000001);
+        chk_str  ('IO_MBPS unit', v_u, 'MB_PER_SEC');
+        chk_true ('IO_MBPS has no ceiling on the probe day', v_lim IS NULL);
+        chk_int  ('IO_MBPS probe day n_samples (two snapshots)', v_n, 2);
+        chk_int  ('IO_MBPS probe day covered_sec', v_cov, 86400);
+        chk_str  ('IO_MBPS probe day is_complete', v_c, 'Y');
+
+        -- Every complete day, not only the probe day.
+        SELECT COUNT(*), COUNT(CASE WHEN ABS(value - (n_base + n_slp * (day_dt - d_base))) > 0.000001 THEN 1 END)
+          INTO v_n, v_num
+          FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IOPS' AND is_complete = 'Y';
+        chk_int('IOPS complete days (all but day 0, the restart and the partial day)', v_n, n_days - 3);
+        chk_int('IOPS complete days off the closed form', v_num, 0);
+        SELECT COUNT(*), COUNT(CASE WHEN ABS(value - n_mb) > 0.000001 THEN 1 END)
+          INTO v_n, v_num
+          FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IO_MBPS' AND is_complete = 'Y';
+        chk_int('IO_MBPS complete days', v_n, n_days - 3);
+        chk_int('IO_MBPS complete days off the closed form', v_num, 0);
+
+        -- One valid interval: the day reads that interval's rate, incomplete.
+        SELECT value, covered_sec, is_complete INTO v_num, v_cov, v_c FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IOPS' AND day_dt = d_part;
+        chk_close('IOPS partial day = the night interval rate', v_num, meta_n('IOPS_NIGHT'), 0.000000001);
+        chk_int  ('IOPS partial day covered_sec', v_cov, 43200);
+        chk_str  ('IOPS partial day is_complete', v_c, 'N');
+        SELECT value, is_complete INTO v_num, v_c FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IO_MBPS' AND day_dt = d_part;
+        chk_close('IO_MBPS partial day = the night interval rate', v_num, meta_n('IO_MBPS_NIGHT'), 0.000000001);
+        chk_str  ('IO_MBPS partial day is_complete', v_c, 'N');
+        SELECT value, is_complete INTO v_num, v_c FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IOPS' AND day_dt = d_base;
+        chk_close('IOPS first day = the day interval rate', v_num, meta_n('IOPS_DAY0'), 0.000000001);
+        chk_str  ('IOPS first day is_complete', v_c, 'N');
+        SELECT value, is_complete INTO v_num, v_c FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IO_MBPS' AND day_dt = d_base;
+        chk_close('IO_MBPS first day = the day interval rate', v_num, meta_n('IO_MBPS_DAY'), 0.000000001);
+        chk_str  ('IO_MBPS first day is_complete', v_c, 'N');
+        SELECT COUNT(*) INTO v_n FROM capd_series_daily
+          WHERE dbid = v_dbid AND series IN ('IOPS', 'IO_MBPS') AND day_dt = d_restart;
+        chk_int('IOPS / IO_MBPS restart day excluded', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM capd_series_daily
+          WHERE series IN ('IOPS', 'IO_MBPS') AND (limit_value IS NOT NULL OR gap_flag = 'Y' OR value < 0);
+        chk_int('IOPS / IO_MBPS: no ceiling, no gap day, no negative rate', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM capd_series_daily
+          WHERE series IN ('IOPS', 'IO_MBPS') AND (dbid <> v_dbid OR con_dbid <> v_dbid);
+        chk_int('IOPS / IO_MBPS only where the fixture has I/O counters (the root)', v_n, 0);
+
+        -- The fit: IOPS a straight line, IO_MBPS constant.
+        SELECT train_n, slope_per_day, r2, quality, cur_val, proj_30, days_to_limit, cur_limit, pct_of_limit
+          INTO v_n, v_num, v_r2, v_str, v_num2, v_num3, v_lim, v_cov, v_ivl
+          FROM capf_series_forecast WHERE dbid = v_dbid AND series = 'IOPS';
+        chk_int  ('IOPS train_n = the REDO_GB_DAY training days', v_n, meta_n('REDO_TRAIN_N'));
+        chk_close('IOPS slope_per_day (0.95 x 10 a day)', v_num, n_slp, 0.000000001);
+        chk_close('IOPS r2 (a straight line)', v_r2, 1, 0.000000001);
+        chk_str  ('IOPS quality', v_str, 'OK');
+        chk_close('IOPS cur_val', v_num2, meta_n('IOPS_CUR'), 0.000000001);
+        chk_close('IOPS proj_30 = cur_val + 30 x slope', v_num3, meta_n('IOPS_CUR') + 30 * n_slp, 0.000000001);
+        chk_true ('IOPS days_to_limit / cur_limit / pct_of_limit NULL (no ceiling)',
+                  v_lim IS NULL AND v_cov IS NULL AND v_ivl IS NULL);
+        SELECT train_n, slope_per_day, quality, cur_val, days_to_limit
+          INTO v_n, v_num, v_str, v_num2, v_lim
+          FROM capf_series_forecast WHERE dbid = v_dbid AND series = 'IO_MBPS';
+        chk_int  ('IO_MBPS train_n', v_n, meta_n('REDO_TRAIN_N'));
+        chk_close('IO_MBPS slope_per_day (constant)', v_num, 0, 0.000000001);
+        chk_str  ('IO_MBPS quality (constant -> FLAT)', v_str, 'FLAT');
+        chk_close('IO_MBPS cur_val', v_num2, n_mb, 0.000000001);
+        chk_true ('IO_MBPS days_to_limit NULL (no ceiling)', v_lim IS NULL);
+        SELECT COUNT(*), MIN(sev) INTO v_n, v_str FROM capr_series
+          WHERE dbid = v_dbid AND series IN ('IOPS', 'IO_MBPS');
+        chk_int('CAPR_SERIES lists IOPS and IO_MBPS', v_n, 2);
+        chk_str('CAPR_SERIES IOPS / IO_MBPS sev', v_str, 'OK');
+        SELECT COUNT(*) INTO v_n FROM capr_severity
+          WHERE fit_kind = 'SERIES' AND series_key IN ('IOPS', 'IO_MBPS') AND sev <> 'OK';
+        chk_int('CAPR_SEVERITY: no IOPS / IO_MBPS row above OK', v_n, 0);
+
+        -- Anomaly layer: scored on the level, floored by the two knobs, and a
+        -- straight line or a constant never flags.
+        SELECT COUNT(*), MIN(thr_floor), MAX(thr_floor), MIN(unit), MIN(anomaly_kind), MIN(alert_kind)
+          INTO v_n, v_num, v_num2, v_u, v_str, v_str2
+          FROM capa_obs WHERE kind = 'SERIES' AND series = 'IOPS';
+        chk_int('CAPA_OBS IOPS rows (every day but the restart day)', v_n, n_days - 1);
+        chk_true('CAPA_OBS IOPS thr_floor = series_floor_iops 100', v_num = 100 AND v_num2 = 100);
+        chk_str ('CAPA_OBS IOPS unit', v_u, 'IO_PER_SEC');
+        chk_str ('CAPA_OBS IOPS anomaly_kind', v_str, 'SERIES_LEVEL');
+        chk_str ('CAPA_OBS IOPS alert_kind', v_str2, 'SERIES_ANOM');
+        SELECT COUNT(*), MIN(thr_floor), MAX(thr_floor), MIN(unit) INTO v_n, v_num, v_num2, v_u
+          FROM capa_obs WHERE kind = 'SERIES' AND series = 'IO_MBPS';
+        chk_int('CAPA_OBS IO_MBPS rows', v_n, n_days - 1);
+        chk_true('CAPA_OBS IO_MBPS thr_floor = series_floor_mbps 10', v_num = 10 AND v_num2 = 10);
+        chk_str ('CAPA_OBS IO_MBPS unit', v_u, 'MB_PER_SEC');
+        SELECT COUNT(*), COUNT(anomaly_flag) INTO v_n, v_num FROM capa_anom
+          WHERE kind = 'SERIES' AND series IN ('IOPS', 'IO_MBPS');
+        chk_int('CAPA_ANOM IOPS / IO_MBPS rows (2 series x 2 day modes)', v_n, 4 * (n_days - 1));
+        chk_int('IOPS / IO_MBPS never flag', v_num, 0);
+        SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'series_floor_iops';
+        chk_str('CAP_CFG_CHECK series_floor_iops', v_str, 'OK');
+        SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'series_floor_mbps';
+        chk_str('CAP_CFG_CHECK series_floor_mbps', v_str, 'OK');
+        SAVEPOINT m27_knob;
+        BEGIN
+            knob('series_floor_iops', -1);
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'series_floor_iops';
+            chk_str('CAP_CFG_CHECK series_floor_iops -1', v_str, 'BAD');
+            knob('series_floor_iops', 250);
+            SELECT MIN(thr_floor) INTO v_num FROM capa_obs WHERE kind = 'SERIES' AND series = 'IOPS';
+            chk_int('series_floor_iops 250 -> CAPA_OBS thr_floor', v_num, 250);
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT m27_knob; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT m27_knob;
+
+        -- Per container, and one side of a pair is enough: FIXPDB1 gets read
+        -- requests only on the last three snapshots (AWR writes no row for a
+        -- statistic still zero since startup), 100/s over the night and
+        -- 300/s over the day: p95 = 100 + 0.95 x 200 = 290. A write counter
+        -- that first appears on the last snapshot has no predecessor and
+        -- adds nothing. No byte counters: no IO_MBPS row for the PDB.
+        SAVEPOINT m27_pdb;
+        BEGIN
+            INSERT INTO cap_fixture_sysstat VALUES (v_dbid, n_pdb, 1, 2001 + 2 * (n_days - 2), 'physical read total IO requests', 0);
+            INSERT INTO cap_fixture_sysstat VALUES (v_dbid, n_pdb, 1, 2000 + 2 * (n_days - 1), 'physical read total IO requests', 100 * 43200);
+            INSERT INTO cap_fixture_sysstat VALUES (v_dbid, n_pdb, 1, 2001 + 2 * (n_days - 1), 'physical read total IO requests', 400 * 43200);
+            INSERT INTO cap_fixture_sysstat VALUES (v_dbid, n_pdb, 1, 2001 + 2 * (n_days - 1), 'physical write total IO requests', 999999999);
+            SELECT COUNT(*), MAX(value), MAX(n_samples), MAX(day_dt) INTO v_n, v_num, v_num2, d_row
+              FROM capd_series_daily
+              WHERE dbid = v_dbid AND con_dbid = n_pdb AND series = 'IOPS';
+            chk_int  ('FIXPDB1 IOPS rows (the last day only)', v_n, 1);
+            chk_true ('FIXPDB1 IOPS row is the last day', d_row = d_last);
+            chk_close('FIXPDB1 IOPS = 100 + 0.95 x 200 (read side only)', v_num, 290, 0.000000001);
+            chk_int  ('FIXPDB1 IOPS n_samples', v_num2, 2);
+            SELECT COUNT(*) INTO v_n FROM capd_series_daily
+              WHERE dbid = v_dbid AND con_dbid = n_pdb AND series = 'IO_MBPS';
+            chk_int('FIXPDB1 has no IO_MBPS row (no byte counters)', v_n, 0);
+            SELECT value INTO v_num FROM capd_series_daily
+              WHERE dbid = v_dbid AND con_dbid = v_dbid AND series = 'IOPS' AND day_dt = d_last;
+            chk_close('root IOPS on the last day unchanged by the PDB rows', v_num, meta_n('IOPS_CUR'), 0.000000001);
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT m27_pdb; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT m27_pdb;
     END;
 
     -- RAC worst instance (PROCESSES / SESSIONS). The main fixture is one

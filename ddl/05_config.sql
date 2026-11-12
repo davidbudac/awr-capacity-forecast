@@ -124,6 +124,8 @@ USING (
     UNION ALL SELECT 'hour_gap_ratio',        1.5,        'M15: an interval <= 0 h or longer than LEAST(cpu_gap_hours, this x the instance''s median interval) is a gap at HOUR grain.' FROM dual
     UNION ALL SELECT 'series_floor_count',     10,        'M15: anomaly threshold floor for COUNT series (PROCESSES/SESSIONS), in sessions/processes.' FROM dual
     UNION ALL SELECT 'series_floor_gib',      0.5,        'M15: anomaly threshold floor in GiB for GIB_PER_DAY series (REDO_GB_DAY level, DB_SIZE_GB growth) and GIB levels (PGA_ALLOC_GB).' FROM dual
+    UNION ALL SELECT 'series_floor_iops',     100,        'M27: anomaly threshold floor for the IOPS series, in I/O requests per second.' FROM dual
+    UNION ALL SELECT 'series_floor_mbps',      10,        'M27: anomaly threshold floor for the IO_MBPS series, in MB per second (MB = 2^20 bytes).' FROM dual
     UNION ALL SELECT 'alert_modes_tbspc',       1,        'M15 BITMASK of baseline modes raising TBSPC_ANOM: 1=TRAILING 2=SAME_DOW 4=HOUR_OF_WEEK (sum them), 0=none.' FROM dual
     UNION ALL SELECT 'alert_modes_cpu',         2,        'M15 BITMASK of baseline modes raising CPU_ANOM and DBCPU_ANOM: 1=TRAILING 2=SAME_DOW 4=HOUR_OF_WEEK, 0=none.' FROM dual
     UNION ALL SELECT 'alert_modes_series',      1,        'M15 BITMASK of baseline modes raising SERIES_ANOM: 1=TRAILING 2=SAME_DOW (4 has no effect: day grain only).' FROM dual
@@ -229,6 +231,8 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'hour_gap_ratio'         THEN cfg_value END) AS hour_gap_ratio,
        MAX(CASE WHEN cfg_name = 'series_floor_count'     THEN cfg_value END) AS series_floor_count,
        MAX(CASE WHEN cfg_name = 'series_floor_gib'       THEN cfg_value END) AS series_floor_gib,
+       MAX(CASE WHEN cfg_name = 'series_floor_iops'      THEN cfg_value END) AS series_floor_iops,
+       MAX(CASE WHEN cfg_name = 'series_floor_mbps'      THEN cfg_value END) AS series_floor_mbps,
        MAX(CASE WHEN cfg_name = 'alert_modes_tbspc'      THEN cfg_value END) AS alert_modes_tbspc,
        MAX(CASE WHEN cfg_name = 'alert_modes_cpu'        THEN cfg_value END) AS alert_modes_cpu,
        MAX(CASE WHEN cfg_name = 'alert_modes_series'     THEN cfg_value END) AS alert_modes_series,
@@ -315,7 +319,8 @@ WITH u AS (
                complete_day_pct, stale_days, cyclic_min_cliffs, cpu_quality_gate,
                cpu_deseason, suite_version,
                cpu_min_mad_pct_hour, hour_gap_ratio,
-               series_floor_count, series_floor_gib, alert_modes_tbspc,
+               series_floor_count, series_floor_gib, series_floor_iops,
+               series_floor_mbps, alert_modes_tbspc,
                alert_modes_cpu, alert_modes_series, stale_hours,
                data_stale_max_days, resolve_grace_runs, refresh_stale_hours,
                digest_days, seg_window_days, anomaly_hour_grain,
@@ -420,6 +425,8 @@ WITH u AS (
                    WHEN u.knob IN ('mem_shrink_min_days', 'mem_resize_reversals')
                         AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
+                   WHEN u.knob IN ('series_floor_iops', 'series_floor_mbps') AND u.value < 0
+                        THEN 'must be >= 0: the smallest deviation an I/O anomaly may flag on'
                    WHEN u.knob = 'suite_version'       AND u.value < 26.4
                         THEN 'older than this release (26.4): re-run install.sql'
                END AS reason
