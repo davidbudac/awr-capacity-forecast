@@ -46,6 +46,9 @@ Verified:
   addresses and global names.
 - `grant_monitor.sql` up to its two `GRANT` statements (argument and object
   checks).
+- The wrapper the `--submit` job puts in front of `target/prepare.sql`, run
+  alone on 19.27: where the reader exists SQL*Plus stops there with exit
+  code 0, and for a new reader the generated password is never printed.
 
 From Oracle's documentation (Cloud Control Monitoring Guide, "Creating a New
 Metric Extension"), not run here:
@@ -58,8 +61,9 @@ Metric Extension"), not run here:
 Not verified at all:
 
 - The two `GRANT READ` statements and the query run as the monitoring user.
-- `prepare_targets.sh --submit` against an OMS (mock only), and how
-  Enterprise Manager shows a job step that ends with `AWRCAP-SKIP`.
+- `prepare_targets.sh --submit` against an OMS (mock only): that EM accepts
+  the property file, and how it shows a job step that ends with
+  `AWRCAP-SKIP` (SQL*Plus exits 0 after printing an ORA-20000 line).
 - Whether Enterprise Manager clears an alert whose key is no longer in the
   result. The query does not depend on it: a closed alert stays in the
   result for 7 days with severity 0.

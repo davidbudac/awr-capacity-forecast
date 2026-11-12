@@ -337,6 +337,26 @@ session into `AWRCAP_*` APEX collections. `apex/install.sql` imports it into
 a given workspace/schema/app id; `apex/workspace.sql` creates the workspace
 and accounts; `apex/publish.sh` is the lab wrapper for the `23cfree` docker
 instance (see `LAB.md`). Edit the builder, never the generated export.
+`oem/` is the Oracle Enterprise Manager hook (opt-in, outside install.sql):
+`oem/awrcap_alerts.sql` is the query of a SQL metric extension, one SELECT
+over the table `CAP_ALERT_STATE` and the view `CAPR_RUNS` (stored rows only):
+key `ALERT_KEY` (the state_key, cut to 200 with its MD5 when longer),
+`SEV_NUM` 3 / 2 / 1 for an open, unacked CRIT / WARN / INFO and 0 for an
+acked alert or one resolved inside 7 days (EM clears on the threshold, so
+the row stays), plus one row `REFRESH` (WARN when `CAPR_RUNS.stale_run`).
+The metric extension takes the statement between `-- ME-QUERY-BEGIN` and the
+lone `;`, which must stay free of comments, blank lines and `;`
+(`test/oem_test.sh` checks). The column order is the extension's contract:
+only append. `oem/grant_monitor.sql <user>` grants READ on those two
+objects. `oem/prepare_targets.sh` reads the EM inventory with one
+`emcli list -sql` and prints (default) the per-target prepare.sql steps and
+an `add_targets.sql` for the repository, or with `--submit` creates an EM
+SQLScript job holding target/prepare.sql + check.sql verbatim behind a
+wrapper that ends the script where the reader exists (prepare.sql would
+reset its password) and gives a new reader a random server-made password.
+It handles no password: `ACCEPT ... HIDE` on both sides. `test/oem_test.sh`
+is its mock-emcli test, no OMS or DB needed. Verified against EM 24.1 with
+read-only verbs only; `oem/README.md` says what was not.
 Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomaly →
 `CAPM_` memory verdicts (report content, no alerts) → `CAPR_` integration
 (display labels + pollable alerts).

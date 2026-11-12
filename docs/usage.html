@@ -496,6 +496,10 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
       <p>For HTTP or Prometheus, the ORDS module in <span class="inline">grafana/</span> publishes the
         same views and a <code>metrics</code> endpoint (<a href="#grafana">Grafana</a>).</p>
 
+      <p>For Oracle Enterprise Manager, <span class="inline">oem/</span> holds the level 3 query as a
+        metric extension, with numeric severity and a row for a stopped refresh
+        (<a href="#oem">Enterprise Manager</a>).</p>
+
       <!-- ===================== ALERTS ===================== -->
       <div class="section-head" id="alerts">
         <span class="eyebrow">Integrate</span>
@@ -894,6 +898,47 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         19c floor. Limits and the lab shortcut:
         <a href="https://github.com/davidbudac/awr-capacity-forecast/blob/main/apex/README.md">apex/README.md</a>.</p>
       </div>
+
+      <!-- ===================== ENTERPRISE MANAGER ===================== -->
+      <div class="section-head" id="oem">
+        <span class="eyebrow">Integrate · optional</span>
+        <h2>Oracle Enterprise Manager</h2>
+        <p>For a site that runs Enterprise Manager Cloud Control: the suite's alerts as incidents, and
+          targets prepared and registered from the EM inventory. Opt-in, in
+          <span class="inline">oem/</span>, outside <span class="inline">install.sql</span>.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <caption>The files in oem/</caption>
+          <thead><tr><th scope="col">File</th><th scope="col">Does</th></tr></thead>
+          <tbody>
+            <tr><td><span class="inline">oem/awrcap_alerts.sql</span></td><td class="def">The query of a SQL metric extension on the repository database. One row per alert state: the key (<code>state_key</code>), <code>SEV_NUM</code> (3 CRIT, 2 WARN, 1 INFO, 0 once acknowledged or resolved), kind, target, series and message, plus one row that turns Warning when the nightly refresh has stopped. It reads <span class="inline">CAP_ALERT_STATE</span> and <span class="inline">CAPR_RUNS</span>, stored rows only.</td></tr>
+            <tr><td><span class="inline">oem/grant_monitor.sql</span></td><td class="def">Grants the monitoring user (<code>DBSNMP</code>) <code>READ</code> on those two objects.</td></tr>
+            <tr><td><span class="inline">oem/prepare_targets.sh</span></td><td class="def">Lists the CDBs and non-CDBs of the EM inventory (<code>emcli list</code>, read-only). For the selected ones it prints the <span class="inline">target/prepare.sql</span> steps per host, or with <code>--submit</code> runs them as one EM SQLScript job, and writes the <span class="inline">cap_repo.add_target</span> calls. It handles no password: SQL*Plus asks at a prompt that does not echo.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">shell and SQL*Plus</span><span class="term__tag in">set up</span></div>
+<pre><span class="c-cmt"># alerts: grant, look at the rows, then create the metric extension from the query</span>
+<span class="c-prompt">SQL&gt;</span> @oem/grant_monitor.sql DBSNMP
+<span class="c-prompt">SQL&gt;</span> @oem/awrcap_alerts.sql
+<span class="c-cmt"># thresholds on SEV_NUM: &gt;= 2 Warning, &gt;= 3 Critical</span>
+
+<span class="c-cmt"># targets: list, then print what to run for the chosen ones</span>
+<span class="c-prompt">$</span> oem/prepare_targets.sh
+<span class="c-prompt">$</span> oem/prepare_targets.sh --targets prod1_db01,hr_db03 --out plan/
+<span class="c-prompt">SQL&gt;</span> @plan/add_targets.sql</pre>
+      </div>
+
+      <p>The wizard steps, the emcli verbs that exist, the incident rule and what was verified against
+        a live Enterprise Manager:
+        <a href="https://github.com/davidbudac/awr-capacity-forecast/blob/main/oem/README.md">oem/README.md</a>.
+        A monitor other than Enterprise Manager polls the views itself
+        (<a href="#monitoring">Monitoring</a>).</p>
 
       <!-- ===================== DASHBOARDS ===================== -->
       <div class="section-head" id="views">
