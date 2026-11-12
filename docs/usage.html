@@ -725,7 +725,7 @@
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">shell</span><span class="term__tag in">install</span></div>
 <pre><span class="c-cmt"># stack side, once (index template, data view, dashboards)</span>
-<span class="c-prompt">$</span> elk/setup.sh
+<span class="c-prompt">$</span> ES_PASSWORD=... KIBANA_PASSWORD=... elk/setup.sh
 <span class="c-prompt">$</span> cp elk/logstash/oracle_capacity.conf &lt;logstash pipeline dir&gt;/   <span class="c-cmt"># beside the Oracle pipeline</span>
 
 <span class="c-cmt"># database host, as the Oracle owner, with Filebeat deployed</span>
@@ -778,6 +778,7 @@
 <span class="c-cmt"># 2. publish the module, as the schema owner (or a DBA with ORDS_ADMIN)</span>
 <span class="c-prompt">SQL&gt;</span> @grafana/ords/awrcap_module.sql
 <span class="c-cmt"># 3. Grafana with the Infinity plugin, data source and dashboards provisioned</span>
+<span class="c-cmt">#    (set GF_ADMIN_PASSWORD in grafana/.env first: the admin password, no default)</span>
 <span class="c-prompt">$</span> docker compose -f grafana/docker-compose.yml up -d     <span class="c-cmt"># http://&lt;host&gt;:3001</span></pre>
       </div>
 

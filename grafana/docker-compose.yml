@@ -1,6 +1,6 @@
 # Grafana over the suite's ORDS REST module (route B, no Elasticsearch).
 #   docker compose -f grafana/docker-compose.yml up -d
-#   Grafana http://<BIND_ADDR>:3001  (admin/admin, the image default, kept for the lab;
+#   Grafana http://<BIND_ADDR>:3001  (admin, password from GF_ADMIN_PASSWORD in grafana/.env;
 #   anonymous users get read-only Viewer access)
 #   ORDS    http://<BIND_ADDR>:8181/ords/capdemo/awrcap/  (install once: grafana/ords/README.md)
 # BIND_ADDR is the host interface both ports are published on (default 0.0.0.0;
@@ -17,6 +17,7 @@ services:
     environment:
       ORDS_URL: ${ORDS_URL:-http://ords:8080/ords/capdemo/awrcap}
       GF_PLUGINS_PREINSTALL: yesoreyeram-infinity-datasource
+      GF_SECURITY_ADMIN_PASSWORD: "${GF_ADMIN_PASSWORD:?set GF_ADMIN_PASSWORD in grafana/.env}"
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/awrcap-fleet-anomalies.json

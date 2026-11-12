@@ -14,7 +14,7 @@ milestone history.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | [001](001-small-correctness-fixes.md) | Nine small fixes: ORDS label escaping, zero knobs, installer gates, ordering | P1 | S | — | DONE (reviewed 2026-11-10; branch `t3/small-correctness-fixes`, 9 commits on `d91e3f8`, not merged; harness CAPX1 1899 passed, 0 failed; steps 1, 6, 7, 8 not database-tested) |
-| [002](002-lab-credentials-out-of-tracked-files.md) | No login literal in a tracked file (public repo); operator rotates | P1 | S | — | TODO |
+| [002](002-lab-credentials-out-of-tracked-files.md) | No login literal in a tracked file (public repo); operator rotates | P1 | S | — | DONE (2026-11-12; branch `t3/awr-capacity-predictions`, one commit; offline checks pass, no database run needed; also edited `grafana/README.md`, `docs/usage.html`, `CLAUDE.md`; the APEX row and `bench/env.sh.example` held placeholders already; operator rotation of the Grafana and docker-elk logins still open, and `grafana/.env` needs `GF_ADMIN_PASSWORD` before the next compose command) |
 | [003](003-esm-top-n-per-database.md) | ESM trains the top N of each database and retires unselected models | P2 | M | — | TODO |
 | [004](004-report-windows-per-database.md) | HTML report and briefing anchor windows and dates per database | P2 | M | — | TODO |
 | [005](005-passwords-out-of-sql-text-and-argv.md) | Generated reader password stays in its bind; no password on argv | P2 | M | — | TODO |

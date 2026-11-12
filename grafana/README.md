@@ -50,11 +50,13 @@ day; this path shows the current fit only), or when ORDS is not an option.
    ```
    This ORDS-enables the schema and defines the `awrcap` module. Re-run to
    update; `awrcap_module_drop.sql` removes it.
-4. **Grafana.** `docker compose -f grafana/docker-compose.yml up -d` starts
-   Grafana (port 3001, Infinity plugin preinstalled, data source and
-   dashboards provisioned from this directory, admin/admin kept for the lab,
-   anonymous read-only viewing on) and ORDS (host port 8181, `ORDS_HOST_PORT`
-   overrides). Point an existing Grafana at the same files instead if you
+4. **Grafana.** Set `GF_ADMIN_PASSWORD` in the gitignored `grafana/.env`
+   first: the compose file stops without it, and Grafana applies it when it
+   initialises an empty data volume. `docker compose -f
+   grafana/docker-compose.yml up -d` starts Grafana (port 3001, Infinity
+   plugin preinstalled, data source and dashboards provisioned from this
+   directory, user `admin` with that password, anonymous read-only viewing
+   on) and ORDS (host port 8181, `ORDS_HOST_PORT` overrides). Point an existing Grafana at the same files instead if you
    have one: copy `provisioning/` and `dashboards/`, install the Infinity
    plugin, and set `ORDS_URL` to your module's base URL.
 

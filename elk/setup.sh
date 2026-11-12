@@ -5,6 +5,7 @@
 # exported day and hour is the DB wall clock labelled Z, so UTC displays it
 # unshifted). Idempotent: PUTs, a settings POST and overwrite=true imports with
 # fixed ids. Shipping itself never needs these credentials.
+# ES_PASSWORD and KIBANA_PASSWORD are required and have no default.
 #
 #   elk/setup.sh                        # template, tz setting, dashboards
 #   elk/setup.sh --purge-anomaly-docs   # same, after deleting every anomaly
@@ -21,10 +22,10 @@ esac
 
 ES_URL="${ES_URL:-http://localhost:9200}"
 ES_USER="${ES_USER:-elastic}"
-ES_PASSWORD="${ES_PASSWORD:-changeme}"
+ES_PASSWORD="${ES_PASSWORD:?set ES_PASSWORD (the password of the elastic user)}"
 KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
 KIBANA_USER="${KIBANA_USER:-elastic}"
-KIBANA_PASSWORD="${KIBANA_PASSWORD:-changeme}"
+KIBANA_PASSWORD="${KIBANA_PASSWORD:?set KIBANA_PASSWORD}"
 elk="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 here="$elk/kibana"
 index=awrcap-capacity

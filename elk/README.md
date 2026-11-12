@@ -77,10 +77,11 @@ dashboards default to a time range that ends after today.
 
 Stack side, once, from a workstation that can reach Elasticsearch and Kibana
 (`ES_URL`/`ES_USER`/`ES_PASSWORD`, `KIBANA_URL`/`KIBANA_USER`/`KIBANA_PASSWORD`,
-defaults `http://localhost:9200`, `:5601`, `elastic`):
+defaults `http://localhost:9200`, `:5601`, `elastic`; the two passwords have
+no default and the script stops without them):
 
 ```bash
-elk/setup.sh                                     # index template + tz setting + data view + dashboards
+ES_PASSWORD=... KIBANA_PASSWORD=... elk/setup.sh  # index template + tz setting + data view + dashboards
 cp elk/logstash/oracle_capacity.conf <logstash pipeline dir>/   # beside oracle.conf
 docker compose restart logstash                  # or however that Logstash reloads
 ```
@@ -109,7 +110,7 @@ as duplicates. Once, after the new `export_capacity.sql` is on the DB host
 and before its next run:
 
 ```bash
-elk/setup.sh --purge-anomaly-docs    # template + one _delete_by_query on cap.record:(anomaly or alert)
+ES_PASSWORD=... KIBANA_PASSWORD=... elk/setup.sh --purge-anomaly-docs    # template + one _delete_by_query on cap.record:(anomaly or alert)
 ```
 
 The next `export.sh` run re-creates every anomaly and the current day's

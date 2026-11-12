@@ -9,21 +9,24 @@ Tailscale address of this workstation, **100.108.246.57**, not on localhost.
 
 | What | URL | Login |
 |---|---|---|
-| Grafana (route B) | http://100.108.246.57:3001 | admin / admin, anonymous = viewer |
+| Grafana (route B) | http://100.108.246.57:3001 | admin / (see grafana/.env: GF_ADMIN_PASSWORD); anonymous = viewer |
 | Grafana boards | /d/awrcap-tablespaces, /d/awrcap-cpu-series, /d/awrcap-fleet-anomalies | |
 | ORDS module (route B) | http://100.108.246.57:8181/ords/capdemo/awrcap/{containers,series,forecast,fit,anomalies,alerts} | none (public, lab only) |
-| APEX app (route C) | http://100.108.246.57:8023/ords/r/awrcap/awrcap/overview | AWRCAP_VIEWER (password handed over in chat, not in the repo); App Builder: ADMIN |
+| APEX app (route C) | http://100.108.246.57:8023/ords/r/awrcap/awrcap/overview | AWRCAP_VIEWER (password: ask the maintainer; not in the repo); App Builder: ADMIN |
 | APEX workspace sign-in | http://100.108.246.57:8023/ords/r/apex/workspace-sign-in/ (workspace AWRCAP) | ADMIN |
-| Kibana (ELK path) | http://100.108.246.57:5601 | elastic / changeme |
+| Kibana (ELK path) | http://100.108.246.57:5601 | elastic / (docker-elk .env: ELASTIC_PASSWORD) |
 | Kibana boards | /app/dashboards#/view/awrcap-dashboard-tablespaces, …-cpu-series, …-fleet-anomalies | |
-| Elasticsearch | http://100.108.246.57:9200 (index `awrcap-capacity`) | elastic / changeme |
+| Elasticsearch | http://100.108.246.57:9200 (index `awrcap-capacity`) | elastic / (docker-elk .env: ELASTIC_PASSWORD) |
 | Logstash Beats input | 192.168.56.1:5044 (host-only adapter; what the VM's Filebeat targets) | mTLS |
 | Docs site (local render) | `python3 -m http.server 8765 --bind 100.108.246.57 -d docs` then http://100.108.246.57:8765/usage.html | |
 
 Kibana, Elasticsearch and Logstash belong to the docker-elk project at
 `/home/db/github/docker-elk` (published on 0.0.0.0, so the Tailscale address
 works). Grafana and ORDS belong to this repo and are pinned to the Tailscale
-address by the gitignored `grafana/.env` (`BIND_ADDR=100.108.246.57`).
+address by the gitignored `grafana/.env` (`BIND_ADDR=100.108.246.57`), which
+also holds `GF_ADMIN_PASSWORD`. The compose file stops without it. Grafana
+reads it only when it initialises an empty data volume. On an existing
+volume change the admin password in Grafana itself and keep the file in step.
 
 ## Where the data comes from
 
@@ -66,16 +69,20 @@ Sync the repo to the VM before running anything there:
 5. **Export for ELK** (daily, or whenever the fixtures were re-anchored):
    `ssh -p 2200 oracle@dbmint 'cd ~/awr-capacity-forecast && for s in CAPDEMO CAPTEST; do elk/export.sh --sid cdb1 --container PDB1 --schema $s; done'`
    Filebeat ships within seconds; re-exports overwrite (deterministic ids).
-6. **Kibana objects** only after a builder change: `elk/setup.sh`
-   (`ES_URL`/`KIBANA_URL` default to localhost; set them to the Tailscale
-   address or run it on the host, where localhost works for docker-elk).
+6. **Kibana objects** only after a builder change:
+   `ES_PASSWORD=... KIBANA_PASSWORD=... elk/setup.sh`
+   (the two passwords have no default; `ES_URL`/`KIBANA_URL` default to
+   localhost; set them to the Tailscale address or run it on the host, where
+   localhost works for docker-elk).
 
 ## Health checks
+
+`export ES_PASSWORD` first (the `elastic` user's password).
 
 ```
 curl -s http://100.108.246.57:8181/ords/capdemo/awrcap/containers | head -c 200
 curl -s http://100.108.246.57:3001/api/health
-curl -s -u elastic:changeme 'http://100.108.246.57:9200/awrcap-capacity/_count'
+curl -s -u "elastic:$ES_PASSWORD" 'http://100.108.246.57:9200/awrcap-capacity/_count'
 docker logs --since 10m docker-elk-logstash-1 2>&1 | grep -ci error
 ssh -p 2200 oracle@dbmint 'pgrep -x filebeat; ls -t /u01/app/oracle/filebeat/generated | head -3'
 ```

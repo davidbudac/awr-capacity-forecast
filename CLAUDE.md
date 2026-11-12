@@ -294,7 +294,8 @@ ES index `awrcap-capacity` (mapping = `elk/elasticsearch/index-template.json`,
 `dynamic: strict`, so add a field there FIRST and re-run `elk/setup.sh`).
 `elk/kibana/build_*.py` generate the three dashboards (edit the builder, never
 the `.ndjson`); `setup.sh` applies the template and imports them. Nothing on
-the DB host talks to Elasticsearch directly.
+the DB host talks to Elasticsearch directly. `elk/setup.sh` requires
+`ES_PASSWORD` and `KIBANA_PASSWORD` (no default).
 See `elk/README.md`.
 `LAB.md` is the workstation runbook (Tailscale URLs, start order, VM facts)
 for the visual paths; read it before touching the lab.
@@ -306,7 +307,10 @@ in ddl/45, `CAPR_FORECAST_POINTS` and `CAPR_ALERTS` in ddl/55, plus a GET
 ELK export selects from the same views, so change the view, not the
 consumers) and
 `grafana/build_*.py` generate the provisioned Grafana boards. ORDS install
-state and passwords under `grafana/` are gitignored.
+state and passwords under `grafana/` are gitignored. The compose file
+requires `GF_ADMIN_PASSWORD` (from `grafana/.env`). No tracked file holds a
+login literal (the repository is public): a placeholder, a variable or a
+pointer to the gitignored file instead.
 `apex/` is the third optional path (nothing outside the database): `apex/build.py`
 generates `apex/awrcap_app.sql`, an APEX 26.2 application export (Oracle JET
 charts + Interactive Reports, no external JS) that reads the same CAPR point
