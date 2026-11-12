@@ -795,6 +795,15 @@ h1 {
         rateLabel: perDay ? 'Change per 30 d' : 'Growth'
       };
     }
+    if (u === 'io_per_sec' || u === 'mb_per_sec') {
+      var ps = u === 'io_per_sec' ? 'IO/s' : 'MB/s';
+      return {
+        scale: 1, short: ps,
+        fmt: function (v) { return v == null ? '\u2013' : auto(v) + ' ' + ps; },
+        rate: function (v) { return v == null ? '\u2013' : sign(v) + auto(Math.abs(v) * 30) + ' ' + ps; },
+        rateLabel: 'Change per 30 d'
+      };
+    }
     return {
       scale: 1, short: '',
       fmt: function (v) { return v == null ? '\u2013' : auto(v); },
@@ -866,8 +875,12 @@ h1 {
       name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },
     { id: 'pga', perContainer: true, title: 'PGA', noun: 'instance', match: seriesIs('PGA_ALLOC_GB'),
       name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },
-    { id: 'redo', perContainer: true, title: 'Redo', noun: 'database', match: seriesIs('REDO_GB_DAY'),
-      name: function (f) { return conName(f.dbid, f.con); }, facts: redoFacts },
+    { id: 'redo', perContainer: true, flow: 'today', title: 'Redo', noun: 'database', match: seriesIs('REDO_GB_DAY'),
+      name: function (f) { return conName(f.dbid, f.con); }, facts: flowFacts('Today') },
+    { id: 'iops', perContainer: true, flow: 'busy-hour p95', title: 'I/O requests', noun: 'container', match: seriesIs('IOPS'),
+      name: function (f) { return conName(f.dbid, f.con); }, facts: flowFacts('Busy-hour p95') },
+    { id: 'io-mbps', perContainer: true, flow: 'busy-hour p95', title: 'I/O throughput', noun: 'container', match: seriesIs('IO_MBPS'),
+      name: function (f) { return conName(f.dbid, f.con); }, facts: flowFacts('Busy-hour p95') },
     { id: 'undo', title: 'Undo', noun: 'tablespace', match: seriesPrefix('UNDO_PEAK:'),
       name: function (f) { return f.s.slice(10); }, facts: limitFacts('Peak', 'max size') },
     { id: 'temp', title: 'Temp', noun: 'tablespace', match: seriesPrefix('TEMP_PEAK:'),
@@ -965,14 +978,18 @@ h1 {
     };
   }
 
-  function redoFacts(m) {
-    var f = m.f;
-    var avg = avgLast(m.pts, 7);
-    return [
-      { l: 'Today', v: m.unit.fmt(lastVal(m.pts)) },
-      { l: '7-day average', v: m.unit.fmt(avg) },
-      { l: m.unit.rateLabel, v: m.unit.rate(f.slope), s: 'fit over ' + (f.n || '\u2013') + ' d' }
-    ];
+  /* A flow has no limit (redo per day, the I/O rates): the latest day, the
+     week's average and the trend. fam.flow words the latest day. */
+  function flowFacts(label) {
+    return function (m) {
+      var f = m.f;
+      var avg = avgLast(m.pts, 7);
+      return [
+        { l: label, v: m.unit.fmt(lastVal(m.pts)) },
+        { l: '7-day average', v: m.unit.fmt(avg) },
+        { l: m.unit.rateLabel, v: m.unit.rate(f.slope), s: 'fit over ' + (f.n || '\u2013') + ' d' }
+      ];
+    };
   }
 
   function cpuFacts(m, p95, avg) {
@@ -1416,7 +1433,7 @@ h1 {
     if (c.WARN) parts.push('<b>' + c.WARN + '</b> warning');
     var soon = ms.filter(function (m) { return m.f.dtf != null && m.f.q === 'OK'; })
       .sort(function (a, b) { return a.f.dtf - b.f.dtf; })[0];
-    if (soon && fam.id !== 'redo') {
+    if (soon && !fam.flow) {
       var what = fam.id === 'tablespaces' ? 'full' : fam.id.indexOf('cpu') >= 0 ? CPU_SAT + '%' : SERIES_SAT + '%';
       parts.push('soonest ' + what + ': <b>' + esc(soon.name) + '</b> in ' + fDays(soon.f.dtf));
     }
@@ -1437,7 +1454,7 @@ h1 {
       return 'fullest <b>' + esc(full.name) + '</b> ' + num(full.f.pct, 1) + '%';
     }
     if (f.k === 'CPU') return '<b>' + esc(m.name) + '</b> p95 ' + num(f.v, 1) + '%';
-    if (fam.id === 'redo') return '<b>' + m.unit.fmt(lastVal(m.pts)) + '</b> today';
+    if (fam.flow) return '<b>' + m.unit.fmt(lastVal(m.pts)) + '</b> ' + fam.flow;
     return '<b>' + esc(m.name) + '</b> ' + m.unit.fmt(f.v) + (f.pct != null ? ' \u00b7 ' + num(f.pct, 1) + '%' : '');
   }
 

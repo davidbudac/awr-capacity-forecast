@@ -168,6 +168,29 @@ try {
   check(false, 'render with only meta throws: ' + e.message);
 }
 
+// The I/O rate series (IOPS, IO_MBPS): no limit, like redo. The page's own
+// data has them only when its source collected the I/O counters, so two are
+// built here from the redo series: a section each, the unit on the card, no
+// "soonest" countdown.
+try {
+  const redoFit = d.fits.filter(f => f.s === 'REDO_GB_DAY')[0];
+  const redoPts = d.points.filter(p => p.s === 'REDO_GB_DAY' && p.dbid === redoFit.dbid && p.con === redoFit.con)[0];
+  const io = [['IOPS', 'io_per_sec', 3090, 9.5, 'OK'], ['IO_MBPS', 'mb_per_sec', 48.5, 0, 'FLAT']];
+  const withIo = Object.assign({}, d, {
+    fits: d.fits.filter(f => f.s !== 'IOPS' && f.s !== 'IO_MBPS').concat(io.map(x => Object.assign({}, redoFit, { s: x[0], u: x[1], v: x[2], slope: x[3], q: x[4] }))),
+    points: d.points.filter(p => p.s !== 'IOPS' && p.s !== 'IO_MBPS').concat(io.map(x => Object.assign({}, redoPts, { s: x[0], d: redoPts.d.map(r => [r[0], x[2] + x[3] * (r[0] - redoPts.d.length + 1), null, 0, 0]) })))
+  });
+  const h = render(JSON.stringify(withIo));
+  check(!h.includes('undefined') && !h.includes('NaN'), 'render with IOPS / IO_MBPS is clean');
+  const sec = id => between(h, '<section id="' + id + '"', '</section>');
+  check(sec('iops').includes('I/O requests') && sec('iops').includes('3,090 IO/s') && sec('iops').includes('Busy-hour p95'), 'section iops shows the latest p95 in IO/s');
+  check(sec('io-mbps').includes('I/O throughput') && sec('io-mbps').includes('48.5 MB/s'), 'section io-mbps shows the latest p95 in MB/s');
+  check(!sec('iops').includes('soonest') && !sec('io-mbps').includes('soonest'), 'the I/O sections have no countdown');
+  check(sec('redo').includes('today'), 'the redo headline still reads "today"');
+} catch (e) {
+  check(false, 'render with IOPS / IO_MBPS throws: ' + e.message);
+}
+
 if (failures) process.exit(1);
 console.log('OK   report_html: ' + metrics + ' metrics rendered, ' + count(html, /<article class="card mem"/g) + ' memory cards of the page, memory fixture ' +
   count(mh, /<article class="card mem"/g) + ' cards / ' + count(mh, /<div class="mrow /g) + ' verdicts / ' + count(mh, /<li class="(pr|sl|nu)">/g) + ' evidence lines, every block optional');

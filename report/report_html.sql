@@ -2,7 +2,7 @@
 -- report/report_html.sql -- read-only, self-contained HTML capacity report.
 -- =====================================================================
 -- One section per monitored metric (tablespaces, database size, host CPU,
--- DB CPU, sessions, processes, PGA, redo, undo, temp, ASM), one card per
+-- DB CPU, sessions, processes, PGA, redo, I/O, undo, temp, ASM), one card per
 -- series, and a chart on every card whether or not anything is wrong; then
 -- a Memory section, one card per instance with the sizing verdicts.
 --

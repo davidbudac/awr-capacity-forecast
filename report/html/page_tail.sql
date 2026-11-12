@@ -107,6 +107,15 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        rateLabel: perDay ? 'Change per 30 d' : 'Growth'~');
   DBMS_OUTPUT.PUT_LINE(q'~      };~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
+  DBMS_OUTPUT.PUT_LINE(q'~    if (u === 'io_per_sec' || u === 'mb_per_sec') {~');
+  DBMS_OUTPUT.PUT_LINE(q'~      var ps = u === 'io_per_sec' ? 'IO/s' : 'MB/s';~');
+  DBMS_OUTPUT.PUT_LINE(q'~      return {~');
+  DBMS_OUTPUT.PUT_LINE(q'~        scale: 1, short: ps,~');
+  DBMS_OUTPUT.PUT_LINE(q'~        fmt: function (v) { return v == null ? '\u2013' : auto(v) + ' ' + ps; },~');
+  DBMS_OUTPUT.PUT_LINE(q'~        rate: function (v) { return v == null ? '\u2013' : sign(v) + auto(Math.abs(v) * 30) + ' ' + ps; },~');
+  DBMS_OUTPUT.PUT_LINE(q'~        rateLabel: 'Change per 30 d'~');
+  DBMS_OUTPUT.PUT_LINE(q'~      };~');
+  DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    return {~');
   DBMS_OUTPUT.PUT_LINE(q'~      scale: 1, short: '',~');
   DBMS_OUTPUT.PUT_LINE(q'~      fmt: function (v) { return v == null ? '\u2013' : auto(v); },~');
@@ -178,8 +187,12 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },~');
   DBMS_OUTPUT.PUT_LINE(q'~    { id: 'pga', perContainer: true, title: 'PGA', noun: 'instance', match: seriesIs('PGA_ALLOC_GB'),~');
   DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },~');
-  DBMS_OUTPUT.PUT_LINE(q'~    { id: 'redo', perContainer: true, title: 'Redo', noun: 'database', match: seriesIs('REDO_GB_DAY'),~');
-  DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return conName(f.dbid, f.con); }, facts: redoFacts },~');
+  DBMS_OUTPUT.PUT_LINE(q'~    { id: 'redo', perContainer: true, flow: 'today', title: 'Redo', noun: 'database', match: seriesIs('REDO_GB_DAY'),~');
+  DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return conName(f.dbid, f.con); }, facts: flowFacts('Today') },~');
+  DBMS_OUTPUT.PUT_LINE(q'~    { id: 'iops', perContainer: true, flow: 'busy-hour p95', title: 'I/O requests', noun: 'container', match: seriesIs('IOPS'),~');
+  DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return conName(f.dbid, f.con); }, facts: flowFacts('Busy-hour p95') },~');
+  DBMS_OUTPUT.PUT_LINE(q'~    { id: 'io-mbps', perContainer: true, flow: 'busy-hour p95', title: 'I/O throughput', noun: 'container', match: seriesIs('IO_MBPS'),~');
+  DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return conName(f.dbid, f.con); }, facts: flowFacts('Busy-hour p95') },~');
   DBMS_OUTPUT.PUT_LINE(q'~    { id: 'undo', title: 'Undo', noun: 'tablespace', match: seriesPrefix('UNDO_PEAK:'),~');
   DBMS_OUTPUT.PUT_LINE(q'~      name: function (f) { return f.s.slice(10); }, facts: limitFacts('Peak', 'max size') },~');
   DBMS_OUTPUT.PUT_LINE(q'~    { id: 'temp', title: 'Temp', noun: 'tablespace', match: seriesPrefix('TEMP_PEAK:'),~');
@@ -277,14 +290,18 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    };~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
-  DBMS_OUTPUT.PUT_LINE(q'~  function redoFacts(m) {~');
-  DBMS_OUTPUT.PUT_LINE(q'~    var f = m.f;~');
-  DBMS_OUTPUT.PUT_LINE(q'~    var avg = avgLast(m.pts, 7);~');
-  DBMS_OUTPUT.PUT_LINE(q'~    return [~');
-  DBMS_OUTPUT.PUT_LINE(q'~      { l: 'Today', v: m.unit.fmt(lastVal(m.pts)) },~');
-  DBMS_OUTPUT.PUT_LINE(q'~      { l: '7-day average', v: m.unit.fmt(avg) },~');
-  DBMS_OUTPUT.PUT_LINE(q'~      { l: m.unit.rateLabel, v: m.unit.rate(f.slope), s: 'fit over ' + (f.n || '\u2013') + ' d' }~');
-  DBMS_OUTPUT.PUT_LINE(q'~    ];~');
+  DBMS_OUTPUT.PUT_LINE(q'~  /* A flow has no limit (redo per day, the I/O rates): the latest day, the~');
+  DBMS_OUTPUT.PUT_LINE(q'~     week's average and the trend. fam.flow words the latest day. */~');
+  DBMS_OUTPUT.PUT_LINE(q'~  function flowFacts(label) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    return function (m) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~      var f = m.f;~');
+  DBMS_OUTPUT.PUT_LINE(q'~      var avg = avgLast(m.pts, 7);~');
+  DBMS_OUTPUT.PUT_LINE(q'~      return [~');
+  DBMS_OUTPUT.PUT_LINE(q'~        { l: label, v: m.unit.fmt(lastVal(m.pts)) },~');
+  DBMS_OUTPUT.PUT_LINE(q'~        { l: '7-day average', v: m.unit.fmt(avg) },~');
+  DBMS_OUTPUT.PUT_LINE(q'~        { l: m.unit.rateLabel, v: m.unit.rate(f.slope), s: 'fit over ' + (f.n || '\u2013') + ' d' }~');
+  DBMS_OUTPUT.PUT_LINE(q'~      ];~');
+  DBMS_OUTPUT.PUT_LINE(q'~    };~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  function cpuFacts(m, p95, avg) {~');
@@ -385,6 +402,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  var CHARTS = [];~');
   DBMS_OUTPUT.PUT_LINE(q'~  var W = 640, H = 196, ML = 44, MR = 14, MT = 22, MB = 24;~');
   DBMS_OUTPUT.PUT_LINE(NULL);
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  function niceTicks(lo, hi, n) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var span = hi - lo || 1, step = Math.pow(10, Math.floor(Math.log10(span / n)));~');
   DBMS_OUTPUT.PUT_LINE(q'~    var err = span / n / step;~');
@@ -402,9 +422,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  function horizon(m) {~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    var f = m.f, h = 90;~');
   DBMS_OUTPUT.PUT_LINE(q'~    var reach = m.fc.reduce(function (r, k) { return k.m === 'REGR' ? Math.max(r, k.h) : r; }, 30);~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (f.dtf != null && f.dtf > 60 && f.dtf <= 330) h = Math.ceil((f.dtf + 20) / 30) * 30;~');
@@ -731,7 +748,7 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    if (c.WARN) parts.push('<b>' + c.WARN + '</b> warning');~');
   DBMS_OUTPUT.PUT_LINE(q'~    var soon = ms.filter(function (m) { return m.f.dtf != null && m.f.q === 'OK'; })~');
   DBMS_OUTPUT.PUT_LINE(q'~      .sort(function (a, b) { return a.f.dtf - b.f.dtf; })[0];~');
-  DBMS_OUTPUT.PUT_LINE(q'~    if (soon && fam.id !== 'redo') {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    if (soon && !fam.flow) {~');
   DBMS_OUTPUT.PUT_LINE(q'~      var what = fam.id === 'tablespaces' ? 'full' : fam.id.indexOf('cpu') >= 0 ? CPU_SAT + '%' : SERIES_SAT + '%';~');
   DBMS_OUTPUT.PUT_LINE(q'~      parts.push('soonest ' + what + ': <b>' + esc(soon.name) + '</b> in ' + fDays(soon.f.dtf));~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
@@ -752,7 +769,7 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      return 'fullest <b>' + esc(full.name) + '</b> ' + num(full.f.pct, 1) + '%';~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (f.k === 'CPU') return '<b>' + esc(m.name) + '</b> p95 ' + num(f.v, 1) + '%';~');
-  DBMS_OUTPUT.PUT_LINE(q'~    if (fam.id === 'redo') return '<b>' + m.unit.fmt(lastVal(m.pts)) + '</b> today';~');
+  DBMS_OUTPUT.PUT_LINE(q'~    if (fam.flow) return '<b>' + m.unit.fmt(lastVal(m.pts)) + '</b> ' + fam.flow;~');
   DBMS_OUTPUT.PUT_LINE(q'~    return '<b>' + esc(m.name) + '</b> ' + m.unit.fmt(f.v) + (f.pct != null ? ' \u00b7 ' + num(f.pct, 1) + '%' : '');~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
@@ -788,6 +805,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    var first = ts.filter(function (m) { return m.f.dtf != null && m.f.q !== 'INSUFFICIENT_HISTORY'; })~');
   DBMS_OUTPUT.PUT_LINE(q'~      .sort(function (a, b) { return a.f.dtf - b.f.dtf; })[0];~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (!first) return '<div class="lead">No tablespace is on course to fill.</div>';~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    var f = first.f, tone = dtfFact(f, '').tone;~');
   DBMS_OUTPUT.PUT_LINE(q'~    return '<a class="lead" href="#' + first.id + '">Fills first: <b>' + esc(first.name) + '</b> <span>' + esc(first.ctr) +~');
   DBMS_OUTPUT.PUT_LINE(q'~      (QUALITY_TAG[f.q] ? ' \u00b7 ' + QUALITY_TAG[f.q] : '') + '</span>, ' +~');
@@ -805,9 +825,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      dbs.forEach(function (m) {~');
   DBMS_OUTPUT.PUT_LINE(q'~        var f = m.f, obs = observedChange(m.pts, 30);~');
   DBMS_OUTPUT.PUT_LINE(q'~        out.push(spaceRow(m, [m.unit.fmt(f.v), m.unit.rate(f.slope),~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~          f.slope == null ? '\u2013' : sign(f.slope) + m.unit.fmt(Math.abs(f.slope) * 30),~');
   DBMS_OUTPUT.PUT_LINE(q'~          obs ? sign(obs.d) + m.unit.fmt(Math.abs(obs.d)) : '\u2013']));~');
   DBMS_OUTPUT.PUT_LINE(q'~      });~');
@@ -1191,6 +1208,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        spec.lines.forEach(function (l) {~');
   DBMS_OUTPUT.PUT_LINE(q'~          var q = nearest(l.pts, p.x);~');
   DBMS_OUTPUT.PUT_LINE(q'~          if (q && q.x === p.x) lines.push((l.label ? esc(l.label) + ' ' : '') + '<b>' + spec.unit.fmt(q.y) + '</b>' + (spec.m.f.lim && l.role === 0 && !spec.pctAxis ? ' \u00b7 ' + num(q.y / (q.lim || spec.m.f.lim) * 100, 1) + '%' : ''));~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~          if (q && q.x === p.x && (q.a === 1 || q.a === -1)) {~');
   DBMS_OUTPUT.PUT_LINE(q'~            var note = anomalyNote(spec.m, l.s, q.x);~');
   DBMS_OUTPUT.PUT_LINE(q'~            lines.push('<span class="a">' + esc(note || 'unusual') + '</span>');~');
@@ -1208,9 +1228,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        var lo = a.lo != null ? a.lo + t * ((b.lo != null ? b.lo : b.y) - a.lo) : (b.lo != null ? a.y + t * (b.lo - a.y) : null);~');
   DBMS_OUTPUT.PUT_LINE(q'~        var hi = a.hi != null ? a.hi + t * ((b.hi != null ? b.hi : b.y) - a.hi) : (b.hi != null ? a.y + t * (b.hi - a.y) : null);~');
   DBMS_OUTPUT.PUT_LINE(q'~        px = spec.xs(xd); py = spec.ys(y);~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        lines.push('<b>' + fWDay(xd) + ' ' + dateOf(xd).getUTCFullYear() + '</b> \u00b7 +' + (xd - LAST) + ' d');~');
   DBMS_OUTPUT.PUT_LINE(q'~        lines.push('forecast <b>' + spec.unit.fmt(y) + '</b>');~');
   DBMS_OUTPUT.PUT_LINE(q'~        if (lo != null && hi != null) lines.push('95% ' + spec.unit.fmt(lo) + ' \u2013 ' + spec.unit.fmt(hi));~');

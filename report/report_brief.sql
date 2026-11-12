@@ -314,7 +314,8 @@ DECLARE
 
   FUNCTION unit_sfx(p_unit IN VARCHAR2) RETURN VARCHAR2 IS
   BEGIN
-    RETURN CASE LOWER(p_unit) WHEN 'gib' THEN ' GiB' WHEN 'gib_per_day' THEN ' GiB/day' END;
+    RETURN CASE LOWER(p_unit) WHEN 'gib' THEN ' GiB' WHEN 'gib_per_day' THEN ' GiB/day'
+                              WHEN 'io_per_sec' THEN ' IO/s' WHEN 'mb_per_sec' THEN ' MB/s' END;
   END unit_sfx;
 
   FUNCTION sev_col(p_sev IN VARCHAR2) RETURN VARCHAR2 IS
@@ -354,6 +355,8 @@ DECLARE
              WHEN p_kind = 'SERIES' AND p_series = 'DB_SIZE_GB'  THEN 'Database size'
              WHEN p_kind = 'SERIES' AND p_series = 'REDO_GB_DAY' THEN 'Redo per day'
              WHEN p_kind = 'SERIES' AND p_series = 'PGA_ALLOC_GB' THEN 'PGA allocated'
+             WHEN p_kind = 'SERIES' AND p_series = 'IOPS'    THEN 'I/O requests per second'
+             WHEN p_kind = 'SERIES' AND p_series = 'IO_MBPS' THEN 'I/O MB per second'
              WHEN p_kind = 'SERIES' AND p_series LIKE 'UNDO_PEAK:%' THEN 'Undo peak ' || SUBSTR(p_series, 11)
              WHEN p_kind = 'SERIES' AND p_series LIKE 'TEMP_PEAK:%' THEN 'Temp peak ' || SUBSTR(p_series, 11)
              ELSE p_series
