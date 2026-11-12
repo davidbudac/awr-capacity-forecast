@@ -2058,10 +2058,9 @@ mad_k`, no gap, complete, `n_hist ≥ min_hist`). Knob flips (`alert_modes_cpu`
 `cpu_min_mad_pct_hour` 3) each assert the change and restore the knob.
 `test/lint_anom_joins.sh` keeps `CAPA_ANOM` readers where the key rule is
 reviewed, and `test/dbmint_harness.sh <SCHEMA> [--ml] [--no-fixture] [--pga]
-[--parity] [--sql FILE]` runs `repository/build.py --check`, five lints
-(anomaly joins, session labels, per-dbid windows, snapshot reads,
-`DBA_HIST` names) and the two offline report tests before it syncs and runs
-the harness in a throwaway schema.
+[--parity] [--sql FILE]` runs `test/check.sh` (the generated-file checks,
+every `test/lint_*.sh`, the docs lint and the offline tests) before it syncs
+and runs the harness in a throwaway schema.
 
 Before the legacy views were deleted, a parity gate on dbmint compared them
 with the engine row by row (FULL OUTER JOIN): `CAPA_TBSPC_ANOM` against the

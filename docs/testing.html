@@ -709,7 +709,7 @@
 <text class="lgt" x="524" y="315">harness exit status when that step fails</text>
 </svg>
         </div>
-        <figcaption>Steps 1 to 6 below in one script, <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>. The local checks are <span class="inline">test/check.sh</span>: the generated-file checks, the lints, the docs lint and two offline report tests. After a passing run <span class="inline">--parity</span> then runs <span class="inline">test/snapshot_parity.sh</span>. Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>.</figcaption>
+        <figcaption>Steps 1 to 6 below in one script, <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>. The local checks are <span class="inline">test/check.sh</span>: the generated-file checks, the lints, the docs lint and the offline tests. After a passing run <span class="inline">--parity</span> then runs <span class="inline">test/snapshot_parity.sh</span>. Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>.</figcaption>
       </figure>
 
       <div class="steps">
@@ -977,11 +977,15 @@ All fixture assertions passed.</pre>
               <span class="inline">test/check.sh [-v] [NAME...]</span> runs every check that needs no database:
               <span class="inline">repository/build.py --check</span> and <span class="inline">report/html/build.py --check</span>
               (the generated files are current), every <span class="inline">test/lint_*.sh</span> (found by name, so a
-              new lint joins by existing), <span class="inline">test/docs_lint.sh</span> and the two offline report
+              new lint joins by existing), <span class="inline">test/docs_lint.sh</span> and the four offline
               tests (<span class="inline">test/run_report_sh_test.sh</span>: the exit rules of
               <span class="inline">report/run_report.sh</span> under a mock sqlplus;
               <span class="inline">test/report_html_test.sh</span>: the generated HTML report files, rendered under a
-              stub DOM). It prints one OK or FAIL line per check and the whole output of a failing one,
+              stub DOM; <span class="inline">test/notify_sh_test.sh</span>: <span class="inline">report/notify.sh</span>
+              under a mock sqlplus, mail and curl; <span class="inline">test/oem_test.sh</span>:
+              <span class="inline">oem/prepare_targets.sh</span> under a mock emcli, and the metric
+              extension's query). The tests are a list in the script, not every
+              <span class="inline">test/*_test.sh</span>: a test of that name may need a database. It prints one OK or FAIL line per check and the whole output of a failing one,
               and exits 1 when any failed. It runs from any directory and needs bash, git, python3 and
               node. A NAME runs only the checks whose name contains it; <span class="inline">-v</span> also prints
               the output of the passing checks. The harness runs it first, and the GitHub workflow
@@ -1048,6 +1052,23 @@ All fixture assertions passed.</pre>
               <span class="inline">ddl/13_seam_repository.sql</span> names a <code>DBA_HIST_*</code> view
               (comments aside). Everything else reads the <code>CAPV_*</code> seam. Standalone:
               <span class="inline">test/lint_dba_hist.sh</span> from the repo root.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
+              <p><strong>Secrets lint.</strong>
+              The repository is public, so no tracked file holds a login.
+              <span class="inline">test/lint_secrets.sh</span> fails on a default login of the lab images
+              and on a literal password in these places: after curl's <code>-u user:</code>, as the
+              shell default of a password variable (<code>${X_PASSWORD:-...}</code>), after
+              <code>IDENTIFIED BY</code>, in a <code>connect</code> or <code>sqlplus</code> login, in a
+              <code>user/...@host</code> address, and in a password assignment
+              (<code>X_PASSWORD=</code>, <code>DEFINE x_pw =</code>, <code>password:</code> in a YAML,
+              JSON or <code>.env</code> file). Write a placeholder (<code>&lt;password&gt;</code>,
+              <code>...</code>), a variable (<code>$VAR</code>, <code>&amp;var</code>) or one of the words
+              <code>pw</code>, <code>pwd</code>, <code>pass</code>, <code>passwd</code>,
+              <code>password</code>, <code>secret</code>, <code>change-me</code>, which it reads as
+              placeholders. It does not judge <span class="inline">plans/</span>. Standalone:
+              <span class="inline">test/lint_secrets.sh</span> from the repo root.</p>
             </div>
             <div class="callout tip">
               <span class="ico">▸</span>

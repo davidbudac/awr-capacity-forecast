@@ -214,7 +214,7 @@ DEFINE deploy_mode = 'fixture'
 
 `test/check.sh` runs every check that needs no database: the generated-file
 checks, the lints, `test/docs_lint.sh` (the docs against the DDL) and the
-two offline report tests. The GitHub workflow
+offline tests. The GitHub workflow
 `.github/workflows/check.yml` runs it on every push and pull request.
 More: [Testing](https://davidbudac.github.io/awr-capacity-forecast/testing.html).
 

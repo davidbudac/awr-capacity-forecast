@@ -196,7 +196,10 @@ valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 removes them). `test/check.sh [-v] [NAME...]` runs every check that needs no
 database: build.py --check of repository/ and report/html/, every
 `test/lint_*.sh` (found by name: a new lint joins by existing),
-`test/docs_lint.sh` and the two offline report tests; one OK / FAIL line
+`test/docs_lint.sh` and the offline tests in its `OFFLINE_TESTS` list
+(`run_report_sh_test`, `report_html_test`, `notify_sh_test`, `oem_test`; a
+list, not `test/*_test.sh`, because a test of that name may need a
+database: a new offline test joins the list); one OK / FAIL line
 each, exit 1 when any failed. `.github/workflows/check.yml` runs it on push
 and pull request. The lints and docs_lint read tracked files only
 (`test/repo_files.sh`: `repo_files` / `repo_only`; a copy without git reads
@@ -332,7 +335,12 @@ consumers) and
 state and passwords under `grafana/` are gitignored. The compose file
 requires `GF_ADMIN_PASSWORD` (from `grafana/.env`). No tracked file holds a
 login literal (the repository is public): a placeholder, a variable or a
-pointer to the gitignored file instead.
+pointer to the gitignored file instead. `test/lint_secrets.sh` enforces it
+(default image logins, and a literal password after curl `-u user:`, as a
+shell default of a password variable, after `IDENTIFIED BY`, in a `connect`
+/ `sqlplus` login or a password assignment; it reads `pw`, `password`,
+`secret`, `change-me` and the like as placeholders and does not judge
+`plans/`).
 `apex/` is the third optional path (nothing outside the database): `apex/build.py`
 generates `apex/awrcap_app.sql`, an APEX 26.2 application export (Oracle JET
 charts + Interactive Reports, no external JS) that reads the same CAPR point

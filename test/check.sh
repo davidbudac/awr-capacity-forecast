@@ -13,9 +13,14 @@
 #
 # The checks: the two generated-file checks (repository/build.py --check,
 # report/html/build.py --check), every test/lint_*.sh (found by name, so a
-# new lint joins by existing), test/docs_lint.sh, test/run_report_sh_test.sh
-# and test/report_html_test.sh. test/dbmint_harness.sh and the GitHub
-# workflow .github/workflows/check.yml both run this script.
+# new lint joins by existing), test/docs_lint.sh and the offline tests
+# test/run_report_sh_test.sh, test/report_html_test.sh,
+# test/notify_sh_test.sh and test/oem_test.sh. The tests are a list, not
+# test/*_test.sh: a test of that name may need a database, and one picked up
+# by name would fail every run without one. A new offline test joins
+# OFFLINE_TESTS below.
+# test/dbmint_harness.sh and the GitHub workflow .github/workflows/check.yml
+# both run this script.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 
@@ -31,7 +36,9 @@ done
 
 CHECKS=("repository/build.py --check" "report/html/build.py --check")
 for f in test/lint_*.sh; do [ -f "$f" ] && CHECKS+=("$f"); done
-CHECKS+=(test/docs_lint.sh test/run_report_sh_test.sh test/report_html_test.sh)
+OFFLINE_TESTS=(test/run_report_sh_test.sh test/report_html_test.sh
+               test/notify_sh_test.sh test/oem_test.sh)
+CHECKS+=(test/docs_lint.sh "${OFFLINE_TESTS[@]}")
 
 wanted() {
   local o
