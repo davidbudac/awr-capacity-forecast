@@ -51,22 +51,28 @@ CREATE OR REPLACE PACKAGE BODY cap_forecast_ml AS
     g_fc_built   PLS_INTEGER := 0;
     g_fc_failed  PLS_INTEGER := 0;
 
-    -- Tablespaces eligible for a model, most capacity-critical first. p_name /
-    -- p_con_dbid narrow it to one series for train_tablespace.
+    -- Tablespaces eligible for a model, most capacity-critical first, the
+    -- top p_top_n of each database (M24.13: per database, never across
+    -- targets). p_name / p_con_dbid narrow it to one series for
+    -- train_tablespace.
     CURSOR c_tbspc(p_top_n IN NUMBER, p_name IN VARCHAR2,
                    p_con_dbid IN NUMBER, p_min IN NUMBER) IS
         SELECT dbid, con_dbid, tablespace_name, last_day
-        FROM   capf_tbspc_forecast
-        WHERE  train_n >= p_min
-          -- M10.4 quality gate: FLAT / INSUFFICIENT_HISTORY series are
-          -- never worth a model (and would crowd out real ones in top-N).
-          AND  quality IN ('OK', 'LOW_CONFIDENCE')
-          AND  (p_name IS NULL OR tablespace_name = p_name)
-          AND  (p_con_dbid IS NULL OR con_dbid = p_con_dbid)
-        ORDER  BY CASE WHEN days_to_full IS NULL THEN 1 ELSE 0 END,
-                  days_to_full ASC,
-                  cur_used DESC
-        FETCH FIRST p_top_n ROWS ONLY;
+        FROM  (SELECT f.dbid, f.con_dbid, f.tablespace_name, f.last_day,
+                      ROW_NUMBER() OVER (PARTITION BY f.dbid
+                                         ORDER BY CASE WHEN f.days_to_full IS NULL THEN 1 ELSE 0 END,
+                                                  f.days_to_full ASC,
+                                                  f.cur_used DESC,
+                                                  f.con_dbid, f.tablespace_name) AS rn
+               FROM   capf_tbspc_forecast f
+               WHERE  f.train_n >= p_min
+                 -- M10.4 quality gate: FLAT / INSUFFICIENT_HISTORY series are
+                 -- never worth a model (and would crowd out real ones in top-N).
+                 AND  f.quality IN ('OK', 'LOW_CONFIDENCE')
+                 AND  (p_name IS NULL OR f.tablespace_name = p_name)
+                 AND  (p_con_dbid IS NULL OR f.con_dbid = p_con_dbid))
+        WHERE  rn <= p_top_n
+        ORDER  BY dbid, rn;
 
     -- ----------------------------------------------------------------
     -- model_name for a series: letter prefix + 16 hex of MD5(identity).

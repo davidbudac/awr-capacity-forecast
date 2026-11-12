@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # test/lint_dbid_windows.sh -- every analytic window in the CAPD / CAPF / CAPA /
-# CAPM / CAPR views (ddl/20..ddl/55) partitions by dbid, so one database's ranks and
+# CAPM / CAPR views (ddl/20..ddl/55 and the ML package body) partitions by
+# dbid, so one database's ranks and
 # anchors never depend on another target's rows (M24.13). A scoped report
 # (seam scope) and the unscoped refresh that fills the SNAPSHOT tables then
 # agree row for row. ALLOW lists "<file>:<clause prefix>" for a window over a
@@ -13,7 +14,7 @@ cd "$(dirname "$0")/.." || exit 2
 ALLOW='ddl/40_anomaly_views.sql:order by o.dbid, o.con_dbid, o.kind, o.series, o.grain, o.ts
 ddl/40_anomaly_views.sql:partition by h.pid
 ddl/50_ml.sql:partition by m.model_name'
-python3 - "$ALLOW" $(repo_only ddl/2[0-9]_*.sql ddl/3[0-9]_*.sql ddl/4[0-9]_*.sql ddl/5[0-9]_*.sql) <<'EOF'
+python3 - "$ALLOW" $(repo_only ddl/2[0-9]_*.sql ddl/3[0-9]_*.sql ddl/4[0-9]_*.sql ddl/5[0-9]_*.sql ml/cap_forecast_ml.pkb) <<'EOF'
 import re, sys
 allow = set(sys.argv[1].splitlines())
 bad = 0
