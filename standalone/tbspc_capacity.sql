@@ -79,12 +79,15 @@
 -- Long = all three of: quiet_days days or more. quiet_ratio x the longest
 -- other pause or more (STOP: the pauses between two growth days. START:
 -- those and the pause up to the newest day). And unlikely by chance: g
--- growth days that span s days make a pause of q days as likely as
--- (s / (s + q)) ^ (g - 1), which must be below quiet_chance. So a
--- tablespace that grows in rare steps or in monthly bursts keeps its whole
--- window, and one growth day alone never restarts it. Not for CYCLIC. A
--- rate that changes without a pause (fast to slow) is still averaged.
--- quiet_days 0 = no STOP / START.
+-- growth days, the first and the last s days apart, make a pause of q
+-- days as likely as (s / (s + q)) ^ g for STOP and (s / (s + q)) ^ (g - 1)
+-- for START, which must be below quiet_chance. So a tablespace that grows
+-- in rare steps or in monthly bursts keeps its whole window while two of
+-- its growth days are in it. One growth day is a load, not a rate (s = 0):
+-- STOP fires after quiet_days quiet days, START never. A line through one
+-- load would read as growth, at quality OK when the load is mid-window.
+-- Not for CYCLIC. A rate that changes without a pause (fast to slow) is
+-- still averaged. quiet_days 0 = no STOP / START.
 --
 -- Worst case (dtf_worst, full_by, add_gb_90): two error models around the
 -- OLS slope and today's value, the wider one wins.
@@ -356,7 +359,9 @@ WITH prm AS (
         GROUP  BY con_dbid, tablespace_id
      ),
      -- Where growth stopped (the fit starts after the last growth day) or
-     -- began (it starts on the day before the first). STOP wins.
+     -- began (it starts on the day before the first). STOP wins. The chance
+     -- of the pause: exponent g for STOP (one growth day: span 0, chance 0),
+     -- g - 1 for START (one growth day: chance 1, never).
      regime AS (
         SELECT a.con_dbid, a.tablespace_id,
                CASE WHEN a.is_stop = 1 THEN 'STOP'        ELSE 'START'        END AS cut,
@@ -364,7 +369,7 @@ WITH prm AS (
         FROM  (SELECT a.*,
                       CASE WHEN a.trail >= prm.quiet_days
                             AND a.trail >= prm.quiet_ratio * a.gap_max
-                            AND POWER(a.span / NULLIF(a.span + a.trail, 0), a.g - 1) < prm.quiet_chance
+                            AND POWER(a.span / NULLIF(a.span + a.trail, 0), a.g) < prm.quiet_chance
                            THEN 1 ELSE 0 END AS is_stop,
                       CASE WHEN a.lead >= prm.quiet_days
                             AND a.lead >= prm.quiet_ratio * GREATEST(a.gap_max, a.trail)

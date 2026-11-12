@@ -355,6 +355,9 @@ BEGIN
     DBMS_OUTPUT.PUT_LINE('== one load: 20 GB, +30 GB on day 150. Limit 90 GB ==');
     -- Day 163: 13 quiet days. No restart yet: a step through 76 low and 14
     -- high days, slope 6 H a b / (n (n^2 - 1)), R^2 3 a b / (n^2 - 1).
+    -- START has its long pause (75 days) and its 14 days left (15): only
+    -- its chance term, exponent g - 1 = 0, keeps one growth day from
+    -- starting a fit.
     r := cap('W1', 163, 'BULK');
     chk('W1@163 BULK', r, NULL, 90, ROUND(6 * 30720 * 76 * 14 / (90 * 8099), 3), 'LOW_CONFIDENCE',
         FLOOR((92160 - 51200) / (6 * 30720 * 76 * 14 / (90 * 8099))), 'OK', NULL);

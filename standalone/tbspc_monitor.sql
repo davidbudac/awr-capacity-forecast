@@ -282,7 +282,9 @@ WITH prm AS (
         GROUP  BY con_dbid, tablespace_id
      ),
      -- Where growth stopped (the fit starts after the last growth day) or
-     -- began (it starts on the day before the first). STOP wins.
+     -- began (it starts on the day before the first). STOP wins. The chance
+     -- of the pause: exponent g for STOP (one growth day: span 0, chance 0),
+     -- g - 1 for START (one growth day: chance 1, never).
      regime AS (
         SELECT a.con_dbid, a.tablespace_id,
                CASE WHEN a.is_stop = 1 THEN 'STOP'        ELSE 'START'        END AS cut,
@@ -290,7 +292,7 @@ WITH prm AS (
         FROM  (SELECT a.*,
                       CASE WHEN a.trail >= prm.quiet_days
                             AND a.trail >= prm.quiet_ratio * a.gap_max
-                            AND POWER(a.span / NULLIF(a.span + a.trail, 0), a.g - 1) < prm.quiet_chance
+                            AND POWER(a.span / NULLIF(a.span + a.trail, 0), a.g) < prm.quiet_chance
                            THEN 1 ELSE 0 END AS is_stop,
                       CASE WHEN a.lead >= prm.quiet_days
                             AND a.lead >= prm.quiet_ratio * GREATEST(a.gap_max, a.trail)
