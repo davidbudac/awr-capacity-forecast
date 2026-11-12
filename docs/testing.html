@@ -1044,6 +1044,21 @@ All fixture assertions passed.</pre>
             </div>
             <div class="callout tip">
               <span class="ico">▸</span>
+              <p><strong>Stub install.</strong>
+              A fixture without an optional table (<span class="inline">CAP_FIXTURE_PARAMETER</span>,
+              <span class="inline">CAP_FIXTURE_ASM_DISKGROUP</span>, <span class="inline">CAP_FIXTURE_SEG_STAT</span>,
+              <span class="inline">CAP_FIXTURE_PGASTAT</span> and the ten memory tables) gets a zero-row
+              stub view from <span class="inline">ddl/12_seam_fixture.sql</span>.
+              <span class="inline">test/dbmint_stub_install.sh &lt;SCHEMA&gt; [--no-fixture] [--only TABLE]</span>
+              installs the fixture, drops those tables (all of them, or the ones named), installs and
+              fails when the install fails, a <code>CAP%</code> object is INVALID, a stubbed seam view
+              returns a row, or <span class="inline">CAPD_SERIES_DAILY</span> or
+              <span class="inline">CAPR_ALERTS</span> does not run. It leaves the schema on the stub
+              install: the next <span class="inline">test/dbmint_harness.sh</span> run restores the
+              fixture. Log: <span class="inline">/tmp/dbmint_stub_install_&lt;SCHEMA&gt;.log</span>.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
               <p><strong>AWR-read lint.</strong>
               <span class="inline">test/lint_dba_hist.sh</span> fails when SQL, shell or Python code outside
               <span class="inline">repository/</span>, <span class="inline">target/</span>,
