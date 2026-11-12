@@ -51,6 +51,10 @@ SET DEFINE OFF
 --   seg_ok              Y when uptime_hours >= mem_min_uptime_hours. Advisor
 --                       increments of a shorter startup do not count (a cold
 --                       cache distorts the estimates). Its symptoms do.
+--   seg_in_win          Y when the snapshot's startup has a snapshot inside
+--                       the window. The increment views read only those
+--                       startups: every reader keeps in_win = Y rows and no
+--                       increment crosses a restart, so the rest is unused.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capm_snap AS
 WITH s AS (
@@ -63,6 +67,8 @@ WITH s AS (
         SELECT s.*,
                MAX(s.end_time) OVER (PARTITION BY s.dbid)                    AS window_end,
                MAX(s.snap_id)  OVER (PARTITION BY s.dbid, s.instance_number) AS latest_snap_id,
+               MAX(s.end_time) OVER (PARTITION BY s.dbid, s.instance_number, s.startup_time)
+                                                                             AS seg_end,
                LAG(s.snap_id)  OVER (PARTITION BY s.dbid, s.instance_number, s.startup_time
                                      ORDER BY s.snap_id)                     AS prev_snap_id,
                LAG(s.end_time) OVER (PARTITION BY s.dbid, s.instance_number, s.startup_time
@@ -89,7 +95,9 @@ SELECT a.dbid,
        a.latest_snap_id,
        a.uptime_hours,
        CAST(CASE WHEN a.uptime_hours >= cfg.mem_min_uptime_hours THEN 'Y' ELSE 'N' END
-            AS VARCHAR2(1))                                  AS seg_ok
+            AS VARCHAR2(1))                                  AS seg_ok,
+       CAST(CASE WHEN a.seg_end > a.window_end - cfg.mem_window_days THEN 'Y' ELSE 'N' END
+            AS VARCHAR2(1))                                  AS seg_in_win
 FROM   a
 CROSS  JOIN cap_cfg cfg;
 
@@ -234,7 +242,8 @@ FROM   capv_pga_advice;
 --   * A negative step (a reset, such as the buffer cache advisor's at a
 --     resize) is dropped.
 -- Nothing is subtracted across a restart. in_win / seg_ok are CAPM_SNAP's,
--- for the snapshot the increment ends on.
+-- for the snapshot the increment ends on. Only startups that reach the
+-- window are read (CAPM_SNAP.seg_in_win): keep in_win = 'Y' in every reader.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capm_delta AS
 WITH src AS (
@@ -303,6 +312,7 @@ WITH src AS (
         JOIN   capm_snap s
           ON   s.dbid = c.dbid AND s.instance_number = c.instance_number
          AND   s.snap_id = c.snap_id
+         AND   s.seg_in_win = 'Y'
      ),
      d AS (
         SELECT l.*,
@@ -647,6 +657,7 @@ WITH inst AS (
         JOIN   pga p
           ON   p.dbid = w.dbid AND p.instance_number = w.instance_number
          AND   p.snap_id = w.snap_id
+        WHERE  w.seg_in_win = 'Y'
      ),
      sampled AS (
         SELECT dbid, instance_number,
@@ -867,6 +878,7 @@ LEFT   JOIN src s ON s.dbid = i.dbid AND s.instance_number = i.instance_number A
 --   is_pool   Y for the DEFAULT buffer cache and the shared pool, the two
 --             pools ASMM trades memory between.
 --   end_time / in_win  CAPM_SNAP's, for the snapshot the interval ends on.
+-- Only startups that reach the window are read (CAPM_SNAP.seg_in_win).
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capm_comp AS
 WITH mc AS (
@@ -883,6 +895,7 @@ WITH mc AS (
           ON   s.dbid = m.dbid AND s.instance_number = m.instance_number
          AND   s.snap_id = m.snap_id
         WHERE  m.component NOT IN ('SGA Target', 'PGA Target')
+          AND  s.seg_in_win = 'Y'
      )
 SELECT mc.dbid,
        mc.instance_number,

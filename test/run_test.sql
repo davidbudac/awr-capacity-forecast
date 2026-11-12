@@ -2529,6 +2529,14 @@ BEGIN
         chk_int('CAPM_SNAP in_win snapshots (days 91..120, two a day)', v_num, 60);
         chk_int('CAPM_SNAP every startup is longer than mem_min_uptime_hours', v_num2, 0);
         chk_int('CAPM_SNAP three startups, each first snapshot without a predecessor', v_num3, 3);
+        -- The two startups before the day-60 restart ended before the window:
+        -- days 0..59, two snapshots a day (the partial day keeps both).
+        SELECT COUNT(CASE WHEN in_win = 'Y' AND seg_in_win = 'N' THEN 1 END),
+               COUNT(CASE WHEN seg_in_win = 'N' THEN 1 END)
+          INTO v_n, v_num
+          FROM capm_snap WHERE dbid = v_dbid;
+        chk_int('CAPM_SNAP no window snapshot in a skipped startup', v_n, 0);
+        chk_int('CAPM_SNAP seg_in_win N: the snapshots of the two startups before the day-60 restart', v_num, 120);
         SELECT prev_snap_id, ivl_hours, uptime_hours, latest_snap_id INTO v_num, v_num2, v_num3, v_r2
           FROM capm_snap WHERE dbid = v_dbid AND snap_id = n_latest;
         chk_int('CAPM_SNAP latest snapshot pairs with the one before', v_num, n_latest - 1);
@@ -2541,6 +2549,10 @@ BEGIN
 
         SELECT COUNT(*) INTO v_n FROM capm_delta WHERE dbid = v_dbid AND snap_id IN (2000, 2001 + 2 * n_p, 2121);
         chk_int('CAPM_DELTA no increment ends on the first snapshot of a startup', v_n, 0);
+        SELECT MIN(snap_id) INTO v_n FROM capm_delta WHERE dbid = v_dbid;
+        chk_int('CAPM_DELTA first increment: the second snapshot of the startup that reaches the window', v_n, 2122);
+        SELECT MIN(snap_id) INTO v_n FROM capm_comp WHERE dbid = v_dbid;
+        chk_int('CAPM_COMP first row: the first snapshot of the startup that reaches the window', v_n, 2121);
         SELECT COUNT(*) INTO v_n FROM capm_delta WHERE dbid = v_dbid AND delta < 0;
         chk_int('CAPM_DELTA no negative increment', v_n, 0);
         SELECT COUNT(*), MIN(delta), MAX(delta), COUNT(CASE WHEN prev_snap_id = snap_id - 2 THEN 1 END)
@@ -2971,6 +2983,12 @@ BEGIN
             -- startups, none across a restart. Day 0's snapshots are outside.
             knob('mem_window_days', 120);
             n_all := (2 * n_p - 1) + (118 - 2 * n_p) + 120;
+            SELECT COUNT(CASE WHEN seg_in_win = 'N' THEN 1 END) INTO v_n FROM capm_snap WHERE dbid = v_dbid;
+            chk_int('mem_window_days 120: no startup is skipped', v_n, 0);
+            SELECT MIN(snap_id) INTO v_n FROM capm_delta WHERE dbid = v_dbid;
+            chk_int('mem_window_days 120: CAPM_DELTA starts at day 0 18:00', v_n, 2001);
+            SELECT MIN(snap_id) INTO v_n FROM capm_comp WHERE dbid = v_dbid;
+            chk_int('mem_window_days 120: CAPM_COMP starts at day 0 06:00', v_n, 2000);
             area('PGA_TARGET');
             chk_int('mem_window_days 120: PGA_TARGET cover_hours = 237 intervals x 12 h', a_cover, n_all * 12);
             chk_int('mem_window_days 120: n_days (the restart day ends no interval)', a_days, 119);

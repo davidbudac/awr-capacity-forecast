@@ -706,6 +706,12 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   sources (`zero_fill`) a key's first row in a startup counts in full.
   Advisor rows never zero-fill. A negative step is dropped (the buffer cache
   advisor resets at a resize).
+- **Old startups are skipped (plan 006).** `CAPM_SNAP.seg_in_win` = Y when
+  the snapshot's startup has a snapshot in the window. `CAPM_DELTA`,
+  `CAPM_COMP` and `CAPM_PGA_LIMIT`'s `ps` join only those startups. Exact,
+  because no increment crosses a restart and every reader keeps `in_win =
+  'Y'` rows. A new reader of the two views must keep that filter. It saves
+  nothing for an instance up for the whole history.
 - **Advisor facts (verified 19.27):** the SGA, cache and shared pool
   advisors list MB, the PGA advisor bytes. The lists are ragged: the shared
   pool list moves with the pool, low sizes come and go, some lists stop
@@ -739,7 +745,8 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   whole aggregation once per size (`SELECT * FROM capm_area` 5 minutes,
   19.27): the sizes ride into `agg` as rows of a UNION ALL, carrying
   `current_bytes` / `reference_bytes`. Time `capm_advice`, `capm_area` AND
-  `capm_verdict` after any change here; the plans differ.
+  `capm_verdict` after any change here (`test/mem_timing.sql`); the plans
+  differ.
 - **`exceeds_sga`** (CAPM_VERDICT, last column): a BUFFER_CACHE or
   SHARED_POOL suggestion under ASMM above `cache_bytes + shpool_bytes` of
   CAPM_SGA_BALANCE cannot fit in sga_target. Flagged, never reduced, like

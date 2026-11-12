@@ -1294,10 +1294,10 @@ The views, bottom up:
 
 | view | what it holds |
 | --- | --- |
-| `CAPM_SNAP` | the snapshot spine: window, startup, the previous snapshot of the same startup, `seg_ok` (the startup's uptime reaches `mem_min_uptime_hours`) |
+| `CAPM_SNAP` | the snapshot spine: window, startup, the previous snapshot of the same startup, `seg_ok` (the startup's uptime reaches `mem_min_uptime_hours`), `seg_in_win` (the startup has a snapshot in the window) |
 | `CAPM_INST` | one row per instance: memory mode (AMM / ASMM / MANUAL), the parameters at the latest snapshot, host RAM |
 | `CAPM_ADV_SRC` | the four advisors in one shape, sizes in bytes |
-| `CAPM_DELTA` | every counter and advisor estimate as increments, one long shape |
+| `CAPM_DELTA` | every counter and advisor estimate as increments, one long shape, for the startups that reach the window |
 | `CAPM_ADVICE` | the curve: cost and gain per advised size against the reference size |
 | `CAPM_PGA_LIMIT`, `CAPM_AREA`, `CAPM_SGA_BALANCE` | the facts of each area |
 | `CAPM_EVIDENCE` | one row per signal: value, unit, threshold, direction, a sentence, `kind` (USAGE / ADVISOR / SYMPTOM / CONTEXT) |

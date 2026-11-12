@@ -973,7 +973,9 @@ All fixture assertions passed.</pre>
               concurrent run: two runs reinstalling one schema fail with ORA-04063 or ORA-00942.
               <span class="inline">--pga</span> ends every step with <span class="inline">test/pga_probe.sql</span>,
               which logs that session's peak PGA and largest work areas (see
-              <a href="reference.html#memory">Memory (PGA)</a>).</p>
+              <a href="reference.html#memory">Memory (PGA)</a>).
+              <span class="inline">--sql test/mem_timing.sql</span> times one read of each memory verdict
+              view, to compare before and after a change to <span class="inline">ddl/42_memory_views.sql</span>.</p>
               <p><strong>Throwaway schema by hand.</strong> Create a user with the privileges above (no
               password needed if only SYSDBA uses it), then in one SQL*Plus session as SYSDBA:
               <span class="inline">ALTER SESSION SET CONTAINER = PDB1;</span>
