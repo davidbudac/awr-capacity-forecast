@@ -195,6 +195,12 @@ DECLARE
             WHEN 'WEEKLY'  THEN 10240 + 700 * (FLOOR(i / 7) + 1)
             -- 200 MB a day, one purge of 20 GB on day 180
             WHEN 'PURGE'   THEN 30720 + 200 * i - CASE WHEN i >= 180 THEN 20480 ELSE 0 END
+            -- the same purge spread over days 180 and 181, 10 GB each
+            WHEN 'PURGE2'  THEN 30720 + 200 * i - CASE WHEN i >= 181 THEN 20480
+                                                       WHEN i = 180 THEN 10240 ELSE 0 END
+            -- 10 GB on day 180 and on day 182: a day between, two purges
+            WHEN 'PURGE3'  THEN 30720 + 200 * i - CASE WHEN i >= 182 THEN 20480
+                                                       WHEN i >= 180 THEN 10240 ELSE 0 END
             -- fills 500 MB a day, purged every 30 days
             WHEN 'CYC'     THEN 10240 + 500 * MOD(i, 30)
             WHEN 'SHORT'   THEN CASE WHEN i >= 190 THEN 1024 END
@@ -297,6 +303,8 @@ BEGIN
     -- Block size only in the datafile dimension, and nowhere.
     ts('W1', 22, 'BS16K',   'F1G',     2048, 2048, p_bs => NULL, p_df_bs => 16384);
     ts('W1', 23, 'NOBS',    'F1G',     2048, 2048, p_bs => NULL, p_df_bs => NULL);
+    ts('W1', 24, 'PURGE2',  'PURGE2',  82020, 82020);
+    ts('W1', 25, 'PURGE3',  'PURGE3',  82020, 82020);
     -- Other containers: the same name and ts# in a second PDB, a container
     -- without a PDB name (reads the database name), the seed, the old DBID.
     ts('W1',  1, 'STEADY',    'F2G', 4096, 4096, p_con => 777, p_conid => 4);

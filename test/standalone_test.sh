@@ -102,11 +102,12 @@ END;
 SQL
   gen_view $CAP sa_cap_v
   gen_view $CAP sa_cap_q0_v   's/14        AS quiet_days,/0         AS quiet_days,/'
+  gen_view $CAP sa_cap_m0_v   's/1         AS cliff_merge_days,/0         AS cliff_merge_days,/'
   gen_view $CAP sa_cap_disk_v 's/CAST(NULL AS NUMBER) AS disk_free_gb,/30.375 AS disk_free_gb,/'
   gen_view $MON sa_mon_v
   gen_view $MON sa_mon_all_v  's/1         AS alerts_only /0         AS alerts_only /'
 } > "$GEN/views.sql" || exit 4
-[ "$(grep -c '^CREATE OR REPLACE VIEW ' "$GEN/views.sql")" = 5 ] || { echo "standalone_test: views.sql incomplete"; exit 4; }
+[ "$(grep -c '^CREATE OR REPLACE VIEW ' "$GEN/views.sql")" = 6 ] || { echo "standalone_test: views.sql incomplete"; exit 4; }
 
 # ---- 3. sync and run ----
 rsync -az --delete -e 'ssh -p 2200' \

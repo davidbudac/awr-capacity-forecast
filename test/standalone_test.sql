@@ -12,6 +12,7 @@
 -- test/standalone_gen/views.sql:
 --   SA_CAP_V       tbspc_capacity.sql, unchanged
 --   SA_CAP_Q0_V    ... with quiet_days 0 in prm
+--   SA_CAP_M0_V    ... with cliff_merge_days 0 in prm
 --   SA_CAP_DISK_V  ... with disk_free_gb 30.375 in prm
 --   SA_MON_V       tbspc_monitor.sql, unchanged (alerts_only 1)
 --   SA_MON_ALL_V   ... with alerts_only 0 in prm
@@ -89,6 +90,7 @@ BEGIN
     mon('W1', 246);
     ctx('W1', 200);
     INSERT INTO sa_cap SELECT 'Q0', 'W1', 200, v.* FROM sa_cap_q0_v v;
+    INSERT INTO sa_cap SELECT 'M0', 'W1', 200, v.* FROM sa_cap_m0_v v;
 
     cap('W2', 200);
     mon('W2', 200);
@@ -99,7 +101,7 @@ BEGIN
 
     ctx('W1', 200);
     COMMIT;
-    DBMS_OUTPUT.PUT_LINE('evaluated ' || (n + 2) || ' query runs in '
+    DBMS_OUTPUT.PUT_LINE('evaluated ' || (n + 3) || ' query runs in '
                          || ROUND((DBMS_UTILITY.GET_TIME - t0) / 100) || ' s');
 END;
 /
@@ -219,7 +221,7 @@ DECLARE
 BEGIN
     DBMS_OUTPUT.PUT_LINE('== W1 day 200: what is listed ==');
     SELECT COUNT(*) INTO v_n FROM sa_cap WHERE variant = 'SHIPPED' AND world = 'W1' AND asof_i = 200;
-    eqn('W1@200 rows', v_n, 21);
+    eqn('W1@200 rows', v_n, 23);
     SELECT COUNT(*) INTO v_n FROM sa_cap
     WHERE  variant = 'SHIPPED' AND world = 'W1'
       AND  tablespace IN ('UNDO1', 'TEMP1', 'NOBS', 'SEEDTS', 'OLDTS');
@@ -430,6 +432,52 @@ BEGIN
     r := cap('W1', 200, 'PURGE');
     chk('W1@200 PURGE', r, 'PURGE', 21, 200, 'OK', FLOOR((82020 - 50240) / 200), 'OK', NULL);
     eqn('W1@200 PURGE r2', r.r2, 1);
+    -- The same 20 GB taken over days 180 and 181: one purge. On day 180 the
+    -- fit starts there (half purged), from day 181 on the second cliff day,
+    -- where used is the level after the purge.
+    r := cap('W1', 179, 'PURGE2');
+    chk('W1@179 PURGE2', r, NULL, 90, 200, 'OK', FLOOR((82020 - 66520) / 200), 'WARN', 'dtf <= 90');
+    r := cap('W1', 180, 'PURGE2');
+    chk('W1@180 PURGE2', r, 'PURGE', 1, NULL, 'INSUFFICIENT_HISTORY', NULL, 'OK', NULL);
+    r := cap('W1', 181, 'PURGE2');
+    chk('W1@181 PURGE2', r, 'PURGE', 1, NULL, 'INSUFFICIENT_HISTORY', NULL, 'OK', NULL);
+    r := cap('W1', 185, 'PURGE2');
+    chk('W1@185 PURGE2', r, 'PURGE', 5, 200, 'INSUFFICIENT_HISTORY',
+        FLOOR((82020 - 47240) / 200), 'OK', NULL);
+    r := cap('W1', 200, 'PURGE2');
+    chk('W1@200 PURGE2', r, 'PURGE', 20, 200, 'OK', FLOOR((82020 - 50240) / 200), 'OK', NULL);
+    eqn('W1@200 PURGE2 r2', r.r2, 1);
+    chk_last('W1@200 PURGE2', r, 200);
+    -- It holds until the purge leaves the window: on day 270 it would, the
+    -- last day evaluated is 248.
+    SELECT COUNT(*), SUM(CASE WHEN restart = 'PURGE' AND fit_days = asof_i - 180 AND mb_day = 200
+                              THEN 1 ELSE 0 END)
+    INTO   v_n, v_num
+    FROM   sa_cap
+    WHERE  variant = 'SHIPPED' AND world = 'W1' AND tablespace = 'PURGE2' AND asof_i >= 182;
+    eqn('W1 PURGE2 days evaluated from day 182', v_n, 67);
+    eqn('W1 PURGE2 days with restart PURGE, the days since day 181, 200 MB a day', v_num, 67);
+    -- cliff_merge_days 0: the two cliff days are two purges, CYCLIC, judged
+    -- on the peak (66520 MB on day 179).
+    r := cap('W1', 200, 'PURGE2', p_variant => 'M0');
+    eqs('W1@200 PURGE2 cliff_merge_days 0 quality', r.quality, 'CYCLIC');
+    eqs('W1@200 PURGE2 cliff_merge_days 0 restart', r.restart, NULL);
+    eqn('W1@200 PURGE2 cliff_merge_days 0 fit_days', r.fit_days, 90);
+    eqn('W1@200 PURGE2 cliff_merge_days 0 dtf', r.dtf, NULL);
+    eqn('W1@200 PURGE2 cliff_merge_days 0 peak_pct', r.peak_pct, ROUND(100 * 66520 / 82020, 1));
+    -- A single purge reads the same under either setting.
+    r := cap('W1', 200, 'PURGE', p_variant => 'M0');
+    chk('W1@200 PURGE cliff_merge_days 0', r, 'PURGE', 21, 200, 'OK', FLOOR((82020 - 50240) / 200), 'OK', NULL);
+    -- Cliffs on days 180 and 182, a day between: two purges under the
+    -- default, CYCLIC from day 182.
+    r := cap('W1', 181, 'PURGE3');
+    eqs('W1@181 PURGE3 restart (one cliff day so far)', r.restart, 'PURGE');
+    eqn('W1@181 PURGE3 fit_days', r.fit_days, 2);
+    r := cap('W1', 200, 'PURGE3');
+    eqs('W1@200 PURGE3 quality', r.quality, 'CYCLIC');
+    eqs('W1@200 PURGE3 restart', r.restart, NULL);
+    eqn('W1@200 PURGE3 fit_days', r.fit_days, 90);
+    eqn('W1@200 PURGE3 peak_pct', r.peak_pct, ROUND(100 * 66520 / 82020, 1));
     -- Three purges in the window: judged on the peak, 24740 of 26624 MB.
     r := cap('W1', 200, 'CYC');
     line('W1', 'CYC', 111, 200, v_mb, v_r2);
@@ -614,7 +662,7 @@ BEGIN
       AND  a.quality = c.quality AND a.last_day = c.last_day
       AND  NVL(a.dtf_shared, -1) = NVL(c.dtf_shared, -1)
       AND  NVL(a.dtf_shared_worst, -1) = NVL(c.dtf_shared_worst, -1);
-    eqn('monitor rows (W1@200, W1@246, W2, W3)', v_n, 21 + 21 + 4 + 18);
+    eqn('monitor rows (W1@200, W1@246, W2, W3)', v_n, 23 + 23 + 4 + 18);
     eqn('monitor rows equal to their capacity row', v_num, v_n);
     -- W2: the monitor's worst case is the shared disk's.
     m := mon('W2', 200, 'DISK_B');

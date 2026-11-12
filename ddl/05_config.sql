@@ -116,6 +116,7 @@ USING (
     UNION ALL SELECT 'esm_auto_tie_pct',        0.25,     'Tier 2 AUTO: candidate MAPEs closer than this many percentage points tie and EXSM_HOLT is kept (chosen_by AUTO_TIE).' FROM dual
     UNION ALL SELECT 'complete_day_pct',       80,        'Percent of a day (86400 s) of valid counter intervals a CPU / DB time / redo day needs for is_complete = Y. Partial, restart and outage days fall below it.' FROM dual
     UNION ALL SELECT 'cyclic_min_cliffs',       2,        'A tablespace with at least this many shrink cliffs (the M9.3 rule) in its train_days window is graded CYCLIC and judged on its peaks. 0 = off (M9.3 reset only).' FROM dual
+    UNION ALL SELECT 'cliff_merge_days',        1,        'Shrink cliffs at most this many days apart are one purge event: cycle_n counts events and the M9.3 reset starts on the last cliff day of the newest event. 1 = adjacent days. 0 = every cliff day is its own event.' FROM dual
     UNION ALL SELECT 'cpu_quality_gate',        1,        'CAPF_CPU_TREND quality gate: 1 = OK when |slope| > slope CI (slope significance), 0 = legacy R2 >= r2_gate.' FROM dual
     UNION ALL SELECT 'cpu_deseason',            1,        'CAPF_CPU_TREND: 1 = subtract the weekday / weekend mean (and add back the window mean) before the fit, 0 = fit the raw daily values.' FROM dual
     UNION ALL SELECT 'stale_days',              3,        'A CAPF_* series whose last_day is more than this many days before the newest day of its daily source (same dbid) reads is_current = N: dropped tablespace, retired DBID, stopped collection.' FROM dual
@@ -224,6 +225,7 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'complete_day_pct'       THEN cfg_value END) AS complete_day_pct,
        MAX(CASE WHEN cfg_name = 'stale_days'             THEN cfg_value END) AS stale_days,
        MAX(CASE WHEN cfg_name = 'cyclic_min_cliffs'      THEN cfg_value END) AS cyclic_min_cliffs,
+       MAX(CASE WHEN cfg_name = 'cliff_merge_days'       THEN cfg_value END) AS cliff_merge_days,
        MAX(CASE WHEN cfg_name = 'cpu_quality_gate'       THEN cfg_value END) AS cpu_quality_gate,
        MAX(CASE WHEN cfg_name = 'cpu_deseason'           THEN cfg_value END) AS cpu_deseason,
        MAX(CASE WHEN cfg_name = 'suite_version'          THEN cfg_value END) AS suite_version,
@@ -316,7 +318,7 @@ WITH u AS (
                report_min_gb, accel_slope_floor_bpd, slope_method, reset_on_shrink,
                shrink_mad_k, cpu_gap_hours, shift_days, shift_baseline_days,
                shift_min_pct, series_sat_pct, esm_max_age_days, esm_auto_tie_pct,
-               complete_day_pct, stale_days, cyclic_min_cliffs, cpu_quality_gate,
+               complete_day_pct, stale_days, cyclic_min_cliffs, cliff_merge_days, cpu_quality_gate,
                cpu_deseason, suite_version,
                cpu_min_mad_pct_hour, hour_gap_ratio,
                series_floor_count, series_floor_gib, series_floor_iops,
@@ -393,6 +395,8 @@ WITH u AS (
                         THEN 'must be 0 (day grain only) or 1 (score hours too)'
                    WHEN u.knob = 'cyclic_min_cliffs'   AND (u.value <> TRUNC(u.value) OR u.value = 1 OR u.value < 0)
                         THEN 'must be 0 (off) or a whole number >= 2: one cliff is a purge, the M9.3 reset handles it'
+                   WHEN u.knob = 'cliff_merge_days'    AND (u.value <> TRUNC(u.value) OR u.value < 0)
+                        THEN 'must be a whole number >= 0 (0 = every cliff day is its own purge event)'
                    WHEN u.knob = 'cpu_quality_gate'    AND u.value NOT IN (0, 1)
                         THEN 'must be 0 (R2 gate) or 1 (slope significance)'
                    WHEN u.knob = 'cpu_deseason'        AND u.value NOT IN (0, 1)

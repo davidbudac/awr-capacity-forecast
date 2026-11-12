@@ -106,23 +106,38 @@
 -- cliff in every cycle. The M9.3 reset below restarts at the most recent one
 -- only, so the post-purge leg reads as fast growth that can never fill, and
 -- days_to_full falls through dtf_warn late in every cycle. So the cliffs of
--- the full train_days window are counted with the M9.3 rule. With cycle_n >=
--- cyclic_min_cliffs no reset applies and quality = CYCLIC (after
--- INSUFFICIENT_HISTORY, before FLAT). The row is judged on its peaks:
+-- the full train_days window are counted with the M9.3 rule, as purge events
+-- (next block). With cycle_n >= cyclic_min_cliffs no reset applies and
+-- quality = CYCLIC (after INSUFFICIENT_HISTORY, before FLAT). The row is
+-- judged on its peaks:
 --
---     cycle_days       = MEDIAN(spacing between consecutive cliffs)
+--     cycle_days       = MEDIAN(days from one purge event's first cliff day
+--                        to the next one's)
 --     cycle_peak_bytes = MAX(used_bytes) in the window, cycle_peak_pct of limit
 --     peak_slope_bpd   = REGR_SLOPE through the per-cycle maxima (the maximum
---                        of each segment that ends at a cliff), when there are
+--                        of each segment that ends at an event), when there are
 --                        at least 3 of them, else NULL
 --     days_to_full     = days until the peak line, anchored at the last
 --                        cycle maximum, reaches limit_bytes, when
 --                        peak_slope_bpd > 0, else NULL
 --
 -- days_to_full_lo/hi and accel_ratio are NULL for CYCLIC rows. cycle_n is
--- the cliff count on every row (0 = none), the other cycle_* columns are
+-- the event count on every row (0 = none), the other cycle_* columns are
 -- NULL unless quality = CYCLIC. cyclic_min_cliffs = 0 turns the grade off.
 -- The count does not depend on reset_on_shrink.
+--
+-- ---------------------------------------------------------------------
+-- Purge events (knob `cliff_merge_days`, default 1)
+-- ---------------------------------------------------------------------
+-- A purge that runs past midnight, or a delete followed by a shrink the next
+-- day, leaves cliff days side by side. Counted one by one they are two
+-- cliffs: CYCLIC, no reset, no full date. So cliff days at most
+-- cliff_merge_days days apart are ONE purge event (1 = adjacent days). An
+-- event begins on a cliff day whose previous cliff day is further back than
+-- that. cycle_n counts events, cycle_days is measured from the first cliff
+-- day of one event to the first of the next, and the M9.3 reset day is the
+-- LAST cliff day of the newest event: only then is used_bytes the post-purge
+-- level. cliff_merge_days = 0 makes every cliff day its own event.
 --
 -- ---------------------------------------------------------------------
 -- M9.3 -- change-point reset (knobs `reset_on_shrink`, `shrink_mad_k`)
@@ -131,7 +146,7 @@
 -- in it, and a line fitted across the cliff is a fiction: it under-states the
 -- slope and over-states the headroom. When `reset_on_shrink = 1` (default) the
 -- training window RESTARTS at the most recent day whose day-over-day delta is
--- a large NEGATIVE step:
+-- a large NEGATIVE step (the last cliff day of the newest purge event):
 --
 --     delta < -GREATEST(shrink_mad_k * MAD_sigma(deltas), abs_floor_bytes)
 --
@@ -254,27 +269,44 @@ WITH d AS (
                           AND m.tablespace_name = t.tablespace_name
         CROSS  JOIN cap_cfg cfg
      ),
+     -- The cliff days, each with the days since the previous cliff day.
      cl AS (
         SELECT dbid, con_dbid, tablespace_name, day_dt,
                day_dt - LAG(day_dt) OVER (PARTITION BY dbid, con_dbid, tablespace_name
-                                          ORDER BY day_dt) AS gap_days
+                                          ORDER BY day_dt) AS prev_days
         FROM   twc
         WHERE  is_cliff = 1
      ),
+     -- Purge events (header, "Purge events"): is_ev = 1 on the first cliff
+     -- day of each event, gap_days = the days since the previous event began.
+     ce AS (
+        SELECT e.dbid, e.con_dbid, e.tablespace_name, e.day_dt, e.is_ev,
+               CASE WHEN e.is_ev = 1
+                    THEN e.day_dt - LAG(CASE WHEN e.is_ev = 1 THEN e.day_dt END IGNORE NULLS)
+                                        OVER (PARTITION BY e.dbid, e.con_dbid, e.tablespace_name
+                                              ORDER BY e.day_dt)
+               END AS gap_days
+        FROM  (SELECT c.*,
+                      CASE WHEN c.prev_days IS NULL OR c.prev_days > cfg.cliff_merge_days
+                           THEN 1 ELSE 0 END AS is_ev
+               FROM   cl c CROSS JOIN cap_cfg cfg) e
+     ),
      -- One row per tablespace with at least one cliff in the window.
+     -- last_cliff is the last cliff DAY, so the last day of the newest event.
      cyc AS (
         SELECT c.dbid, c.con_dbid, c.tablespace_name,
-               COUNT(*)           AS cycle_n,
+               SUM(c.is_ev)       AS cycle_n,
                MEDIAN(c.gap_days) AS cycle_days,
                MAX(c.day_dt)      AS last_cliff,
                CASE WHEN MAX(cfg.cyclic_min_cliffs) >= 2
-                     AND COUNT(*) >= MAX(cfg.cyclic_min_cliffs)
+                     AND SUM(c.is_ev) >= MAX(cfg.cyclic_min_cliffs)
                     THEN 1 ELSE 0 END AS is_cyclic
-        FROM   cl c CROSS JOIN cap_cfg cfg
+        FROM   ce c CROSS JOIN cap_cfg cfg
         GROUP  BY c.dbid, c.con_dbid, c.tablespace_name
      ),
-     -- M9.3: the MOST RECENT cliff restarts the window (a series purged once
-     -- is fit from the purge). A CYCLIC series is not reset.
+     -- M9.3: the last cliff day of the MOST RECENT event restarts the window
+     -- (a series purged once is fit from the purge). A CYCLIC series is not
+     -- reset.
      rst AS (
         SELECT y.dbid, y.con_dbid, y.tablespace_name,
                y.last_cliff AS reset_day
@@ -461,14 +493,17 @@ WITH d AS (
         FROM   pick p
      ),
      -- ---- CYCLIC peaks ----
-     -- seg_no numbers the segments of tw: each cliff day starts a new one.
-     -- Segments 0 .. cycle_n - 1 end at a cliff, so their maximum is a cycle
-     -- peak. Segment cycle_n is the cycle in progress and is left out.
+     -- seg_no numbers the segments of tw: the first cliff day of each purge
+     -- event starts a new one. Segments 0 .. cycle_n - 1 end at an event, so
+     -- their maximum is a cycle peak. Segment cycle_n is the cycle in
+     -- progress and is left out.
      seg AS (
         SELECT t.dbid, t.con_dbid, t.tablespace_name, t.day_n, t.used_bytes,
-               SUM(t.is_cliff) OVER (PARTITION BY t.dbid, t.con_dbid, t.tablespace_name
-                                     ORDER BY t.day_dt ROWS UNBOUNDED PRECEDING) AS seg_no
+               SUM(NVL(e.is_ev, 0)) OVER (PARTITION BY t.dbid, t.con_dbid, t.tablespace_name
+                                          ORDER BY t.day_dt ROWS UNBOUNDED PRECEDING) AS seg_no
         FROM   twc t
+        LEFT   JOIN ce e ON e.dbid = t.dbid AND e.con_dbid = t.con_dbid
+                        AND e.tablespace_name = t.tablespace_name AND e.day_dt = t.day_dt
      ),
      pkc AS (
         SELECT s.dbid, s.con_dbid, s.tablespace_name, s.seg_no,

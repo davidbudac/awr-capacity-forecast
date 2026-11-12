@@ -32,6 +32,11 @@
 --                  again -- the M9.3 change-point reset (fit must restart at
 --                  the cliff and read 10 MiB/day, not the across-the-cliff
 --                  slope).
+--   FIX_PURGE2   : FIX_PURGE's purge spread over two days: 10 MiB/day, -302.5
+--                  MiB on day 80 and again on day 81. One purge event
+--                  (cliff_merge_days 1): reset on day 81, 40 post-purge days,
+--                  10 MiB/day, OK. With cliff_merge_days 0 it is two cliffs,
+--                  CYCLIC.
 --   FIX_OVERFULL : flat 1.5 GiB used of ~1.6 GiB allocated, with a
 --                  CAP_TBSPC_OVERRIDE ceiling of 1 GiB: the limit is under the
 --                  usage (limit_below_used = Y, pct_used 150, FLAT so
@@ -265,6 +270,13 @@ DECLARE
     -- day, i.e. OUTSIDE the 14-day anomaly_report_days alert window.
     c_purge  CONSTANT PLS_INTEGER := 90;
     c_purgeb CONSTANT NUMBER      := 76800;       -- 600 MiB in 8 KiB blocks
+    -- FIX_PURGE2: the same purge over two adjacent days, c_p2 and c_p2 + 1,
+    -- 38720 blocks (302.5 MiB) each. Each day's step, +10 - 302.5 MiB, is
+    -- past the 100 MiB cliff floor and under DB_SIZE_GB's 0.5 GiB anomaly
+    -- floor, both days are outside the 14-day alert window, and the
+    -- headroom / slope quotient ends in .5 (no FLOOR on a last digit).
+    c_p2     CONSTANT PLS_INTEGER := 80;
+    c_p2b    CONSTANT NUMBER      := 38720;
     -- FIX_DROPPED's usage rows stop this many days before the last day, so
     -- its last_day is c_drop days behind the newest day of the dbid: stale
     -- under the default stale_days (3), current once stale_days >= c_drop.
@@ -488,6 +500,8 @@ BEGIN
     INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 21, 'FIX_DROPPED',  'PERMANENT', c_bs);
     INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 22, 'FIX_CYCLIC',   'PERMANENT', c_bs);
     INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 23, 'FIX_CYCLIC_UP','PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 30, 'FIX_PURGE2',   'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 30, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 10, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 11, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 12, c_bs);
@@ -610,6 +624,13 @@ BEGIN
         v_used := 1280 * i + 12800 - CASE WHEN i >= c_purge THEN c_purgeb ELSE 0 END;
         INSERT INTO cap_fixture_tbspc_usage
         VALUES (c_dbid, c_con, 2001 + 2 * i, 19, v_used, v_max50g, v_used);
+
+        -- FIX_PURGE2 : FIX_PURGE's line with the purge taken in two steps on
+        -- adjacent days. Day c_p2 is mid-purge, day c_p2 + 1 carries the
+        -- post-purge level and is the reset day.
+        v_used := 1280 * i + 12800 - c_p2b * LEAST(GREATEST(i - c_p2 + 1, 0), 2);
+        INSERT INTO cap_fixture_tbspc_usage
+        VALUES (c_dbid, c_con, 2001 + 2 * i, 30, v_used, v_max50g, v_used);
 
         -- FIX_OVERFULL : constant, so FLAT (slope 0, days_to_full NULL). Its
         -- 1 GiB override ceiling (inserted after this block) sits under the
@@ -867,6 +888,21 @@ BEGIN
         (1280 * c_nd + 12800 - c_purgeb) * c_bs);                                                -- 734,003,200
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE_DTF',
         FLOOR((c_50g - (1280 * c_nd + 12800 - c_purgeb) * c_bs) / 10485760));                    -- 5050
+
+    -- FIX_PURGE2: one purge event over days c_p2 and c_p2 + 1. The reset day
+    -- is the second cliff day, the window the days from it, the line the
+    -- post-purge 10 MiB/day.
+    INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('PURGE2_FIRST', v_base + c_p2, c_p2);
+    INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('PURGE2_DAY', v_base + c_p2 + 1, c_p2 + 1);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE2_TRAIN_N', c_nd - c_p2);              -- 40
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE2_CUR',
+        (1280 * c_nd + 12800 - 2 * c_p2b) * c_bs);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE2_DTF',
+        FLOOR((c_50g - (1280 * c_nd + 12800 - 2 * c_p2b) * c_bs) / 10485760));                   -- 5050 (5050.5)
+    -- With cliff_merge_days = 0 the two cliff days are two cliffs one day
+    -- apart: CYCLIC, judged on the window's peak, the day before the purge.
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE2_PEAK',
+        (1280 * (c_p2 - 1) + 12800) * c_bs);
 
     -- ---- clamp / staleness expectations ---------------------------------
     -- FIX_OVERFULL: limit 1 GiB under 1.5 GiB used.

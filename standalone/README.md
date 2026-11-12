@@ -66,10 +66,12 @@ typical variation = 1.4826 x MEDIAN( | daily change - MEDIAN(daily change) | )
 cliff             = daily change < -GREATEST(6 x typical variation, 100 MB)
 ```
 
-What happens next depends on how many cliffs the 90-day window holds:
+A purge can spread over two days: it ran past midnight, or the delete was followed by a shrink the next day. Cliff days on adjacent days therefore count as one purge (setting `cliff_merge_days`, 1 day).
 
-- **One cliff:** the fit restarts at the cliff day. Only the data after the purge is used.
-- **Two or more cliffs:** the tablespace fills and is purged regularly. It is graded `CYCLIC` and judged on its peak fill level, not on a growth line.
+What happens next depends on how many purges the 90-day window holds:
+
+- **One purge:** the fit restarts at its last cliff day. Only the data after the purge is used.
+- **Two or more purges:** the tablespace fills and is purged regularly. It is graded `CYCLIC` and judged on its peak fill level, not on a growth line.
 
 ### 4. Detect growth that stopped or began
 
@@ -229,7 +231,7 @@ The first rule that matches wins.
 | Grade | Rule | What it tells you |
 |---|---|---|
 | `INSUFFICIENT_HISTORY` | Fewer than 14 days in the fit | Too little data. Trust `PCT`, not the forecast. |
-| `CYCLIC` | Two or more purge cliffs in the window | Fills and is purged regularly. Look at `PEAK_PCT`. |
+| `CYCLIC` | Two or more purges in the window | Fills and is purged regularly. Look at `PEAK_PCT`. |
 | `FLAT` | Growth is exactly 0 | Not growing. With `RESTART` = `STOP`: it grew earlier in the window and has stopped. |
 | `LOW_CONFIDENCE` | `R2` below 0.60 | The history does not follow a line well. Treat `DTF` as a rough hint. |
 | `OK` | None of the above | The forecast is usable. |
@@ -343,7 +345,8 @@ The defaults sit at the top of the query in the `prm` block and can be edited th
 | `r2_gate` | 0.60 | `R2` below this = `LOW_CONFIDENCE` |
 | `shrink_mad_k` | 6 | A cliff is a drop larger than this many times the typical variation |
 | `abs_floor_bytes` | 100 MB | ... and larger than this |
-| `cyclic_min_cliffs` | 2 | This many cliffs = `CYCLIC`. Below 2 turns the grade off. |
+| `cyclic_min_cliffs` | 2 | This many purges = `CYCLIC`. Below 2 turns the grade off. |
+| `cliff_merge_days` | 1 | Cliff days at most this many days apart are one purge. 0 = every cliff day is a purge of its own. |
 | `quiet_days` | 14 | Growth stopped or began = a pause of at least this many days. 0 turns step 4 off. |
 | `quiet_ratio` | 2 | ... and at least this many times the longest other pause |
 | `quiet_chance` | 0.01 | ... and less likely than this to be chance |

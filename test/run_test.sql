@@ -637,6 +637,67 @@ BEGIN
     SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE series_key = 'FIX_PURGE';
     chk_int('PURGE raises no CAPR_ALERTS (cliff predates the alert window)', v_n, 0);
 
+    DBMS_OUTPUT.PUT_LINE('=== purge events: a two-day purge is one cliff (FIX_PURGE2, cliff_merge_days) ===');
+    SELECT cfg_value INTO v_num FROM cap_config WHERE cfg_name = 'cliff_merge_days';
+    chk_int('knob cliff_merge_days default', v_num, 1);
+    SELECT reset_day, train_start, train_n, slope_bpd, days_to_full, quality, cycle_n, cur_used
+      INTO d_reset, d_tstart, v_n, v_num, v_num2, v_str, v_num3, v_r2
+      FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_PURGE2';
+    chk_int  ('PURGE2 cycle_n (two cliff days, one event)', v_num3, 1);
+    chk_int  ('PURGE2 reset_day - the second cliff day', d_reset - meta_d('PURGE2_DAY'), 0);
+    chk_int  ('PURGE2 reset_day - the first cliff day', d_reset - meta_d('PURGE2_FIRST'), 1);
+    chk_int  ('PURGE2 train_start - reset_day', d_tstart - d_reset, 0);
+    chk_int  ('PURGE2 train_n (the days from the second cliff day)', v_n, meta_n('PURGE2_TRAIN_N'));
+    chk_close('PURGE2 slope_bpd = 10 MiB/day', v_num, n_slope, 0.000001);
+    chk_int  ('PURGE2 cur_used', v_r2, meta_n('PURGE2_CUR'));
+    chk_int  ('PURGE2 days_to_full off the post-purge line', v_num2, meta_n('PURGE2_DTF'));
+    chk_str  ('PURGE2 quality (not CYCLIC)', v_str, 'OK');
+    -- Both cliff days are LOW anomalies of the tablespace, 40 days back.
+    chk_str('PURGE2 first cliff day LOW (TRAILING)',
+            anom_flag('TBSPC', 'FIX_PURGE2', 'TRAILING', meta_d('PURGE2_FIRST'), v_dbid), 'LOW');
+    chk_str('PURGE2 second cliff day LOW (TRAILING)',
+            anom_flag('TBSPC', 'FIX_PURGE2', 'TRAILING', meta_d('PURGE2_DAY'), v_dbid), 'LOW');
+    chk_int('PURGE2 has exactly two anomalies (TRAILING)',
+            anom_n('TBSPC', 'FIX_PURGE2', 'TRAILING', 'ANY', v_dbid), 2);
+    SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE series_key = 'FIX_PURGE2';
+    chk_int('PURGE2 raises no CAPR_ALERTS', v_n, 0);
+    -- A single-day purge and the sawtooths count as before.
+    SELECT cycle_n INTO v_n FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_PURGE';
+    chk_int('PURGE cycle_n', v_n, 1);
+    SELECT cycle_n, cycle_days INTO v_n, v_num FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_CYCLIC';
+    chk_int('CYCLIC cycle_n = its cliffs (one-day purges)', v_n, meta_n('CYC0_N'));
+    chk_int('CYCLIC cycle_days', v_num, meta_n('CYC0_DAYS'));
+    -- cliff_merge_days = 0: every cliff day is an event again. Two cliffs one
+    -- day apart, so CYCLIC, no reset, no full date. Uncommitted, then reset.
+    SAVEPOINT u05_merge;
+    BEGIN
+        knob('cliff_merge_days', 0);
+        SELECT quality, reset_day, train_n, cycle_n, cycle_days, cycle_peak_bytes,
+               days_to_full, days_to_full_lo
+          INTO v_str, d_reset, v_n, v_num, v_num2, v_num3, v_r2, n_aux
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_PURGE2';
+        chk_str ('cliff_merge_days = 0: PURGE2 quality', v_str, 'CYCLIC');
+        chk_true('cliff_merge_days = 0: PURGE2 reset_day IS NULL', d_reset IS NULL);
+        chk_int ('cliff_merge_days = 0: PURGE2 train_n (the whole window)', v_n, 90);
+        chk_int ('cliff_merge_days = 0: PURGE2 cycle_n', v_num, 2);
+        chk_int ('cliff_merge_days = 0: PURGE2 cycle_days', v_num2, 1);
+        chk_int ('cliff_merge_days = 0: PURGE2 cycle_peak_bytes (the day before the purge)',
+                 v_num3, meta_n('PURGE2_PEAK'));
+        chk_true('cliff_merge_days = 0: PURGE2 days_to_full / _lo NULL', v_r2 IS NULL AND n_aux IS NULL);
+        SELECT quality, reset_day INTO v_str, d_reset
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_PURGE';
+        chk_str ('cliff_merge_days = 0: PURGE quality unchanged', v_str, 'OK');
+        chk_int ('cliff_merge_days = 0: PURGE reset_day unchanged', d_reset - meta_d('PURGE_DAY'), 0);
+        knob('cliff_merge_days', 1.5);
+        SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'cliff_merge_days';
+        chk_str ('CAP_CFG_CHECK cliff_merge_days = 1.5', v_str, 'BAD');
+    EXCEPTION
+        WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u05_merge; RAISE;
+    END;
+    ROLLBACK TO SAVEPOINT u05_merge;
+    SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'cliff_merge_days';
+    chk_str('CAP_CFG_CHECK cliff_merge_days default', v_str, 'OK');
+
     DBMS_OUTPUT.PUT_LINE('=== clamp + limit_below_used (FIX_OVERFULL) ===');
     -- Flat at 1.5 GiB under a 1 GiB override: FLAT, so days_to_full is NULL
     -- (no growth to count with), not 0. limit_below_used and pct_used say
@@ -4137,8 +4198,8 @@ BEGIN
         SELECT COUNT(*) INTO v_n FROM capa_anom
           WHERE kind = 'TBSPC' AND baseline_mode = 'SAME_DOW' AND anomaly_flag IS NOT NULL
             AND series NOT IN ('FIX_CYCLIC', 'FIX_CYCLIC_UP');
-        chk_int('other TBSPC SAME_DOW flags: the spike, the purge and the FIX_GAP burst days',
-                v_n, 2 + meta_n('BURST_DAYS'));
+        chk_int('other TBSPC SAME_DOW flags: the spike, the purge, FIX_PURGE2''s two cliff days and the FIX_GAP burst days',
+                v_n, 2 + 2 + meta_n('BURST_DAYS'));
         SELECT COUNT(*) INTO v_n FROM capa_anom
           WHERE kind = 'SERIES' AND series IN ('SESSIONS', 'PROCESSES', 'REDO_GB_DAY')
             AND anomaly_flag IS NOT NULL;
