@@ -263,7 +263,7 @@ WITH obs AS (
                a.med                                              AS expected,
                a.mad_sigma,
                NVL(a.n_hist, 0)                                   AS n_hist,
-               GREATEST(NVL(a.mad_sigma, 0), c.thr_floor / cfg.mad_k) AS eff_sigma,
+               GREATEST(NVL(a.mad_sigma, 0), c.thr_floor / NULLIF(cfg.mad_k, 0)) AS eff_sigma,
                CASE c.baseline_mode WHEN 'TRAILING' THEN cfg.trailing_min_hist
                                     ELSE cfg.weekly_min_hist END  AS min_hist,
                w.avg_value, w.avg_days, cfg.mad_k
@@ -281,7 +281,7 @@ SELECT s.dbid, s.con_dbid, s.kind, s.series, s.baseline_mode, s.mode_bit, s.grai
        CASE WHEN s.grain = 'HOUR' THEN TO_NUMBER(TO_CHAR(s.ts, 'HH24')) END AS hod,
        s.value, s.raw_value, s.span_days, s.unit, s.gap_flag, s.is_complete, s.day_gap, s.ivl_hours,
        s.expected, s.mad_sigma, s.thr_floor, s.eff_sigma,
-       CASE WHEN NVL(s.mad_sigma, 0) < s.thr_floor / s.mad_k THEN 'Y' ELSE 'N' END AS sigma_floored,
+       CASE WHEN NVL(s.mad_sigma, 0) < s.thr_floor / NULLIF(s.mad_k, 0) THEN 'Y' ELSE 'N' END AS sigma_floored,
        s.n_hist, s.min_hist,
        s.value - s.expected                                               AS dev,
        s.mad_k * s.eff_sigma                                              AS threshold,

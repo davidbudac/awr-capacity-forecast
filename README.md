@@ -23,7 +23,6 @@ The samples are real output from a fictional database with 150 days of test AWR 
 | Is instance memory sized well? | A grade per area (SGA, buffer cache, shared pool, PGA target and limit) from Oracle's advisors and observed symptoms, with the evidence and a suggested size |
 | Is today unusual? | Median + MAD flags against three baselines: last 28 days, same weekday, same weekday and hour (CPU) |
 | Which forecast to trust? | A holdout backtest scores each engine's MAPE and bias |
-| Is instance memory sized right? | `CAPM_VERDICT`: a grade per instance and area (PGA limit, PGA target, buffer cache, shared pool, SGA total, SGA balance) with its evidence and a suggested size. A view to query; not in the reports or alerts yet |
 
 Every number can be checked by hand: the anomaly flags show value, median,
 threshold and robust z, and the `drill_*` scripts print the fit arithmetic.
@@ -109,8 +108,9 @@ SQL> @standalone/tbspc_capacity.sql
 
 One row per permanent tablespace: used, limit, % used, MB/day, R², +30/+90
 days, days to full (fitted and worst case), space to add for 90 days, quality
-and CRIT / WARN / OK. It is the suite's OLS fit, restarted after a purge, with
-the knob defaults in the `prm` CTE. No overrides, CYCLIC peak line, anomalies
+and CRIT / WARN / OK. It is the suite's OLS fit, restarted after a purge or where
+growth stopped or began, forecast also against the one disk the tablespaces
+share, with the knob defaults in the `prm` CTE. No overrides, CYCLIC peak line, anomalies
 or ML.
 
 `standalone/tbspc_monitor.sql` is its monitoring companion: the same forecast,

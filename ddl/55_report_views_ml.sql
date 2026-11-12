@@ -92,7 +92,7 @@ SELECT f.dbid,
                                    f.con_dbid, f.tablespace_name)  AS rank_report,
        ROW_NUMBER() OVER (PARTITION BY f.dbid
                           ORDER BY f.days_to_full NULLS LAST,
-                                   f.tablespace_name)  AS rank_chart
+                                   f.tablespace_name, f.con_dbid)  AS rank_chart
 FROM   f;
 
 CREATE OR REPLACE VIEW capr_tbspc_forecast AS

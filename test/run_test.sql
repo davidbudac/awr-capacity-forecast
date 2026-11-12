@@ -4897,6 +4897,23 @@ BEGIN
     SELECT COUNT(*) INTO v_n FROM cap_cfg_check
       WHERE knob IN ('cyclic_min_cliffs', 'slope_method', 'cpu_quality_gate', 'cpu_deseason') AND status = 'OK';
     chk_int('new knobs OK after reset', v_n, 4);
+    -- Zero must not raise ORA-01476 in the views, and the rules grade it.
+    UPDATE cap_config SET cfg_value = 0 WHERE cfg_name = 'mad_k';
+    SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'mad_k';
+    chk_str('CAP_CFG_CHECK mad_k = 0', v_str, 'BAD');
+    SELECT COUNT(*) INTO v_n FROM capa_anom WHERE baseline_mode = 'TRAILING' AND anomaly_flag IS NOT NULL;
+    chk_int('mad_k = 0: CAPA_ANOM reads and flags nothing (TRAILING)', v_n, 0);
+    UPDATE cap_config SET cfg_value = 0 WHERE cfg_name = 'accel_slope_floor_bpd';
+    SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'accel_slope_floor_bpd';
+    chk_str('CAP_CFG_CHECK accel_slope_floor_bpd = 0', v_str, 'OK');
+    SELECT COUNT(*) INTO v_n FROM capf_tbspc_forecast WHERE quality = 'FLAT' AND accel_ratio IS NOT NULL;
+    chk_int('accel_slope_floor_bpd = 0: FLAT series keep a NULL accel_ratio', v_n, 0);
+    UPDATE cap_config SET cfg_value = -1 WHERE cfg_name = 'accel_slope_floor_bpd';
+    SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'accel_slope_floor_bpd';
+    chk_str('CAP_CFG_CHECK accel_slope_floor_bpd = -1', v_str, 'BAD');
+    UPDATE cap_config SET cfg_value = cfg_default
+     WHERE cfg_name IN ('mad_k', 'accel_slope_floor_bpd');
+    COMMIT;
 
     -- Results-layer knobs and their range rules.
     SELECT COUNT(*) INTO v_n FROM cap_cfg
