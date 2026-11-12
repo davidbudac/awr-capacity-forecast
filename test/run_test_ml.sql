@@ -412,9 +412,14 @@ BEGIN
         chk_num('partial newest day: CPU models + twins in CAPF_ESM_HEALTH', v_n, 2 * v_cpu);
         chk_num('partial newest day: series_last_day = LAST_DAY - 1 on each', v_h, 2 * v_cpu);
         chk_num('partial newest day: model_age_days 0, not stale, on each', v_age, 2 * v_cpu);
+        -- Tablespace days have no coverage: their last day stays LAST_DAY
+        -- (FIX_DROPPED: the day it ends, 30 days earlier).
+        SELECT dval INTO v_d FROM cap_fixture_meta WHERE mkey = 'DROPPED_LAST_DAY';
         SELECT COUNT(*) INTO v_n FROM capf_esm_health
-        WHERE  series_kind = 'TBSPC' AND (model_age_days <> 0 OR series_last_day <> v_last);
-        chk_num('partial newest day: tablespace models keep LAST_DAY, age 0', v_n, 0);
+        WHERE  series_kind = 'TBSPC'
+          AND  (model_age_days <> 0
+                OR series_last_day <> CASE series_key WHEN 'FIX_DROPPED' THEN v_d ELSE v_last END);
+        chk_num('partial newest day: tablespace models keep their last day, age 0', v_n, 0);
         SELECT NVL(SUM(n_stale), 0) INTO v_n FROM capf_esm_health_summary;
         chk_num('partial newest day: CAPF_ESM_HEALTH_SUMMARY n_stale', v_n, 0);
 
