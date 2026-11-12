@@ -626,7 +626,7 @@
         <div class="dd-scroll">
 <svg class="dd" viewBox="0 0 760 324" role="img" aria-labelledby="dd-harness-title dd-harness-desc">
 <title id="dd-harness-title">What test/dbmint_harness.sh runs</title>
-<desc id="dd-harness-desc">The harness runs eight offline checks on the workstation and stops with exit 4 if one fails, rsyncs the checkout to dbmint (exit 3 on failure), then runs the fixture load, the fixture-mode install, the Tier 1 self-check and, with --ml, the Tier 2 self-check as SYSDBA with CURRENT_SCHEMA set in PDB1, each in its own SQL*Plus session that stops the run on a non-zero exit, and finally prints the RESULT, FAIL and ORA- lines of its log.</desc>
+<desc id="dd-harness-desc">The harness runs test/check.sh, the checks that need no database, on the workstation and stops with exit 4 if one fails, rsyncs the checkout to dbmint (exit 3 on failure), then runs the fixture load, the fixture-mode install, the Tier 1 self-check and, with --ml, the Tier 2 self-check as SYSDBA with CURRENT_SCHEMA set in PDB1, each in its own SQL*Plus session that stops the run on a non-zero exit, and finally prints the RESULT, FAIL and ORA- lines of its log.</desc>
 <defs><marker id="dd-harness-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker></defs>
 <rect class="paper" width="760" height="324"/>
 <!-- zones -->
@@ -650,7 +650,7 @@
 <text class="eb" x="50" y="47" text-anchor="middle" style="letter-spacing:.08em">SH</text>
 <text class="eb" x="204" y="47" text-anchor="end">EXIT 4</text>
 <text class="nm" x="120" y="66" text-anchor="middle">Local checks</text>
-<text class="sub" x="120" y="80" text-anchor="middle">build.py, 5 lints, 2 tests</text>
+<text class="sub" x="120" y="80" text-anchor="middle">test/check.sh</text>
 <rect class="paper" x="260" y="32" width="168" height="60" rx="6"/>
 <rect class="n" x="260" y="32" width="168" height="60" rx="6"/>
 <rect class="tag" x="268" y="38" width="28" height="12" rx="2"/>
@@ -707,7 +707,7 @@
 <text class="lgt" x="524" y="315">harness exit status when that step fails</text>
 </svg>
         </div>
-        <figcaption>Steps 1 to 6 below in one script, <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>. The local checks are <span class="inline">repository/build.py --check</span>, five lints and two offline report tests. After a passing run <span class="inline">--parity</span> then runs <span class="inline">test/snapshot_parity.sh</span>. Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>.</figcaption>
+        <figcaption>Steps 1 to 6 below in one script, <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>. The local checks are <span class="inline">test/check.sh</span>: the generated-file checks, the lints, the docs lint and two offline report tests. After a passing run <span class="inline">--parity</span> then runs <span class="inline">test/snapshot_parity.sh</span>. Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>.</figcaption>
       </figure>
 
       <div class="steps">
@@ -950,7 +950,7 @@ All fixture assertions passed.</pre>
               <span class="ico">i</span>
               <p><strong>Steps 1 to 6 on dbmint in one script.</strong>
               <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>
-              runs <span class="inline">repository/build.py --check</span>, <span class="inline">test/lint_anom_joins.sh</span>, <span class="inline">test/lint_appinfo.sh</span>, <span class="inline">test/lint_dbid_windows.sh</span>, <span class="inline">test/lint_snapshot_reads.sh</span>, <span class="inline">test/lint_dba_hist.sh</span> and the two offline report tests (<span class="inline">test/run_report_sh_test.sh</span>: the exit rules of <span class="inline">report/run_report.sh</span> under a mock sqlplus; <span class="inline">test/report_html_test.sh</span>: the generated HTML report files, rendered under a stub DOM) first and stops on a failure (exit 4),
+              runs <span class="inline">test/check.sh</span> (below) first and stops on a failure (exit 4),
               rsyncs the checkout to <span class="inline">~/awr_cap_&lt;schema&gt;/</span>, runs the fixture
               install, the install, <span class="inline">run_test.sql</span> and, with
               <span class="inline">--ml</span>, the Tier&nbsp;2 steps as SYSDBA with
@@ -968,6 +968,27 @@ All fixture assertions passed.</pre>
               follows the session user, so check validity with
               <span class="inline">SELECT object_name, status FROM all_objects WHERE owner = 'CAPX1' AND status &lt;&gt; 'VALID'</span>.
               Drop the user when you are done.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
+              <p><strong>Offline checks in one run.</strong>
+              <span class="inline">test/check.sh [-v] [NAME...]</span> runs every check that needs no database:
+              <span class="inline">repository/build.py --check</span> and <span class="inline">report/html/build.py --check</span>
+              (the generated files are current), every <span class="inline">test/lint_*.sh</span> (found by name, so a
+              new lint joins by existing), <span class="inline">test/docs_lint.sh</span> and the two offline report
+              tests (<span class="inline">test/run_report_sh_test.sh</span>: the exit rules of
+              <span class="inline">report/run_report.sh</span> under a mock sqlplus;
+              <span class="inline">test/report_html_test.sh</span>: the generated HTML report files, rendered under a
+              stub DOM). It prints one OK or FAIL line per check and the whole output of a failing one,
+              and exits 1 when any failed. It runs from any directory and needs bash, git, python3 and
+              node. A NAME runs only the checks whose name contains it; <span class="inline">-v</span> also prints
+              the output of the passing checks. The harness runs it first, and the GitHub workflow
+              <span class="inline">.github/workflows/check.yml</span> runs it on every push and pull request.</p>
+              <p>The lints and the docs lint judge the repository: in a git checkout they read tracked
+              files only (<span class="inline">test/repo_files.sh</span>), so a spooled report under
+              <span class="inline">reports/</span> or an ad-hoc probe script does not fail them. A new file is
+              judged once it is added to git. A copy without git reads every file outside
+              <span class="inline">reports/</span>.</p>
             </div>
             <div class="callout tip">
               <span class="ico">▸</span>

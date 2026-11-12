@@ -95,9 +95,13 @@ The maintainer chose not to plan these yet; they remain open findings.
   (`ddl/30_forecast_views.sql:257-275`, mirrored in the standalone query
   `:301-311`): no reset, and the tablespace's full-date alert is off for up
   to `train_days`.
-- **No single entry point for the nine offline checks, no CI**;
-  `test/docs_lint.sh` is in no lever. `test/run_test.sql` assumes the fixture
-  was loaded today (`--no-fixture` the next morning fails at `:4621`).
+- **`test/run_test.sql` assumes the fixture was loaded today**
+  (`--no-fixture` the next morning fails at `:4621`). The other half of this
+  finding is closed (2026-11-12): `test/check.sh` is the one entry point for
+  the offline checks, `test/dbmint_harness.sh` and
+  `.github/workflows/check.yml` run it, and it includes `test/docs_lint.sh`.
+  The lints now read tracked files only, so a file under `reports/` no
+  longer fails them.
 - **The ORDS module is public and reads live views per request**, and
   `install.sh` `ORDS=Y` publishes it (`grafana/ords/awrcap_module.sql:15`).
 - **`cap_results.purge` is never scheduled; the alert spool file is written

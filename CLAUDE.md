@@ -189,10 +189,17 @@ valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 `CAPA_ANOM_DAY` (+ the untouched `CAPA_CPU_SHIFT`); ddl/45 `CAPR_ANOMALIES`
 (read by `CAPR_ALERTS` in ddl/55), `CAPR_SERIES_ANOMALIES`, `CAPR_HOURLY_POINTS`.
 `CAPA_TBSPC_ANOM` / `CAPA_CPU_ANOM` are gone (still in `00_drop` so an upgrade
-removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
-`test/lint_anom_joins.sh`, `test/lint_appinfo.sh`, `test/lint_dbid_windows.sh`,
-`test/lint_snapshot_reads.sh` and `test/lint_dba_hist.sh` (plus build.py
---check and the two offline report tests), syncs and runs the whole fixture
+removes them). `test/check.sh [-v] [NAME...]` runs every check that needs no
+database: build.py --check of repository/ and report/html/, every
+`test/lint_*.sh` (found by name: a new lint joins by existing),
+`test/docs_lint.sh` and the two offline report tests; one OK / FAIL line
+each, exit 1 when any failed. `.github/workflows/check.yml` runs it on push
+and pull request. The lints and docs_lint read tracked files only
+(`test/repo_files.sh`: `repo_files` / `repo_only`; a copy without git reads
+every file outside `reports/`), so a new file is judged once it is added to
+git and a new lint takes its file list from there.
+`test/dbmint_harness.sh <SCHEMA> [--ml]` runs `test/check.sh` first (exit 4,
+nothing synced, when a check fails), then syncs and runs the whole fixture
 harness on dbmint.
 `docs/architecture.html` is the architecture page: the system level by level
 (context, accounts and link, install flow, collector and copy contract, seam
