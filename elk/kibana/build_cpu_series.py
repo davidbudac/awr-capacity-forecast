@@ -118,6 +118,7 @@ def trend_table(p, title, y, h, kind, value_label, value_fmt, dtf_label,
     sev, cur, lim, pct = c(p, "sev"), c(p, "value"), c(p, "limit"), c(p, "pct")
     slope, r2, qual = c(p, "slope"), c(p, "r2"), c(p, "quality")
     dtf, lo, hi = c(p, "dtf"), c(p, "dtf-lo"), c(p, "dtf-hi")
+    track = c(p, "track")
     cols = {
         tgt: col_target(),
         db: col_terms("cap.db", "Database", None, size=200),
@@ -131,6 +132,8 @@ def trend_table(p, title, y, h, kind, value_label, value_fmt, dtf_label,
         hi: col_last_value("cap.days_to_full_hi", "high", fmt=fmt_number(0)),
         r2: col_last_value("cap.r2", "R²", fmt=fmt_number(2)),
         qual: col_last_value("cap.quality", "Fit quality", data_type="string"),
+        # The forecast track record (CAPR_FIT_TRACK): GOOD / BIASED / WIDE.
+        track: col_last_value("cap.track.reliability", "Track", data_type="string"),
     }
     order = [tgt, db, ser, sev, cur]
     overrides = {dtf: cell_colors(col_palette_steps(30, 90, (RED, AMBER, GREEN)))}
@@ -139,9 +142,9 @@ def trend_table(p, title, y, h, kind, value_label, value_fmt, dtf_label,
         cols[pct] = col_last_value("cap.pct", "% of limit", fmt=PCT)
         order += [lim, pct]
         overrides[pct] = cell_colors(col_palette_steps(90, 97))
-    order += [slope, dtf, lo, hi, r2, qual]
+    order += [slope, dtf, lo, hi, r2, qual, track]
     overrides.update({tgt: {"width": 130}, db: {"width": 190},
-                      ser: {"width": 150}})
+                      ser: {"width": 150}, track: {"width": 90}})
     b.add_lens(f"{p}-table", title, 0, y, 48, h, "lnsDatatable",
                table_state(order, dtf, direction="asc", page_size=8,
                            overrides=overrides),

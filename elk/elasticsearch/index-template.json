@@ -4,12 +4,17 @@
     "records": {
       "observation": "one per (container, series, day): the observed daily value, with cap.anomaly=true when any baseline mode flagged that day (cap.anomaly_modes lists them; cap.hours_flagged counts the HOUR_OF_WEEK hours flagged that day). @timestamp = the day.",
       "forecast": "one per (container, series, method, horizon): REGR anchors at 0/30/90/180(/365) and the ESM +30 point, each with its band. @timestamp = last observed day + horizon. Overwritten on each run.",
-      "fit": "one per (container, series, export day): slope, r2, quality, days-to-full/limit/saturation with bounds, severity. @timestamp = export day, so days_to_full can itself be charted over time.",
+      "fit": "one per (container, series, export day): slope, r2, quality, days-to-full/limit/saturation with bounds, severity. A tablespace fit also carries cap.restart_reason / cap.restart_day (PURGE, STOP, START: why its window is shorter). Every fit carries its track record under cap.track (CAPR_FIT_TRACK: reliability and the checked forecasts) once a refresh run exists. @timestamp = export day, so days_to_full can itself be charted over time.",
       "anomaly": "one per flagged event and baseline mode: tablespace growth, host CPU, DB CPU, workload series level/growth outlier (cap.baseline_mode TRAILING / SAME_DOW / HOUR_OF_WEEK, cap.grain DAY / HOUR), or a DB CPU level shift (no baseline_mode). The id keys on kind, series, mode and hour. @timestamp = the event day or hour (shift: first day of the recent window); cap.obs_day = the day (shift: last day of the window).",
       "alert": "one per CAPR_ALERTS row per export day (anomaly kinds: one per series, day and baseline mode). @timestamp = export day; cap.obs_day = the day the alert refers to.",
       "mem_verdict": "one per (database, instance, memory area, export day): CAPR_MEM_VERDICT. cap.kind = MEM, cap.series = the area; grade, reason, sizes and the headline sentence under cap.mem. @timestamp = export day, so the verdict history charts over time. Never an alert.",
       "mem_evidence": "one per (database, instance, area, signal, export day): CAPR_MEM_EVIDENCE, the signals behind a verdict. cap.value / cap.unit / cap.threshold hold the measurement; kind, signal, direction and the sentence are under cap.mem. @timestamp = export day.",
-      "mem_component": "one per (database, instance, SGA component, day) of the evidence window: CAPR_MEM_COMP_POINTS. cap.series = the component; cap.mem.bytes is the size at the day's last snapshot. @timestamp = the day."
+      "mem_component": "one per (database, instance, SGA component, day) of the evidence window: CAPR_MEM_COMP_POINTS. cap.series = the component; cap.mem.bytes is the size at the day's last snapshot. @timestamp = the day.",
+      "disk": "one per (database, shared disk, export day): CAPR_DISK. cap.kind = DISK, cap.series = DISK:<disk name>, con_dbid = dbid; free space, its source, days until full and the growing tablespaces under cap.disk, the DISK_FULL verdict in cap.sev / cap.message. @timestamp = export day.",
+      "family": "one per (container, tablespace family, export day): CAPR_TBSPC_FAMILY. cap.kind = TBSPC, cap.series = the family name; members by state, the next member's size and the filling member against its ceiling under cap.family, the TBSPC_FAMILY verdict in cap.sev. @timestamp = export day.",
+      "family_member": "one per (container, family member tablespace, export day): CAPR_TBSPC_FAMILY_MEMBERS. cap.series = the tablespace; cap.family.name its family, with member_seq, state, sizes and the fill window. @timestamp = export day.",
+      "alert_volume": "one per alert state_key (kind, container, series, baseline mode) and export day: CAPR_ALERT_VOLUME. cap.alert_kind and cap.baseline_mode name it; episodes and their severities, and for the anomaly kinds the scored and flagged days, the floor knob and the suggested floor, under cap.volume (noisy = true where the series alerts often). @timestamp = export day.",
+      "tbspc_shared": "one per (container, tablespace, export day): CAPR_TBSPC_SHARED, the tablespace's forecast against the disk all tablespaces of its database share. cap.series = the tablespace; days alone (dtf_own), days on the shared disk (dtf_shared), what stops it and the sizes under cap.shared. @timestamp = export day."
     },
     "managed_by": "awr-capacity-forecast/elk"
   },
@@ -362,6 +367,341 @@
                 },
                 "ops": {
                   "type": "integer"
+                }
+              }
+            },
+            "restart_reason": {
+              "type": "keyword"
+            },
+            "restart_day": {
+              "type": "date"
+            },
+            "shared": {
+              "properties": {
+                "disk_name": {
+                  "type": "keyword"
+                },
+                "used_gb": {
+                  "type": "double"
+                },
+                "alloc_gb": {
+                  "type": "double"
+                },
+                "limit_gb": {
+                  "type": "double"
+                },
+                "limit_own_gb": {
+                  "type": "double"
+                },
+                "limit_live": {
+                  "type": "boolean"
+                },
+                "grow_mb": {
+                  "type": "double"
+                },
+                "grow_worst_mb": {
+                  "type": "double"
+                },
+                "ext_days": {
+                  "type": "double"
+                },
+                "dtf_own": {
+                  "type": "double"
+                },
+                "dtf_shared": {
+                  "type": "double"
+                },
+                "dtf_shared_worst": {
+                  "type": "double"
+                },
+                "limit_shared_gb": {
+                  "type": "double"
+                },
+                "stopped_by": {
+                  "type": "keyword"
+                },
+                "rank": {
+                  "type": "integer"
+                }
+              }
+            },
+            "track": {
+              "properties": {
+                "reliability": {
+                  "type": "keyword"
+                },
+                "reliability_rank": {
+                  "type": "integer"
+                },
+                "horizon_days": {
+                  "type": "integer"
+                },
+                "n_forecasts": {
+                  "type": "integer"
+                },
+                "abs_err_pct": {
+                  "type": "double"
+                },
+                "bias_pct": {
+                  "type": "double"
+                },
+                "n_banded": {
+                  "type": "integer"
+                },
+                "band_hits": {
+                  "type": "integer"
+                },
+                "band_hit_pct": {
+                  "type": "double"
+                },
+                "band_factor": {
+                  "type": "double"
+                },
+                "summary": {
+                  "type": "text",
+                  "fields": {
+                    "keyword": {
+                      "type": "keyword",
+                      "ignore_above": 1024
+                    }
+                  }
+                }
+              }
+            },
+            "disk": {
+              "properties": {
+                "disk_name": {
+                  "type": "keyword"
+                },
+                "source": {
+                  "type": "keyword"
+                },
+                "as_of": {
+                  "type": "date"
+                },
+                "free_gb": {
+                  "type": "double"
+                },
+                "alloc_gb": {
+                  "type": "double"
+                },
+                "dtf": {
+                  "type": "double"
+                },
+                "dtf_worst": {
+                  "type": "double"
+                },
+                "full_day": {
+                  "type": "date"
+                },
+                "n_tbspc": {
+                  "type": "integer"
+                },
+                "n_growing": {
+                  "type": "integer"
+                },
+                "n_growing_ok": {
+                  "type": "integer"
+                },
+                "grow_mb": {
+                  "type": "double"
+                },
+                "grow_worst_mb": {
+                  "type": "double"
+                },
+                "top_growers": {
+                  "type": "text",
+                  "fields": {
+                    "keyword": {
+                      "type": "keyword",
+                      "ignore_above": 1024
+                    }
+                  }
+                },
+                "raw_sev": {
+                  "type": "keyword"
+                },
+                "gated_by": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "family": {
+              "properties": {
+                "name": {
+                  "type": "keyword"
+                },
+                "source": {
+                  "type": "keyword"
+                },
+                "period": {
+                  "type": "keyword"
+                },
+                "period_days": {
+                  "type": "integer"
+                },
+                "n_members": {
+                  "type": "integer"
+                },
+                "n_done": {
+                  "type": "integer"
+                },
+                "n_filling": {
+                  "type": "integer"
+                },
+                "n_empty": {
+                  "type": "integer"
+                },
+                "used_gb": {
+                  "type": "double"
+                },
+                "max_limit_gb": {
+                  "type": "double"
+                },
+                "slope_gb_day": {
+                  "type": "double"
+                },
+                "growth_per_period_gb": {
+                  "type": "double"
+                },
+                "recent_n": {
+                  "type": "integer"
+                },
+                "trend_sig": {
+                  "type": "boolean"
+                },
+                "trend_gb": {
+                  "type": "double"
+                },
+                "next_member_gb": {
+                  "type": "double"
+                },
+                "next_member_hi_gb": {
+                  "type": "double"
+                },
+                "next_over_limit": {
+                  "type": "boolean"
+                },
+                "filling_member": {
+                  "type": "keyword"
+                },
+                "filling_used_gb": {
+                  "type": "double"
+                },
+                "filling_limit_gb": {
+                  "type": "double"
+                },
+                "filling_pct_used": {
+                  "type": "double"
+                },
+                "filling_from": {
+                  "type": "date"
+                },
+                "fill_rate_gb_day": {
+                  "type": "double"
+                },
+                "period_end_day": {
+                  "type": "date"
+                },
+                "days_left": {
+                  "type": "double"
+                },
+                "expected_final_gb": {
+                  "type": "double"
+                },
+                "expected_final_hi_gb": {
+                  "type": "double"
+                },
+                "fits": {
+                  "type": "boolean"
+                },
+                "actionable": {
+                  "type": "boolean"
+                },
+                "headline": {
+                  "type": "text",
+                  "fields": {
+                    "keyword": {
+                      "type": "keyword",
+                      "ignore_above": 1024
+                    }
+                  }
+                },
+                "member_seq": {
+                  "type": "integer"
+                },
+                "state": {
+                  "type": "keyword"
+                },
+                "period_start": {
+                  "type": "date"
+                },
+                "period_end": {
+                  "type": "date"
+                },
+                "limit_gb": {
+                  "type": "double"
+                },
+                "final_gb": {
+                  "type": "double"
+                },
+                "fill_from": {
+                  "type": "date"
+                },
+                "fill_to": {
+                  "type": "date"
+                },
+                "fill_days": {
+                  "type": "double"
+                }
+              }
+            },
+            "volume": {
+              "properties": {
+                "episodes": {
+                  "type": "integer"
+                },
+                "n_crit": {
+                  "type": "integer"
+                },
+                "n_warn": {
+                  "type": "integer"
+                },
+                "n_info": {
+                  "type": "integer"
+                },
+                "window_days": {
+                  "type": "integer"
+                },
+                "scored_days": {
+                  "type": "integer"
+                },
+                "flagged_days": {
+                  "type": "integer"
+                },
+                "flagged_pct": {
+                  "type": "double"
+                },
+                "max_dev": {
+                  "type": "double"
+                },
+                "floor_knob": {
+                  "type": "keyword"
+                },
+                "floor_value": {
+                  "type": "double"
+                },
+                "suggested_floor": {
+                  "type": "double"
+                },
+                "mode_knob": {
+                  "type": "keyword"
+                },
+                "mode_bit": {
+                  "type": "integer"
+                },
+                "noisy": {
+                  "type": "boolean"
                 }
               }
             }

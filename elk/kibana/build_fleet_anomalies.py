@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Generate dashboards/30-fleet-anomalies.ndjson (AWR Capacity - Fleet anomalies)."""
 from lens_lib import (
-    AMBER, DASH_CPU, DASH_FLEET, DASH_TBSPC, RED, TARGET, DashboardBuilder,
+    AMBER, DASH_CPU, DASH_FLEET, DASH_TBSPC, KQL_LATEST, RED, TARGET,
+    DashboardBuilder,
     add_alerts_table, add_nav_panel, alarm_when_nonzero, cell_colors, col_count,
     col_date_histogram, col_last_value, col_max, col_palette_steps, col_target,
     col_terms,
@@ -124,7 +125,44 @@ b.add_lens("latest-table", "Anomalies, newest first (click a database or series 
            cols, order, query=ANOM, drill_to=[DASH_TBSPC, DASH_CPU],
            drill_label=["Open tablespaces dashboard", "Open CPU and series dashboard"])
 
-add_alerts_table(b, "alerts", "Fleet alerts (latest export)", 0, 45, 48, 12,
+# Alert volume (CAPR_ALERT_VOLUME): how many alerts each series makes with
+# the knobs as they are, and for an anomaly series the floor that quiets it.
+p = "volume"
+tgt, db, kind, ser, mode = (c(p, n) for n in ("target", "db", "kind", "series", "mode"))
+ep, flagged, scored, pct = (c(p, n) for n in ("episodes", "flagged", "scored", "pct"))
+dev, knob, floor, sug, noisy = (c(p, n) for n in ("dev", "knob", "floor", "suggested", "noisy"))
+cols = {
+    # max, not last_value: a terms column cannot order by last_value.
+    ep: col_max("cap.volume.episodes", "Alerts", fmt=fmt_number(0)),
+    tgt: col_target(),
+    db: col_terms("cap.db", "Database", None, size=200),
+    kind: col_terms("cap.alert_kind", "Alert", None, size=20),
+    ser: col_terms("cap.series", "Series", ep, size=500, missing=True),
+    mode: col_terms("cap.baseline_mode", "Mode", None, size=5, missing=True),
+    noisy: col_last_value("cap.volume.noisy", "Noisy", data_type="boolean"),
+    flagged: col_last_value("cap.volume.flagged_days", "Flagged days", fmt=fmt_number(0)),
+    scored: col_last_value("cap.volume.scored_days", "of scored", fmt=fmt_number(0)),
+    pct: col_last_value("cap.volume.flagged_pct", "Flagged %",
+                        fmt=fmt_number(1, suffix=" %")),
+    dev: col_last_value("cap.volume.max_dev", "Largest deviation", fmt=fmt_number(2)),
+    knob: col_last_value("cap.volume.floor_knob", "Floor knob", data_type="string"),
+    floor: col_last_value("cap.volume.floor_value", "Floor now", fmt=fmt_number(2)),
+    sug: col_last_value("cap.volume.suggested_floor", "Suggested floor",
+                        fmt=fmt_number(2)),
+}
+order = [tgt, db, kind, ser, mode, ep, noisy, flagged, scored, pct, dev, knob,
+         floor, sug]
+b.add_lens("volume-table",
+           "Alert volume: alerts per series with the knobs as they are (latest export)",
+           0, 45, 48, 12, "lnsDatatable",
+           table_state(order, ep, page_size=8, overrides={
+               tgt: {"width": 130}, db: {"width": 180}, kind: {"width": 150},
+               ser: {"width": 170}, mode: {"width": 120}, ep: {"width": 70},
+               noisy: {"width": 70},
+               pct: cell_colors(col_palette_steps(10, 30))}),
+           cols, order, query=f"cap.record:alert_volume and {KQL_LATEST}")
+
+add_alerts_table(b, "alerts", "Fleet alerts (latest export)", 0, 57, 48, 12,
                  "cap.alert_kind:*")
 
 b.write("30-fleet-anomalies.ndjson")

@@ -137,7 +137,11 @@ FROM   capr_forecast_points t
 &tgt;
 
 -- fit: CAPR_FIT, one per series per export day, so days-to-full charts
--- over time
+-- over time. restart_reason / restart_day are a tablespace fit's (why its
+-- window is shorter than train_days). cap.track is the series' row of
+-- CAPR_FIT_TRACK, the forecast track record of the newest refresh run
+-- (stored rows only, so the join costs a table read): absent before the
+-- first run.
 SELECT JSON_OBJECT(
          'id' VALUE LOWER(RAWTOHEX(STANDARD_HASH('fit|' || t.dbid || '|' || t.con_dbid
                     || '|' || t.kind || '|' || t.series || '|' || :export_day, 'MD5'))),
@@ -160,14 +164,31 @@ SELECT JSON_OBJECT(
              'train_n'         VALUE t.train_n,
              'sev'             VALUE t.sev,
              'sev_rank'        VALUE t.sev_rank,
+             'restart_reason'  VALUE t.restart_reason,
+             'restart_day'     VALUE TO_CHAR(t.restart_day, 'YYYY-MM-DD"T00:00:00Z"'),
              'tbspc' VALUE CASE WHEN t.kind = 'TBSPC' THEN JSON_OBJECT(
                  'used_bytes'   VALUE t.value,
                  'limit_bytes'  VALUE t.limit_value,
                  'limit_source' VALUE t.limit_source
+                 ABSENT ON NULL) END FORMAT JSON,
+             'track' VALUE CASE WHEN tr.reliability IS NOT NULL THEN JSON_OBJECT(
+                 'reliability'      VALUE tr.reliability,
+                 'reliability_rank' VALUE tr.reliability_rank,
+                 'horizon_days'     VALUE tr.horizon_days,
+                 'n_forecasts'      VALUE tr.n_forecasts,
+                 'abs_err_pct'      VALUE tr.abs_err_pct,
+                 'bias_pct'         VALUE tr.bias_pct,
+                 'n_banded'         VALUE tr.n_banded,
+                 'band_hits'        VALUE tr.band_hits,
+                 'band_hit_pct'     VALUE tr.band_hit_pct,
+                 'band_factor'      VALUE tr.band_factor,
+                 'summary'          VALUE tr.summary
                  ABSENT ON NULL) END FORMAT JSON
              ABSENT ON NULL)
          ABSENT ON NULL RETURNING CLOB)
 FROM   capr_fit t
+LEFT   JOIN capr_fit_track tr
+  ON   tr.dbid = t.dbid AND tr.con_dbid = t.con_dbid AND tr.kind = t.kind AND tr.series = t.series
 &tgt;
 
 -- anomaly: CAPR_ANOMALIES, one per (event, baseline mode). doc_key keys on
@@ -210,7 +231,9 @@ FROM   capr_anomalies t
 
 -- ===================================================================
 -- alert: the pollable CAPR_ALERTS feed, snapshotted per export day; one
--- per alert_key (dbid|con_dbid|kind|series|day|mode) and export day
+-- per alert_key (dbid|con_dbid|kind|series|day|mode) and export day.
+-- cap.kind files it under a board: TBSPC (TBSPC_FAMILY too), SERIES, DISK
+-- (DISK_FULL, shown on the tablespaces board), else CPU.
 -- ===================================================================
 SELECT JSON_OBJECT(
          'id' VALUE LOWER(RAWTOHEX(STANDARD_HASH('alert|' || t.alert_key || '|' || :export_day, 'MD5'))),
@@ -219,6 +242,7 @@ SELECT JSON_OBJECT(
              'record' VALUE 'alert',
              'kind'   VALUE CASE WHEN t.kind LIKE 'TBSPC%'  THEN 'TBSPC'
                                  WHEN t.kind LIKE 'SERIES%' THEN 'SERIES'
+                                 WHEN t.kind = 'DISK_FULL'  THEN 'DISK'
                                  ELSE 'CPU' END,
              'series' VALUE t.series_key,
              &ident,
@@ -236,6 +260,209 @@ SELECT JSON_OBJECT(
 FROM  (SELECT a.*, NVL(c.db_pdb, TO_CHAR(a.con_dbid)) AS db, c.db_name, c.con_name
        FROM   capr_alerts a
        LEFT   JOIN capr_container c ON c.dbid = a.dbid AND c.con_dbid = a.con_dbid) t
+&tgt;
+
+-- alert_volume: CAPR_ALERT_VOLUME, one per alert state_key (kind, container,
+-- series, baseline mode) and export day: how many alerts the knobs make.
+-- The floor and mode columns are set on the anomaly kinds only.
+SELECT JSON_OBJECT(
+         'id' VALUE LOWER(RAWTOHEX(STANDARD_HASH('vol|' || t.state_key || '|' || :export_day, 'MD5'))),
+         '@timestamp' VALUE :export_day || 'T00:00:00Z',
+         'cap' VALUE JSON_OBJECT(
+             'record' VALUE 'alert_volume',
+             'kind'   VALUE CASE WHEN t.kind LIKE 'TBSPC%'  THEN 'TBSPC'
+                                 WHEN t.kind LIKE 'SERIES%' THEN 'SERIES'
+                                 WHEN t.kind = 'DISK_FULL'  THEN 'DISK'
+                                 ELSE 'CPU' END,
+             'series' VALUE t.series_key,
+             &ident,
+             'alert_kind'    VALUE t.kind,
+             'baseline_mode' VALUE t.baseline_mode,
+             'volume' VALUE JSON_OBJECT(
+                 'episodes'        VALUE t.episodes,
+                 'n_crit'          VALUE t.n_crit,
+                 'n_warn'          VALUE t.n_warn,
+                 'n_info'          VALUE t.n_info,
+                 'window_days'     VALUE t.window_days,
+                 'scored_days'     VALUE t.scored_days,
+                 'flagged_days'    VALUE t.flagged_days,
+                 'flagged_pct'     VALUE t.flagged_pct,
+                 'max_dev'         VALUE t.max_dev,
+                 'floor_knob'      VALUE t.floor_knob,
+                 'floor_value'     VALUE t.floor_value,
+                 'suggested_floor' VALUE t.suggested_floor,
+                 'mode_knob'       VALUE t.mode_knob,
+                 'mode_bit'        VALUE t.mode_bit,
+                 'noisy'           VALUE CASE t.noisy WHEN 'Y' THEN 'true' WHEN 'N' THEN 'false' END FORMAT JSON
+                 ABSENT ON NULL)
+             ABSENT ON NULL)
+         ABSENT ON NULL RETURNING CLOB)
+FROM  (SELECT v.*, NVL(c.db_pdb, TO_CHAR(v.con_dbid)) AS db, c.db_name, c.con_name
+       FROM   capr_alert_volume v
+       LEFT   JOIN capr_container c ON c.dbid = v.dbid AND c.con_dbid = v.con_dbid) t
+&tgt;
+
+-- ===================================================================
+-- The shared disk (ddl/33) and the tablespace families (ddl/32), each
+-- stamped with the export day like fit.
+-- ===================================================================
+-- tbspc_shared: CAPR_TBSPC_SHARED, one per tablespace: its forecast against
+-- the disk all tablespaces of the database share. A record of its own, not
+-- fields of fit: the simulation joined to CAPR_FIT parses for minutes.
+SELECT JSON_OBJECT(
+         'id' VALUE LOWER(RAWTOHEX(STANDARD_HASH('shared|' || t.dbid || '|' || t.con_dbid
+                    || '|' || t.tablespace_name || '|' || :export_day, 'MD5'))),
+         '@timestamp' VALUE :export_day || 'T00:00:00Z',
+         'cap' VALUE JSON_OBJECT(
+             'record' VALUE 'tbspc_shared', 'kind' VALUE 'TBSPC', 'series' VALUE t.tablespace_name,
+             &ident,
+             'quality'      VALUE t.quality,
+             'days_to_full' VALUE t.days_to_full,
+             'shared' VALUE JSON_OBJECT(
+                 'disk_name'        VALUE t.disk_name,
+                 'used_gb'          VALUE t.cur_gb,
+                 'alloc_gb'         VALUE t.alloc_gb,
+                 'limit_gb'         VALUE t.limit_gb,
+                 'limit_own_gb'     VALUE t.limit_own_gb,
+                 'limit_live'       VALUE CASE t.limit_live WHEN 'Y' THEN 'true' WHEN 'N' THEN 'false' END FORMAT JSON,
+                 'grow_mb'          VALUE t.grow_mb,
+                 'grow_worst_mb'    VALUE t.grow_worst_mb,
+                 'ext_days'         VALUE t.ext_days,
+                 'dtf_own'          VALUE t.dtf_own,
+                 'dtf_shared'       VALUE t.dtf_shared,
+                 'dtf_shared_worst' VALUE t.dtf_shared_worst,
+                 'limit_shared_gb'  VALUE t.limit_shared_gb,
+                 'stopped_by'       VALUE t.stopped_by,
+                 'rank'             VALUE t.rank_shared
+                 ABSENT ON NULL)
+             ABSENT ON NULL)
+         ABSENT ON NULL RETURNING CLOB)
+FROM  (SELECT s.*, s.db_pdb AS db, c.db_name, c.con_name
+       FROM   capr_tbspc_shared s
+       LEFT   JOIN capr_container c ON c.dbid = s.dbid AND c.con_dbid = s.con_dbid
+       WHERE  s.is_current = 'Y') t
+&tgt;
+
+-- disk: CAPR_DISK, one per database and disk. cap.kind = DISK, cap.series =
+-- the DISK_FULL alert's series_key. Database level: con_dbid = dbid.
+SELECT JSON_OBJECT(
+         'id' VALUE LOWER(RAWTOHEX(STANDARD_HASH('disk|' || t.dbid || '|' || t.disk_name
+                    || '|' || :export_day, 'MD5'))),
+         '@timestamp' VALUE :export_day || 'T00:00:00Z',
+         'cap' VALUE JSON_OBJECT(
+             'record' VALUE 'disk', 'kind' VALUE 'DISK', 'series' VALUE t.series_key,
+             &ident,
+             'sev'      VALUE t.sev,
+             'sev_rank' VALUE t.sev_rank,
+             'message'  VALUE t.message,
+             'disk' VALUE JSON_OBJECT(
+                 'disk_name'     VALUE t.disk_name,
+                 'source'        VALUE t.disk_source,
+                 'as_of'         VALUE TO_CHAR(t.disk_as_of, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                 'free_gb'       VALUE t.disk_free_gb,
+                 'alloc_gb'      VALUE t.alloc_gb,
+                 'dtf'           VALUE t.disk_dtf,
+                 'dtf_worst'     VALUE t.disk_dtf_worst,
+                 'full_day'      VALUE TO_CHAR(t.disk_full_day, 'YYYY-MM-DD"T00:00:00Z"'),
+                 'n_tbspc'       VALUE t.n_tbspc,
+                 'n_growing'     VALUE t.n_growing,
+                 'n_growing_ok'  VALUE t.n_growing_ok,
+                 'grow_mb'       VALUE t.grow_mb,
+                 'grow_worst_mb' VALUE t.grow_worst_mb,
+                 'top_growers'   VALUE t.top_growers,
+                 'raw_sev'       VALUE t.raw_sev,
+                 'gated_by'      VALUE t.gated_by
+                 ABSENT ON NULL)
+             ABSENT ON NULL)
+         ABSENT ON NULL RETURNING CLOB)
+FROM  (SELECT d.*, c.db_name, c.con_name
+       FROM   capr_disk d
+       LEFT   JOIN capr_container c ON c.dbid = d.dbid AND c.con_dbid = d.con_dbid) t
+&tgt;
+
+-- family: CAPR_TBSPC_FAMILY, one per container and family. cap.series = the
+-- family name, as on the TBSPC_FAMILY alert.
+SELECT JSON_OBJECT(
+         'id' VALUE LOWER(RAWTOHEX(STANDARD_HASH('fam|' || t.dbid || '|' || t.con_dbid
+                    || '|' || t.family_name || '|' || :export_day, 'MD5'))),
+         '@timestamp' VALUE :export_day || 'T00:00:00Z',
+         'cap' VALUE JSON_OBJECT(
+             'record' VALUE 'family', 'kind' VALUE 'TBSPC', 'series' VALUE t.family_name,
+             &ident,
+             'sev' VALUE t.sev,
+             'family' VALUE JSON_OBJECT(
+                 'name'                 VALUE t.family_name,
+                 'source'               VALUE t.source,
+                 'period'               VALUE t.period,
+                 'period_days'          VALUE t.period_days,
+                 'n_members'            VALUE t.n_members,
+                 'n_done'               VALUE t.n_done,
+                 'n_filling'            VALUE t.n_filling,
+                 'n_empty'              VALUE t.n_empty,
+                 'used_gb'              VALUE t.used_gb,
+                 'max_limit_gb'         VALUE t.max_limit_gb,
+                 'slope_gb_day'         VALUE t.slope_gb_day,
+                 'growth_per_period_gb' VALUE t.growth_per_period_gb,
+                 'recent_n'             VALUE t.recent_n,
+                 'trend_sig'            VALUE CASE t.trend_sig WHEN 'Y' THEN 'true' WHEN 'N' THEN 'false' END FORMAT JSON,
+                 'trend_gb'             VALUE t.trend_gb,
+                 'next_member_gb'       VALUE t.next_member_gb,
+                 'next_member_hi_gb'    VALUE t.next_member_hi_gb,
+                 'next_over_limit'      VALUE CASE t.next_over_limit WHEN 'Y' THEN 'true' WHEN 'N' THEN 'false' END FORMAT JSON,
+                 'filling_member'       VALUE t.filling_member,
+                 'filling_used_gb'      VALUE t.filling_used_gb,
+                 'filling_limit_gb'     VALUE t.filling_limit_gb,
+                 'filling_pct_used'     VALUE t.filling_pct_used,
+                 'filling_from'         VALUE TO_CHAR(t.filling_from, 'YYYY-MM-DD"T00:00:00Z"'),
+                 'fill_rate_gb_day'     VALUE t.fill_rate_gb_day,
+                 'period_end_day'       VALUE TO_CHAR(t.period_end_day, 'YYYY-MM-DD"T00:00:00Z"'),
+                 'days_left'            VALUE t.days_left,
+                 'expected_final_gb'    VALUE t.expected_final_gb,
+                 'expected_final_hi_gb' VALUE t.expected_final_hi_gb,
+                 'fits'                 VALUE CASE t.fits WHEN 'Y' THEN 'true' WHEN 'N' THEN 'false' END FORMAT JSON,
+                 'actionable'           VALUE CASE t.actionable WHEN 'Y' THEN 'true' WHEN 'N' THEN 'false' END FORMAT JSON,
+                 'headline'             VALUE t.headline
+                 ABSENT ON NULL)
+             ABSENT ON NULL)
+         ABSENT ON NULL RETURNING CLOB)
+FROM  (SELECT f.*, f.db_pdb AS db, c.db_name, c.con_name
+       FROM   capr_tbspc_family f
+       LEFT   JOIN capr_container c ON c.dbid = f.dbid AND c.con_dbid = f.con_dbid) t
+&tgt;
+
+-- family_member: CAPR_TBSPC_FAMILY_MEMBERS, one per member tablespace.
+-- cap.series = the tablespace, cap.family.name its family.
+SELECT JSON_OBJECT(
+         'id' VALUE LOWER(RAWTOHEX(STANDARD_HASH('famm|' || t.dbid || '|' || t.con_dbid
+                    || '|' || t.tablespace_name || '|' || :export_day, 'MD5'))),
+         '@timestamp' VALUE :export_day || 'T00:00:00Z',
+         'cap' VALUE JSON_OBJECT(
+             'record' VALUE 'family_member', 'kind' VALUE 'TBSPC', 'series' VALUE t.tablespace_name,
+             &ident,
+             'pct'            VALUE t.pct_used,
+             'quality'        VALUE t.quality,
+             'restart_reason' VALUE t.restart_reason,
+             'family' VALUE JSON_OBJECT(
+                 'name'             VALUE t.family_name,
+                 'member_seq'       VALUE t.member_seq,
+                 'state'            VALUE t.state,
+                 'source'           VALUE t.source,
+                 'period'           VALUE t.period,
+                 'period_start'     VALUE TO_CHAR(t.period_start, 'YYYY-MM-DD"T00:00:00Z"'),
+                 'period_end'       VALUE TO_CHAR(t.period_end, 'YYYY-MM-DD"T00:00:00Z"'),
+                 'used_gb'          VALUE t.used_gb,
+                 'limit_gb'         VALUE t.limit_gb,
+                 'final_gb'         VALUE t.final_gb,
+                 'fill_from'        VALUE TO_CHAR(t.fill_from, 'YYYY-MM-DD"T00:00:00Z"'),
+                 'fill_to'          VALUE TO_CHAR(t.fill_to, 'YYYY-MM-DD"T00:00:00Z"'),
+                 'fill_days'        VALUE t.fill_days,
+                 'fill_rate_gb_day' VALUE t.fill_rate_gb_day
+                 ABSENT ON NULL)
+             ABSENT ON NULL)
+         ABSENT ON NULL RETURNING CLOB)
+FROM  (SELECT m.*, m.db_pdb AS db, c.db_name, c.con_name
+       FROM   capr_tbspc_family_members m
+       LEFT   JOIN capr_container c ON c.dbid = m.dbid AND c.con_dbid = m.con_dbid) t
 &tgt;
 
 -- ===================================================================

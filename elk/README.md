@@ -27,7 +27,7 @@ Kibana   data view awrcap-capacity-dataview + four Lens dashboards
 
 ## Documents
 
-One plain index, eight record types, all under the `cap.*` namespace. The
+One plain index, thirteen record types, all under the `cap.*` namespace. The
 index is deliberately not a data stream: every document has a deterministic
 `_id`, so a re-run overwrites instead of duplicating.
 
@@ -38,17 +38,50 @@ index is deliberately not a data stream: every document has a deterministic
 | `fit`         | container × series × export day            | export day                      |
 | `anomaly`     | flagged event × baseline mode (growth, CPU, workload series, level shift) | event day or hour (`cap.obs_day` = its day) |
 | `alert`       | `CAPR_ALERTS` row × export day             | export day (`cap.obs_day` = the day it refers to) |
+| `alert_volume` | alert series (kind × container × series × baseline mode) × export day (`CAPR_ALERT_VOLUME`) | export day |
+| `tbspc_shared` | container × tablespace × export day (`CAPR_TBSPC_SHARED`) | export day |
+| `disk`        | database × shared disk × export day (`CAPR_DISK`) | export day |
+| `family`      | container × tablespace family × export day (`CAPR_TBSPC_FAMILY`) | export day |
+| `family_member` | container × member tablespace × export day (`CAPR_TBSPC_FAMILY_MEMBERS`) | export day |
 | `mem_verdict` | database × instance × memory area × export day (`CAPR_MEM_VERDICT`) | export day |
 | `mem_evidence` | database × instance × area × signal × export day (`CAPR_MEM_EVIDENCE`) | export day |
 | `mem_component` | database × instance × SGA component × day (`CAPR_MEM_COMP_POINTS`) | the day |
 
-`cap.kind` is `TBSPC`, `CPU`, `SERIES` or `MEM`; `cap.series` is the
+`cap.kind` is `TBSPC`, `CPU`, `SERIES`, `DISK` or `MEM`; `cap.series` is the
 tablespace, CPU metric or workload series name (`IOPS` and `IO_MBPS` are
-workload series), and on the memory records the area or the SGA component;
+workload series), on a family record the family name, on a disk record and
+the `DISK_FULL` alert `DISK:<disk name>`, and on the memory records the area
+or the SGA component;
 `cap.db` is the display label the reports use (`TARGET` or `TARGET/PDBNAME`).
 `cap.target_name` is the suite's name of the database
 (`CAPR_CONTAINER.target_name`, one target per dbid) and is on every record;
 a dbid without a target has no such field.
+
+A tablespace fit carries `cap.restart_reason` (`PURGE`, `STOP`, `START`) and
+`cap.restart_day` when its fit window was restarted. Every fit carries its
+forecast track record under `cap.track.*` (`CAPR_FIT_TRACK`: `reliability`
+`GOOD` / `BIASED` / `WIDE` / `UNKNOWN`, the forecasts checked, error, bias,
+band hits, `summary`) once a `cap_results.refresh` run exists.
+
+The shared disk has two records. `tbspc_shared` holds a tablespace's forecast
+against the disk all tablespaces of its database share, under `cap.shared.*`:
+`dtf_own` (days alone), `dtf_shared` (days once the disk is full),
+`dtf_shared_worst`, `limit_shared_gb`, `stopped_by` (`DISK` / `LIMIT`),
+`grow_mb`. It is a record of its own, not fields of `fit`: `CAPR_FIT` joined
+to the simulation parses for minutes. `disk` is one document per database
+and disk under `cap.disk.*` (`source`, `free_gb`, `dtf`, `dtf_worst`,
+`full_day`, `top_growers`), with the `DISK_FULL` verdict in `cap.sev` and
+`cap.message`. It is database level: `cap.con_dbid` = `cap.dbid`.
+
+A `family` record is one tablespace family under `cap.family.*` (members by
+state, `next_member_gb` and its cautious value, the filling member against
+its ceiling, `fits`, `headline`), a `family_member` record one member
+(`cap.family.name`, `member_seq`, `state`, `final_gb`, the fill window).
+
+An `alert_volume` record counts the alerts of one alert series
+(`cap.alert_kind`, `cap.series`, `cap.baseline_mode`) under `cap.volume.*`:
+`episodes` and their severities, and for the anomaly kinds the scored and
+flagged days, `floor_knob`, `floor_value`, `suggested_floor` and `noisy`.
 
 The memory records keep their own fields under `cap.mem.*`. A verdict has
 `area`, `area_label`, `grade` (`UNDERSIZED`, `OVERSIZED`, `THRASHING`,
