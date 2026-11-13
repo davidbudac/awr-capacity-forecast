@@ -5574,6 +5574,8 @@ BEGIN
           INTO v_n FROM dual;
         chk_int('every results view answers on empty tables (rows)', v_n, 0);
         chk_str('cap_results.deploy_mode', cap_results.deploy_mode, 'fixture');
+        SELECT COUNT(*) INTO v_n FROM capr_fit_track;
+        chk_int('CAPR_FIT_TRACK answers on empty tables (rows)', v_n, 0);
 
         DBMS_OUTPUT.PUT_LINE('=== results layer: R0 backdated, R1, R2 ===');
         SELECT u.* BULK COLLECT INTO v_hidden
@@ -5820,6 +5822,53 @@ BEGIN
         chk_close('accuracy FIX_ZIGZAG error = zz(LAST) - (zz(LAST - 7) + 7 * slope_then)', v_c, meta_n('ZZ_ACC7_ERR'), 0.000001);
         chk_true ('accuracy FIX_ZIGZAG error non-zero (got ' || v_c || ', ' || v_d || '%)', ABS(v_c) > 1000000);
 
+        -- CAPR_FIT_TRACK over the same runs. Every fit of R2 carries the +30
+        -- point CAPR_FORECAST_POINTS shows. At the shipped horizon no stored
+        -- forecast is 30 days old; at 7 days R0's two forecasts are checked
+        -- against R2's values (the ones CAPR_FORECAST_ACCURACY scores above).
+        DBMS_OUTPUT.PUT_LINE('=== results layer: CAPR_FIT_TRACK (R0 forecasts vs R2) ===');
+        SELECT COUNT(*) INTO v_n
+          FROM cap_fit_hist h
+          LEFT JOIN capr_forecast_points p
+            ON p.kind = h.kind AND p.dbid = h.dbid AND p.con_dbid = h.con_dbid AND p.series = h.series
+           AND p.method = 'REGR' AND p.horizon_days = 30
+         WHERE h.run_id = run_2
+           AND DECODE(h.proj_30, p.value, 0, 1) + DECODE(h.proj_30_lo, p.lo, 0, 1)
+               + DECODE(h.proj_30_hi, p.hi, 0, 1) > 0;
+        chk_int ('R2 fits carry the +30 point and band of CAPR_FORECAST_POINTS (mismatches)', v_n, 0);
+        SELECT COUNT(h.proj_30), COUNT(CASE WHEN h.proj_30_hi > h.proj_30_lo THEN 1 END),
+               MAX(CASE WHEN h.kind = 'TBSPC' AND h.series = 'FIX_LINEAR' THEN h.proj_30 END)
+          INTO v_a, v_b, v_c FROM cap_fit_hist h WHERE h.run_id = run_2;
+        chk_true ('R2: fits with a +30 point and with a band (got ' || v_a || ' / ' || v_b || ')', v_a > 0 AND v_b > 0);
+        chk_close('R2 FIX_LINEAR proj_30 = LINEAR_CUR + 30 x slope', v_c, meta_n('LINEAR_CUR') + 30 * n_slope, 1e-9);
+        SELECT COUNT(*), COUNT(CASE WHEN n_forecasts = 0 AND reliability = 'UNKNOWN' AND band_factor IS NULL THEN 1 END),
+               MIN(run_id), MAX(run_id)
+          INTO v_n, v_a, v_b, v_c FROM capr_fit_track;
+        chk_true ('track at horizon 30: one row per fit of R2, nothing to check, all UNKNOWN (got ' || v_n || ' / ' || v_a || ')',
+                  v_n = n_fit AND v_a = n_fit AND v_b = run_2 AND v_c = run_2);
+        knob('accuracy_horizon_days', 7);
+        SELECT COUNT(*), MIN(series), MAX(series), SUM(n_forecasts) INTO v_n, v_s1, v_s2, v_a
+          FROM capr_fit_track WHERE n_forecasts > 0;
+        chk_true ('track at horizon 7: FIX_LINEAR and FIX_ZIGZAG, one checked forecast each (got ' || v_n || ' ' || v_s1 || ' ' || v_s2 || ')',
+                  v_n = 2 AND v_s1 = 'FIX_LINEAR' AND v_s2 = 'FIX_ZIGZAG' AND v_a = 2);
+        SELECT abs_err_pct, bias_pct, reliability INTO v_a, v_b, v_str
+          FROM capr_fit_track WHERE kind = 'TBSPC' AND series = 'FIX_LINEAR';
+        chk_true ('track FIX_LINEAR: error 0, bias 0, UNKNOWN (1 of 8) (got ' || v_a || ' ' || v_b || ' ' || v_str || ')',
+                  v_a = 0 AND v_b = 0 AND v_str = 'UNKNOWN');
+        -- zz(LAST) = zz(LAST - 7) + 7 x slope_then + the error, all from the fixture.
+        v_d := (12800 + 1280 * 113 - 2560) * 8192 + 7 * meta_n('ZZ_ACC7_SLOPE') + meta_n('ZZ_ACC7_ERR');
+        SELECT (proj_30_hi - proj_30_lo) / 2 INTO v_c FROM cap_fit_hist
+         WHERE run_id = run_0 AND kind = 'TBSPC' AND series = 'FIX_ZIGZAG';
+        SELECT abs_err_pct, bias_pct, n_banded, band_hits, horizon_days INTO v_a, v_b, v_num, v_num2, v_n
+          FROM capr_fit_track WHERE kind = 'TBSPC' AND series = 'FIX_ZIGZAG';
+        chk_close('track FIX_ZIGZAG bias_pct = ROUND(100 x ZZ_ACC7_ERR / zz(LAST), 2)', v_b,
+                  ROUND(100 * meta_n('ZZ_ACC7_ERR') / v_d, 2), 1e-9);
+        chk_true ('track FIX_ZIGZAG: abs_err_pct = |bias_pct|, one banded forecast, inside R0''s band or not by its half-width (got '
+                  || v_a || ' ' || v_num || ' ' || v_num2 || ', half ' || v_c || ')',
+                  v_a = ABS(v_b) AND v_num = 1 AND v_n = 7 AND v_c > 0
+                  AND v_num2 = CASE WHEN ABS(meta_n('ZZ_ACC7_ERR')) <= v_c THEN 1 ELSE 0 END);
+        knob('accuracy_horizon_days', 30);
+
         DBMS_OUTPUT.PUT_LINE('=== results layer: resolve (grace), reopen ===');
         SELECT cfg_value INTO v_old FROM cap_config WHERE cfg_name = 'dtf_warn';
         knob('dtf_warn', 1);
@@ -5877,7 +5926,24 @@ BEGIN
         SELECT ack_until, ack_note, ack_by INTO v_dt, v_s1, v_s2 FROM cap_alert_state WHERE state_key = v_skey;
         chk_true('ack: ack_until tomorrow, note, ack_by = SESSION_USER (got ' || v_s2 || ')',
                  v_dt = TRUNC(SYSDATE) + 1 AND v_s1 = 'known spike' AND v_s2 = SYS_CONTEXT('USERENV', 'SESSION_USER'));
+        SELECT COUNT(CASE WHEN acked = 'Y' THEN 1 END),
+               COUNT(CASE WHEN acked = 'Y' AND state_key = v_skey THEN 1 END),
+               COUNT(CASE WHEN state_key = v_skey THEN 1 END),
+               COUNT(CASE WHEN acked = 'N' THEN 1 END), COUNT(*)
+          INTO v_a, v_b, v_c, v_d, v_n FROM capr_alert_events;
+        chk_true('ack: CAPR_ALERT_EVENTS.acked Y on that alert''s events, N on every other (got ' || v_a || ' Y of ' || v_n || ')',
+                 v_a = v_b AND v_b = v_c AND v_c >= 1 AND v_a + v_d = v_n);
+        SELECT MAX(column_name) KEEP (DENSE_RANK LAST ORDER BY column_id) INTO v_s1
+          FROM all_tab_columns
+         WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND table_name = 'CAPR_ALERT_EVENTS';
+        chk_str ('CAPR_ALERT_EVENTS: acked is the last column', v_s1, 'ACKED');
+        cap_results.ack(v_skey, SYSDATE - 1 / 24);
+        SELECT COUNT(CASE WHEN acked = 'Y' THEN 1 END) INTO v_a FROM capr_alert_events;
+        chk_int ('an ack that ran out an hour ago: acked N again', v_a, 0);
+        cap_results.ack(v_skey, TRUNC(SYSDATE) + 1);
         cap_results.unack(v_skey);
+        SELECT COUNT(CASE WHEN acked = 'Y' THEN 1 END) INTO v_a FROM capr_alert_events;
+        chk_int ('unack: no event reads acked Y', v_a, 0);
         SELECT COUNT(*) INTO v_n FROM capr_alerts_latest WHERE state_key = v_skey;
         chk_int ('unack: back in CAPR_ALERTS_LATEST', v_n, 1);
         SELECT last_alert_key INTO v_akey FROM cap_alert_state WHERE state_key = v_okey;
@@ -5973,6 +6039,201 @@ BEGIN
         WHEN OTHERS THEN
             restore_usage;
             fail('results-layer block raised ' || SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
+    END;
+
+    -- ================================================================
+    -- CAPR_FIT_TRACK on a designed run history. The fixture's runs are all
+    -- of one day, so the history is seeded: one OK run per data day (run_id
+    -- 1000 - j for day LAST - j, all below the real runs), five series of
+    -- kind SERIES whose newest row sits in the newest real run. Every actual
+    -- is 1000 and every slope 2, so a forecast issued at value 940 - e is
+    -- wrong by e after 30 days, e / 10 percent. Savepoint DML, rolled back.
+    --   TRK_WIDE  10 forecasts, half-width 40, errors -30 -10 5 10 20 20 40
+    --             50 60 80: median |e| 2.5%, bias 2%, 7 inside, the 90th
+    --             percentile of |e| / 40 is 1.5 + 0.1 * 0.5 = 1.55
+    --   TRK_BIAS  8 forecasts, errors -120 .. -190, two bands of width 0
+    --   TRK_GOOD  8 forecasts, errors +-1 .. +-4, half-width 10
+    --   TRK_FEW   6 forecasts + one whose outcome day is missing (the value
+    --             2 days later stands in, elapsed 32) + one with no outcome
+    --   TRK_OLD   8 forecasts stored without a band + one with a band whose
+    --             outcome day is missing with a value on both sides
+    -- ================================================================
+    DECLARE
+        d0     DATE := meta_d('LAST_DAY');
+        r_now  NUMBER;
+        n_real NUMBER;
+        v_rel  VARCHAR2(16);
+        v_sum  VARCHAR2(400);
+        v_a    NUMBER; v_b NUMBER;
+        v_f    NUMBER; v_lo NUMBER; v_hi NUMBER; v_nb NUMBER; v_h NUMBER; v_hp NUMBER;
+        TYPE num_list IS TABLE OF NUMBER;
+        e_wide num_list := num_list(-30, -10, 5, 10, 20, 20, 40, 50, 60, 80);
+        e_good num_list := num_list(-4, -3, -2, -1, 1, 2, 3, 4);
+
+        -- Day LAST - p_j of a series: the newest day lives in the newest run.
+        PROCEDURE fit(p_series VARCHAR2, p_j NUMBER, p_value NUMBER, p_slope NUMBER, p_half NUMBER,
+                      p_run NUMBER DEFAULT NULL) IS
+        BEGIN
+            INSERT INTO cap_fit_hist (run_id, kind, dbid, con_dbid, series, as_of_day, db, unit, quality,
+                                      value, slope_per_day, last_day, is_current, proj_30, proj_30_lo, proj_30_hi)
+            VALUES (NVL(p_run, CASE WHEN p_j = 0 THEN r_now ELSE 1000 - p_j END), 'SERIES', v_dbid, v_dbid,
+                    p_series, d0 - p_j, 'TRACK', 'count', 'OK', p_value, p_slope, d0 - p_j, 1,
+                    CASE WHEN p_half IS NOT NULL THEN p_value + 30 * p_slope END,
+                    p_value + 30 * p_slope - p_half, p_value + 30 * p_slope + p_half);
+        END;
+        PROCEDURE trk(p_series VARCHAR2, p_n NUMBER, p_abs NUMBER, p_bias NUMBER, p_nb NUMBER, p_hits NUMBER,
+                      p_factor NUMBER, p_rel VARCHAR2) IS
+            v_n NUMBER; v_a NUMBER; v_b NUMBER;
+        BEGIN
+            SELECT n_forecasts, abs_err_pct, bias_pct, n_banded, band_hits, band_factor, reliability
+              INTO v_n, v_a, v_b, v_nb, v_h, v_f, v_rel
+              FROM capr_fit_track WHERE kind = 'SERIES' AND dbid = v_dbid AND series = p_series;
+            chk_true('track ' || p_series || ': n ' || p_n || ', median |error| ' || p_abs || '%, bias ' || p_bias
+                     || '%, banded ' || p_nb || ', hits ' || NVL(TO_CHAR(p_hits), 'NULL') || ', factor '
+                     || NVL(TO_CHAR(p_factor), 'NULL') || ', ' || p_rel || ' (got ' || v_n || ' ' || v_a || ' ' || v_b
+                     || ' ' || v_nb || ' ' || NVL(TO_CHAR(v_h), 'NULL') || ' ' || NVL(TO_CHAR(v_f), 'NULL') || ' ' || v_rel || ')',
+                     v_n = p_n AND v_a = p_abs AND v_b = p_bias AND v_nb = p_nb
+                     AND (v_h = p_hits OR (v_h IS NULL AND p_hits IS NULL))
+                     AND (v_f = p_factor OR (v_f IS NULL AND p_factor IS NULL)) AND v_rel = p_rel);
+        END;
+    BEGIN
+        DBMS_OUTPUT.PUT_LINE('=== CAPR_FIT_TRACK: designed run history ===');
+        SELECT accuracy_horizon_days * 1e12 + accuracy_window_days * 1e9 + calib_quantile_pct * 1e6
+               + calib_min_forecasts * 1e3 + calib_bias_pct, calib_wide_factor
+          INTO v_num, v_num2 FROM cap_cfg;
+        chk_true('track knobs (shipped): horizon 30, window 180, quantile 90, minimum 8, bias 10, wide factor 1.5',
+                 v_num = 30180090008010 AND v_num2 = 1.5);
+        SELECT MAX(run_id) INTO r_now FROM cap_run WHERE status = 'OK';
+        SELECT COUNT(*), COUNT(CASE WHEN n_forecasts = 0 AND reliability = 'UNKNOWN' AND abs_err_pct IS NULL
+                                     AND bias_pct IS NULL AND n_banded = 0 AND band_hits IS NULL
+                                     AND band_hit_pct IS NULL AND band_factor IS NULL
+                                     AND proj_30_lo_cal IS NULL AND proj_30_hi_cal IS NULL
+                                     AND summary = 'No 30-day forecast is old enough to check yet.' THEN 1 END)
+          INTO n_real, v_n FROM capr_fit_track;
+        SELECT COUNT(*) INTO v_num FROM cap_fit_hist WHERE run_id = r_now;
+        chk_true('track, runs of one day only: one row per fit of the newest OK run, each UNKNOWN with no numbers (got '
+                 || n_real || ' rows, ' || v_n || ' empty, ' || v_num || ' fits)',
+                 n_real = v_num AND v_n = n_real AND n_real > 0);
+
+        SAVEPOINT trk_seed;
+        INSERT INTO cap_run (run_id, as_of_day, deploy_mode, started_at, ended_at, status, backdated)
+        SELECT 1000 - (LEVEL - 1), d0 - (LEVEL - 1), 'fixture', SYSTIMESTAMP, SYSTIMESTAMP, 'OK', 'N'
+          FROM dual CONNECT BY LEVEL <= 61;
+        FOR k IN 0 .. 9 LOOP
+            fit('TRK_WIDE', k,      1000,              2, 50);
+            fit('TRK_WIDE', 30 + k, 940 - e_wide(k + 1), 2, 40);
+        END LOOP;
+        -- An older run that saw the same day: the newest run of a day counts.
+        fit('TRK_WIDE', 30, 0, 2, 40, p_run => 941);
+        FOR k IN 0 .. 7 LOOP
+            fit('TRK_BIAS', k,      1000,                   2, 50);
+            fit('TRK_BIAS', 30 + k, 940 + 120 + 10 * k,     2, CASE WHEN k < 2 THEN 0 ELSE 200 END);
+            fit('TRK_GOOD', k,      1000,                   2, 50);
+            fit('TRK_GOOD', 30 + k, 940 - e_good(k + 1),    2, 10);
+            fit('TRK_OLD',  k,      1000,                   2, 50);
+            fit('TRK_OLD',  30 + k, 940 - 5,                2, NULL);
+        END LOOP;
+        FOR k IN 0 .. 5 LOOP
+            fit('TRK_FEW', k,      1000,          2, 50);
+            fit('TRK_FEW', 30 + k, 940 - 10 * k,  2, 100);
+        END LOOP;
+        -- Day LAST - 7 is missing: LAST - 5 stands in (elapsed 32, error 70).
+        -- The forecast of LAST - 45 has no value within 2 days of LAST - 15.
+        fit('TRK_FEW', 37, 1000 - 32 * 2 - 70, 2, 100);
+        fit('TRK_FEW', 45, 500, 2, 100);
+        -- Day LAST - 10 is missing, LAST - 11 reads 2000 and LAST - 9 1000:
+        -- the earlier one stands in (elapsed 29, error 100 = 5%, inside 150).
+        fit('TRK_OLD', 9,  1000, NULL, NULL);
+        fit('TRK_OLD', 11, 2000, NULL, NULL);
+        fit('TRK_OLD', 40, 2000 - 29 * 2 - 100, 2, 150);
+
+        SELECT COUNT(*), COUNT(CASE WHEN n_forecasts = 0 AND reliability = 'UNKNOWN' THEN 1 END)
+          INTO v_n, v_a FROM capr_fit_track WHERE series NOT LIKE 'TRK\_%' ESCAPE '\';
+        chk_true('track: the seeded history leaves the fixture series alone (got ' || v_n || ' rows, ' || v_a || ' empty)',
+                 v_n = n_real AND v_a = n_real);
+        trk('TRK_WIDE', 10, 2.5,  2,     10, 7,    1.55, 'WIDE');
+        trk('TRK_BIAS', 8,  15.5, -15.5, 6,  6,    NULL, 'BIASED');
+        trk('TRK_GOOD', 8,  0.25, 0,     8,  8,    1,    'GOOD');
+        trk('TRK_FEW',  7,  3,    3,     7,  7,    NULL, 'UNKNOWN');
+        trk('TRK_OLD',  9,  0.5,  0.5,   1,  1,    NULL, 'GOOD');
+        SELECT band_hit_pct, proj_30, proj_30_lo_cal, proj_30_hi_cal, summary, horizon_days, run_id
+          INTO v_hp, v_num, v_lo, v_hi, v_sum, v_a, v_b FROM capr_fit_track WHERE series = 'TRK_WIDE';
+        chk_true('track TRK_WIDE: band_hit_pct 70, calibrated +30 band 1060 -/+ 1.55 * 50 = 982.5 .. 1137.5, horizon 30, newest run (got '
+                 || v_hp || ' ' || v_lo || ' .. ' || v_hi || ')',
+                 v_hp = 70 AND v_num = 1060 AND v_lo = 982.5 AND v_hi = 1137.5 AND v_a = 30 AND v_b = r_now);
+        chk_str ('track TRK_WIDE summary', v_sum,
+                 '10 forecasts checked after 30 days: median error 2.5%, bias +2.0%, 7 of 10 inside the 95% band, band widened x1.55.');
+        SELECT proj_30_lo_cal, proj_30_hi_cal, proj_30_lo, proj_30_hi, summary INTO v_lo, v_hi, v_a, v_b, v_sum
+          FROM capr_fit_track WHERE series = 'TRK_GOOD';
+        chk_true('track TRK_GOOD: band_factor never below 1 (percentile 0.4), calibrated band = the issued one 1010 .. 1110 (got '
+                 || v_lo || ' .. ' || v_hi || ')', v_lo = 1010 AND v_hi = 1110 AND v_a = 1010 AND v_b = 1110);
+        chk_str ('track TRK_GOOD summary', v_sum,
+                 '8 forecasts checked after 30 days: median error 0.3%, bias 0.0%, 8 of 8 inside the 95% band.');
+        SELECT summary, proj_30_lo_cal INTO v_sum, v_lo FROM capr_fit_track WHERE series = 'TRK_FEW';
+        chk_str ('track TRK_FEW summary (below the minimum, no factor)', v_sum,
+                 '7 forecasts checked after 30 days (a grade needs 8): median error 3.0%, bias +3.0%, 7 of 7 inside the 95% band.');
+        chk_true('track TRK_FEW: no calibrated band without a factor', v_lo IS NULL);
+        SELECT summary INTO v_sum FROM capr_fit_track WHERE series = 'TRK_BIAS';
+        chk_str ('track TRK_BIAS summary (a band of width 0 is not judged)', v_sum,
+                 '8 forecasts checked after 30 days: median error 15.5%, bias -15.5%, 6 of 6 inside the 95% band.');
+        SELECT LISTAGG(series, ' ') WITHIN GROUP (ORDER BY rank_track) INTO v_sum
+          FROM capr_fit_track WHERE dbid = v_dbid AND rank_track <= 5;
+        chk_str ('track rank: BIASED, WIDE, GOOD by error, then UNKNOWN', v_sum,
+                 'TRK_BIAS TRK_WIDE TRK_OLD TRK_GOOD TRK_FEW');
+
+        -- The knobs. Each flip is undone by the next line.
+        knob('accuracy_window_days', 5);
+        trk('TRK_WIDE', 5, 1, 0.5, 5, 5, NULL, 'UNKNOWN');
+        knob('accuracy_window_days', 180);
+        knob('calib_quantile_pct', 50);
+        trk('TRK_WIDE', 10, 2.5, 2, 10, 7, 1, 'GOOD');
+        knob('calib_quantile_pct', 100);
+        trk('TRK_WIDE', 10, 2.5, 2, 10, 7, 2, 'WIDE');
+        knob('calib_quantile_pct', 90);
+        knob('calib_wide_factor', 1.6);
+        trk('TRK_WIDE', 10, 2.5, 2, 10, 7, 1.55, 'GOOD');
+        knob('calib_wide_factor', 1.5);
+        knob('calib_bias_pct', 1.5);
+        trk('TRK_WIDE', 10, 2.5, 2, 10, 7, 1.55, 'BIASED');
+        knob('calib_bias_pct', 10);
+        knob('calib_min_forecasts', 11);
+        trk('TRK_WIDE', 10, 2.5, 2, 10, 7, NULL, 'UNKNOWN');
+        knob('calib_min_forecasts', 7);
+        trk('TRK_FEW', 7, 3, 3, 7, 7, 1, 'GOOD');
+        knob('calib_min_forecasts', 8);
+        -- Horizon 28: a TRK_GOOD forecast finds its value 28 days on, or the
+        -- nearest stored one up to 2 days later (days LAST - 8 and - 9 are not stored).
+        knob('accuracy_horizon_days', 28);
+        SELECT n_forecasts, horizon_days INTO v_a, v_b FROM capr_fit_track WHERE series = 'TRK_GOOD';
+        chk_true('accuracy_horizon_days 28: TRK_GOOD checks the 8 forecasts at 28..30 days (got ' || v_a || ')',
+                 v_a = 8 AND v_b = 28);
+        knob('accuracy_horizon_days', 60);
+        SELECT COUNT(CASE WHEN n_forecasts > 0 THEN 1 END) INTO v_a FROM capr_fit_track;
+        chk_int ('accuracy_horizon_days 60: no stored pair is that far apart', v_a, 0);
+        knob('accuracy_horizon_days', 6);
+        knob('calib_quantile_pct', 40);
+        knob('calib_wide_factor', 0.5);
+        SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+         WHERE knob IN ('accuracy_horizon_days', 'calib_quantile_pct', 'calib_wide_factor') AND status = 'BAD';
+        chk_int ('CAP_CFG_CHECK BAD: accuracy_horizon_days 6, calib_quantile_pct 40, calib_wide_factor 0.5', v_n, 3);
+        ROLLBACK TO SAVEPOINT trk_seed;
+        SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+         WHERE (knob LIKE 'accuracy\_%' ESCAPE '\' OR knob LIKE 'calib\_%' ESCAPE '\') AND status = 'OK';
+        chk_int ('CAP_CFG_CHECK: the six track knobs OK after the rollback', v_n, 6);
+        SELECT COUNT(*) INTO v_n FROM capr_fit_track WHERE series LIKE 'TRK\_%' ESCAPE '\';
+        chk_int ('track: the seeded series are gone after the rollback', v_n, 0);
+
+        -- No run at all: no rows, and the view still answers.
+        SAVEPOINT trk_empty;
+        DELETE FROM cap_fit_hist;
+        DELETE FROM cap_run;
+        SELECT COUNT(*) INTO v_n FROM capr_fit_track;
+        chk_int ('track on empty results tables (rows)', v_n, 0);
+        ROLLBACK TO SAVEPOINT trk_empty;
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            fail('track-record block raised ' || SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
     END;
 
     -- CAPR_SEGMENT_GROWTH: FIX_FILLING's three segments take 7 / 2 / 1 MiB

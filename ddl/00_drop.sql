@@ -23,6 +23,7 @@ DECLARE
     TYPE name_list IS TABLE OF VARCHAR2(30);
     v_views name_list := name_list(
         'CAPR_FORECAST_ACCURACY',
+        'CAPR_FIT_TRACK',
         'CAPR_WEEKLY_DIGEST',
         'CAPR_FIT_HISTORY',
         'CAPR_COVERAGE',

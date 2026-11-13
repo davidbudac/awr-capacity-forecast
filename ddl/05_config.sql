@@ -139,6 +139,12 @@ USING (
     UNION ALL SELECT 'resolve_grace_runs',      2,        'Results layer: consecutive refresh runs an OPEN alert must be missing from CAPR_ALERTS before CAP_RESULTS.refresh marks it RESOLVED.' FROM dual
     UNION ALL SELECT 'refresh_stale_hours',    36,        'Results layer: CAPR_RUNS.stale_run = Y when the last OK live refresh run ended at least this many hours ago, or none ever did.' FROM dual
     UNION ALL SELECT 'digest_days',             7,        'Results layer: CAPR_WEEKLY_DIGEST compares the latest run with the latest run whose as_of_day is at least this many days earlier.' FROM dual
+    UNION ALL SELECT 'accuracy_horizon_days',  30,        'Track record (CAPR_FIT_TRACK): a stored forecast is checked against the stored value this many days later (the nearest within 2 days). The band test uses the +30 band.' FROM dual
+    UNION ALL SELECT 'accuracy_window_days',  180,        'Track record: only forecasts whose outcome day lies within this many days of the newest refresh run count.' FROM dual
+    UNION ALL SELECT 'calib_quantile_pct',     90,        'Track record: band_factor is the factor that makes the issued +30 band contain this percent of the checked forecast errors (never below 1).' FROM dual
+    UNION ALL SELECT 'calib_min_forecasts',     8,        'Track record: checked forecasts a series needs for a reliability grade, and banded ones for a band_factor. Fewer = UNKNOWN / NULL.' FROM dual
+    UNION ALL SELECT 'calib_wide_factor',     1.5,        'Track record: reliability WIDE when band_factor is above this ratio (the issued band was too narrow by more than that).' FROM dual
+    UNION ALL SELECT 'calib_bias_pct',         10,        'Track record: reliability BIASED when the median signed forecast error is beyond this percent of the actual value, either way.' FROM dual
     UNION ALL SELECT 'seg_window_days',        28,        'CAPR_SEGMENT_GROWTH: trailing days (up to the dbid''s newest snapshot) over which segment growth is summed for the "who is filling it" ranking.' FROM dual
     UNION ALL SELECT 'anomaly_hour_grain',      1,        'CAPA_OBS: 1 = score CPU per hour too (HOUR_OF_WEEK), 0 = day grain only: no HOUR rows, so no hourly anomalies, alerts or ring tooltips (cheaper on long hourly AWR).' FROM dual
     UNION ALL SELECT 'repo_retention_days',   400,        'Repository mode: cap_repo.purge deletes the CAP_H_* copies of snapshots that ended more than this many days ago, and older CAP_COLLECT_LOG rows. 0 = keep everything.' FROM dual
@@ -251,6 +257,12 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'resolve_grace_runs'     THEN cfg_value END) AS resolve_grace_runs,
        MAX(CASE WHEN cfg_name = 'refresh_stale_hours'    THEN cfg_value END) AS refresh_stale_hours,
        MAX(CASE WHEN cfg_name = 'digest_days'            THEN cfg_value END) AS digest_days,
+       MAX(CASE WHEN cfg_name = 'accuracy_horizon_days'  THEN cfg_value END) AS accuracy_horizon_days,
+       MAX(CASE WHEN cfg_name = 'accuracy_window_days'   THEN cfg_value END) AS accuracy_window_days,
+       MAX(CASE WHEN cfg_name = 'calib_quantile_pct'     THEN cfg_value END) AS calib_quantile_pct,
+       MAX(CASE WHEN cfg_name = 'calib_min_forecasts'    THEN cfg_value END) AS calib_min_forecasts,
+       MAX(CASE WHEN cfg_name = 'calib_wide_factor'      THEN cfg_value END) AS calib_wide_factor,
+       MAX(CASE WHEN cfg_name = 'calib_bias_pct'         THEN cfg_value END) AS calib_bias_pct,
        MAX(CASE WHEN cfg_name = 'seg_window_days'        THEN cfg_value END) AS seg_window_days,
        MAX(CASE WHEN cfg_name = 'anomaly_hour_grain'     THEN cfg_value END) AS anomaly_hour_grain,
        MAX(CASE WHEN cfg_name = 'repo_retention_days'    THEN cfg_value END) AS repo_retention_days,
@@ -334,7 +346,9 @@ WITH u AS (
                series_floor_mbps, alert_modes_tbspc,
                alert_modes_cpu, alert_modes_series, stale_hours,
                data_stale_max_days, resolve_grace_runs, refresh_stale_hours,
-               digest_days, seg_window_days, anomaly_hour_grain,
+               digest_days, accuracy_horizon_days, accuracy_window_days,
+               calib_quantile_pct, calib_min_forecasts, calib_wide_factor,
+               calib_bias_pct, seg_window_days, anomaly_hour_grain,
                repo_retention_days, mem_window_days, mem_min_days,
                mem_pga_limit_pct, mem_max_step, mem_host_ram_pct,
                mem_min_uptime_hours, mem_gain_dbtime_pct, mem_shrink_dbtime_pct,
@@ -396,6 +410,18 @@ WITH u AS (
                         THEN 'must be > 0'
                    WHEN u.knob = 'digest_days'         AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
+                   WHEN u.knob = 'accuracy_horizon_days' AND (u.value <> TRUNC(u.value) OR u.value NOT BETWEEN 7 AND 90)
+                        THEN 'must be a whole number between 7 and 90'
+                   WHEN u.knob = 'accuracy_window_days' AND (u.value <> TRUNC(u.value) OR u.value < 1)
+                        THEN 'must be a whole number >= 1'
+                   WHEN u.knob = 'calib_quantile_pct'  AND (u.value < 50 OR u.value > 100)
+                        THEN 'must be between 50 and 100 (percent of the checked forecast errors)'
+                   WHEN u.knob = 'calib_min_forecasts' AND (u.value <> TRUNC(u.value) OR u.value < 2)
+                        THEN 'must be a whole number >= 2'
+                   WHEN u.knob = 'calib_wide_factor'   AND u.value < 1
+                        THEN 'must be >= 1: band_factor is never below 1'
+                   WHEN u.knob = 'calib_bias_pct'      AND u.value <= 0
+                        THEN 'must be > 0'
                    WHEN u.knob = 'seg_window_days'     AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
                    WHEN u.knob = 'reader_expiry_warn_days' AND (u.value <> TRUNC(u.value) OR u.value < 1)
