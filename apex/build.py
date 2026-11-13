@@ -2,17 +2,29 @@
 """Generate the AWR Capacity APEX application export and its smoke harness.
 
     python3 apex/build.py           writes apex/awrcap_app.sql
-    python3 apex/build.py --smoke   also writes apex/test/apex_smoke.sql
+    python3 apex/build.py --smoke   also writes apex/test/apex_smoke.sql and
+                                    apex/test/apex_probe.sql
+    python3 apex/build.py --check   writes nothing; exit 1 when one of the
+                                    three generated files is stale
 
 Everything is derived from two registries: COLLECTIONS (what each CAPR_ view
 is cached as, slot by slot) and PAGES (every region and its SQL).  The
 collection loader, the CTE prefix of every region query, the per-page load
-list and the smoke harness all come from them, so a column or a query is
-written exactly once.  Output is deterministic: ids come from a sequential
-allocator, so two runs produce byte-identical files.
+list, the smoke harness and the probe all come from them, so a column or a
+query is written exactly once.  Output is deterministic: ids come from a
+sequential allocator, so two runs produce byte-identical files.
+
+A new field: one (column, slot) pair in COLLECTIONS and one Col where it is
+shown.  A new view: one COLLECTIONS entry.  A new page: a Page in PAGES (its
+id a P_ constant).  The loader, the navigation and both test scripts follow.
+
+The smoke harness needs an APEX session.  The probe needs none: a table
+stands in for APEX_COLLECTIONS, so the same loader queries, region queries,
+LOVs and defaults run against any install of the suite (see emit_probe).
 """
 import argparse
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +33,7 @@ APP_ID, APP_ALIAS, APP_NAME = 110, 'AWRCAP', 'AWR Capacity'
 WORKSPACE = SCHEMA = 'AWRCAP'
 ID_BASE = 110_000_000_000_000
 RANGE_PAD_DAYS = 120
+P_OVERVIEW, P_TBSPC, P_CPU, P_ANOM, P_TARGETS, P_MEMORY = 1, 2, 3, 4, 5, 6
 
 # Universal Theme 42 (26.2) template ids; constant across installs.
 TPL = {
@@ -38,8 +51,14 @@ RED, AMBER, BLUE, GREY, GREEN = '#D63B25', '#F2A900', '#309FDB', '#8E8E8E', '#3B
 # d1..d5 DATE, c1..c50 VARCHAR2; 'cK:num' is a NUMBER kept in a text slot.
 COLLECTIONS = {
     'AWRCAP_CONTAINER': ('c_cont', 'select * from capr_container', [
-        ('db_pdb', 'c1'), ('db_name', 'c2'), ('con_name', 'c3'),
+        ('db_pdb', 'c1'), ('db_name', 'c2'), ('con_name', 'c3'), ('target_name', 'c4'),
         ('dbid', 'n1'), ('con_dbid', 'n2')]),
+    'AWRCAP_TARGETS': ('c_tgt', 'select * from capr_targets', [
+        ('target_name', 'c1'), ('db_name', 'c2'), ('feed', 'c3'), ('host_name', 'c4'), ('db_link', 'c5'),
+        ('enabled', 'c6'), ('is_stale', 'c7'), ('collect_state', 'c8'), ('last_error', 'c9'),
+        ('newest_snap', 'd1'), ('last_ok_at', 'd2'), ('last_error_at', 'd3'),
+        ('dbid', 'n1'), ('n_containers', 'n2'), ('age_hours', 'n3'), ('n_gaps', 'n4'),
+        ('collected_snap_id', 'n5')]),
     'AWRCAP_SERIES': ('c_series', 'select * from capr_series_points', [
         ('db', 'c1'), ('kind', 'c2'), ('series', 'c3'), ('unit', 'c4'), ('anomaly_flag', 'c5'),
         ('ts', 'd1'),
@@ -69,6 +88,28 @@ COLLECTIONS = {
         ('message', 'c6'),
         ('day_dt', 'd1'),
         ('sev_rank', 'n1'), ('value', 'n2'), ('threshold', 'n3')]),
+    'AWRCAP_MEM_VERDICT': ('c_memv', 'select * from capr_mem_verdict', [
+        ('db_pdb', 'c1'), ('area', 'c2'), ('area_label', 'c3'), ('mem_mode', 'c4'), ('grade', 'c5'),
+        ('reason', 'c6'), ('reason_text', 'c7'), ('actionable', 'c8'), ('current_size', 'c9'),
+        ('suggested_size', 'c10'), ('suggested_param', 'c11'), ('exceeds_host_ram', 'c12'),
+        ('exceeds_sga', 'c13'), ('headline', 'c14'),
+        ('window_start', 'd1'), ('window_end', 'd2'),
+        ('instance_number', 'n1'), ('area_rank', 'n2'), ('current_bytes', 'n3'), ('suggested_bytes', 'n4'),
+        ('change_pct', 'n5'),
+        ('n_evidence', 'c15:num'), ('n_pressure', 'c16:num'), ('n_days', 'c17:num'), ('rank_mem', 'c18:num')]),
+    'AWRCAP_MEM_EVIDENCE': ('c_meme', 'select * from capr_mem_evidence', [
+        ('db_pdb', 'c1'), ('area', 'c2'), ('area_label', 'c3'), ('kind', 'c4'), ('signal', 'c5'),
+        ('direction', 'c6'), ('unit', 'c7'), ('evidence_text', 'c8'),
+        ('observed_at', 'd1'),
+        ('instance_number', 'n1'), ('area_rank', 'n2'), ('value', 'n3'), ('threshold', 'n4'), ('rank_ev', 'n5')]),
+    # CAPR_MEM_COMP_POINTS has no label column: db_pdb comes from CAPR_CONTAINER (instance rows, con_dbid = dbid).
+    'AWRCAP_MEM_POINTS': ('c_memp', 'select p.instance_number, p.component, p.ts, p.bytes, p.min_bytes, '
+                                    'p.max_bytes, p.ops, nvl(c.db_pdb, to_char(p.dbid)) db_pdb '
+                                    'from capr_mem_comp_points p left join capr_container c '
+                                    'on c.dbid = p.dbid and c.con_dbid = p.con_dbid', [
+        ('db_pdb', 'c1'), ('component', 'c2'),
+        ('ts', 'd1'),
+        ('instance_number', 'n1'), ('bytes', 'n2'), ('min_bytes', 'n3'), ('max_bytes', 'n4'), ('ops', 'n5')]),
     'AWRCAP_META': ('c_meta', 'select {} , sysdate loaded_at from cap_config'.format(', '.join(
         f"max(case when cfg_name = '{k}' then cfg_value end) {k}" for k in (
             'cpu_sat_pct', 'dtf_warn', 'dtf_crit', 'nearfull_warn_pct', 'nearfull_crit_pct',
@@ -77,6 +118,8 @@ COLLECTIONS = {
         ('nearfull_crit_pct', 'n5'), ('series_sat_pct', 'c1:num'), ('anomaly_report_days', 'c2:num'),
         ('loaded_at', 'd1')]),
 }
+# Columns that move between two reads of a view (SYSDATE inside): the fidelity checks skip them.
+VOLATILE = {'loaded_at', 'age_hours', 'is_stale'}
 NLS = "'NLS_NUMERIC_CHARACTERS=''.,'''"
 NUM_MASK = "'" + '9' * 26 + 'D' + '9' * 10 + "'"
 
@@ -111,16 +154,17 @@ def cte(name):
 
 
 def loader_query(name):
-    """The positional select list queryb2 wants: n001..n005, d001..d005, c001.."""
+    """The positional select list queryb2 wants: n001..n005, d001..d005, c001..
+    The aliases are for the probe, whose stand-in table has columns of those names."""
     _, source, cols = COLLECTIONS[name]
     by_slot = {}
     for col, slot in cols:
         kind, n, numeric = parse_slot(slot)
         by_slot[kind, n] = f"to_char(round({col}, 10), 'TM9', {NLS})" if numeric else col
     width = max([n for k, n in by_slot if k == 'c'] or [0])
-    sel = [by_slot.get(('n', i), 'cast(null as number)') for i in range(1, 6)]
-    sel += [by_slot.get(('d', i), 'cast(null as date)') for i in range(1, 6)]
-    sel += [by_slot.get(('c', i), 'cast(null as varchar2(1))') for i in range(1, width + 1)]
+    slots = [('n', i, 'number') for i in range(1, 6)] + [('d', i, 'date') for i in range(1, 6)]
+    slots += [('c', i, 'varchar2(1)') for i in range(1, width + 1)]
+    sel = [f"{by_slot.get((kind, i), f'cast(null as {dtype})')} {slot_column(kind, i)}" for kind, i, dtype in slots]
     return f"select {', '.join(sel)} from ({source})"
 
 
@@ -138,8 +182,23 @@ D_TO = "to_date(:P0_TO default null on conversion error, 'YYYY-MM-DD')"
 GIB, MIB = 1073741824, 1048576
 
 
+def in_target(col):
+    """col holds a db_pdb label; a target owns the labels CAPR_CONTAINER lists under its name."""
+    return (f'(:P0_TARGET is null or {col} in (select t.db_pdb from c_cont t '
+            'where t.target_name = :P0_TARGET))')
+
+
 def in_db(col):
-    return f'(:P0_DB is null or {col} = :P0_DB)'
+    return f'((:P0_DB is null or {col} = :P0_DB) and {in_target(col)})'
+
+
+def target_of(col):
+    return f'(select max(t.target_name) from c_cont t where t.db_pdb = {col})'
+
+
+def as_v(sql):
+    """Item binds as v() calls: SQL inside the PL/SQL of an application process."""
+    return re.sub(r':(P0_\w+)', r"v('\1')", sql)
 
 
 def in_range(col):
@@ -176,9 +235,10 @@ HOST_SERIES = "('BUSY_PCT', 'BUSY_P95', 'BUSY_PEAK')"
 
 
 def host_scope(col):
-    """Host CPU is recorded under the CDB root, so a PDB filter selects its root's rows."""
-    return (f'(:P0_DB is null or {col} in (select r.db_pdb from c_cont r, c_cont c '
-            'where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid))')
+    """Host CPU is recorded under the CDB root, so a PDB filter selects its root's rows.
+    The memory verdicts and the PGA series are instance level and use the same scope."""
+    return (f'((:P0_DB is null or {col} in (select r.db_pdb from c_cont r, c_cont c '
+            f'where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and {in_target(col)})')
 
 
 def anom_scope(a):
@@ -198,9 +258,26 @@ class Col:
     html: str = None
 
 
-def sev_cols(expr, alias='SEV', heading='Severity'):
+def badge_cols(alias, expr, heading, css):
     return [Col(alias, expr, heading, html=f'<span class="t-Badge t-Badge--sm #{alias}_CSS#">#{alias}#</span>'),
-            Col(f'{alias}_CSS', sev_css(expr))]
+            Col(f'{alias}_CSS', css)]
+
+
+def sev_cols(expr, alias='SEV', heading='Severity'):
+    return badge_cols(alias, expr, heading, sev_css(expr))
+
+
+def case_of(expr, mapping, default=None):
+    whens = ' '.join(f"when '{value}' then '{result}'" for value, result in mapping.items())
+    return f"case {expr} {whens}{f' else {default}' if default else ''} end"
+
+
+# Feed units the app renames for display; any other unit is shown as the view gives it.
+UNIT_LABELS = {'io_per_sec': 'requests/s', 'mb_per_sec': 'MB/s'}
+
+
+def unit_label(col):
+    return case_of(f'lower({col})', UNIT_LABELS, default=col)
 
 
 def link_cols(alias, expr, heading, href):
@@ -213,10 +290,11 @@ ALERT_ORDER = 'order by a.sev_rank, a.day_dt desc'
 def alert_cols(series_heading='Series'):
     """CAPR_ALERTS columns; SEV_RANK stays hidden so reports can sort on it."""
     return [*sev_cols('a.severity'), Col('SEV_RANK', 'a.sev_rank'), Col('KIND', 'a.kind', 'Kind'),
+            Col('TARGET', target_of('a.db_pdb'), 'Target'),
             Col('DB', 'a.db_pdb', 'Database'), Col('SERIES', 'a.series_key', series_heading),
             Col('DAY', 'a.day_dt', 'Day', 'DATE'), Col('VALUE', 'round(a.value, 2)', 'Value', 'NUMBER'),
-            Col('THRESHOLD', 'round(a.threshold, 2)', 'Threshold', 'NUMBER'), Col('UNIT', 'a.unit', 'Unit'),
-            Col('MESSAGE', 'a.message', 'Message')]
+            Col('THRESHOLD', 'round(a.threshold, 2)', 'Threshold', 'NUMBER'),
+            Col('UNIT', unit_label('a.unit'), 'Unit'), Col('MESSAGE', 'a.message', 'Message')]
 
 
 @dataclass
@@ -282,7 +360,7 @@ class Item:
     lov: str = None
     null_text: str = None
     null_value: str = None
-    pages: tuple = None
+    pages: tuple = None  # None: every page with filters (FILTER_PAGES)
 
 
 @dataclass
@@ -327,22 +405,27 @@ def markers(title, sql, color=RED):
 
 
 ITEMS = [
+    Item('P0_TARGET', 'Target', 'select',
+         lov='select c.target_name d, c.target_name r from c_cont c where c.target_name is not null '
+             'group by c.target_name order by 1',
+         null_text='All targets'),
     Item('P0_DB', 'Database', 'select',
-         lov='select c.db_pdb d, c.db_pdb r from c_cont c order by c.db_pdb',
+         lov='select c.db_pdb d, c.db_pdb r from c_cont c '
+             'where (:P0_TARGET is null or c.target_name = :P0_TARGET) group by c.db_pdb order by 1',
          null_text='All databases'),
     Item('P0_TBSPC', 'Tablespace', 'select',
          lov="select f.series || case when :P0_DB is null then ' (' || f.db || ')' end d, "
              f"{tbspc_key('f')} r from c_fit f "
              f"where f.kind = 'TBSPC' and {in_db('f.db')} order by 1",
-         null_text='All tablespaces (observed only)', null_value='ALL', pages=(2,)),
+         null_text='All tablespaces (observed only)', null_value='ALL', pages=(P_TBSPC,)),
     Item('P0_FROM', 'From', 'date'),
     Item('P0_TO', 'To', 'date'),
     Item('P0_KIND', 'Anomaly kind', 'select',
          lov='select a.anomaly_kind d, a.anomaly_kind r from c_anom a group by a.anomaly_kind order by 1',
-         null_text='All kinds', pages=(4,)),
+         null_text='All kinds', pages=(P_ANOM,)),
     Item('P0_SEV', 'Severity', 'select',
          lov='select a.sev d, a.sev r from c_anom a group by a.sev order by min(a.sev_rank)',
-         null_text='All severities', pages=(4,)),
+         null_text='All severities', pages=(P_ANOM,)),
 ]
 DATA_BADGES = Report('Data', badges=True, cols=[
     Col('DATABASES', f"(select count(distinct s.db) from c_series s where {in_db('s.db')})", 'Databases', 'NUMBER'),
@@ -354,7 +437,7 @@ DATA_BADGES = Report('Data', badges=True, cols=[
 ], source='from dual', span=4, no_data='No AWR data loaded.',
    badge_options='#DEFAULT#:t-BadgeList--small:t-BadgeList--dash:t-BadgeList--cols t-BadgeList--4cols')
 
-OVERVIEW = Page(1, 'Overview', 'OVERVIEW', 'fa-home', [
+OVERVIEW = Page(P_OVERVIEW, 'Overview', 'OVERVIEW', 'fa-home', [
     Report('Summary', badges=True, cols=[
         Col('CRIT', f"(select count(*) from c_alert a where a.severity = 'CRIT' and {in_db('a.db_pdb')})",
             'Critical alerts', 'NUMBER'),
@@ -375,9 +458,10 @@ OVERVIEW = Page(1, 'Overview', 'OVERVIEW', 'fa-home', [
     IR('Current alerts', must=True, sort=(('SEV_RANK', 'ASC'), ('DAY', 'DESC')), cols=alert_cols(),
        source=f"from c_alert a where {in_db('a.db_pdb')}", no_data='No current alerts in scope.'),
     Report('Worst days to full', span=6, cols=[
+        Col('TARGET', target_of('f.db'), 'Target'),
         Col('DB', 'f.db', 'Database'),
         *link_cols('TABLESPACE', 'f.series', 'Tablespace',
-                   url(2, 'P0_DB,P0_TBSPC', f"f.db || ',' || {tbspc_key('f')}")),
+                   url(P_TBSPC, 'P0_DB,P0_TBSPC', f"f.db || ',' || {tbspc_key('f')}")),
         *sev_cols('f.sev'),
         Col('USED_PCT', 'round(f.pct, 1)', 'Used %', 'NUMBER'),
         Col('DTF', 'f.days_to_full', 'Days to full', 'NUMBER'),
@@ -392,7 +476,7 @@ OVERVIEW = Page(1, 'Overview', 'OVERVIEW', 'fa-home', [
                                          ('OK', "not in ('CRIT', 'WARN')", BLUE))]),
 ])
 
-TABLESPACES = Page(2, 'Tablespaces', 'TABLESPACES', 'fa-database', [
+TABLESPACES = Page(P_TBSPC, 'Tablespaces', 'TABLESPACES', 'fa-database', [
     Report('Tablespace summary', badges=True, cols=[
         Col('CRIT', f"(select count(*) from c_fit f where f.kind = 'TBSPC' and f.sev = 'CRIT' and {in_db('f.db')})",
             'Critical tablespaces', 'NUMBER'),
@@ -404,8 +488,9 @@ TABLESPACES = Page(2, 'Tablespaces', 'TABLESPACES', 'fa-database', [
                    f"where f.kind = 'TBSPC' and {in_db('f.db')})", 'Worst days to full'),
     ], source='from dual'),
     IR('Days to full', sort=(('DTF', 'ASC'), ('USED_PCT', 'DESC')), cols=[
+        Col('TARGET', target_of('f.db'), 'Target'),
         Col('DB', 'f.db', 'Database'),
-        *link_cols('TABLESPACE', 'f.series', 'Tablespace', url(2, 'P0_TBSPC', tbspc_key('f'))),
+        *link_cols('TABLESPACE', 'f.series', 'Tablespace', url(P_TBSPC, 'P0_TBSPC', tbspc_key('f'))),
         *sev_cols('f.sev'),
         Col('USED_PCT', 'round(f.pct, 1)', 'Used %', 'NUMBER'),
         Col('USED_GIB', scaled('f.value', GIB), 'Used GiB', 'NUMBER'),
@@ -449,8 +534,9 @@ TABLESPACES = Page(2, 'Tablespaces', 'TABLESPACES', 'fa-database', [
           ]),
     IR('Growth anomalies', sort=(('DAY', 'DESC'),), cols=[
         Col('DAY', 'a.ts', 'Day', 'DATE'),
+        Col('TARGET', target_of('a.db'), 'Target'),
         Col('DB', 'a.db', 'Database'),
-        *link_cols('TABLESPACE', 'a.series', 'Tablespace', url(2, 'P0_TBSPC', tbspc_key('a'))),
+        *link_cols('TABLESPACE', 'a.series', 'Tablespace', url(P_TBSPC, 'P0_TBSPC', tbspc_key('a'))),
         Col('ANOMALY_KIND', 'a.anomaly_kind', 'Kind'),
         *sev_cols('a.sev'),
         Col('GROWTH_GIB', scaled('a.value', GIB), 'Growth GiB', 'NUMBER'),
@@ -466,9 +552,24 @@ TABLESPACES = Page(2, 'Tablespaces', 'TABLESPACES', 'fa-database', [
            source=f"from c_alert a where a.kind like 'TBSPC%' and {in_db('a.db_pdb')}\n{ALERT_ORDER}"),
 ])
 
-WORKLOAD = (('SESSIONS', 'Sessions'), ('PROCESSES', 'Processes'), ('DB_SIZE_GB', 'Database size (GiB)'),
-            ('REDO_GB_DAY', 'Redo (GiB/day)'))
-CPU = Page(3, 'CPU and workload', 'CPU', 'fa-area-chart', [
+def series_chart(key, title, y_title, scope=in_db):
+    """One CAPD_SERIES_DAILY series: observed, REGR forecast with its band, and the limit when it has one."""
+    return Chart(title, 'line', span=6, height=300, y_title=y_title, series=[
+        Series('Observed', f"select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = 'SERIES' "
+                           f"and s.series = '{key}' and {scope('s.db')} and {in_range('s.ts')} order by s.ts",
+               name_col='NAME', width=2),
+        *forecast_band('SERIES', f"f.series = '{key}' and {scope('f.db')}", per_db=True),
+        limit_line('Limit', f"select f.limit_value value, f.db from c_fit f where f.kind = 'SERIES' "
+                            f"and f.series = '{key}' and {scope('f.db')}", name_expr="l.db || ' limit'"),
+    ])
+
+
+# series key, chart title, y axis.  IOPS / IO_MBPS (M27) have no limit: their limit line stays empty.
+WORKLOAD = (('SESSIONS', 'Sessions', 'sessions'), ('PROCESSES', 'Processes', 'processes'),
+            ('DB_SIZE_GB', 'Database size (GiB)', 'GiB'), ('REDO_GB_DAY', 'Redo (GiB/day)', 'GiB/day'),
+            ('IOPS', 'I/O requests per second (daily p95)', 'requests/s'),
+            ('IO_MBPS', 'I/O throughput MB/s (daily p95)', 'MB/s'))
+CPU = Page(P_CPU, 'CPU and workload', 'CPU', 'fa-area-chart', [
     Chart('Host CPU busy %', 'line', y_title='% busy', y_max=100, height=400,
           no_data='No host CPU in scope. Host CPU (OSSTAT) is recorded under the CDB root container; '
                   'select the CDB, one of its PDBs, or all databases.', series=[
@@ -496,11 +597,12 @@ CPU = Page(3, 'CPU and workload', 'CPU', 'fa-area-chart', [
                               "order by 3, 1", name_col='NAME', color=RED, width=5),
     ]),
     IR('CPU trend', sort=(('DTS', 'ASC'),), cols=[
+        Col('TARGET', target_of('f.db'), 'Target'),
         Col('DB', 'f.db', 'Database'),
         Col('METRIC', 'f.series', 'Metric'),
         *sev_cols('f.sev'),
         Col('CURRENT_VALUE', 'round(f.value, 1)', 'Current', 'NUMBER'),
-        Col('UNIT', 'f.unit', 'Unit'),
+        Col('UNIT', unit_label('f.unit'), 'Unit'),
         Col('SLOPE', 'round(f.slope_per_day, 3)', 'Slope/day', 'NUMBER'),
         Col('DTS', 'f.days_to_full', 'Days to saturation', 'NUMBER'),
         Col('DTS_LO', 'f.days_to_full_lo', 'Low', 'NUMBER'),
@@ -509,20 +611,14 @@ CPU = Page(3, 'CPU and workload', 'CPU', 'fa-area-chart', [
         Col('QUALITY', 'f.quality', 'Quality'),
     ], source=f"from c_fit f where f.kind = 'CPU' and (f.series in {HOST_SERIES} and {host_scope('f.db')} "
               f"or f.series not in {HOST_SERIES} and {in_db('f.db')})"),
-    *[Chart(title, 'line', span=6, height=300, series=[
-        Series('Observed', f"select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = 'SERIES' "
-                           f"and s.series = '{key}' and {in_db('s.db')} and {in_range('s.ts')} order by s.ts",
-               name_col='NAME', width=2),
-        *forecast_band('SERIES', f"f.series = '{key}' and {in_db('f.db')}", per_db=True),
-        limit_line('Limit', f"select f.limit_value value, f.db from c_fit f where f.kind = 'SERIES' "
-                            f"and f.series = '{key}' and {in_db('f.db')}", name_expr="l.db || ' limit'"),
-    ]) for key, title in WORKLOAD],
+    *[series_chart(key, title, y_title) for key, title, y_title in WORKLOAD],
     IR('Workload fits', sort=(('DTL', 'ASC'),), cols=[
+        Col('TARGET', target_of('f.db'), 'Target'),
         Col('DB', 'f.db', 'Database'),
         Col('SERIES', 'f.series', 'Series'),
         *sev_cols('f.sev'),
         Col('CURRENT_VALUE', 'round(f.value, 2)', 'Current', 'NUMBER'),
-        Col('UNIT', 'f.unit', 'Unit'),
+        Col('UNIT', unit_label('f.unit'), 'Unit'),
         Col('LIMIT_VALUE', 'round(f.limit_value, 2)', 'Limit', 'NUMBER'),
         Col('PCT', 'round(f.pct, 1)', '% of limit', 'NUMBER'),
         Col('DTL', 'f.days_to_full', 'Days to limit', 'NUMBER'),
@@ -538,8 +634,8 @@ CPU = Page(3, 'CPU and workload', 'CPU', 'fa-area-chart', [
 # The gantt colours tasks by a css class per anomaly kind; unknown kinds keep the JET default.
 KIND_CSS = '\n'.join(f'.oj-gantt .awrcap-kind-{k} {{ fill: {c} !important; }}'
                      for k, c in (('TBSPC_GROWTH', RED), ('CPU_BUSY', AMBER), ('CPU_SHIFT', BLUE)))
-ANOMALY_PAGE = "case a.kind when 'TBSPC' then 2 else 3 end"
-ANOMALIES = Page(4, 'Fleet anomalies', 'ANOMALIES', 'fa-warning', [
+ANOMALY_PAGE = f"case a.kind when 'TBSPC' then {P_TBSPC} else {P_CPU} end"
+ANOMALIES = Page(P_ANOM, 'Fleet anomalies', 'ANOMALIES', 'fa-warning', [
     Report('Anomaly summary', badges=True, cols=[
         Col('ANOMALIES', f"(select count(*) from c_anom a where {anom_scope('a')})", 'Anomalies in range', 'NUMBER'),
         Col('DATABASES', f"(select count(distinct a.db) from c_anom a where {anom_scope('a')})",
@@ -578,6 +674,7 @@ ANOMALIES = Page(4, 'Fleet anomalies', 'ANOMALIES', 'fa-warning', [
     IR('Anomalies', must=True, sort=(('DAY', 'DESC'), ('DB', 'ASC')), cols=[
         Col('DAY', 'a.ts', 'Day', 'DATE'),
         Col('END_DAY', 'a.obs_day', 'Observed until', 'DATE'),
+        Col('TARGET', target_of('a.db'), 'Target'),
         *link_cols('DB', 'a.db', 'Database', url(ANOMALY_PAGE, 'P0_DB', 'a.db')),
         *link_cols('SERIES', 'a.series', 'Series',
                    url(ANOMALY_PAGE, 'P0_DB,P0_TBSPC',
@@ -590,7 +687,7 @@ ANOMALIES = Page(4, 'Fleet anomalies', 'ANOMALIES', 'fa-warning', [
         Col('THRESHOLD', 'round(a.threshold, 2)', 'Threshold', 'NUMBER'),
         Col('Z', 'round(a.z, 1)', 'z', 'NUMBER'),
         Col('SHIFT_PCT', 'round(a.shift_pct, 1)', 'Shift', 'NUMBER'),
-        Col('UNIT', 'a.unit', 'Unit'),
+        Col('UNIT', unit_label('a.unit'), 'Unit'),
         Col('MESSAGE', 'a.message', 'Message'),
     ], source=f"from c_anom a where {anom_scope('a')}", no_data='No anomalies match the filters.'),
     Report('All alerts', cols=alert_cols(), no_data='No alerts match the filters.',
@@ -598,37 +695,167 @@ ANOMALIES = Page(4, 'Fleet anomalies', 'ANOMALIES', 'fa-warning', [
                   f"and (:P0_SEV is null or a.severity = :P0_SEV)\n{ALERT_ORDER}"),
 ], css=KIND_CSS)
 
-PAGES = [OVERVIEW, TABLESPACES, CPU, ANOMALIES]
+MINUTE = "'YYYY-MM-DD HH24:MI'"
+COLLECT_CSS = {'FAILING': 't-Badge--danger', 'NEVER': 't-Badge--warning', 'DISABLED': 't-Badge--info',
+               'OK': 't-Badge--success'}
+
+
+def target_dbs(t):
+    """The db_pdb labels of one CAPR_TARGETS row: a target and one of its DBIDs."""
+    return f'(select c.db_pdb from c_cont c where c.dbid = {t}.dbid)'
+
+
+# The fleet page lists every target whatever the filters say: it is where a target is picked.
+TARGETS = Page(P_TARGETS, 'Targets', 'TARGETS', 'fa-server', [
+    Report('Fleet summary', badges=True, cols=[
+        Col('TARGETS', '(select count(distinct t.target_name) from c_tgt t)', 'Targets', 'NUMBER'),
+        Col('CONTAINERS', '(select count(*) from c_cont c)', 'Containers', 'NUMBER'),
+        Col('STALE', "(select count(*) from c_tgt t where t.is_stale = 'Y')", 'Stale', 'NUMBER'),
+        Col('FAILING', "(select count(*) from c_tgt t where t.collect_state in ('FAILING', 'NEVER'))",
+            'Collect failing', 'NUMBER'),
+        Col('CRIT', "(select count(*) from c_alert a where a.severity = 'CRIT')", 'Critical alerts', 'NUMBER'),
+    ], source='from dual'),
+    IR('Targets', must=True, sort=(('TARGET', 'ASC'), ('DBID', 'ASC')), cols=[
+        *link_cols('TARGET', 't.target_name', 'Target',
+                   url(P_OVERVIEW, 'P0_TARGET,P0_DB,P0_TBSPC', "t.target_name || ',,'")),
+        Col('DBID', 'to_char(t.dbid)', 'DBID'),
+        Col('DB_NAME', 't.db_name', 'Database'),
+        Col('HOST_NAME', 't.host_name', 'Host'),
+        Col('FEED', 't.feed', 'Feed'),
+        Col('CONTAINERS', 't.n_containers', 'Containers', 'NUMBER'),
+        Col('NEWEST_SNAP', f'to_char(t.newest_snap, {MINUTE})', 'Newest snapshot'),
+        Col('AGE_HOURS', 'round(t.age_hours, 1)', 'Age (hours)', 'NUMBER'),
+        *badge_cols('FRESHNESS', "case t.is_stale when 'Y' then 'STALE' when 'N' then 'FRESH' end", 'Freshness',
+                    case_of('t.is_stale', {'Y': 't-Badge--warning', 'N': 't-Badge--success'})),
+        *badge_cols('COLLECT_STATE', 't.collect_state', 'Collect', case_of('t.collect_state', COLLECT_CSS)),
+        Col('CRIT', f"(select count(*) from c_alert a where a.severity = 'CRIT' and a.db_pdb in {target_dbs('t')})",
+            'Critical alerts', 'NUMBER'),
+        Col('WARN', f"(select count(*) from c_alert a where a.severity = 'WARN' and a.db_pdb in {target_dbs('t')})",
+            'Warnings', 'NUMBER'),
+        Col('DTF', f"(select min(f.days_to_full) from c_fit f where f.kind = 'TBSPC' and f.db in {target_dbs('t')})",
+            'Worst days to full', 'NUMBER'),
+        Col('LAST_OK', f'to_char(t.last_ok_at, {MINUTE})', 'Last collect'),
+        Col('LAST_ERROR_AT', f'to_char(t.last_error_at, {MINUTE})', 'Last error at'),
+        Col('LAST_ERROR', 't.last_error', 'Last error'),
+        Col('GAPS', 't.n_gaps', 'Gaps', 'NUMBER'),
+        Col('DB_LINK', 't.db_link', 'DB link'),
+        Col('ENABLED', 't.enabled', 'Enabled'),
+    ], source='from c_tgt t', no_data='No target is registered.'),
+    Chart('Hours since the newest snapshot', 'bar', horizontal=True, stack=True, time=None, sorting='value-desc',
+          y_title='hours', height=320, series=[
+              Series(label, "select t.target_name || case when t.db_name <> t.target_name then ' ' || t.db_name end "
+                            f"label, round(t.age_hours, 1) value from c_tgt t where t.is_stale = '{flag}' "
+                            "order by t.age_hours desc", type='bar', label='LABEL', color=color, stack='age')
+              for label, flag, color in (('Stale', 'Y', RED), ('Fresh', 'N', BLUE))]),
+])
+
+GRADE_CSS = {'UNDERSIZED': 't-Badge--warning', 'THRASHING': 't-Badge--warning', 'OVERSIZED': 't-Badge--info',
+             'DRIFTING': 't-Badge--info', 'OK': 't-Badge--success'}
+DIRECTION_CSS = {'PRESSURE': 't-Badge--warning', 'SLACK': 't-Badge--info'}
+MEM_NONE = ('No memory verdict in scope. The verdicts are instance level: select the CDB, one of its PDBs, '
+            'or all databases.')
+# Report content only: the verdicts enter no alert count (CAPR_MEM_* feed no alert).
+MEMORY = Page(P_MEMORY, 'Memory sizing', 'MEMORY', 'fa-microchip', [
+    Report('Memory summary', badges=True, cols=[
+        Col('AREAS', f"(select count(*) from c_memv m where {host_scope('m.db_pdb')})", 'Areas graded', 'NUMBER'),
+        Col('ACTIONABLE', f"(select count(*) from c_memv m where m.actionable = 'Y' and {host_scope('m.db_pdb')})",
+            'Need a change', 'NUMBER'),
+        Col('UNDERSIZED', f"(select count(*) from c_memv m where m.grade = 'UNDERSIZED' "
+                          f"and {host_scope('m.db_pdb')})", 'Undersized', 'NUMBER'),
+        Col('OVERSIZED', f"(select count(*) from c_memv m where m.grade = 'OVERSIZED' "
+                         f"and {host_scope('m.db_pdb')})", 'Oversized', 'NUMBER'),
+        Col('PRESSURE', f"(select count(*) from c_meme e where e.direction = 'PRESSURE' "
+                        f"and {host_scope('e.db_pdb')})", 'Pressure signals', 'NUMBER'),
+    ], source='from dual'),
+    IR('Memory verdicts', must=True, sort=(('DB', 'ASC'), ('RANK_MEM', 'ASC')), cols=[
+        Col('TARGET', target_of('m.db_pdb'), 'Target'),
+        Col('DB', 'm.db_pdb', 'Database'),
+        Col('INST', 'm.instance_number', 'Instance', 'NUMBER'),
+        Col('AREA', 'm.area_label', 'Area'),
+        *badge_cols('GRADE', 'm.grade', 'Grade', case_of('m.grade', GRADE_CSS)),
+        Col('CURRENT_SIZE', 'm.current_size', 'Current size'),
+        Col('SUGGESTED_SIZE', 'm.suggested_size', 'Suggested size'),
+        Col('CHANGE_PCT', 'm.change_pct', 'Change %', 'NUMBER'),
+        Col('PARAM', 'm.suggested_param', 'Parameter'),
+        Col('HEADLINE', 'm.headline', 'Headline'),
+        Col('REASON', 'm.reason_text', 'Reason'),
+        Col('FLAGS', "trim(case when m.exceeds_host_ram = 'Y' then 'exceeds host RAM ' end || "
+                     "case when m.exceeds_sga = 'Y' then 'exceeds sga_target' end)", 'Flags'),
+        Col('MEM_MODE', 'm.mem_mode', 'Memory mode'),
+        Col('SIGNALS', 'm.n_evidence', 'Signals', 'NUMBER'),
+        Col('PRESSURE', 'm.n_pressure', 'Pressure signals', 'NUMBER'),
+        Col('DAYS_SAMPLED', 'm.n_days', 'Days sampled', 'NUMBER'),
+        Col('WINDOW_START', 'm.window_start', 'Window from', 'DATE'),
+        Col('WINDOW_END', 'm.window_end', 'Window to', 'DATE'),
+        Col('RANK_MEM', 'm.rank_mem'),
+    ], source=f"from c_memv m where {host_scope('m.db_pdb')}", no_data=MEM_NONE),
+    Chart('SGA components', 'line', span=6, height=300, y_title='GiB',
+          no_data='No SGA component history in scope.', series=[
+              Series('Component', f"select p.ts, round(p.bytes / {GIB}, 2) value, "
+                                  f"{db_label('p.db_pdb', 'p.component')} || case when p.instance_number > 1 "
+                                  "then ' #' || p.instance_number end name from c_memp p "
+                                  f"where {host_scope('p.db_pdb')} and {in_range('p.ts')} order by p.ts",
+                     name_col='NAME', width=2, must=True)]),
+    series_chart('PGA_ALLOC_GB', 'PGA allocated (GiB)', 'GiB', scope=host_scope),
+    IR('Memory evidence', sort=(('DB', 'ASC'), ('RANK_EV', 'ASC')), cols=[
+        Col('TARGET', target_of('e.db_pdb'), 'Target'),
+        Col('DB', 'e.db_pdb', 'Database'),
+        Col('INST', 'e.instance_number', 'Instance', 'NUMBER'),
+        Col('AREA', 'e.area_label', 'Area'),
+        Col('KIND', 'e.kind', 'Kind'),
+        Col('SIGNAL', 'e.signal', 'Signal'),
+        *badge_cols('DIRECTION', 'e.direction', 'Direction', case_of('e.direction', DIRECTION_CSS)),
+        Col('VALUE', 'round(e.value, 2)', 'Value', 'NUMBER'),
+        Col('UNIT', 'e.unit', 'Unit'),
+        Col('THRESHOLD', 'round(e.threshold, 2)', 'Threshold', 'NUMBER'),
+        Col('OBSERVED', f'to_char(e.observed_at, {MINUTE})', 'Observed'),
+        Col('EVIDENCE', 'e.evidence_text', 'Evidence'),
+        Col('RANK_EV', 'e.rank_ev'),
+    ], source=f"from c_meme e where {host_scope('e.db_pdb')}", no_data='No memory evidence in scope.'),
+])
+
+# Navigation order.  Page ids are part of every URL: a new page takes a new id, never a used one.
+PAGES = [OVERVIEW, TARGETS, TABLESPACES, CPU, MEMORY, ANOMALIES]
 CONTENT_PAGES = tuple(p.id for p in PAGES)
+FILTER_PAGES = tuple(i for i in CONTENT_PAGES if i != P_TARGETS)
 LOGIN_PAGE = 9999
 
 
+def item_pages(it):
+    return it.pages or FILTER_PAGES
+
+
+@dataclass
+class Default:
+    """After the load: where cond holds, set item to the one value of query (its binds are the items)."""
+    pages: tuple
+    item: str
+    cond: str  # PL/SQL over v('P0_..')
+    query: str
+
+
 def page_logic():
-    """(pages, PL/SQL) run after loading: defaults that need the loaded collections."""
-    last_day = with_ctes('select max(s.ts) last_day from c_series s')
-    worst = with_ctes(
-        f"select max({tbspc_key('f')}) keep (dense_rank first order by "
-        f"case when {tbspc_key('f')} = v('P0_TBSPC') then 0 else 1 end, "
-        "f.days_to_full nulls last, f.pct desc nulls last) tbspc\n"
-        "from c_fit f where f.kind = 'TBSPC' and (v('P0_DB') is null or f.db = v('P0_DB'))")
+    """Defaults that need the loaded collections, in order."""
+    key = tbspc_key('f')
+    last_day = "select to_char(max(s.ts) {} {}, 'YYYY-MM-DD') val from c_series s"
     return [
-        (CONTENT_PAGES, f"""if v('P0_FROM') is null or v('P0_TO') is null then
-  for r in ({last_day}) loop
-    if v('P0_FROM') is null then apex_util.set_session_state('P0_FROM', to_char(r.last_day - {RANGE_PAD_DAYS}, 'YYYY-MM-DD')); end if;
-    if v('P0_TO') is null then apex_util.set_session_state('P0_TO', to_char(r.last_day + {RANGE_PAD_DAYS}, 'YYYY-MM-DD')); end if;
-  end loop;
-end if;"""),
-        ((2,), f"""if nvl(v('P0_TBSPC'), '-') <> 'ALL' then
-  for r in ({worst}) loop
-    apex_util.set_session_state('P0_TBSPC', r.tbspc);
-  end loop;
-end if;"""),
+        # A database left over from another target is dropped.
+        Default(CONTENT_PAGES, 'P0_DB', "v('P0_TARGET') is not null and v('P0_DB') is not null",
+                'select max(c.db_pdb) val from c_cont c where c.db_pdb = :P0_DB and c.target_name = :P0_TARGET'),
+        Default(CONTENT_PAGES, 'P0_FROM', "v('P0_FROM') is null", last_day.format('-', RANGE_PAD_DAYS)),
+        Default(CONTENT_PAGES, 'P0_TO', "v('P0_TO') is null", last_day.format('+', RANGE_PAD_DAYS)),
+        # The selected tablespace while it is in scope, else the one with the fewest days to full.
+        Default((P_TBSPC,), 'P0_TBSPC', "nvl(v('P0_TBSPC'), '-') <> 'ALL'",
+                f"select max({key}) keep (dense_rank first order by "
+                f"case when {key} = :P0_TBSPC then 0 else 1 end, "
+                "f.days_to_full nulls last, f.pct desc nulls last) val\n"
+                f"from c_fit f where f.kind = 'TBSPC' and {in_db('f.db')}"),
     ]
 
 
 def global_texts(page_id):
     """SQL of the page-0 components rendered on page_id."""
-    texts = [it.lov for it in ITEMS if it.lov and (it.pages is None or page_id in it.pages)]
+    texts = [it.lov for it in ITEMS if it.lov and page_id in item_pages(it)]
     return texts + [DATA_BADGES.sql()]
 
 
@@ -640,7 +867,7 @@ def region_queries(region):
 
 def page_needs(page):
     text = '\n'.join(global_texts(page.id) + [q for r in page.regions for _, q, _ in region_queries(r)]
-                     + [code for pages, code in page_logic() if page.id in pages])
+                     + [d.query for d in page_logic() if page.id in d.pages])
     return set(needs(text))
 
 
@@ -653,19 +880,25 @@ def refresh_plsql():
     return '\n'.join(['begin'] + delete_collections() + ['end;'])
 
 
-def loader_plsql(page_expr, request_expr):
-    out = ['declare',
-           '  procedure load(p_name in varchar2, p_query in varchar2) is',
-           '  begin',
-           '    if not apex_collection.collection_exists(p_name) then',
-           '      apex_collection.create_collection_from_queryb2(',
-           "        p_collection_name => p_name, p_query => p_query, p_truncate_if_exists => 'YES');",
-           '    end if;',
-           '  end;',
-           'begin',
-           f"  if {request_expr} = 'REFRESH' then"]
-    out += ['  ' + line for line in delete_collections()]
-    out.append('  end if;')
+def loader_plsql(page_expr, request_expr, probe=False):
+    """The Before Header process: load what the page reads, then the defaults.
+    probe=True gives the same steps over the probe's stand-ins (load, drop_all, set_state
+    and pick are procedures of its block, v its session state)."""
+    if probe:
+        out = ['begin', f"  if {request_expr} = 'REFRESH' then", '    drop_all;', '  end if;']
+    else:
+        out = ['declare',
+               '  procedure load(p_name in varchar2, p_query in varchar2) is',
+               '  begin',
+               '    if not apex_collection.collection_exists(p_name) then',
+               '      apex_collection.create_collection_from_queryb2(',
+               "        p_collection_name => p_name, p_query => p_query, p_truncate_if_exists => 'YES');",
+               '    end if;',
+               '  end;',
+               'begin',
+               f"  if {request_expr} = 'REFRESH' then"]
+        out += ['  ' + line for line in delete_collections()]
+        out.append('  end if;')
     page_sets = {p.id: page_needs(p) for p in PAGES}
     for name in COLLECTIONS:
         ids = [str(p) for p, s in page_sets.items() if name in s]
@@ -673,12 +906,22 @@ def loader_plsql(page_expr, request_expr):
             out += [f"  if {page_expr} in ({', '.join(ids)}) then",
                     f"    load('{name}', q'~{loader_query(name)}~');",
                     '  end if;']
-    for pages, code in page_logic():
-        out.append(f"  if {page_expr} in ({', '.join(map(str, pages))}) then")
-        out += ['    ' + line for line in code.split('\n')]
+    for d in page_logic():
+        out.append(f"  if {page_expr} in ({', '.join(map(str, d.pages))}) and ({d.cond}) then")
+        if probe:
+            out.append(f"    set_state('{d.item}', pick({plsql_literal(with_ctes(d.query))}));")
+        else:
+            out += [f'    for r in ({with_ctes(as_v(d.query))}) loop',
+                    f"      apex_util.set_session_state('{d.item}', r.val);",
+                    '    end loop;']
         out.append('  end if;')
     out.append('end;')
     return '\n'.join(out)
+
+
+def plsql_literal(text):
+    assert '~' not in text
+    return "q'~" + text + "~'"
 
 
 class Raw(str):
@@ -858,7 +1101,7 @@ def emit_app():
     x = Export()
     head = f'''prompt --application/set_environment
 set define off verify off feedback off
-whenever sqlerror exit sql.sqlcode rollback
+whenever sqlerror exit failure rollback
 --------------------------------------------------------------------------------
 -- {APP_NAME} (APEX application {APP_ID}, alias {APP_ALIAS}).
 -- Generated by apex/build.py; regenerate instead of editing.  Install with
@@ -1024,7 +1267,7 @@ def emit_global_page(x, refresh):
     x.report(DATA_BADGES, 2, new_row=False, p_display_condition_type='CURRENT_PAGE_IN_CONDITION',
              p_display_when_condition=pages)
     for seq, it in enumerate(ITEMS, 1):
-        shown = it.pages or CONTENT_PAGES
+        shown = item_pages(it)
         common = dict(p_id=x.id(), p_name=it.name, p_item_sequence=seq * 10, p_item_plug_id=filters,
                       p_prompt=it.label, p_begin_on_new_line='N' if seq > 1 else None,
                       p_field_template=TPL['label'], p_item_template_options='#DEFAULT#',
@@ -1119,18 +1362,23 @@ def emit_login_page(x):
     x.block(f'pages/page_{LOGIN_PAGE:05d}')
 
 
+def worst_tbspc(expr):
+    return (f'select max({expr}) keep (dense_rank first order by f.days_to_full nulls last, '
+            "f.pct desc nulls last, f.db, f.series) from c_fit f where f.kind = 'TBSPC'")
+
+
+# label, {item: query over the loaded collections that gives its value}, rows required.
+# The values come from the data, so the same scenarios run on the demo, the fixture or a real install.
 SCENARIOS = [
-    # label, page-0 state, demo rows required
     ('defaults', {}, True),
-    ('pdb', {'P0_DB': 'ECOMPRD/SHOP_PDB', 'P0_TBSPC': 'ECOMPRD/SHOP_PDB|AUDIT_TRAIL'}, True),
-    ('cdb-all-tbspc', {'P0_DB': 'ECOMPRD', 'P0_TBSPC': 'ALL'}, False),
-    ('filtered', {'P0_KIND': 'TBSPC_GROWTH', 'P0_SEV': 'WARN'}, False),
+    ('one-db', {'P0_DB': worst_tbspc('f.db'), 'P0_TBSPC': worst_tbspc(tbspc_key('f'))}, True),
+    ('root-all-tbspc', {'P0_DB': 'select min(c.db_pdb) from c_cont c where c.con_dbid = c.dbid',
+                        'P0_TBSPC': "select 'ALL' from dual"}, False),
+    ('target', {'P0_TARGET': 'select min(c.target_name) from c_cont c'}, True),
+    ('filtered', {'P0_KIND': "select 'TBSPC_GROWTH' from dual", 'P0_SEV': "select 'WARN' from dual"}, False),
 ]
 FILTER_ITEMS = [it.name for it in ITEMS]
-
-
-def plsql_literal(text):
-    return "q'~" + text + "~'"
+PROBE_TABLE = 'awrcap_probe_coll'
 
 
 def fidelity_query(name):
@@ -1139,7 +1387,7 @@ def fidelity_query(name):
     sel = []
     for col, slot in cols:
         kind, _, numeric = parse_slot(slot)
-        if col == 'loaded_at':
+        if col in VOLATILE:
             continue
         sel.append(f'round({col}, 10)' if kind == 'n' or numeric else col)
     sel = ', '.join(sel)
@@ -1147,40 +1395,68 @@ def fidelity_query(name):
                      f'union all (select {sel} from ({source}) minus select {sel} from {alias}))')
 
 
-def emit_smoke():
-    procs, body = [], []
+def page_checks(page):
+    """(label, SQL, rows required) of everything page renders: the page-0 components, then its regions."""
+    checks = [(f'p0 {it.name} lov', with_ctes(it.lov), False) for it in ITEMS
+              if it.lov and page.id in item_pages(it)]
+    checks.append(('p0 Data', DATA_BADGES.sql(), True))
+    for region in page.regions:
+        checks += [(f'p{page.id} {lbl}', q, must) for lbl, q, must in region_queries(region)]
+    return checks
+
+
+def app_queries():
+    """Every SQL text the export carries: what apex/test/export_check.py expects to extract."""
+    regions = {q for page in PAGES for _, q, _ in page_checks(page)}
+    lovs = {with_ctes(it.lov) for it in ITEMS if it.lov}
+    return {'regions': regions - lovs, 'lovs': lovs,
+            'loaders': {name: loader_query(name) for name in COLLECTIONS},
+            'defaults': [with_ctes(as_v(d.query)) for d in page_logic()]}
+
+
+def test_procs(probe):
+    """load_page, one check_page_N per page and the scenario walk, shared by the smoke harness and the probe."""
+    set_state = 'set_state' if probe else 'apex_util.set_session_state'
+    loader = '    ' + loader_plsql('p_page', 'p_request', probe).replace('\n', '\n    ')
+    procs = ['  procedure load_page(p_page in pls_integer, p_request in varchar2) is', '  begin',
+             loader, '  end load_page;']
     for page in PAGES:
-        queries = [(f'p0 {it.name} lov', with_ctes(it.lov), False) for it in ITEMS
-                   if it.lov and (it.pages is None or page.id in it.pages)]
-        queries.append(('p0 Data', DATA_BADGES.sql(), True))
-        for region in page.regions:
-            queries += [(f'p{page.id} {lbl}', q, must) for lbl, q, must in region_queries(region)]
         procs += [f'  procedure check_page_{page.id}(p_demo in boolean) is', '  begin']
         procs += [f"    check_query({plsql_literal(lbl)}, {plsql_literal(q)}, {'p_demo' if must else 'false'});"
-                  for lbl, q, must in queries]
+                  for lbl, q, must in page_checks(page)]
         procs.append(f'  end check_page_{page.id};')
-    first = True
+    body, first = [], True
     for label, state, demo in SCENARIOS:
         body.append(f"  dbms_output.put_line('-- scenario {label}');")
         for name in FILTER_ITEMS:
-            value = state.get(name)
-            body.append(f"  apex_util.set_session_state('{name}', {plsql_literal(value) if value else 'null'});")
+            value = f'pick({plsql_literal(with_ctes(state[name]))})' if name in state else 'null'
+            body.append(f"  {set_state}('{name}', {value});")
         for page in PAGES:
             body.append(f"  load_page({page.id}, {plsql_literal('REFRESH') if first else 'null'});")
             first = False
-            body.append(f"  dbms_output.put_line('page {page.id}: P0_TBSPC=' || v('P0_TBSPC')"
-                        " || ' P0_FROM=' || v('P0_FROM') || ' P0_TO=' || v('P0_TO'));")
+            body.append(f"  dbms_output.put_line('page {page.id}: ' || "
+                        + " || ' ' || ".join(f"'{n}=' || v('{n}')" for n in FILTER_ITEMS) + ');')
             body.append(f"  check_page_{page.id}({'true' if demo else 'false'});")
     body.append("  dbms_output.put_line('-- collection fidelity (decoded collection vs source view)');")
     body += [f"  check_empty({plsql_literal(name)}, {plsql_literal(fidelity_query(name))});" for name in COLLECTIONS]
-    loader = '    ' + loader_plsql('p_page', 'p_request').replace('\n', '\n    ')
-    procs = ['  procedure load_page(p_page in pls_integer, p_request in varchar2) is', '  begin',
-             loader, '  end load_page;'] + procs
+    return procs, body
+
+
+def script_head(path, what):
+    return [f'-- {what}; generated by apex/build.py --smoke.',
+            'set appinfo off',
+            f'set appinfo "AWRCAP/{path}"']
+
+
+def emit_smoke():
+    procs, body = test_procs(probe=False)
     return '\n'.join([
-        '-- Smoke harness for the AWR Capacity APEX app; generated by apex/build.py --smoke.',
+        *script_head('apex/test/apex_smoke.sql', 'Smoke harness for the AWR Capacity APEX app'),
         '-- Run as the parsing schema:  @test/apex_smoke.sql [app_id]   (default ' + str(APP_ID) + ')',
         '-- Runs the page loader for every page and every region query of the app under',
         '-- representative filter values in an APEX session; exits non-zero on any failure.',
+        '-- The filter values are picked from the loaded data. The rows-required checks hold',
+        '-- on the demo and the fixture data.',
         'set serveroutput on size unlimited format wrapped feedback off verify off define on',
         'whenever sqlerror exit failure rollback',
         'column 1 new_value 1 noprint',
@@ -1190,6 +1466,12 @@ def emit_smoke():
         'set define off',
         'declare',
         '  l_fail pls_integer := 0;',
+        '  function pick(p_sql in varchar2) return varchar2 is',
+        '    l_val varchar2(4000);',
+        '  begin',
+        '    execute immediate p_sql into l_val;',
+        '    return l_val;',
+        '  end;',
         '  procedure check_query(p_label in varchar2, p_sql in varchar2, p_must in boolean) is',
         '    l_ctx apex_exec.t_context;',
         '    l_rows number;',
@@ -1216,7 +1498,7 @@ def emit_smoke():
         '  end;',
         *procs,
         'begin',
-        "  apex_session.create_session(p_app_id => :app_id, p_page_id => 1, p_username => 'AWRCAP_VIEWER');",
+        f"  apex_session.create_session(p_app_id => :app_id, p_page_id => {P_OVERVIEW}, p_username => 'AWRCAP_VIEWER');",
         *body,
         '  for c in (select collection_name, count(*) n from apex_collections group by collection_name order by 1) loop',
         "    dbms_output.put_line('collection ' || rpad(c.collection_name, 20) || lpad(c.n, 7));",
@@ -1233,15 +1515,214 @@ def emit_smoke():
     ]) + '\n'
 
 
+def probe_sql(text):
+    """App SQL as the probe runs it: the stand-in table for APEX_COLLECTIONS, a link as plain text."""
+    text = re.sub(r"apex_page\.get_url\(p_page => (.*?), p_items => '(.*?)', p_values => ",
+                  r"('f?p=' || (\1) || ':\2:' || ", text)
+    return text.replace('apex_collections', PROBE_TABLE)
+
+
+def emit_probe():
+    """The app's SQL without APEX: the loader queries fill a table shaped like APEX_COLLECTIONS, then
+    every region query, LOV and default runs against it with the items as binds (DBMS_SQL).  It proves
+    that each statement parses and runs on an install of the suite and that the slot mapping returns
+    the views' values; it does not prove the import or anything a browser renders."""
+    procs, body = test_procs(probe=True)
+    slots = [f'{slot_column(k, i)} {dtype}' for k, n, dtype in (('n', 5, 'number'), ('d', 5, 'date'),
+                                                                ('c', 50, 'varchar2(4000)'))
+             for i in range(1, n + 1)]
+    items = ', '.join(f"'{n}'" for n in FILTER_ITEMS)
+    text = '\n'.join([
+        *script_head('apex/test/apex_probe.sql', 'Probe of the AWR Capacity APEX app that needs no APEX'),
+        '-- Run from the repository root in the schema that holds the suite (or as SYSDBA with',
+        '-- CURRENT_SCHEMA set to it):  @apex/test/apex_probe.sql',
+        f'-- The table {PROBE_TABLE.upper()} stands in for APEX_COLLECTIONS: the loader queries of the',
+        '-- application fill it, then every region query, LOV and default of every page runs',
+        '-- against it under the scenarios of the smoke harness, items bound with DBMS_SQL, and',
+        '-- each collection is compared with its source view. The table is dropped at the end.',
+        '-- Prints one line per statement and RESULT: at the end; exits non-zero on a failure.',
+        '-- Not covered: the import into APEX and what a browser renders.',
+        'set serveroutput on size unlimited format wrapped feedback off verify off define off',
+        'whenever sqlerror exit failure rollback',
+        'variable probe_fail number',
+        'begin',
+        f"  execute immediate 'drop table {PROBE_TABLE} purge';",
+        'exception when others then',
+        '  if sqlcode <> -942 then raise; end if;',
+        'end;',
+        '/',
+        f'create table {PROBE_TABLE} (',
+        '  collection_name varchar2(255), seq_id number,',
+        '  ' + ',\n  '.join(', '.join(slots[i:i + 5]) for i in range(0, len(slots), 5)) + ');',
+        'declare',
+        '  type t_state is table of varchar2(4000) index by varchar2(30);',
+        '  type t_names is table of varchar2(30);',
+        f'  g_items constant t_names := t_names({items});',
+        '  g_state t_state;',
+        '  g_loaded t_state;',
+        '  l_pass pls_integer := 0;',
+        '  l_fail pls_integer := 0;',
+        '  function v(p_item in varchar2) return varchar2 is',
+        '  begin',
+        '    return case when g_state.exists(p_item) then g_state(p_item) end;',
+        '  end;',
+        '  procedure set_state(p_item in varchar2, p_value in varchar2) is',
+        '  begin',
+        '    g_state(p_item) := p_value;',
+        '  end;',
+        '  procedure passed(p_ok in boolean) is',
+        '  begin',
+        '    if p_ok then l_pass := l_pass + 1; else l_fail := l_fail + 1; end if;',
+        '  end;',
+        '  -- Binds the items the statement names, fetches every row and every column.',
+        '  procedure run(p_sql in varchar2, p_rows out number, p_first out varchar2) is',
+        '    l_cur integer := dbms_sql.open_cursor;',
+        '    l_cols dbms_sql.desc_tab2;',
+        '    l_n integer;',
+        '    l_val varchar2(4000);',
+        '    l_ignore integer;',
+        "    -- without its string literals: a link's item list ('..:P0_DB:..') names no bind",
+        "    l_bare varchar2(32767) := regexp_replace(p_sql, '''[^'']*''', '''''');",
+        '  begin',
+        '    dbms_sql.parse(l_cur, p_sql, dbms_sql.native);',
+        '    for i in 1 .. g_items.count loop',
+        "      if regexp_like(l_bare, ':' || g_items(i) || '([^A-Za-z0-9_]|$)') then",
+        "        dbms_sql.bind_variable(l_cur, ':' || g_items(i), v(g_items(i)));",
+        '      end if;',
+        '    end loop;',
+        '    dbms_sql.describe_columns2(l_cur, l_n, l_cols);',
+        '    for i in 1 .. l_n loop',
+        '      dbms_sql.define_column(l_cur, i, l_val, 4000);',
+        '    end loop;',
+        '    l_ignore := dbms_sql.execute(l_cur);',
+        '    p_rows := 0;',
+        '    while dbms_sql.fetch_rows(l_cur) > 0 loop',
+        '      p_rows := p_rows + 1;',
+        '      for i in 1 .. l_n loop',
+        '        dbms_sql.column_value(l_cur, i, l_val);',
+        '        if p_rows = 1 and i = 1 then p_first := l_val; end if;',
+        '      end loop;',
+        '    end loop;',
+        '    dbms_sql.close_cursor(l_cur);',
+        '  exception when others then',
+        '    if dbms_sql.is_open(l_cur) then dbms_sql.close_cursor(l_cur); end if;',
+        '    raise;',
+        '  end;',
+        '  function pick(p_sql in varchar2) return varchar2 is',
+        '    l_rows number;',
+        '    l_val varchar2(4000);',
+        '  begin',
+        '    run(p_sql, l_rows, l_val);',
+        '    return l_val;',
+        '  end;',
+        '  procedure check_query(p_label in varchar2, p_sql in varchar2, p_must in boolean) is',
+        '    l_rows number;',
+        '    l_val varchar2(4000);',
+        '    l_t0 pls_integer := dbms_utility.get_time;',
+        '  begin',
+        '    run(p_sql, l_rows, l_val);',
+        "    dbms_output.put_line(case when p_must and l_rows = 0 then 'FAIL ' else 'ok   ' end"
+        " || lpad(l_rows, 6) || to_char((dbms_utility.get_time - l_t0) / 100, '990.00') || 's  ' || p_label);",
+        '    passed(not (p_must and l_rows = 0));',
+        '  exception when others then',
+        "    dbms_output.put_line('FAIL  error  ' || p_label || ': ' || sqlerrm);",
+        '    passed(false);',
+        '  end;',
+        '  procedure check_empty(p_label in varchar2, p_sql in varchar2) is',
+        '    l_rows number;',
+        '    l_val varchar2(4000);',
+        '  begin',
+        '    run(p_sql, l_rows, l_val);',
+        "    dbms_output.put_line(case when l_rows = 0 then 'ok   ' else 'FAIL ' end || lpad(l_rows, 6) || '  ' || p_label);",
+        '    passed(l_rows = 0);',
+        '  exception when others then',
+        "    dbms_output.put_line('FAIL  error  ' || p_label || ': ' || sqlerrm);",
+        '    passed(false);',
+        '  end;',
+        '  procedure drop_all is',
+        '  begin',
+        f"    execute immediate 'delete from {PROBE_TABLE}';",
+        '    g_loaded.delete;',
+        '  end;',
+        '  -- create_collection_from_queryb2: the query columns are the slots, by name here.',
+        '  procedure load(p_name in varchar2, p_query in varchar2) is',
+        '    l_cur integer;',
+        '    l_cols dbms_sql.desc_tab2;',
+        '    l_n integer;',
+        '    l_list varchar2(4000);',
+        '    l_t0 pls_integer := dbms_utility.get_time;',
+        '  begin',
+        '    if g_loaded.exists(p_name) then return; end if;',
+        "    g_loaded(p_name) := 'Y';",
+        '    l_cur := dbms_sql.open_cursor;',
+        '    dbms_sql.parse(l_cur, p_query, dbms_sql.native);',
+        '    dbms_sql.describe_columns2(l_cur, l_n, l_cols);',
+        '    dbms_sql.close_cursor(l_cur);',
+        '    for i in 1 .. l_n loop',
+        "      l_list := l_list || ', ' || l_cols(i).col_name;",
+        '    end loop;',
+        f"    execute immediate 'insert into {PROBE_TABLE} (collection_name, seq_id' || l_list",
+        "      || ') select :name, rownum, q.* from (' || p_query || ') q' using p_name;",
+        "    dbms_output.put_line('ok   ' || lpad(sql%rowcount, 6)"
+        " || to_char((dbms_utility.get_time - l_t0) / 100, '990.00') || 's  load ' || p_name);",
+        '    passed(true);',
+        '  exception when others then',
+        '    if dbms_sql.is_open(l_cur) then dbms_sql.close_cursor(l_cur); end if;',
+        "    dbms_output.put_line('FAIL  error  load ' || p_name || ': ' || sqlerrm);",
+        '    passed(false);',
+        '  end;',
+        *procs,
+        'begin',
+        '  :probe_fail := 1;',
+        *body,
+        f'  for c in (select collection_name, count(*) n from {PROBE_TABLE} group by collection_name order by 1) loop',
+        "    dbms_output.put_line('collection ' || rpad(c.collection_name, 20) || lpad(c.n, 7));",
+        '  end loop;',
+        '  :probe_fail := l_fail;',
+        "  dbms_output.put_line('RESULT: apex probe ' || l_pass || ' passed, ' || l_fail || ' failed');",
+        'exception when others then',
+        "  dbms_output.put_line('FAIL  probe aborted: ' || sqlerrm);",
+        'end;',
+        '/',
+        f'drop table {PROBE_TABLE} purge;',
+        'begin',
+        '  if :probe_fail > 0 then',
+        "    raise_application_error(-20001, 'apex probe: ' || :probe_fail || ' check(s) failed');",
+        '  end if;',
+        "  dbms_output.put_line('apex probe: all checks passed');",
+        'end;',
+        '/',
+    ]) + '\n'
+    text = probe_sql(text)
+    stray = re.search(r'\bapex_(page|util|exec|session|collections?|application)\b', text)
+    assert not stray, f'the probe still calls APEX: {stray.group(0)}'
+    return text
+
+
+def outputs():
+    return {HERE / 'awrcap_app.sql': emit_app, HERE / 'test' / 'apex_smoke.sql': emit_smoke,
+            HERE / 'test' / 'apex_probe.sql': emit_probe}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--smoke', action='store_true', help='also write apex/test/apex_smoke.sql')
+    ap.add_argument('--smoke', action='store_true',
+                    help='also write apex/test/apex_smoke.sql and apex/test/apex_probe.sql')
+    ap.add_argument('--check', action='store_true', help='write nothing; exit 1 when a generated file is stale')
     args = ap.parse_args()
     check_collections()
-    (HERE / 'awrcap_app.sql').write_text(emit_app())
-    if args.smoke:
-        (HERE / 'test').mkdir(exist_ok=True)
-        (HERE / 'test' / 'apex_smoke.sql').write_text(emit_smoke())
+    if args.check:
+        stale = [path for path, emit in outputs().items()
+                 if not path.exists() or path.read_text() != emit() or emit() != emit()]
+        for path in stale:
+            print(f'stale: {path.relative_to(HERE.parent)} (run python3 apex/build.py --smoke)')
+        if not stale:
+            print(f'apex/build.py --check: {len(outputs())} generated files current')
+        sys.exit(1 if stale else 0)
+    for path, emit in outputs().items():
+        if args.smoke or path.name == 'awrcap_app.sql':
+            path.parent.mkdir(exist_ok=True)
+            path.write_text(emit())
 
 
 if __name__ == '__main__':

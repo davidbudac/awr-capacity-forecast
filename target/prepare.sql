@@ -17,8 +17,10 @@
 --   * CREATE USER reader (a common user in CDB$ROOT). An existing user is
 --     kept and its password set to reader_pw.
 --   * CREATE SESSION, and SELECT on the twenty-eight DBA_HIST_* views the
---     repository copies (repository/build.py checks this list against its
---     manifest). Direct grants, nothing through a role.
+--     repository copies and on CDB_TABLESPACE_USAGE_METRICS, the live
+--     tablespace ceilings behind the shared-disk forecast (repository/build.py
+--     checks this list against its manifest). Direct grants, nothing through
+--     a role.
 --   * In CDB$ROOT: CONTAINER_DATA = ALL. Without it a common user reading the
 --     DBA_HIST_* views from the root sees the root's rows only (verified on
 --     19.27: 1 container instead of 3), and every PDB series would be missing.
@@ -77,7 +79,8 @@ DECLARE
         'DBA_HIST_MEM_DYNAMIC_COMP', 'DBA_HIST_SQL_WORKAREA_HSTGRM',
         'DBA_HIST_PGA_TARGET_ADVICE', 'DBA_HIST_SGA_TARGET_ADVICE', 'DBA_HIST_DB_CACHE_ADVICE',
         'DBA_HIST_SHARED_POOL_ADVICE', 'DBA_HIST_SGASTAT', 'DBA_HIST_LIBRARYCACHE',
-        'DBA_HIST_ROWCACHE_SUMMARY', 'DBA_HIST_SYSTEM_EVENT');
+        'DBA_HIST_ROWCACHE_SUMMARY', 'DBA_HIST_SYSTEM_EVENT',
+        'CDB_TABLESPACE_USAGE_METRICS');
 
     PROCEDURE run(p_sql IN VARCHAR2, p_show IN VARCHAR2 DEFAULT NULL) IS
     BEGIN

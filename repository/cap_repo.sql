@@ -286,18 +286,18 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
     BEGIN
         EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM dual@' || p_link INTO v_n;
         label_remote(p_link);
-        FOR s IN (SELECT source_name, optional FROM cap_repo_source ORDER BY seq) LOOP
+        FOR s IN (SELECT remote_view, optional FROM cap_repo_source ORDER BY seq) LOOP
             BEGIN
-                EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM dba_hist_' || LOWER(s.source_name)
+                EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM ' || LOWER(s.remote_view)
                                   || '@' || p_link || ' WHERE 1 = 0' INTO v_n;
             EXCEPTION
                 WHEN OTHERS THEN
                     IF s.optional = 'Y' THEN
                         v_optional := SUBSTR(v_optional || CASE WHEN v_optional IS NOT NULL THEN ', ' END
-                                             || 'DBA_HIST_' || s.source_name, 1, 3000);
+                                             || s.remote_view, 1, 3000);
                     ELSE
                         v_missing := SUBSTR(v_missing || CASE WHEN v_missing IS NOT NULL THEN ', ' END
-                                            || 'DBA_HIST_' || s.source_name, 1, 3000);
+                                            || s.remote_view, 1, 3000);
                     END IF;
             END;
         END LOOP;
@@ -432,7 +432,7 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
             v_first := NVL(v_first, v_hwm + 1);
 
             FOR s IN (SELECT source_name, kind, optional, pull_sql
-                      FROM cap_repo_source ORDER BY seq) LOOP
+                      FROM cap_repo_source WHERE kind <> 'L' ORDER BY seq) LOOP
                 CONTINUE WHEN s.optional = 'Y'
                           AND INSTR(', ' || p_skipped || ',', ', DBA_HIST_' || s.source_name || ',') > 0;
                 v_sql := REPLACE(s.pull_sql, '{LINK}', t.db_link);
@@ -484,6 +484,58 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
             say('[FAIL] ' || t.target_name || ' DBID ' || p_dbid || ': ' || SQLERRM);
             RETURN FALSE;
     END collect_dbid;
+
+    -- The live sources (CAP_REPO_SOURCE.kind L: the tablespace ceilings),
+    -- once per target after its DBIDs: no snap_id, no history. The copy of
+    -- the target (every DBID of it) is replaced by the view's rows now, under
+    -- the DBID of the target's newest snapshot, in one transaction. A view the
+    -- reader cannot read is skipped like any optional source and its old
+    -- rows stay (they age out of use, knob stale_days). FALSE = it failed.
+    FUNCTION collect_live(t IN cap_target%ROWTYPE, p_skipped IN OUT VARCHAR2) RETURN BOOLEAN IS
+        v_dbid NUMBER;
+        v_rows NUMBER;
+    BEGIN
+        DBMS_APPLICATION_INFO.SET_ACTION(SUBSTR(t.target_name || ' live', 1, 32));
+        EXECUTE IMMEDIATE 'SELECT MAX(dbid) KEEP (DENSE_RANK LAST ORDER BY end_interval_time)'
+                          || ' FROM dba_hist_snapshot@' || t.db_link
+            INTO v_dbid;
+        SELECT MAX(dbid) INTO v_dbid FROM cap_target_dbid
+        WHERE  target_id = t.target_id AND dbid = v_dbid;
+        IF v_dbid IS NULL THEN
+            ROLLBACK;
+            RETURN TRUE;
+        END IF;
+        FOR s IN (SELECT remote_view, copy_table, pull_sql
+                  FROM cap_repo_source WHERE kind = 'L' ORDER BY seq) LOOP
+            BEGIN
+                EXECUTE IMMEDIATE 'DELETE FROM ' || s.copy_table || ' WHERE dbid IN'
+                                  || ' (SELECT dbid FROM cap_target_dbid WHERE target_id = :1)'
+                    USING t.target_id;
+                EXECUTE IMMEDIATE REPLACE(s.pull_sql, '{LINK}', t.db_link) USING v_dbid, v_dbid;
+                v_rows := NVL(v_rows, 0) + SQL%ROWCOUNT;
+                COMMIT;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    IF SQLCODE IN (-942, -1031) THEN
+                        ROLLBACK;
+                        p_skipped := SUBSTR(p_skipped || CASE WHEN p_skipped IS NOT NULL THEN ', ' END
+                                            || s.remote_view, 1, 1000);
+                    ELSE
+                        RAISE;
+                    END IF;
+            END;
+        END LOOP;
+        IF v_rows IS NOT NULL THEN
+            say(t.target_name || ' DBID ' || v_dbid || ': ' || v_rows || ' live tablespace rows');
+        END IF;
+        RETURN TRUE;
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            log_event(t.target_name, v_dbid, 'ERROR', p_msg => 'live sources: ' || SQLERRM);
+            say('[FAIL] ' || t.target_name || ' live sources: ' || SQLERRM);
+            RETURN FALSE;
+    END collect_live;
 
     PROCEDURE add_target(p_name        IN VARCHAR2,
                          p_connect     IN VARCHAR2 DEFAULT NULL,
@@ -614,6 +666,9 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
                     v_fail := v_fail + 1;
                 END IF;
             END LOOP;
+            IF NOT collect_live(t, v_skip) THEN
+                v_fail := v_fail + 1;
+            END IF;
             IF v_skip IS NOT NULL THEN
                 say('[WARN] ' || t.target_name || ': ' || v_skip || ' not copied, the reader'
                     || ' cannot read it. Re-run target/prepare.sql on the target; the copy'
@@ -707,8 +762,7 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         IF p_password IS NULL OR INSTR(p_password, '"') > 0 THEN
             RAISE_APPLICATION_ERROR(-20071, 'p_password must be given, without "');
         END IF;
-        close_link(t.db_link);
-        EXECUTE IMMEDIATE 'DROP DATABASE LINK ' || t.db_link;
+        drop_link(t.db_link);
         create_link(t.db_link, t.link_user, p_password, t.connect_string);
         probe(t.db_link);
         close_link(t.db_link);

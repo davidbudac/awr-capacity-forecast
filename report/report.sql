@@ -2,7 +2,9 @@
 -- report/report.sql -- read-only text capacity report.
 -- =====================================================================
 -- Spools a plain-text capacity + anomaly report from the CAPF_/CAPA_ views,
--- and the instance memory sizing verdicts (section 8), to
+-- the instance memory sizing verdicts (section 8), the forecast track
+-- record of the stored refresh runs (section 9) and the tablespace families
+-- (section 10, only when the scope holds one), to
 -- reports/cap_report_<db>_<ts>.txt. READ-ONLY: only SELECTs (the CAPF_ESM
 -- views call a pipelined function, which writes nothing). Creates/modifies no
 -- database object.
@@ -90,12 +92,15 @@ FROM   dual;
 -- omitted argument is the empty string, and '' IS NULL in Oracle, so NVL
 -- picks the default; '-' does the same, so a caller can skip an argument to
 -- reach a later one. Re-DEFINEs the same three names the sections already use.
+-- DECODE, not NULLIF(TRIM('&1'), '-'): with an empty argument TRIM('') folds
+-- to the NULL literal, which NULLIF rejects as its first argument (ORA-00932,
+-- 19.27). Under TERMOUT OFF the failed SELECT left all three at the defaults.
 COLUMN eff_top_n NEW_VALUE top_n        NOPRINT
 COLUMN eff_anom  NEW_VALUE anomaly_days NOPRINT
 COLUMN eff_esm   NEW_VALUE show_esm     NOPRINT
-SELECT NVL(NULLIF(TRIM('&1'), '-'), '&top_n')                  AS eff_top_n,
-       NVL(NULLIF(TRIM('&2'), '-'), '&anomaly_days')           AS eff_anom,
-       NVL(NULLIF(UPPER(TRIM('&3')), '-'), UPPER('&show_esm')) AS eff_esm
+SELECT NVL(DECODE(TRIM('&1'), '-', NULL, TRIM('&1')), '&top_n')                      AS eff_top_n,
+       NVL(DECODE(TRIM('&2'), '-', NULL, TRIM('&2')), '&anomaly_days')               AS eff_anom,
+       NVL(DECODE(TRIM('&3'), '-', NULL, UPPER(TRIM('&3'))), UPPER('&show_esm'))     AS eff_esm
 FROM   dual;
 
 -- Scope and identity (report/scope.sql): cap_sdbid / cap_scon, which every
@@ -251,6 +256,17 @@ SELECT CASE WHEN UPPER('&show_esm') = 'N'
        END AS esm_file
 FROM   dual;
 
+-- Section 10 dispatch: the tablespace family section only when the scope
+-- holds a family. The DEFINE keeps a failing lookup from prompting.
+DEFINE fam_file = 'report/sections/10_family_skip.sql'
+COLUMN fam_file NEW_VALUE fam_file NOPRINT
+SELECT CASE WHEN COUNT(*) > 0 THEN 'report/sections/10_tbspc_family.sql'
+            ELSE 'report/sections/10_family_skip.sql'
+       END AS fam_file
+FROM   capr_tbspc_family&cap_s
+WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon);
+
 -- reports/ is gitignored, so a fresh clone does not have it.
 HOST mkdir -p reports
 SPOOL &cap_path
@@ -317,6 +333,16 @@ DEFINE cap_tm_lbl = s8
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('s8 memory')
 @@&cap_tm_start
 @@report/sections/08_memory.sql
+@@&cap_tm_stop
+DEFINE cap_tm_lbl = s9
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s9 track record')
+@@&cap_tm_start
+@@report/sections/09_track.sql
+@@&cap_tm_stop
+DEFINE cap_tm_lbl = s10
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s10 tablespace families')
+@@&cap_tm_start
+@@&fam_file
 @@&cap_tm_stop
 
 PROMPT

@@ -116,22 +116,38 @@ USING (
     UNION ALL SELECT 'esm_auto_tie_pct',        0.25,     'Tier 2 AUTO: candidate MAPEs closer than this many percentage points tie and EXSM_HOLT is kept (chosen_by AUTO_TIE).' FROM dual
     UNION ALL SELECT 'complete_day_pct',       80,        'Percent of a day (86400 s) of valid counter intervals a CPU / DB time / redo day needs for is_complete = Y. Partial, restart and outage days fall below it.' FROM dual
     UNION ALL SELECT 'cyclic_min_cliffs',       2,        'A tablespace with at least this many shrink cliffs (the M9.3 rule) in its train_days window is graded CYCLIC and judged on its peaks. 0 = off (M9.3 reset only).' FROM dual
+    UNION ALL SELECT 'cliff_merge_days',        1,        'Shrink cliffs at most this many days apart are one purge event: cycle_n counts events, the M9.3 reset starts on the newest event''s last cliff day. 0 = each cliff day is an event.' FROM dual
+    UNION ALL SELECT 'quiet_days',             14,        'Tablespace fit: growth stopped (restart STOP) or began (START) when the pause without a new high is at least this many days and passes quiet_ratio and quiet_chance. 0 = off.' FROM dual
+    UNION ALL SELECT 'quiet_ratio',             2,        'STOP / START: the pause must also be at least this many times the longest other pause between growth days in the window.' FROM dual
+    UNION ALL SELECT 'quiet_chance',            0.01,     'STOP / START: the pause must also be less likely than this by chance, (span / (span + pause)) ^ growth days (START: growth days - 1).' FROM dual
+    UNION ALL SELECT 'growth_floor',            0.001,    'STOP / START: a growth day is a new high of used_bytes by more than this fraction of the window''s rise (max - min).' FROM dual
     UNION ALL SELECT 'cpu_quality_gate',        1,        'CAPF_CPU_TREND quality gate: 1 = OK when |slope| > slope CI (slope significance), 0 = legacy R2 >= r2_gate.' FROM dual
     UNION ALL SELECT 'cpu_deseason',            1,        'CAPF_CPU_TREND: 1 = subtract the weekday / weekend mean (and add back the window mean) before the fit, 0 = fit the raw daily values.' FROM dual
     UNION ALL SELECT 'stale_days',              3,        'A CAPF_* series whose last_day is more than this many days before the newest day of its daily source (same dbid) reads is_current = N: dropped tablespace, retired DBID, stopped collection.' FROM dual
-    UNION ALL SELECT 'suite_version',          26.4,     'Suite release that built these objects (latest PLAN.md milestone). Set by every install; not a tuning knob.' FROM dual
+    UNION ALL SELECT 'suite_version',          27.0,     'Suite release that built these objects (27.0 carries PLAN.md M9.7 and M27 onward). Set by every install; not a tuning knob.' FROM dual
     UNION ALL SELECT 'cpu_min_mad_pct_hour',    5,        'M15: cpu_min_mad_pct for HOUR-grain CPU (HOUR_OF_WEEK): hourly values are noisier than daily averages.' FROM dual
     UNION ALL SELECT 'hour_gap_ratio',        1.5,        'M15: an interval <= 0 h or longer than LEAST(cpu_gap_hours, this x the instance''s median interval) is a gap at HOUR grain.' FROM dual
     UNION ALL SELECT 'series_floor_count',     10,        'M15: anomaly threshold floor for COUNT series (PROCESSES/SESSIONS), in sessions/processes.' FROM dual
     UNION ALL SELECT 'series_floor_gib',      0.5,        'M15: anomaly threshold floor in GiB for GIB_PER_DAY series (REDO_GB_DAY level, DB_SIZE_GB growth) and GIB levels (PGA_ALLOC_GB).' FROM dual
+    UNION ALL SELECT 'series_floor_iops',     100,        'M27: anomaly threshold floor for the IOPS series, in I/O requests per second.' FROM dual
+    UNION ALL SELECT 'series_floor_mbps',      10,        'M27: anomaly threshold floor for the IO_MBPS series, in MB per second (MB = 2^20 bytes).' FROM dual
     UNION ALL SELECT 'alert_modes_tbspc',       1,        'M15 BITMASK of baseline modes raising TBSPC_ANOM: 1=TRAILING 2=SAME_DOW 4=HOUR_OF_WEEK (sum them), 0=none.' FROM dual
     UNION ALL SELECT 'alert_modes_cpu',         2,        'M15 BITMASK of baseline modes raising CPU_ANOM and DBCPU_ANOM: 1=TRAILING 2=SAME_DOW 4=HOUR_OF_WEEK, 0=none.' FROM dual
     UNION ALL SELECT 'alert_modes_series',      1,        'M15 BITMASK of baseline modes raising SERIES_ANOM: 1=TRAILING 2=SAME_DOW (4 has no effect: day grain only).' FROM dual
+    UNION ALL SELECT 'noise_episodes',          3,        'CAPR_ANOM_VOLUME: a series and baseline mode with at least this many anomaly episodes inside anomaly_report_days reads noisy = Y (doctor.sql section 12 suggests a floor).' FROM dual
+    UNION ALL SELECT 'noise_flag_pct',         10,        'CAPR_ANOM_VOLUME: a series and baseline mode with at least this percent of its scored days flagged inside anomaly_report_days reads noisy = Y.' FROM dual
+    UNION ALL SELECT 'noise_min_days',          7,        'CAPR_ANOM_VOLUME: the noise_flag_pct rule needs at least this many scored days inside anomaly_report_days (1 flagged of 1 scored is 100 percent). noise_episodes applies at any count.' FROM dual
     UNION ALL SELECT 'stale_hours',            36,        'CAPR_ALERTS raises DATA_STALE for a dbid whose newest AWR snapshot ended at least this many hours before SYSDATE (the dead-man check).' FROM dual
     UNION ALL SELECT 'data_stale_max_days',    14,        'A dbid whose newest AWR snapshot is at least this many days old is retired: no DATA_STALE alert, listed in CAPR_COVERAGE with retired = Y.' FROM dual
     UNION ALL SELECT 'resolve_grace_runs',      2,        'Results layer: consecutive refresh runs an OPEN alert must be missing from CAPR_ALERTS before CAP_RESULTS.refresh marks it RESOLVED.' FROM dual
     UNION ALL SELECT 'refresh_stale_hours',    36,        'Results layer: CAPR_RUNS.stale_run = Y when the last OK live refresh run ended at least this many hours ago, or none ever did.' FROM dual
     UNION ALL SELECT 'digest_days',             7,        'Results layer: CAPR_WEEKLY_DIGEST compares the latest run with the latest run whose as_of_day is at least this many days earlier.' FROM dual
+    UNION ALL SELECT 'accuracy_horizon_days',  30,        'Track record (CAPR_FIT_TRACK): a stored forecast is checked against the stored value this many days later (the nearest within 2 days). The band test uses the +30 band.' FROM dual
+    UNION ALL SELECT 'accuracy_window_days',  180,        'Track record: only forecasts whose outcome day lies within this many days of the newest refresh run count.' FROM dual
+    UNION ALL SELECT 'calib_quantile_pct',     90,        'Track record: band_factor is the factor that makes the issued +30 band contain this percent of the checked forecast errors (never below 1).' FROM dual
+    UNION ALL SELECT 'calib_min_forecasts',     8,        'Track record: checked forecasts a series needs for a reliability grade, and banded ones for a band_factor. Fewer = UNKNOWN / NULL.' FROM dual
+    UNION ALL SELECT 'calib_wide_factor',     1.5,        'Track record: reliability WIDE when band_factor is above this ratio (the issued band was too narrow by more than that).' FROM dual
+    UNION ALL SELECT 'calib_bias_pct',         10,        'Track record: reliability BIASED when the median signed forecast error is beyond this percent of the actual value, either way.' FROM dual
     UNION ALL SELECT 'seg_window_days',        28,        'CAPR_SEGMENT_GROWTH: trailing days (up to the dbid''s newest snapshot) over which segment growth is summed for the "who is filling it" ranking.' FROM dual
     UNION ALL SELECT 'anomaly_hour_grain',      1,        'CAPA_OBS: 1 = score CPU per hour too (HOUR_OF_WEEK), 0 = day grain only: no HOUR rows, so no hourly anomalies, alerts or ring tooltips (cheaper on long hourly AWR).' FROM dual
     UNION ALL SELECT 'repo_retention_days',   400,        'Repository mode: cap_repo.purge deletes the CAP_H_* copies of snapshots that ended more than this many days ago, and older CAP_COLLECT_LOG rows. 0 = keep everything.' FROM dual
@@ -159,6 +175,10 @@ USING (
     UNION ALL SELECT 'mem_resize_reversals',    2,        'M26 SGA_BALANCE: THRASHING when the buffer cache and the shared pool reversed direction at least this many times in the window.' FROM dual
     UNION ALL SELECT 'mem_shift_pct',          10,        'M26 SGA_BALANCE: DRIFTING when the buffer cache or the shared pool ends the window at least this percent of sga_target below its largest size in it.' FROM dual
     UNION ALL SELECT 'reader_expiry_warn_days', 30,       'Repository mode: doctor.sql check 11 WARNs when a target reader''s password expires within this many days (its collects fail with ORA-28001 from then on).' FROM dual
+    -- ---- tablespace families (ddl/32) ----
+    UNION ALL SELECT 'family_auto',             1,        'Tablespace families: 1 = tablespaces of one container whose names differ only in a period token (YYYYMM, YYYYQn, YYYY, MONYY ...) form a family. 0 = only CAP_TBSPC_FAMILY rows do.' FROM dual
+    UNION ALL SELECT 'family_min_members',      3,        'Tablespace families: an automatic family needs at least this many current members. A family a CAP_TBSPC_FAMILY row names needs one.' FROM dual
+    UNION ALL SELECT 'family_recent_members',   6,        'Tablespace families: next_member_gb is judged on the final sizes of this many newest DONE members.' FROM dual
 ) s
 ON (c.cfg_name = s.cfg_name)
 WHEN MATCHED THEN
@@ -222,6 +242,11 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'complete_day_pct'       THEN cfg_value END) AS complete_day_pct,
        MAX(CASE WHEN cfg_name = 'stale_days'             THEN cfg_value END) AS stale_days,
        MAX(CASE WHEN cfg_name = 'cyclic_min_cliffs'      THEN cfg_value END) AS cyclic_min_cliffs,
+       MAX(CASE WHEN cfg_name = 'cliff_merge_days'       THEN cfg_value END) AS cliff_merge_days,
+       MAX(CASE WHEN cfg_name = 'quiet_days'             THEN cfg_value END) AS quiet_days,
+       MAX(CASE WHEN cfg_name = 'quiet_ratio'            THEN cfg_value END) AS quiet_ratio,
+       MAX(CASE WHEN cfg_name = 'quiet_chance'           THEN cfg_value END) AS quiet_chance,
+       MAX(CASE WHEN cfg_name = 'growth_floor'           THEN cfg_value END) AS growth_floor,
        MAX(CASE WHEN cfg_name = 'cpu_quality_gate'       THEN cfg_value END) AS cpu_quality_gate,
        MAX(CASE WHEN cfg_name = 'cpu_deseason'           THEN cfg_value END) AS cpu_deseason,
        MAX(CASE WHEN cfg_name = 'suite_version'          THEN cfg_value END) AS suite_version,
@@ -229,14 +254,25 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'hour_gap_ratio'         THEN cfg_value END) AS hour_gap_ratio,
        MAX(CASE WHEN cfg_name = 'series_floor_count'     THEN cfg_value END) AS series_floor_count,
        MAX(CASE WHEN cfg_name = 'series_floor_gib'       THEN cfg_value END) AS series_floor_gib,
+       MAX(CASE WHEN cfg_name = 'series_floor_iops'      THEN cfg_value END) AS series_floor_iops,
+       MAX(CASE WHEN cfg_name = 'series_floor_mbps'      THEN cfg_value END) AS series_floor_mbps,
        MAX(CASE WHEN cfg_name = 'alert_modes_tbspc'      THEN cfg_value END) AS alert_modes_tbspc,
        MAX(CASE WHEN cfg_name = 'alert_modes_cpu'        THEN cfg_value END) AS alert_modes_cpu,
        MAX(CASE WHEN cfg_name = 'alert_modes_series'     THEN cfg_value END) AS alert_modes_series,
+       MAX(CASE WHEN cfg_name = 'noise_episodes'         THEN cfg_value END) AS noise_episodes,
+       MAX(CASE WHEN cfg_name = 'noise_flag_pct'         THEN cfg_value END) AS noise_flag_pct,
+       MAX(CASE WHEN cfg_name = 'noise_min_days'         THEN cfg_value END) AS noise_min_days,
        MAX(CASE WHEN cfg_name = 'stale_hours'            THEN cfg_value END) AS stale_hours,
        MAX(CASE WHEN cfg_name = 'data_stale_max_days'    THEN cfg_value END) AS data_stale_max_days,
        MAX(CASE WHEN cfg_name = 'resolve_grace_runs'     THEN cfg_value END) AS resolve_grace_runs,
        MAX(CASE WHEN cfg_name = 'refresh_stale_hours'    THEN cfg_value END) AS refresh_stale_hours,
        MAX(CASE WHEN cfg_name = 'digest_days'            THEN cfg_value END) AS digest_days,
+       MAX(CASE WHEN cfg_name = 'accuracy_horizon_days'  THEN cfg_value END) AS accuracy_horizon_days,
+       MAX(CASE WHEN cfg_name = 'accuracy_window_days'   THEN cfg_value END) AS accuracy_window_days,
+       MAX(CASE WHEN cfg_name = 'calib_quantile_pct'     THEN cfg_value END) AS calib_quantile_pct,
+       MAX(CASE WHEN cfg_name = 'calib_min_forecasts'    THEN cfg_value END) AS calib_min_forecasts,
+       MAX(CASE WHEN cfg_name = 'calib_wide_factor'      THEN cfg_value END) AS calib_wide_factor,
+       MAX(CASE WHEN cfg_name = 'calib_bias_pct'         THEN cfg_value END) AS calib_bias_pct,
        MAX(CASE WHEN cfg_name = 'seg_window_days'        THEN cfg_value END) AS seg_window_days,
        MAX(CASE WHEN cfg_name = 'anomaly_hour_grain'     THEN cfg_value END) AS anomaly_hour_grain,
        MAX(CASE WHEN cfg_name = 'repo_retention_days'    THEN cfg_value END) AS repo_retention_days,
@@ -263,7 +299,11 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'mem_resize_reversals'    THEN cfg_value END) AS mem_resize_reversals,
        MAX(CASE WHEN cfg_name = 'mem_ref_tolerance_pct'   THEN cfg_value END) AS mem_ref_tolerance_pct,
        MAX(CASE WHEN cfg_name = 'mem_shift_pct'           THEN cfg_value END) AS mem_shift_pct,
-       MAX(CASE WHEN cfg_name = 'reader_expiry_warn_days' THEN cfg_value END) AS reader_expiry_warn_days
+       MAX(CASE WHEN cfg_name = 'reader_expiry_warn_days' THEN cfg_value END) AS reader_expiry_warn_days,
+       -- ---- tablespace families (ddl/32) ----
+       MAX(CASE WHEN cfg_name = 'family_auto'             THEN cfg_value END) AS family_auto,
+       MAX(CASE WHEN cfg_name = 'family_min_members'      THEN cfg_value END) AS family_min_members,
+       MAX(CASE WHEN cfg_name = 'family_recent_members'   THEN cfg_value END) AS family_recent_members
 FROM   cap_config;
 
 COMMENT ON TABLE cap_cfg IS 'One row, one NUMBER column per CAP_CONFIG knob (column name = knob name). NULL = the knob row is missing.';
@@ -312,13 +352,19 @@ WITH u AS (
                report_min_gb, accel_slope_floor_bpd, slope_method, reset_on_shrink,
                shrink_mad_k, cpu_gap_hours, shift_days, shift_baseline_days,
                shift_min_pct, series_sat_pct, esm_max_age_days, esm_auto_tie_pct,
-               complete_day_pct, stale_days, cyclic_min_cliffs, cpu_quality_gate,
+               complete_day_pct, stale_days, cyclic_min_cliffs, cliff_merge_days,
+               quiet_days, quiet_ratio, quiet_chance, growth_floor, cpu_quality_gate,
                cpu_deseason, suite_version,
                cpu_min_mad_pct_hour, hour_gap_ratio,
-               series_floor_count, series_floor_gib, alert_modes_tbspc,
-               alert_modes_cpu, alert_modes_series, stale_hours,
+               series_floor_count, series_floor_gib, series_floor_iops,
+               series_floor_mbps, alert_modes_tbspc,
+               alert_modes_cpu, alert_modes_series,
+               noise_episodes, noise_flag_pct, noise_min_days,
+               stale_hours,
                data_stale_max_days, resolve_grace_runs, refresh_stale_hours,
-               digest_days, seg_window_days, anomaly_hour_grain,
+               digest_days, accuracy_horizon_days, accuracy_window_days,
+               calib_quantile_pct, calib_min_forecasts, calib_wide_factor,
+               calib_bias_pct, seg_window_days, anomaly_hour_grain,
                repo_retention_days, mem_window_days, mem_min_days,
                mem_pga_limit_pct, mem_max_step, mem_host_ram_pct,
                mem_min_uptime_hours, mem_gain_dbtime_pct, mem_shrink_dbtime_pct,
@@ -326,7 +372,8 @@ WITH u AS (
                mem_symptom_dbtime_pct, mem_temp_io_dbtime_pct, mem_multipass_pct,
                mem_onepass_pct, mem_reload_pct, mem_rowcache_miss_pct,
                mem_shpool_free_pct, mem_resize_ops_day, mem_resize_reversals,
-               mem_ref_tolerance_pct, mem_shift_pct, reader_expiry_warn_days))
+               mem_ref_tolerance_pct, mem_shift_pct, reader_expiry_warn_days,
+               family_auto, family_min_members, family_recent_members))
      ),
      r AS (
         SELECT u.knob, u.value,
@@ -349,9 +396,19 @@ WITH u AS (
                         THEN 'must be <= dow_weeks (' || c.dow_weeks || '): the weekly baselines hold at most that many observations'
                    WHEN u.knob = 'hour_gap_ratio'      AND u.value <= 0
                         THEN 'must be > 0'
+                   WHEN u.knob = 'mad_k'               AND u.value <= 0
+                        THEN 'must be > 0: the anomaly threshold is mad_k x sigma'
+                   WHEN u.knob = 'accel_slope_floor_bpd' AND u.value < 0
+                        THEN 'must be >= 0'
                    WHEN u.knob IN ('alert_modes_tbspc', 'alert_modes_cpu', 'alert_modes_series')
                         AND (u.value <> TRUNC(u.value) OR u.value NOT BETWEEN 0 AND 7)
                         THEN 'must be a bitmask 0..7: 1=TRAILING 2=SAME_DOW 4=HOUR_OF_WEEK'
+                   WHEN u.knob = 'noise_episodes'      AND (u.value <> TRUNC(u.value) OR u.value < 1)
+                        THEN 'must be a whole number >= 1: anomaly episodes inside anomaly_report_days'
+                   WHEN u.knob = 'noise_flag_pct'      AND (u.value <= 0 OR u.value > 100)
+                        THEN 'must be > 0 and <= 100 (percent of the scored days)'
+                   WHEN u.knob = 'noise_min_days'      AND (u.value <> TRUNC(u.value) OR u.value < 1)
+                        THEN 'must be a whole number >= 1: scored days the noise_flag_pct rule needs'
                    WHEN u.knob = 'shift_days'          AND u.value > c.shift_baseline_days
                         THEN 'must be <= shift_baseline_days (' || c.shift_baseline_days || ')'
                    WHEN u.knob = 'esm_prediction_step' AND u.value NOT BETWEEN 1 AND 30
@@ -376,6 +433,18 @@ WITH u AS (
                         THEN 'must be > 0'
                    WHEN u.knob = 'digest_days'         AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
+                   WHEN u.knob = 'accuracy_horizon_days' AND (u.value <> TRUNC(u.value) OR u.value NOT BETWEEN 7 AND 90)
+                        THEN 'must be a whole number between 7 and 90'
+                   WHEN u.knob = 'accuracy_window_days' AND (u.value <> TRUNC(u.value) OR u.value < 1)
+                        THEN 'must be a whole number >= 1'
+                   WHEN u.knob = 'calib_quantile_pct'  AND (u.value < 50 OR u.value > 100)
+                        THEN 'must be between 50 and 100 (percent of the checked forecast errors)'
+                   WHEN u.knob = 'calib_min_forecasts' AND (u.value <> TRUNC(u.value) OR u.value < 2)
+                        THEN 'must be a whole number >= 2'
+                   WHEN u.knob = 'calib_wide_factor'   AND u.value < 1
+                        THEN 'must be >= 1: band_factor is never below 1'
+                   WHEN u.knob = 'calib_bias_pct'      AND u.value <= 0
+                        THEN 'must be > 0'
                    WHEN u.knob = 'seg_window_days'     AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
                    WHEN u.knob = 'reader_expiry_warn_days' AND (u.value <> TRUNC(u.value) OR u.value < 1)
@@ -384,6 +453,16 @@ WITH u AS (
                         THEN 'must be 0 (day grain only) or 1 (score hours too)'
                    WHEN u.knob = 'cyclic_min_cliffs'   AND (u.value <> TRUNC(u.value) OR u.value = 1 OR u.value < 0)
                         THEN 'must be 0 (off) or a whole number >= 2: one cliff is a purge, the M9.3 reset handles it'
+                   WHEN u.knob = 'cliff_merge_days'    AND (u.value <> TRUNC(u.value) OR u.value < 0)
+                        THEN 'must be a whole number >= 0 (0 = every cliff day is its own purge event)'
+                   WHEN u.knob = 'quiet_days'          AND (u.value <> TRUNC(u.value) OR u.value < 0)
+                        THEN 'must be a whole number >= 0 (0 = no STOP / START restart)'
+                   WHEN u.knob = 'quiet_ratio'         AND u.value < 0
+                        THEN 'must be >= 0'
+                   WHEN u.knob = 'quiet_chance'        AND (u.value <= 0 OR u.value > 1)
+                        THEN 'must be above 0 and at most 1 (a probability)'
+                   WHEN u.knob = 'growth_floor'        AND (u.value < 0 OR u.value >= 1)
+                        THEN 'must be >= 0 and below 1 (a fraction of the window''s rise)'
                    WHEN u.knob = 'cpu_quality_gate'    AND u.value NOT IN (0, 1)
                         THEN 'must be 0 (R2 gate) or 1 (slope significance)'
                    WHEN u.knob = 'cpu_deseason'        AND u.value NOT IN (0, 1)
@@ -416,8 +495,17 @@ WITH u AS (
                    WHEN u.knob IN ('mem_shrink_min_days', 'mem_resize_reversals')
                         AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
-                   WHEN u.knob = 'suite_version'       AND u.value < 26.4
-                        THEN 'older than this release (26.4): re-run install.sql'
+                   WHEN u.knob IN ('series_floor_iops', 'series_floor_mbps') AND u.value < 0
+                        THEN 'must be >= 0: the smallest deviation an I/O anomaly may flag on'
+                   -- ---- tablespace families (ddl/32) ----
+                   WHEN u.knob = 'family_auto'         AND u.value NOT IN (0, 1)
+                        THEN 'must be 0 (CAP_TBSPC_FAMILY rows only) or 1 (period tokens too)'
+                   WHEN u.knob = 'family_min_members'  AND (u.value <> TRUNC(u.value) OR u.value < 2)
+                        THEN 'must be a whole number >= 2'
+                   WHEN u.knob = 'family_recent_members' AND (u.value <> TRUNC(u.value) OR u.value < 1)
+                        THEN 'must be a whole number >= 1'
+                   WHEN u.knob = 'suite_version'       AND u.value < 27.0
+                        THEN 'older than this release (27.0): re-run install.sql'
                END AS reason
         FROM   u
         CROSS  JOIN (SELECT g.*,
@@ -514,3 +602,93 @@ COMMENT ON COLUMN cap_tbspc_override.dtf_warn          IS 'days_to_full at/below
 COMMENT ON COLUMN cap_tbspc_override.dtf_crit          IS 'days_to_full at/below which TBSPC_FULL is a CRIT for this tablespace. NULL = the dtf_crit knob.';
 COMMENT ON COLUMN cap_tbspc_override.nearfull_warn_pct IS 'Percent used at/above which TBSPC_NEARFULL is a WARN for this tablespace. NULL = the nearfull_warn_pct knob.';
 COMMENT ON COLUMN cap_tbspc_override.nearfull_crit_pct IS 'Percent used at/above which TBSPC_NEARFULL is a CRIT for this tablespace. NULL = the nearfull_crit_pct knob.';
+
+-- =====================================================================
+-- CAP_TBSPC_FAMILY -- operator rows for tablespace families (ddl/32).
+-- =====================================================================
+-- Operator data like CAP_TBSPC_OVERRIDE: ddl/00_drop.sql leaves it alone, a
+-- re-install keeps its rows, only uninstall.sql drops it (after spooling the
+-- rows to the replay file).
+--
+-- ddl/32 finds families by the period token in the name. A row here adds a
+-- tablespace to a family, renames a family or keeps a tablespace out of
+-- every family. name_regex is a regular expression matched against the whole
+-- tablespace name with REGEXP_LIKE: anchor it (^SALES_[0-9]{6}$), an
+-- unanchored one matches anywhere in the name. dbid = 0 and / or con_dbid = 0
+-- mean "any", as in CAP_TBSPC_OVERRIDE. When several rows match one
+-- tablespace the most specific wins: a real dbid first, then a real
+-- con_dbid, then the row whose name_regex sorts first. The winning row
+-- decides alone: exclude_flag = Y takes the tablespace out of every family,
+-- N puts it into family_name (which may be the name the period token would
+-- give, to add a member to an automatic family).
+--
+-- cap_tbspc_family_rx evaluates the expression once, so an invalid one is
+-- rejected by the INSERT (ORA-12725 and its neighbours) and never reaches
+-- the views.
+DECLARE
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE TABLE cap_tbspc_family (
+        dbid         NUMBER        DEFAULT 0   NOT NULL,
+        con_dbid     NUMBER        DEFAULT 0   NOT NULL,
+        name_regex   VARCHAR2(200)             NOT NULL,
+        family_name  VARCHAR2(60),
+        exclude_flag CHAR(1)       DEFAULT ''N'' NOT NULL,
+        note         VARCHAR2(200),
+        CONSTRAINT cap_tbspc_family_pk PRIMARY KEY (dbid, con_dbid, name_regex),
+        CONSTRAINT cap_tbspc_family_ck CHECK (exclude_flag IN (''Y'',''N'')),
+        CONSTRAINT cap_tbspc_family_nm CHECK (exclude_flag = ''Y'' OR family_name IS NOT NULL),
+        CONSTRAINT cap_tbspc_family_rx CHECK (REGEXP_COUNT(''X'', name_regex) >= 0)
+    )';
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+COMMENT ON TABLE  cap_tbspc_family              IS 'Tablespace families, operator rows: add a tablespace to a family, rename a family or keep a tablespace out. Applied by CAPD_TBSPC_FAMILY; dbid/con_dbid = 0 mean "any".';
+COMMENT ON COLUMN cap_tbspc_family.dbid         IS 'DBID this rule applies to, or 0 = any database.';
+COMMENT ON COLUMN cap_tbspc_family.con_dbid     IS 'CON_DBID this rule applies to, or 0 = any container.';
+COMMENT ON COLUMN cap_tbspc_family.name_regex   IS 'Regular expression (REGEXP_LIKE) on the tablespace name. Anchor it with ^ and $ to match the whole name.';
+COMMENT ON COLUMN cap_tbspc_family.family_name  IS 'Family the matching tablespaces belong to. NULL only on an exclude row.';
+COMMENT ON COLUMN cap_tbspc_family.exclude_flag IS 'Y = the matching tablespaces belong to no family. N (default) = they belong to family_name.';
+COMMENT ON COLUMN cap_tbspc_family.note         IS 'Free-text reason.';
+
+-- =====================================================================
+-- U09 BEGIN -- CAP_DISK_OVERRIDE: the free space of the disk the datafiles share.
+-- =====================================================================
+-- Operator data like CAP_TBSPC_OVERRIDE: ddl/00_drop.sql leaves it alone, a
+-- re-install preserves it, uninstall.sql spools its rows to the replay file
+-- and drops it.
+--
+-- The shared-disk forecast (ddl/33) needs the free space on the filesystem
+-- or disk group behind the datafiles. Oracle has no general view for it.
+-- The suite derives it from the live tablespace ceilings where one is capped
+-- by storage (CAPV_TBSPC_LIVE). A row here supplies or corrects the figure
+-- (the df / lsdg value) and names the disk in the reports and in the
+-- DISK_FULL alert. free_gb NULL only names the disk.
+--
+-- One disk per database: dbid = 0 means any database, and a row with the
+-- real dbid wins over it. Of several rows for one dbid the first disk_name
+-- in sort order is used.
+DECLARE
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE TABLE cap_disk_override (
+        dbid        NUMBER        DEFAULT 0             NOT NULL,
+        disk_name   VARCHAR2(30)  DEFAULT ''DATAFILES'' NOT NULL,
+        free_gb     NUMBER,
+        set_at      DATE          DEFAULT SYSDATE       NOT NULL,
+        note        VARCHAR2(200),
+        CONSTRAINT cap_disk_override_pk PRIMARY KEY (dbid, disk_name),
+        CONSTRAINT cap_disk_override_ck CHECK (free_gb >= 0)
+    )';
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+COMMENT ON TABLE  cap_disk_override           IS 'U09: free space of the disk the datafiles of a database share, set by the operator. Read by CAPF_TBSPC_SHARED; dbid = 0 means "any".';
+COMMENT ON COLUMN cap_disk_override.dbid      IS 'DBID this row applies to, or 0 = any database.';
+COMMENT ON COLUMN cap_disk_override.disk_name IS 'Name of the disk in the reports and in the DISK_FULL alert key, e.g. /u02 or +DATA.';
+COMMENT ON COLUMN cap_disk_override.free_gb   IS 'Free space on the disk now, GiB (the df / lsdg figure). NULL = keep the figure derived from the live tablespace ceilings.';
+COMMENT ON COLUMN cap_disk_override.set_at    IS 'When free_gb was measured. Shown as disk_as_of; the suite does not age it.';
+COMMENT ON COLUMN cap_disk_override.note      IS 'Free-text reason.';
+-- U09 END

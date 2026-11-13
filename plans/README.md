@@ -14,12 +14,12 @@ milestone history.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | [001](001-small-correctness-fixes.md) | Nine small fixes: ORDS label escaping, zero knobs, installer gates, ordering | P1 | S | — | DONE (reviewed 2026-11-10; branch `t3/small-correctness-fixes`, 9 commits on `d91e3f8`, not merged; harness CAPX1 1899 passed, 0 failed; steps 1, 6, 7, 8 not database-tested) |
-| [002](002-lab-credentials-out-of-tracked-files.md) | No login literal in a tracked file (public repo); operator rotates | P1 | S | — | TODO |
-| [003](003-esm-top-n-per-database.md) | ESM trains the top N of each database and retires unselected models | P2 | M | — | TODO |
+| [002](002-lab-credentials-out-of-tracked-files.md) | No login literal in a tracked file (public repo); operator rotates | P1 | S | — | DONE (2026-11-12; branch `t3/awr-capacity-predictions`, one commit; offline checks pass, no database run needed; also edited `grafana/README.md`, `docs/usage.html`, `CLAUDE.md`; the APEX row and `bench/env.sh.example` held placeholders already; operator rotation of the Grafana and docker-elk logins still open, and `grafana/.env` needs `GF_ADMIN_PASSWORD` before the next compose command; `test/lint_secrets.sh`, run by `test/check.sh`, now keeps a login literal out of tracked files, `plans/` aside) |
+| [003](003-esm-top-n-per-database.md) | ESM trains the top N of each database and retires unselected models | P2 | M | — | DONE (2026-11-13; branch `t3/implement-u03-brief`, not merged; harness CAPW3 `--ml`: 1900 passed, 0 failed and 132 passed, 0 failed, exit 0; the per-database split has no fixture assertion, one database: `test/lint_dbid_windows.sh` guards it) |
 | [004](004-report-windows-per-database.md) | HTML report and briefing anchor windows and dates per database | P2 | M | — | TODO |
 | [005](005-passwords-out-of-sql-text-and-argv.md) | Generated reader password stays in its bind; no password on argv | P2 | M | — | TODO |
-| [006](006-memory-views-skip-old-startups.md) | Memory views skip startups that ended before the window (exact) | P2 | S-M | — | TODO |
-| [007](007-advisor-gain-over-whole-interval-dbtime.md) | Advisor gain divided by the DB time of its whole interval | P2 | S-M | 006 | TODO |
+| [006](006-memory-views-skip-old-startups.md) | Memory views skip startups that ended before the window (exact) | P2 | S-M | — | DONE (unit U02, 2026-11-13; harness CAPW1 1907 passed, 0 failed; every memory view identical before and after on the fixture and the demo fixture; demo fixture, shared VM: `test/mem_timing.sql` 279 / 329 s before, 118 / 99 s after; documentation updated too) |
+| [007](007-advisor-gain-over-whole-interval-dbtime.md) | Advisor gain divided by the DB time of its whole interval | P2 | S-M | 006 | DONE (unit U08, 2026-11-13; harness CAPW1 2099 passed, 0 failed, with the unit's other change, `CAPM_VERDICT` reading `CAPM_AREA` once; the gap assertions are closed forms, and a probe on the old join read 0.4573 percent where they expect 0.4500; a second assertion pins the window-edge fallback; demo fixture, shared VM, plan 006 against 007: `capm_advice` 1.5 s and 1.5 s, `capm_area` 4.5 s and 3.1 s, `capm_verdict` 16.6 s and 15.0 s; every memory view identical on both fixtures; step 1's count on real AWR not taken, CAPX2 was off limits) |
 | [008](008-refresh-parse-cost.md) | Slim `CAPR_COVERAGE`; measured decision on a no-CBQT hint in refresh | P2 | S + M | — | TODO |
 | [009](009-repository-purge-test.md) | Automated test and lever for `cap_repo.purge` | P3 | M | — | TODO |
 
@@ -82,42 +82,94 @@ So nobody re-audits them:
 
 The maintainer chose not to plan these yet; they remain open findings.
 
-- **Standalone query has no automated test** (`standalone/tbspc_capacity.sql`).
-  Its six AWR-reading CTEs use unqualified names, so views named
-  `DBA_HIST_*` / `CDB_TABLESPACE_USAGE_METRICS` in a throwaway schema would
-  feed the unchanged file with designed series.
-- **STOP cannot fire with one or two growth days in the window**
-  (`standalone/tbspc_capacity.sql:367`: `POWER(span / (span + trail), g - 1)`
-  is 1 for `g = 1`). A monthly tablespace flips from STOP to "no restart" for
-  the days its ramp's tail sits at the window's left edge, and a one-day bulk
-  load followed by weeks of nothing is fitted as a step with quality OK.
-- **A purge spread over two days counts as two cliffs = CYCLIC**
-  (`ddl/30_forecast_views.sql:257-275`, mirrored in the standalone query
-  `:301-311`): no reset, and the tablespace's full-date alert is off for up
-  to `train_days`.
-- **No single entry point for the nine offline checks, no CI**;
-  `test/docs_lint.sh` is in no lever. `test/run_test.sql` assumes the fixture
-  was loaded today (`--no-fixture` the next morning fails at `:4621`).
-- **The ORDS module is public and reads live views per request**, and
-  `install.sh` `ORDS=Y` publishes it (`grafana/ords/awrcap_module.sql:15`).
+- **A purge spread over two days counts as two cliffs = CYCLIC**. Closed
+  (2026-11-12): cliff days at most `cliff_merge_days` (1) apart are one purge
+  event, in `ddl/30_forecast_views.sql` and both standalone queries
+  (`FIX_PURGE2`, standalone `PURGE2` / `PURGE3`).
+- **`test/run_test.sql` assumes the fixture was loaded today**
+  (`--no-fixture` the next morning fails at `:4621`). The other half of this
+  finding is closed (2026-11-12): `test/check.sh` is the one entry point for
+  the offline checks, `test/dbmint_harness.sh` and
+  `.github/workflows/check.yml` run it, and it includes `test/docs_lint.sh`.
+  The lints now read tracked files only, so a file under `reports/` no
+  longer fails them.
+- **The ORDS module reads live views per request.** The other half of this
+  finding is closed (2026-11-13, improve program unit U15): the module is
+  protected by the ORDS privilege `awrcap.read` (OAuth2 client credentials,
+  `grafana/ords/awrcap_client.sql`), `install.sh` `ORDS=Y` publishes it
+  protected, and `PUBLIC` is an explicit argument of a hand run. The memory
+  handlers (`mem_verdicts`, `mem_evidence`) are the slowest live reads.
 - **`cap_results.purge` is never scheduled; the alert spool file is written
   in place; a re-install does not quiesce running jobs.**
 - **HTML page robustness**: unguarded `JSON.parse`, hour 24 not drawn, hover
   on an empty card throws (`report/html/report.js:4,633,1176`).
 
+## Findings closed outside a plan
+
+- **Standalone query has no automated test**: closed 2026-11-12 (improve
+  program unit U01). `test/standalone_test.sh <SCHEMA>` feeds the unchanged
+  `standalone/tbspc_capacity.sql` and `tbspc_monitor.sql` with designed
+  series through views named like their sources.
+- **STOP cannot fire with one or two growth days in the window**: closed
+  2026-11-12 (U01). STOP's chance term is `(span / (span + pause)) ^ g`
+  instead of `^ (g - 1)`, in both files. The lever was red on exactly these
+  cases before the change. START keeps `g - 1`.
+
+- **Nothing read `CAPR_FORECAST_ACCURACY`; the stored fits had no band**:
+  closed 2026-11-13 (improve program unit U11). `CAP_FIT_HIST` keeps each
+  fit's +30 projection and band, `CAPR_FIT_TRACK` grades every series'
+  earlier forecasts (error, bias, band hits, band factor, reliability), and
+  the four report drivers print it. `PLAN.md` M28 lists what it does not do.
+- **`report/notify.sh` delivered the events of acknowledged alerts**: closed
+  2026-11-13 (U11). `CAPR_ALERT_EVENTS.acked`, skipped by default,
+  `--include-acked` sends them.
+
+## Units outside the numbered plans
+
+- **U14, doctor alert volume** (improve program 2026-11): `CAPR_ANOM_VOLUME`
+  and `CAPR_ALERT_VOLUME`, the knobs `noise_episodes` / `noise_flag_pct`,
+  `doctor.sql` section 12 and a closing line in the text report's section 0.
+  U22 added `noise_min_days` (the share rule needs 7 scored days) and the
+  noisy count as one line in the briefing and the HTML report's alert list.
+- **U22, defect sweep** (2026-11-13): anomaly messages and alert units of
+  the I/O series follow the series' unit (they read GiB/day and `GIB`); a
+  positional `top_n` passed alone was ignored (ORA-00932 in the drivers'
+  argument SELECT, `test/lint_nullif_args.sh`); `test/report_html_test.js`
+  failed on a fixture page (its family list lacked the I/O sections and its
+  built I/O series counted days from the row count).
+
 ## Direction options (not planned; the maintainer said "none for now")
 
 - Port the standalone STOP / START window restart into the suite's
-  tablespace forecast behind `quiet_days = 0`.
-- `target_name` and the memory verdicts in the ELK, ORDS / Grafana and APEX
-  paths (none of them reads either today).
+  tablespace forecast. Done (2026-11-12), on by default (`quiet_days` 14, 0 =
+  off): `restart_reason` / `restart_day` on `CAPF_TBSPC_FORECAST` and
+  `CAPR_FIT`. The dashboards (ELK, Grafana, APEX) do not show them yet.
+- Tablespace families (one tablespace per month, quarter or year judged as a
+  group). Done (2026-11-13, improve program unit U10, PLAN.md M9.7):
+  `ddl/32_tbspc_family.sql`, operator table `CAP_TBSPC_FAMILY`, alert kind
+  `TBSPC_FAMILY`. Open: `TBSPC_FULL` still fires for a filling member whose
+  family says it fits; no mirror in the standalone queries; the dashboards
+  do not read the family views.
+- Port the standalone shared-disk forecast (`dtf_shared`, `disk_dtf`) into
+  the suite. Done (2026-11-13): `ddl/33_shared_disk.sql`, the live source
+  `CAPV_TBSPC_LIVE`, the operator table `CAP_DISK_OVERRIDE` and the
+  `DISK_FULL` alert (PLAN.md M29). One disk per database: datafiles are not
+  mapped to devices or disk groups.
+- `target_name` and the memory verdicts in the dashboards. Done 2026-11-13:
+  the ELK and ORDS / Grafana paths carry both (U15), with the `IOPS` /
+  `IO_MBPS` series. APEX (U17): target filter and column, a Targets page
+  (`CAPR_TARGETS`), a Memory sizing page (`CAPR_MEM_*`) and the `IOPS` /
+  `IO_MBPS` charts. Every APEX query runs on the fixture without APEX
+  (`apex/test/apex_probe.sql`); the import into APEX and the rendered pages
+  are unverified, because the lab has no APEX instance.
 - A persisted memory verdict history (`CAPR_MEM_VERDICT_S` is already filled
   on every refresh; `CAP_FIT_HIST` is the pattern).
 
 ## Not audited
 
 `doctor.sql` and `target/check.sql` line by line; the generated pull
-statements in `ddl/13_seam_repository.sql`; the generated APEX export; the
+statements in `ddl/13_seam_repository.sql`; the generated APEX export (since
+checked by `apex/test/export_check.py` and `apex/test/apex_probe.sql`); the
 ELK / Grafana dashboard builders' internals; `docs/*.html` beyond spot
 checks; any runtime behaviour (no database was connected during the audit).
 The nine offline checks all passed at `d91e3f8`.

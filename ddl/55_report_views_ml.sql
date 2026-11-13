@@ -35,6 +35,9 @@
 --   CAPR_ALERTS         -- the pollable alert surface (bottom of this file):
 --                          here because its MODEL_HEALTH kind reads the
 --                          Tier 2 health view.
+--   CAPR_ALERT_VOLUME   -- CAPR_ALERTS counted per alert identity, with
+--                          the noise facts of CAPR_ANOM_VOLUME (ddl/45) on
+--                          the anomaly kinds. doctor.sql section 12 reads it.
 --
 -- Read-only, like everything else in the suite.
 --
@@ -92,7 +95,7 @@ SELECT f.dbid,
                                    f.con_dbid, f.tablespace_name)  AS rank_report,
        ROW_NUMBER() OVER (PARTITION BY f.dbid
                           ORDER BY f.days_to_full NULLS LAST,
-                                   f.tablespace_name)  AS rank_chart
+                                   f.tablespace_name, f.con_dbid)  AS rank_chart
 FROM   f;
 
 CREATE OR REPLACE VIEW capr_tbspc_forecast AS
@@ -130,7 +133,9 @@ SELECT f.dbid,
        f.rank_report,
        f.rank_chart,
        e.esm_horizon_days,
-       e.model_age_days                    AS esm_age_days
+       e.model_age_days                    AS esm_age_days,
+       f.restart_reason,
+       f.restart_day
 FROM   f
 LEFT   JOIN capr_container cn
   ON   cn.dbid = f.dbid AND cn.con_dbid = f.con_dbid
@@ -372,6 +377,11 @@ LEFT   JOIN capr_container c
 --                DBCPU_HOT        a container's DB_CPU_P95, same rule
 --                SERIES_LIMIT     days_to_limit <= dtf_warn on an OK fit
 --                SERIES_NEARLIMIT pct_of_limit >= nearfull_warn_pct
+--              TBSPC_FAMILY (ddl/32) the filling member of a tablespace
+--              family: its cautious expected final size
+--              (CAPF_TBSPC_FAMILY.expected_final_hi_bytes) is above its
+--              ceiling, WARN. One row per family (series_key = the family
+--              name), value and threshold in GiB.
 --              Every forecast kind needs is_current = 'Y'; per-tablespace
 --              thresholds come from CAP_TBSPC_OVERRIDE.
 --              CPU_SHIFT (M10.3) a flagged sustained level shift, UP = WARN,
@@ -379,6 +389,11 @@ LEFT   JOIN capr_container c
 --              the forecast kinds it needs is_current = 'Y': a shift whose
 --              series stopped (stale_days behind its dbid's newest day, e.g. a
 --              dropped PDB) is no alert, so it leaves every poller too.
+--              DISK_FULL    (U09) the disk a database's datafiles share is
+--              forecast full within dtf_warn / dtf_crit days (CAPR_DISK,
+--              from CAPF_DISK in ddl/33): WARN / CRIT on disk_dtf, the
+--              expected case. It needs one growing tablespace at fit
+--              quality OK. series_key 'DISK:<disk_name>', con_dbid = dbid.
 --              DATA_STALE   the dbid's newest AWR snapshot is stale_hours or
 --              more old (CAPR_FRESHNESS, the one SYSDATE test), WARN. A dbid
 --              data_stale_max_days or more old is retired: no alert, it shows
@@ -401,7 +416,10 @@ LEFT   JOIN capr_container c
 --              ends ' (level shift active)': the CPU_SHIFT row is the one
 --              alert for that step.
 --   value, unit       the number that crossed (DAYS, PCT, HOURS, COUNT, BYTES,
---                     GIB)
+--                     GIB, IO_PER_SEC, MB_PER_SEC). An anomaly row carries
+--                     its series' unit (CAPR_ANOMALIES.unit in upper case),
+--                     with BYTES for a tablespace's bytes a day and GIB for
+--                     both GiB and GiB a day.
 --   threshold         the level it crossed: on the forecast kinds the CRIT
 --                     threshold on a CRIT row and the WARN one otherwise; on
 --                     an anomaly kind the bound crossed (expected +/- the
@@ -453,6 +471,47 @@ WITH alerts AS (
         FROM   capr_severity s
         WHERE  s.sev <> 'OK'
         UNION ALL
+        -- ---- TBSPC_FAMILY (ddl/32): the member of a tablespace family that
+        -- fills now will not fit under its ceiling by the end of its period.
+        -- series_key is the family, so next period's member continues the
+        -- same alert. Members are current tablespaces by construction.
+        SELECT 'WARN',
+               'TBSPC_FAMILY',
+               y.dbid, y.con_dbid,
+               y.family_name,
+               y.last_day,
+               y.expected_final_hi_gb,
+               y.filling_limit_gb,
+               'GIB',
+               y.headline,
+               NULL,
+               'GE',
+               y.filling_limit_gb,
+               'Y',
+               NULL, NULL, NULL
+        FROM   capr_tbspc_family y
+        WHERE  y.sev = 'WARN'
+        UNION ALL
+        -- ---- U09 BEGIN -- DISK_FULL: the disk the datafiles share fills
+        -- inside the dtf window (CAPR_DISK owns severity and message).
+        SELECT k.sev,
+               'DISK_FULL',
+               k.dbid, k.con_dbid,
+               k.series_key,
+               k.newest_day,
+               k.disk_dtf,
+               CASE WHEN k.sev = 'CRIT' THEN k.crit_threshold ELSE k.warn_threshold END,
+               'DAYS',
+               k.message,
+               NULL,
+               'LE',
+               k.warn_threshold,
+               'Y',
+               NULL, NULL, NULL
+        FROM   capr_disk k
+        WHERE  k.sev <> 'OK'
+        UNION ALL
+        -- ---- U09 END
         -- ---- CPU_SHIFT: a sustained step in a CPU series (M10.3). Not a
         -- forecast and not an outlier -- the level the machine runs at TODAY
         -- differs from the level it ran at a month ago, which is a capacity
@@ -564,8 +623,8 @@ WITH alerts AS (
                e.obs_day,
                e.value,
                e.expected + SIGN(e.value - e.expected) * e.threshold,
-               CASE e.unit WHEN 'bytes_per_day' THEN 'BYTES' WHEN 'pct' THEN 'PCT'
-                           WHEN 'count' THEN 'COUNT' ELSE 'GIB' END,
+               CASE e.unit WHEN 'bytes_per_day' THEN 'BYTES' WHEN 'gib_per_day' THEN 'GIB'
+                           ELSE UPPER(e.unit) END,
                CASE WHEN e.n_days > 1
                     THEN e.n_days || ' consecutive days, latest ' || TO_CHAR(e.obs_day, 'YYYY-MM-DD')
                          || ', peak robust z ' || NVL(TO_CHAR(e.max_z, 'FMS999999990.0'), 'off-scale')
@@ -655,3 +714,60 @@ SELECT a.severity,
 FROM   alerts a
 LEFT   JOIN capr_container c
   ON   c.dbid = a.dbid AND c.con_dbid = a.con_dbid;
+
+-- --------------------------------------------------------------------
+-- CAPR_ALERT_VOLUME -- how many alerts each alert identity raises with the
+-- knobs as they are: CAPR_ALERTS counted per state_key (dbid, con_dbid,
+-- kind, series_key, baseline_mode), one row each, per database.
+--   episodes        its CAPR_ALERTS rows: an anomaly kind lists one row per
+--                   run of consecutive flagged days, every other kind one
+--                   row. n_crit / n_warn / n_info split them by severity.
+-- The anomaly kinds (TBSPC_ANOM, CPU_ANOM, DBCPU_ANOM, SERIES_ANOM) carry
+-- CAPR_ANOM_VOLUME's row of the same key: the window, scored and flagged
+-- days, the largest deviation in floor-knob units, the floor knob with its
+-- value and the suggested value, the alert_modes knob and bit. Those
+-- columns are NULL on every other kind: a forecast or threshold alert has
+-- no floor to raise.
+--   noisy           CAPR_ANOM_VOLUME's verdict (its own episode count, the
+--                   same number as episodes here), 'N' on the other kinds.
+-- Reading it runs the anomaly engine twice (CAPR_ALERTS, CAPR_ANOM_VOLUME):
+-- it is doctor's view, no report driver reads it.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_alert_volume AS
+WITH al AS (
+        SELECT a.dbid, a.con_dbid, a.kind, a.series_key, a.baseline_mode, a.state_key,
+               MAX(a.db_pdb)                                   AS db_pdb,
+               COUNT(*)                                        AS episodes,
+               COUNT(CASE WHEN a.severity = 'CRIT' THEN 1 END) AS n_crit,
+               COUNT(CASE WHEN a.severity = 'WARN' THEN 1 END) AS n_warn,
+               COUNT(CASE WHEN a.severity = 'INFO' THEN 1 END) AS n_info
+        FROM   capr_alerts a
+        GROUP  BY a.dbid, a.con_dbid, a.kind, a.series_key, a.baseline_mode, a.state_key
+     )
+SELECT al.dbid,
+       al.con_dbid,
+       al.db_pdb,
+       al.kind,
+       al.series_key,
+       al.baseline_mode,
+       al.state_key,
+       al.episodes,
+       al.n_crit,
+       al.n_warn,
+       al.n_info,
+       v.window_days,
+       v.scored_days,
+       v.flagged_days,
+       v.flagged_pct,
+       v.max_dev,
+       v.floor_knob,
+       v.floor_value,
+       v.suggested_floor,
+       v.mode_knob,
+       v.mode_bit,
+       NVL(v.noisy, 'N') AS noisy
+FROM   al
+LEFT   JOIN capr_anom_volume v
+  ON   v.dbid = al.dbid AND v.con_dbid = al.con_dbid
+ AND   v.alert_kind = al.kind AND v.series = al.series_key
+ AND   v.baseline_mode = al.baseline_mode;

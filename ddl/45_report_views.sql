@@ -18,6 +18,9 @@
 --                     and baseline mode, plus CPU level shifts) with its
 --                     severity, message and alert eligibility. Also a point
 --                     feed for external dashboards.
+--   CAPR_ANOM_VOLUME -- per series and baseline mode that alerts: scored
+--                     and flagged days, episodes, the governing floor knob
+--                     and the floor that would quiet it, the noisy flag.
 --   CAPR_FRESHNESS -- one row per dbid: the age of its newest AWR snapshot
 --                     against SYSDATE (the DATA_STALE dead-man check).
 --   CAPR_TARGETS   -- one row per target and dbid: how it is fed, its
@@ -37,6 +40,8 @@
 --   CAPR_MEM_COMPONENTS / CAPR_MEM_COMP_POINTS -- the memory sizing verdicts
 --                     of ddl/42 for the reports (M26.4), at the end of this
 --                     file.
+--   CAPR_TBSPC_FAMILY / CAPR_TBSPC_FAMILY_MEMBERS -- the tablespace families
+--                     of ddl/32 for the reports, at the end of this file.
 -- CAPR_ALERTS (the pollable alert surface) and CAPR_FORECAST_POINTS live in
 -- ddl/55_report_views_ml.sql: CAPR_ALERTS' MODEL_HEALTH kind reads the
 -- Tier 2 health views ddl/50 creates after this file.
@@ -107,15 +112,23 @@ WITH pt AS (
         WHERE  a.anomaly_flag IS NOT NULL
           AND  a.kind_last_day IS NOT NULL
      ),
+     -- How a scored value reads, by its unit: value / div in format fmt,
+     -- then sfx. One row per CAPA_OBS unit. A unit without a row prints
+     -- the plain number and the unit's own name, so a new series needs a
+     -- row here only for a nicer label.
+     ut AS (
+        SELECT 'BYTES_PER_DAY' AS unit, 1048576 AS div, 'FM999999990.0' AS fmt, ' MiB/day' AS sfx FROM dual
+        UNION ALL SELECT 'PCT',         1, 'FM9999990.0',   '%'        FROM dual
+        UNION ALL SELECT 'COUNT',       1, 'FM99999999990', NULL       FROM dual
+        UNION ALL SELECT 'GIB',         1, 'FM9999990.00',  ' GiB'     FROM dual
+        UNION ALL SELECT 'GIB_PER_DAY', 1, 'FM9999990.00',  ' GiB/day' FROM dual
+        UNION ALL SELECT 'IO_PER_SEC',  1, 'FM99999999990', ' IO/s'    FROM dual
+        UNION ALL SELECT 'MB_PER_SEC',  1, 'FM9999990.0',   ' MB/s'    FROM dual
+     ),
      fmt AS (
         SELECT p.*,
-               CASE p.unit
-                   WHEN 'BYTES_PER_DAY' THEN TO_CHAR(p.expected / 1048576, 'FM999999990.0') || ' MiB/day'
-                   WHEN 'PCT'           THEN TO_CHAR(p.expected, 'FM9999990.0') || '%'
-                   WHEN 'COUNT'         THEN TO_CHAR(p.expected, 'FM99999999990')
-                   WHEN 'GIB'           THEN TO_CHAR(p.expected, 'FM9999990.00') || ' GiB'
-                   ELSE                      TO_CHAR(p.expected, 'FM9999990.00') || ' GiB/day'
-               END                                                            AS expected_txt,
+               TO_CHAR(p.expected / NVL(u.div, 1), NVL(u.fmt, 'FM9999990.00'))
+                 || CASE WHEN u.unit IS NULL THEN ' ' || LOWER(p.unit) ELSE u.sfx END AS expected_txt,
                CASE p.anomaly_kind
                    WHEN 'TBSPC_GROWTH' THEN
                        'Tablespace ' || p.series
@@ -132,9 +145,8 @@ WITH pt AS (
                    WHEN 'CPU_BUSY'   THEN 'Host CPU ' || TO_CHAR(p.value, 'FM990.0') || '% busy'
                    WHEN 'DBCPU_BUSY' THEN 'DB CPU ' || TO_CHAR(p.value, 'FM990.0') || '% of logical CPUs'
                    ELSE p.series || ' at '
-                        || CASE p.unit WHEN 'COUNT' THEN TO_CHAR(p.value, 'FM99999999990')
-                                       WHEN 'GIB'   THEN TO_CHAR(p.value, 'FM9999990.00') || ' GiB'
-                                       ELSE TO_CHAR(p.value, 'FM9999990.00') || ' GiB/day' END
+                        || TO_CHAR(p.value / NVL(u.div, 1), NVL(u.fmt, 'FM9999990.00'))
+                        || CASE WHEN u.unit IS NULL THEN ' ' || LOWER(p.unit) ELSE u.sfx END
                END                                                            AS subject,
                CASE p.baseline_mode
                    WHEN 'TRAILING' THEN 'over the last ' || TO_CHAR(p.mad_window_days, 'FM9990') || ' days'
@@ -142,6 +154,7 @@ WITH pt AS (
                    ELSE 'for ' || p.dy || ' ' || TO_CHAR(p.ts, 'HH24') || ':00'
                END                                                            AS phrase
         FROM   pt p
+        LEFT   JOIN ut u ON u.unit = p.unit
      ),
      ev AS (
         SELECT f.dbid, f.con_dbid, f.ts, f.kind, f.series, f.anomaly_kind, f.anomaly_flag,
@@ -216,6 +229,132 @@ SELECT e.dbid,
 FROM   ev e
 LEFT   JOIN capr_container c
   ON   c.dbid = e.dbid AND c.con_dbid = e.con_dbid;
+
+-- --------------------------------------------------------------------
+-- CAPR_ANOM_VOLUME -- how much each series alerts under each baseline mode,
+-- and the floor that would quiet it. One row per (dbid, con_dbid,
+-- alert_kind, series, baseline_mode) with at least one flagged observation
+-- that alerts: the mode's bit is set in the family's alert_modes knob and
+-- the day lies inside anomaly_report_days of the kind's last day, the test
+-- CAPR_ANOMALIES.alerting applies. CAPR_ALERT_VOLUME (ddl/55) adds the
+-- alert rows and the other alert kinds; the text report's closing line
+-- reads this view, which costs one pass of the anomaly engine and none of
+-- the forecast views.
+--   scored_days   days of the window with a score: not a gap, a complete
+--                 day, n_hist >= min_hist (HOUR_OF_WEEK: at least one such
+--                 hour)
+--   flagged_days  the scored days that flagged, HIGH or LOW
+--   flagged_pct   100 x flagged_days / scored_days
+--   episodes      runs of consecutive flagged days: the rows CAPR_ALERTS
+--                 lists for the series and mode
+--   floor_knob    the CAP_CONFIG knob behind CAPA_OBS.thr_floor for the
+--                 series' unit and grain (fk below mirrors CAPA_OBS.ufloor),
+--                 floor_value its value now. thr_floor = floor_value, times
+--                 mad_k for the two cpu_min_mad_pct knobs.
+--   max_dev       the largest |value - expected| among the flagged
+--                 observations, in floor_knob units (CPU: divided by mad_k)
+--   suggested_floor  the smallest multiple of the knob's step
+--                 (fk.floor_step) that leaves none of those observations
+--                 above its threshold. A flag needs |dev| > mad_k x
+--                 GREATEST(mad_sigma, thr_floor / mad_k), and a floor does
+--                 not move a baseline, so a threshold floor at or above
+--                 every |dev| ends them. CAPA_ANOM's threshold floor is
+--                 mad_k x (thr_floor / mad_k), which NUMBER division can
+--                 leave a last digit below thr_floor (3 x (100 / 3) reads
+--                 99.99...): the first multiple at or above max_dev is
+--                 tested with that same arithmetic and the next one taken
+--                 when it falls short. The knob is shared by every series
+--                 of the unit.
+--   mode_knob / mode_bit  the alert_modes knob of the family and the bit of
+--                 this mode: clearing it stops the mode alerting for the
+--                 whole family.
+--   noisy         'Y' when episodes >= noise_episodes, or flagged_pct >=
+--                 noise_flag_pct on at least noise_min_days scored days (one
+--                 flagged day of one scored is 100%, and says nothing).
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_anom_volume AS
+WITH fk AS (
+        SELECT 'BYTES_PER_DAY' AS unit, 'DAY' AS grain, 'abs_floor_bytes' AS floor_knob,
+               cfg.abs_floor_bytes AS floor_value, 1 AS floor_factor, 1048576 AS floor_step FROM cap_cfg cfg
+        UNION ALL SELECT 'PCT',         'DAY',  'cpu_min_mad_pct',      cfg.cpu_min_mad_pct,      cfg.mad_k, 0.1  FROM cap_cfg cfg
+        UNION ALL SELECT 'PCT',         'HOUR', 'cpu_min_mad_pct_hour', cfg.cpu_min_mad_pct_hour, cfg.mad_k, 0.1  FROM cap_cfg cfg
+        UNION ALL SELECT 'COUNT',       'DAY',  'series_floor_count',   cfg.series_floor_count,   1,         1    FROM cap_cfg cfg
+        UNION ALL SELECT 'GIB_PER_DAY', 'DAY',  'series_floor_gib',     cfg.series_floor_gib,     1,         0.01 FROM cap_cfg cfg
+        UNION ALL SELECT 'GIB',         'DAY',  'series_floor_gib',     cfg.series_floor_gib,     1,         0.01 FROM cap_cfg cfg
+        UNION ALL SELECT 'IO_PER_SEC',  'DAY',  'series_floor_iops',    cfg.series_floor_iops,    1,         1    FROM cap_cfg cfg
+        UNION ALL SELECT 'MB_PER_SEC',  'DAY',  'series_floor_mbps',    cfg.series_floor_mbps,    1,         0.1  FROM cap_cfg cfg
+     ),
+     mk AS (
+        SELECT 'TBSPC' AS kind, 'alert_modes_tbspc' AS mode_knob FROM dual
+        UNION ALL SELECT 'CPU',    'alert_modes_cpu'    FROM dual
+        UNION ALL SELECT 'SERIES', 'alert_modes_series' FROM dual
+     ),
+     dy AS (
+        SELECT a.dbid, a.con_dbid, a.kind, a.alert_kind, a.series, a.baseline_mode, a.mode_bit,
+               a.unit, a.grain, TRUNC(a.ts) AS obs_day,
+               MAX(CASE WHEN a.anomaly_flag IS NOT NULL THEN 1 ELSE 0 END) AS flagged,
+               MAX(CASE WHEN a.anomaly_flag IS NOT NULL THEN ABS(a.dev) END) AS abs_dev
+        FROM   capa_anom a
+        CROSS  JOIN cap_cfg cfg
+        WHERE  a.alerting_mode = 'Y'
+          AND  TRUNC(a.ts) > a.kind_last_day - cfg.anomaly_report_days
+          AND  a.gap_flag = 'N' AND a.is_complete = 'Y'
+          AND  a.n_hist >= a.min_hist
+        GROUP  BY a.dbid, a.con_dbid, a.kind, a.alert_kind, a.series, a.baseline_mode, a.mode_bit,
+                  a.unit, a.grain, TRUNC(a.ts)
+     ),
+     -- obs_day minus the running count of flagged days is constant along a
+     -- run of consecutive flagged days: it names the episode.
+     ep AS (
+        SELECT d.*,
+               CASE WHEN d.flagged = 1
+                    THEN d.obs_day - SUM(d.flagged) OVER (PARTITION BY d.dbid, d.con_dbid, d.alert_kind,
+                                                                       d.series, d.baseline_mode
+                                                          ORDER BY d.obs_day) END AS grp
+        FROM   dy d
+     ),
+     g AS (
+        SELECT e.dbid, e.con_dbid, e.kind, e.alert_kind, e.series, e.baseline_mode, e.mode_bit,
+               e.unit, e.grain,
+               COUNT(*)              AS scored_days,
+               SUM(e.flagged)        AS flagged_days,
+               COUNT(DISTINCT e.grp) AS episodes,
+               MAX(e.abs_dev)        AS abs_dev
+        FROM   ep e
+        GROUP  BY e.dbid, e.con_dbid, e.kind, e.alert_kind, e.series, e.baseline_mode, e.mode_bit,
+                  e.unit, e.grain
+        HAVING SUM(e.flagged) > 0
+     ),
+     s AS (
+        SELECT g.*, k.floor_knob, k.floor_value, k.floor_factor, k.floor_step,
+               CEIL(g.abs_dev / NULLIF(k.floor_factor, 0) / k.floor_step) * k.floor_step AS s0
+        FROM   g
+        LEFT   JOIN fk k ON k.unit = g.unit AND k.grain = g.grain
+     )
+SELECT s.dbid,
+       s.con_dbid,
+       s.alert_kind,
+       s.series,
+       s.baseline_mode,
+       cfg.anomaly_report_days                                        AS window_days,
+       s.scored_days,
+       s.flagged_days,
+       100 * s.flagged_days / s.scored_days                           AS flagged_pct,
+       s.episodes,
+       s.abs_dev / NULLIF(s.floor_factor, 0)                          AS max_dev,
+       s.floor_knob,
+       s.floor_value,
+       CASE WHEN s.abs_dev > cfg.mad_k * (s.floor_factor * s.s0 / NULLIF(cfg.mad_k, 0))
+            THEN s.s0 + s.floor_step ELSE s.s0 END                    AS suggested_floor,
+       m.mode_knob,
+       s.mode_bit,
+       CASE WHEN s.episodes >= cfg.noise_episodes
+              OR (s.scored_days >= cfg.noise_min_days
+                  AND 100 * s.flagged_days / s.scored_days >= cfg.noise_flag_pct)
+            THEN 'Y' ELSE 'N' END                                     AS noisy
+FROM   s
+CROSS  JOIN cap_cfg cfg
+JOIN   mk m ON m.kind = s.kind;
 
 -- --------------------------------------------------------------------
 -- CAPR_FRESHNESS -- one row per dbid: how old its newest AWR snapshot is.
@@ -618,6 +757,7 @@ FROM   gated g;
 -- peak in GiB and the peak slope in MiB/day like cur_gb / slope_mb. And the
 -- sizing ask: need_gib_30 / _90 / _180 (GiB to add so the worst case stays
 -- under the ceiling through +h) and add_by_day (the worst-case fill date).
+-- Last: restart_reason / restart_day, as on CAPF_TBSPC_FORECAST.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_tbspc_days_to_full AS
 SELECT f.dbid,
@@ -663,7 +803,9 @@ SELECT f.dbid,
        s.eff_dtf_warn,
        s.eff_dtf_crit,
        s.eff_nearfull_warn_pct,
-       s.eff_nearfull_crit_pct
+       s.eff_nearfull_crit_pct,
+       f.restart_reason,
+       f.restart_day
 FROM   capf_tbspc_forecast f
 LEFT   JOIN (SELECT dbid, con_dbid, series_key,
                     MAX(CASE WHEN kind = 'TBSPC_FULL'     THEN sev            END) AS sev_dtf,
@@ -1272,7 +1414,9 @@ GROUP  BY dbid, con_dbid;
 -- cycle_peak_pct, peak_slope_per_day in bytes/day), and the CPU flags
 -- slope_sig (every CPU row) and hot_now (BUSY_P95 / DB_CPU_P95 only) as 1/0.
 -- Then the TBSPC sizing ask (need_gib_30 / _90 / _180, add_by_day), NULL for
--- CPU and SERIES.
+-- CPU and SERIES. Then restart_reason (PURGE / STOP / START: why the TBSPC
+-- fit window is shorter than train_days) and restart_day (its first day),
+-- NULL for CPU and SERIES and for a window that was not restarted.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_fit AS
 SELECT f.dbid,
@@ -1310,7 +1454,9 @@ SELECT f.dbid,
        f.need_gib_30,
        f.need_gib_90,
        f.need_gib_180,
-       f.add_by_day
+       f.add_by_day,
+       f.restart_reason,
+       f.restart_day
 FROM  (
         SELECT t.dbid, t.con_dbid, 'TBSPC' AS kind, t.tablespace_name AS series,
                'bytes' AS unit, t.slope_method AS method,
@@ -1325,7 +1471,8 @@ FROM  (
                t.peak_slope_bpd                                   AS peak_slope_per_day,
                CAST(NULL AS NUMBER)                               AS slope_sig,
                CAST(NULL AS NUMBER)                               AS hot_now,
-               t.need_gib_30, t.need_gib_90, t.need_gib_180, t.add_by_day
+               t.need_gib_30, t.need_gib_90, t.need_gib_180, t.add_by_day,
+               t.restart_reason, t.restart_day
         FROM   capf_tbspc_forecast t
         UNION ALL
         SELECT t.dbid, t.con_dbid, 'CPU', t.metric,
@@ -1342,7 +1489,8 @@ FROM  (
                NULL, NULL, NULL, NULL,
                CASE t.slope_sig WHEN 'Y' THEN 1 ELSE 0 END,
                CASE t.hot_now WHEN 'Y' THEN 1 WHEN 'N' THEN 0 END,
-               NULL, NULL, NULL, CAST(NULL AS DATE)
+               NULL, NULL, NULL, CAST(NULL AS DATE),
+               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE)
         FROM   capf_cpu_trend t
         CROSS  JOIN cap_cfg cfg
         UNION ALL
@@ -1355,7 +1503,8 @@ FROM  (
                NULL, t.last_day,
                CASE t.is_current WHEN 'Y' THEN 1 ELSE 0 END, NULL,
                NULL, NULL, NULL, NULL, NULL, NULL,
-               NULL, NULL, NULL, CAST(NULL AS DATE)
+               NULL, NULL, NULL, CAST(NULL AS DATE),
+               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE)
         FROM   capf_series_forecast t
       ) f
 LEFT   JOIN (SELECT fit_kind, dbid, con_dbid, series_key, MIN(sev_rank) AS sev_rank
@@ -1626,3 +1775,226 @@ FROM  ( SELECT k.dbid, k.instance_number, k.component, k.snap_id, k.end_time, k.
         WHERE  k.in_win = 'Y' ) p
 WHERE  p.win_max > 0
 GROUP  BY p.dbid, p.instance_number, p.component, TRUNC(p.end_time);
+
+-- ====================================================================
+-- Tablespace families (ddl/32) for the reports. Sizes in GiB (2^30 bytes),
+-- not rounded: the drivers format them.
+-- ====================================================================
+
+-- --------------------------------------------------------------------
+-- CAPR_TBSPC_FAMILY -- one row per family: CAPF_TBSPC_FAMILY with the
+-- container label, GiB sizes and the alert verdict.
+--   sev          WARN when fits = 'N' (the TBSPC_FAMILY alert of CAPR_ALERTS
+--                is this row), else OK.
+--   actionable   Y when sev = WARN or next_over_limit = 'Y': the families
+--                the briefing lists.
+--   headline     one sentence: the filling member against its ceiling when
+--                there is one, then the next member's size.
+--   rank_family  per database: WARN first, then by family name.
+-- A database without a family has no row.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_tbspc_family AS
+SELECT f.dbid,
+       f.con_dbid,
+       NVL(c.db_pdb, TO_CHAR(f.con_dbid))            AS db_pdb,
+       f.family_name,
+       f.source,
+       f.period,
+       f.n_members,
+       f.n_done,
+       f.n_filling,
+       f.n_empty,
+       f.last_day,
+       f.used_bytes / 1073741824                     AS used_gb,
+       f.max_limit_bytes / 1073741824                AS max_limit_gb,
+       f.slope_bpd / 1073741824                      AS slope_gb_day,
+       f.period_days,
+       f.growth_per_period_bytes / 1073741824        AS growth_per_period_gb,
+       f.recent_n,
+       f.trend_sig,
+       f.trend_bpm / 1073741824                      AS trend_gb,
+       f.next_member_bytes / 1073741824              AS next_member_gb,
+       f.next_member_hi_bytes / 1073741824           AS next_member_hi_gb,
+       f.next_over_limit,
+       f.filling_member,
+       f.filling_used_bytes / 1073741824             AS filling_used_gb,
+       f.filling_limit_bytes / 1073741824            AS filling_limit_gb,
+       f.filling_pct_used,
+       f.filling_from,
+       f.fill_rate_bpd / 1073741824                  AS fill_rate_gb_day,
+       f.period_end_day,
+       f.days_left,
+       f.expected_final_bytes / 1073741824           AS expected_final_gb,
+       f.expected_final_hi_bytes / 1073741824        AS expected_final_hi_gb,
+       f.fits,
+       CASE WHEN f.fits = 'N' THEN 'WARN' ELSE 'OK' END AS sev,
+       CASE WHEN f.fits = 'N' OR f.next_over_limit = 'Y' THEN 'Y' ELSE 'N' END AS actionable,
+       'Family ' || f.family_name || ': '
+         || CASE WHEN f.fits IS NOT NULL
+                 THEN f.filling_member
+                      || CASE f.fits WHEN 'N' THEN ' may reach ' ELSE ' stays under its ceiling, at most ' END
+                      || TO_CHAR(f.expected_final_hi_bytes / 1073741824, 'FM999999990.00') || ' GiB by '
+                      || TO_CHAR(f.period_end_day, 'YYYY-MM-DD') || ' (expected '
+                      || TO_CHAR(f.expected_final_bytes / 1073741824, 'FM999999990.00') || ' GiB), ceiling '
+                      || TO_CHAR(f.filling_limit_bytes / 1073741824, 'FM999999990.00') || ' GiB. '
+                 WHEN f.filling_member IS NOT NULL
+                 THEN f.filling_member || ' is filling, its period end is not known. '
+                 ELSE 'no member is filling. ' END
+         || CASE WHEN f.next_member_bytes IS NOT NULL
+                 THEN 'Next member: ' || TO_CHAR(f.next_member_bytes / 1073741824, 'FM999999990.00')
+                      || ' GiB (cautious ' || TO_CHAR(f.next_member_hi_bytes / 1073741824, 'FM999999990.00')
+                      || ' GiB)'
+                      || CASE WHEN f.next_over_limit = 'Y'
+                              THEN ', above the largest ceiling of '
+                                   || TO_CHAR(f.max_limit_bytes / 1073741824, 'FM999999990.00') || ' GiB' END
+                 ELSE 'Next member: no finished member to size it by' END    AS headline,
+       ROW_NUMBER() OVER (PARTITION BY f.dbid
+                          ORDER BY CASE WHEN f.fits = 'N' THEN 0 ELSE 1 END,
+                                   f.con_dbid, f.family_name)                AS rank_family
+FROM   capf_tbspc_family f
+LEFT   JOIN capr_container c
+  ON   c.dbid = f.dbid AND c.con_dbid = f.con_dbid;
+
+-- --------------------------------------------------------------------
+-- CAPR_TBSPC_FAMILY_MEMBERS -- one row per member: CAPF_TBSPC_FAMILY_MEMBER
+-- with the container label and GiB sizes. Order a family by member_seq.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_tbspc_family_members AS
+SELECT m.dbid,
+       m.con_dbid,
+       NVL(c.db_pdb, TO_CHAR(m.con_dbid))            AS db_pdb,
+       m.family_name,
+       m.tablespace_name,
+       m.member_seq,
+       m.state,
+       m.source,
+       m.period,
+       m.period_start,
+       m.period_end,
+       m.last_day,
+       m.cur_used / 1073741824                       AS used_gb,
+       m.limit_bytes / 1073741824                    AS limit_gb,
+       m.pct_used,
+       m.final_bytes / 1073741824                    AS final_gb,
+       m.fill_from,
+       m.fill_to,
+       m.fill_days,
+       m.fill_rate_bpd / 1073741824                  AS fill_rate_gb_day,
+       m.quality,
+       m.restart_reason
+FROM   capf_tbspc_family_member m
+LEFT   JOIN capr_container c
+  ON   c.dbid = m.dbid AND c.con_dbid = m.con_dbid;
+
+-- ====================================================================
+-- U09 BEGIN -- CAPR_DISK: the shared disk of each database (CAPF_DISK,
+-- ddl/33) for the reports, and the single home of the DISK_FULL severity.
+-- One row per database and disk, filed under the database itself
+-- (con_dbid = dbid), so a report scoped to a PDB shows none.
+--   db               the CAPR_CONTAINER label of the database
+--   series_key       'DISK:' || disk_name, the DISK_FULL alert's key
+--   grow_mb, grow_worst_mb   what the growing tablespaces take, MiB a day
+--   warn_threshold, crit_threshold   the dtf_warn / dtf_crit knobs
+--   raw_sev          CRIT / WARN / OK from disk_dtf against them
+--   gated_by         NO OK FIT: disk_dtf is inside the window but no growing
+--                    tablespace has fit quality OK (TBSPC_FULL needs OK too)
+--   sev, sev_rank    raw_sev, or OK / 3 when gated
+--   message          the DISK_FULL message, NULL when sev = OK
+-- CAPR_ALERTS (ddl/55) raises the rows whose sev is not OK.
+--
+-- CAPR_TBSPC_SHARED, below it: the per-tablespace shared-disk columns of
+-- CAPF_TBSPC_SHARED for the reports, one row per tablespace, GiB and MiB a
+-- day. A view of its own and not columns of CAPR_FIT or
+-- CAPR_TBSPC_DAYS_TO_FULL: with the simulation inside, CAPR_FIT's hard
+-- parse went from 15 s to 42 s (19.27, fixture; 76 to 113 s as an outer
+-- join), and every statement on it pays that. This view parses in 5 s.
+-- Join it on (dbid, con_dbid, tablespace_name). rank_shared counts per
+-- database: growing tablespaces first, the soonest stuck first.
+-- ====================================================================
+CREATE OR REPLACE VIEW capr_disk AS
+WITH j AS (
+        SELECT d.*,
+               cfg.dtf_warn AS warn_threshold,
+               cfg.dtf_crit AS crit_threshold,
+               CASE WHEN d.disk_dtf <= cfg.dtf_crit THEN 'CRIT'
+                    WHEN d.disk_dtf <= cfg.dtf_warn THEN 'WARN'
+                    ELSE 'OK' END AS raw_sev
+        FROM   capf_disk d
+        CROSS  JOIN cap_cfg cfg
+     ),
+     g AS (
+        SELECT j.*,
+               CASE WHEN j.raw_sev <> 'OK' AND j.n_growing_ok = 0 THEN 'NO OK FIT' END AS gated_by
+        FROM   j
+     )
+SELECT g.dbid,
+       g.dbid                                         AS con_dbid,
+       NVL(c.db_pdb, TO_CHAR(g.dbid))                 AS db,
+       g.disk_name,
+       'DISK:' || g.disk_name                         AS series_key,
+       g.disk_source,
+       g.disk_as_of,
+       g.disk_free_gb,
+       g.alloc_gb,
+       g.disk_dtf,
+       g.disk_dtf_worst,
+       g.disk_full_day,
+       g.newest_day,
+       g.n_tbspc,
+       g.n_growing,
+       g.n_growing_ok,
+       g.grow_bpd       / 1048576                     AS grow_mb,
+       g.grow_worst_bpd / 1048576                     AS grow_worst_mb,
+       g.top_growers,
+       g.warn_threshold,
+       g.crit_threshold,
+       g.raw_sev,
+       CASE WHEN g.gated_by IS NULL THEN g.raw_sev ELSE 'OK' END               AS sev,
+       CASE WHEN g.gated_by IS NULL THEN DECODE(g.raw_sev, 'CRIT', 1, 'WARN', 2, 3)
+            ELSE 3 END                                                         AS sev_rank,
+       g.gated_by,
+       CASE WHEN g.gated_by IS NULL AND g.raw_sev <> 'OK' THEN
+            'Disk ' || g.disk_name || ' forecast full in '
+            || TO_CHAR(g.disk_dtf, 'FM9999990') || ' days, on '
+            || TO_CHAR(g.disk_full_day, 'YYYY-MM-DD') || ' ('
+            || TO_CHAR(g.disk_free_gb, 'FM99999990.00') || ' GiB free, '
+            || TO_CHAR(g.n_growing, 'FM99990') || ' growing tablespaces take '
+            || TO_CHAR(g.grow_bpd / 1048576, 'FM99999990.0') || ' MiB/day'
+            || CASE WHEN g.disk_dtf_worst IS NOT NULL
+                    THEN ', worst case ' || TO_CHAR(g.disk_dtf_worst, 'FM9999990') || ' days' END
+            || '). Fastest growing: ' || g.top_growers || ' MiB/day'
+       END                                                                     AS message
+FROM   g
+LEFT   JOIN capr_container c
+  ON   c.dbid = g.dbid AND c.con_dbid = g.dbid;
+
+CREATE OR REPLACE VIEW capr_tbspc_shared AS
+SELECT s.dbid,
+       s.con_dbid,
+       NVL(c.db_pdb, TO_CHAR(s.con_dbid))        AS db_pdb,
+       s.tablespace_name,
+       s.disk_name,
+       s.quality,
+       s.is_current,
+       s.cur_used           / 1073741824         AS cur_gb,
+       s.alloc_bytes        / 1073741824         AS alloc_gb,
+       s.limit_bytes        / 1073741824         AS limit_gb,
+       s.limit_own_bytes    / 1073741824         AS limit_own_gb,
+       s.limit_live,
+       s.grow_bpd           / 1048576            AS grow_mb,
+       s.grow_worst_bpd     / 1048576            AS grow_worst_mb,
+       s.ext_days,
+       s.days_to_full,
+       s.dtf_own,
+       s.dtf_shared,
+       s.dtf_shared_worst,
+       s.limit_shared_bytes / 1073741824         AS limit_shared_gb,
+       s.stopped_by,
+       ROW_NUMBER() OVER (PARTITION BY s.dbid
+                          ORDER BY CASE WHEN s.grow_bpd IS NOT NULL THEN 0 ELSE 1 END,
+                                   s.dtf_shared NULLS LAST, s.grow_bpd DESC NULLS LAST,
+                                   s.con_dbid, s.tablespace_name) AS rank_shared
+FROM   capf_tbspc_shared s
+LEFT   JOIN capr_container c
+  ON   c.dbid = s.dbid AND c.con_dbid = s.con_dbid;
+-- U09 END

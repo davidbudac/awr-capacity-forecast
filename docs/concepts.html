@@ -271,7 +271,7 @@
             <span class="layer__tag">ESM</span>
             <div class="layer__body">
               <h5>OML exponential smoothing + backtest</h5>
-              <p>One model per eligible tablespace (top 20 by days to full) and per CPU series (host
+              <p>One model per eligible tablespace (top 20 of each database by days to full) and per CPU series (host
                 <code>BUSY_PCT</code>, each container's <code>DB_CPU_SEC</code>) via
                 <code>DBMS_DATA_MINING</code>, plus holdout twins that score every engine against the
                 recent past. The fixed-ceiling series are Tier 1 only.</p>
@@ -328,7 +328,7 @@
         <div class="layer out">
           <span class="layer__tag">report/</span>
           <div class="layer__body">
-            <h5>Read-only reports: text (sections 0–8), HTML, one-page brief, CSV</h5>
+            <h5>Read-only reports: text (sections 0–9), HTML, one-page brief, CSV</h5>
             <p>Every driver reads the <code>CAPR_*</code> views (plus <code>CAP_CFG</code> and the
               Tier 2 health summary), so they can't drift apart. Scope and identity come from
               <code>report/scope.sql</code>: the targets in scope from <code>CAPV_TARGET</code>, not
@@ -357,7 +357,7 @@
         <span class="inline">(dbid, con_dbid)</span> to a database and PDB name (reports print
         <code>DB/PDB</code>), <span class="inline">CAPV_RESOURCE_LIMIT</span> carries
         <code>processes</code> / <code>sessions</code> utilisation against the init parameters, and
-        <span class="inline">CAPV_SYSSTAT</span> carries the <code>redo size</code> counter.
+        <span class="inline">CAPV_SYSSTAT</span> carries the <code>redo size</code> counter and the four physical I/O totals (read and write requests and bytes).
         <span class="inline">CAPV_PARAMETER</span> (cpu_count, FRA size, memory parameters),
         <span class="inline">CAPV_ASM_DISKGROUP</span> and <span class="inline">CAPV_SEG_STAT</span>
         feed the CPU ceiling, the ASM series and "who is filling it";
@@ -379,7 +379,7 @@
         an interval spanning a restart (<span class="inline">startup_time</span> changed) or with a
         negative delta is dropped. <span class="inline">CAPD_COUNTER_DELTA</span> differences every
         cumulative counter once per interval, with the restart flag, and feeds both interval views
-        and <code>REDO_GB_DAY</code>. Deltas expose <span class="inline">day_gap</span> so a multi-day AWR
+        <code>REDO_GB_DAY</code>, <code>IOPS</code> and <code>IO_MBPS</code>. Deltas expose <span class="inline">day_gap</span> so a multi-day AWR
         gap becomes a rate, not a spike. <span class="inline">CAPD_SERIES_DAILY</span> holds every
         series with a ceiling, keyed by a <code>series</code> name.
         <span class="inline">CAPD_CPU_INTERVAL</span> and <span class="inline">CAPD_DBTIME_INTERVAL</span>
@@ -595,6 +595,37 @@
         <span class="inline">min_train_days</span> rows remain, quality is
         <span class="pill crit">INSUFFICIENT_HISTORY</span>. Tablespaces only; a CPU step is handled
         by <a href="#cpu">CAPA_CPU_SHIFT</a>.</p>
+      <p>A purge can run past midnight and leave two cliff days side by side. Cliff days at most
+        <span class="inline">cliff_merge_days</span> (1) days apart are one purge event: the reset day
+        is the last cliff day of the newest event, and <span class="inline">cycle_n</span> counts
+        events, so a two-day purge is not graded <span class="inline">CYCLIC</span>.</p>
+
+      <h3>Growth that stopped or began</h3>
+      <p>One line through the whole window is wrong when the tablespace grew in only a part of it.
+        A tablespace that filled during its month and then stopped keeps a slope and a full date it
+        never reaches. One that began to fill late reads far too slow. A growth day is a new high of
+        <span class="inline">used_bytes</span> in the window, a pause a run of days without one.
+        The fit restarts where a pause is long:</p>
+      <ul>
+        <li><b>STOP</b>: on the day after the last growth day, when the pause up to the newest day is
+          long. A tablespace that stays flat since then is <span class="inline">FLAT</span>: no
+          <span class="inline">days_to_full</span>, no <span class="inline">TBSPC_FULL</span>.</li>
+        <li><b>START</b>: on the last day before the first growth day, when the pause before it is
+          long and <span class="inline">min_train_days</span> days are left.</li>
+      </ul>
+      <p>Long means all three: at least <span class="inline">quiet_days</span> (14) days, at least
+        <span class="inline">quiet_ratio</span> (2) times the longest other pause, and a chance below
+        <span class="inline">quiet_chance</span> (0.01), where g growth days spread over s days make a
+        pause of q days as likely as <code>(s / (s + q)) ^ g</code>. A tablespace that grows in rare
+        steps or weekly batches keeps its whole window. One growth day is a load, not a rate: it
+        stops after <span class="inline">quiet_days</span> and never starts a fit.
+        <span class="inline">restart_reason</span> (<span class="inline">PURGE</span> /
+        <span class="inline">STOP</span> / <span class="inline">START</span>) and
+        <span class="inline">restart_day</span> are on <span class="inline">CAPF_TBSPC_FORECAST</span>
+        and <span class="inline">CAPR_FIT</span>, and the reports print them.
+        <span class="inline">quiet_days = 0</span> turns the rule off. It is the rule of
+        <span class="inline">standalone/tbspc_capacity.sql</span>. A rate that changes without a
+        pause (fast to slow) is still averaged.</p>
 
             <svg class="dg" viewBox="0 0 640 190" role="img" aria-label="A purge drops usage. A fit across the cliff is too flat; the reset fits only the days from the cliff on.">
 <line class="ax" x1="30" y1="170" x2="620" y2="170"/>
@@ -607,6 +638,38 @@
 <text class="tc" x="312" y="165">reset_day = train_start</text>
 <text class="ts" x="40" y="186">delta &lt; −GREATEST(shrink_mad_k · MAD_σ, abs_floor_bytes)</text>
 </svg>
+<h3 id="shared-disk">The shared disk</h3>
+      <p>A tablespace that could still grow by its own limit is stuck once the disk behind its
+        datafiles is full. <span class="inline">CAPF_TBSPC_SHARED</span> (ddl/33) forecasts all
+        tablespaces of a database together, on the assumption that every datafile sits on one
+        filesystem or disk group that gets no more storage. It is the simulation of
+        <span class="inline">standalone/tbspc_capacity.sql</span>, fed with the suite's fit:</p>
+      <ul>
+        <li>Each tablespace grows at its <span class="inline">slope_bpd</span>. CYCLIC, flat,
+          stopped and shrinking ones count as not growing.</li>
+        <li>Growth first fills the free space inside the datafiles, then takes from the disk,
+          until the tablespace reaches its own limit.</li>
+        <li>The disk is full on the day those takes add up to its free space
+          (<span class="inline">disk_dtf</span>). From then on a tablespace is stuck the first time
+          it has to extend: <code>dtf_shared = LEAST(own limit day, GREATEST(disk day, day its
+          files are full))</code>, and <span class="inline">limit_shared_bytes</span> is its size
+          then.</li>
+        <li><span class="inline">dtf_shared_worst</span> and <span class="inline">disk_dtf_worst</span>
+          repeat it with every tablespace at the rate behind
+          <span class="inline">days_to_full_lo</span> at once: the cautious edge, not a 95% bound
+          for the disk.</li>
+      </ul>
+      <p>The free space is the operator's (<span class="inline">CAP_DISK_OVERRIDE</span>), else
+        derived from the live tablespace ceilings (<span class="inline">CAPV_TBSPC_LIVE</span>,
+        the target's <code>CDB_TABLESPACE_USAGE_METRICS</code> at the last collect, not used when
+        older than <span class="inline">stale_days</span>), else not known. A fresh live ceiling
+        under <span class="inline">limit_bytes</span> is also the tablespace's own limit here
+        (<span class="inline">limit_live = 'Y'</span>). <span class="inline">days_to_full</span> and
+        <span class="inline">TBSPC_FULL</span> keep their rule. <span class="inline">DISK_FULL</span>
+        fires on <span class="inline">disk_dtf</span> against <span class="inline">dtf_warn</span> /
+        <span class="inline">dtf_crit</span>, once per database and disk, when at least one growing
+        tablespace has an OK fit.</p>
+
 <h3 id="cyclic">Cyclic tablespaces</h3>
       <p>With rolling retention a tablespace climbs, is purged, and climbs again. When the training
         window holds <span class="inline">cyclic_min_cliffs</span> (2) or more cliffs, the series is
@@ -811,6 +874,7 @@
             <tr><td><span class="k">PROCESSES</span> / <span class="k">SESSIONS</span></td><td class="def">Day's peak <code>MAX_UTILIZATION</code>, summed across RAC instances. The worst instance's percent of its own limit is kept too; the near-limit alert uses the larger</td><td class="def">Summed init parameters. NULL if any instance reads <code>UNLIMITED</code></td></tr>
             <tr><td><span class="k">PGA_ALLOC_GB</span></td><td class="def">Day's highest sampled <code>total PGA allocated</code> in GiB, summed across RAC instances, worst instance kept as for <code>SESSIONS</code>. A sample: the high-water mark between snapshots is verdict evidence (<code>CAPM_PGA_LIMIT</code>), not this series</td><td class="def"><code>pga_aggregate_limit</code>, summed. None when it is 0</td></tr>
             <tr><td><span class="k">REDO_GB_DAY</span></td><td class="def">Redo per day in GiB from <code>redo size</code> deltas, one row per container (the CDB's redo is their sum)</td><td class="def">None: no limit alert (<code>SERIES_ANOM</code> still scores the level); <code>fra_days_at_cur</code> shows the days of redo the FRA holds</td></tr>
+            <tr><td><span class="k">IOPS</span> / <span class="k">IO_MBPS</span></td><td class="def">Physical I/O requests per second and MB per second (MB = 2<sup>20</sup> bytes), read + write, one row per container: the 95th percentile of the day's snapshot-interval rates, from the <code>physical read / write total IO requests</code> and <code>total bytes</code> deltas</td><td class="def">None: AWR does not hold what the storage can deliver, so there is no limit alert (<code>SERIES_ANOM</code> still scores the level)</td></tr>
             <tr><td><span class="k">DB_SIZE_GB</span></td><td class="def">Summed used bytes across permanent tablespaces</td><td class="def">Summed tablespace ceilings, with the UNDO/TEMP exclusion and operator overrides</td></tr>
             <tr><td><span class="k">ASM_DG:+&lt;diskgroup&gt;</span></td><td class="def">Used raw GiB of one ASM diskgroup at the day's last sample, <code>(total_mb − free_mb)/1024</code></td><td class="def"><code>total_mb/1024</code></td></tr>
             <tr><td><span class="k">TEMP_PEAK:&lt;ts&gt;</span> / <span class="k">UNDO_PEAK:&lt;ts&gt;</span></td><td class="def">Day's peak sampled used GiB of a TEMPORARY / UNDO tablespace</td><td class="def">Day's max of <code>maxsize</code> when autoextend, else the allocated size. <code>CAP_TBSPC_OVERRIDE</code> does not apply</td></tr>
@@ -873,7 +937,7 @@
             <tr><td><span class="k">Tablespaces</span></td><td class="def">growth rate (delta ÷ days since the last sample)</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>TBSPC_ANOM</code></td></tr>
             <tr><td><span class="k">BUSY_PCT</span></td><td class="def">host busy%, per day and per hour</td><td class="def">all three</td><td class="def"><code>CPU_ANOM</code></td></tr>
             <tr><td><span class="k">DB_CPU_PCT</span></td><td class="def">DB CPU as a percent of the host's CPUs, per container, per day and per hour</td><td class="def">all three</td><td class="def"><code>DBCPU_ANOM</code></td></tr>
-            <tr><td><span class="k">PROCESSES</span> / <span class="k">SESSIONS</span> / <span class="k">PGA_ALLOC_GB</span> / <span class="k">REDO_GB_DAY</span></td><td class="def">the daily level</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>SERIES_ANOM</code></td></tr>
+            <tr><td><span class="k">PROCESSES</span> / <span class="k">SESSIONS</span> / <span class="k">PGA_ALLOC_GB</span> / <span class="k">REDO_GB_DAY</span> / <span class="k">IOPS</span> / <span class="k">IO_MBPS</span></td><td class="def">the daily level</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>SERIES_ANOM</code></td></tr>
             <tr><td><span class="k">DB_SIZE_GB</span></td><td class="def">daily growth in GiB</td><td class="def">TRAILING, SAME_DOW</td><td class="def"><code>SERIES_ANOM</code></td></tr>
           </tbody>
         </table>
@@ -885,7 +949,7 @@
         grain: <span class="inline">abs_floor_bytes</span> (100&nbsp;MiB/day) for tablespaces,
         9 points for a CPU day (<span class="inline">mad_k · cpu_min_mad_pct</span>), 15 for a CPU hour
         (<span class="inline">cpu_min_mad_pct_hour</span>; hourly values are noisier),
-        <span class="inline">series_floor_count</span> and <span class="inline">series_floor_gib</span>
+        <span class="inline">series_floor_count</span>, <span class="inline">series_floor_gib</span>, <span class="inline">series_floor_iops</span> and <span class="inline">series_floor_mbps</span>
         for the fixed-ceiling series. A flat baseline still flags a real jump, sub-floor wiggles never
         flag, and <span class="inline">|robust_z| &gt; mad_k</span> always means flagged. For
         tablespaces and host busy% this is the pre-M15 rule.</p>
@@ -950,6 +1014,80 @@
         can't extend). Rows survive <span class="inline">@install.sql</span>; only
         <span class="inline">@uninstall.sql</span> removes them.</p>
 
+      <!-- ===================== FAMILIES ===================== -->
+      <div class="section-head" id="families">
+        <h2>Tablespace families</h2>
+        <p>One tablespace per month, quarter or year, judged as a group.</p>
+      </div>
+      <p>A database that keeps one tablespace per period fills each member during its period and then
+        leaves it alone. A straight line per tablespace says little there: the member that fills now
+        gets a full date past the end of its period, and nothing says how big the next one has to be.
+        <span class="inline">ddl/32_tbspc_family.sql</span> groups such tablespaces into a
+        <b>family</b> and answers both questions.</p>
+      <h3>Membership</h3>
+      <p>With <span class="inline">family_auto</span> = 1 the suite reads the first period token in a
+        tablespace name. The family name is the name with the token replaced by <code>#</code>:
+        <code>SALES_202601</code> and <code>SALES_202602</code> are members of <code>SALES_#</code>.
+        Tablespaces of one container with the same family name form a family when at least
+        <span class="inline">family_min_members</span> (3) of them exist. Only a current tablespace
+        counts (inside <span class="inline">stale_days</span>): a dropped member leaves the family.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Token</th><th>Period</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td><code>YYYYMM</code>, <code>YYYY_MM</code></td><td class="def">month</td><td class="def"><code>SALES_202601</code>, <code>SALES_2026_01</code></td></tr>
+            <tr><td><code>YYYYQn</code>, <code>YYYY_Qn</code></td><td class="def">quarter</td><td class="def"><code>FACT_2026Q1</code></td></tr>
+            <tr><td><code>MONYY</code>, <code>MONYYYY</code>, <code>MON_YY</code>, <code>MON_YYYY</code></td><td class="def">month (<code>JAN</code> to <code>DEC</code>, <code>YY</code> read as 20YY)</td><td class="def"><code>LOG_JAN26</code>, <code>LOG_JAN_2026</code></td></tr>
+            <tr><td><code>YYYYMON</code>, <code>YYYY_MON</code></td><td class="def">month</td><td class="def"><code>LOG_2026JAN</code></td></tr>
+            <tr><td><code>YYYY</code></td><td class="def">year</td><td class="def"><code>ARCH_2026</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The rules are tried in that order. <code>YYYY</code> is 1900 to 2099. A numeric token must not
+        touch another digit and a month name must not touch another letter, so
+        <code>DATA_20260115</code> (a day) carries no token. <code>YYMM</code> and <code>MMYYYY</code>
+        are not read: four or six digits that do not start with 19 or 20 are ambiguous. For those, and
+        for families whose names carry no period at all, add rows to
+        <span class="inline">CAP_TBSPC_FAMILY</span>: a regular expression on the tablespace name with
+        the family it belongs to, or with <code>exclude_flag = 'Y'</code> to keep a tablespace out.
+        The most specific matching row decides alone (a real <code>dbid</code> first, then a real
+        <code>con_dbid</code>, then the expression that sorts first), and a family with an operator
+        member needs no minimum. <a href="usage.html#families">Usage</a> has the statements.</p>
+      <h3>Members</h3>
+      <p>A family is ordered by the period its tokens name. Growth is the fit's notion
+        (<a href="#quality">STOP / START</a>): a growth day is a new high of the member's last
+        <span class="inline">train_days</span> days.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><span class="k">FILLING</span></td><td class="def">The newest member with a growth day in the window, unless its fit says growth stopped (<code>restart_reason = 'STOP'</code>). At most one per family.</td></tr>
+            <tr><td><span class="k">DONE</span></td><td class="def">Every member before it, as soon as the successor grows, and the newest grown member once its growth stopped. <code>final_bytes</code> is its largest used size in the window, also when it was compressed afterwards.</td></tr>
+            <tr><td><span class="k">EMPTY</span></td><td class="def">A member after the newest grown one: created ahead, no growth yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>The two answers</h3>
+      <p><b>How big the next member has to be.</b> <span class="inline">next_member_bytes</span> is the
+        median of the final sizes of the newest <span class="inline">family_recent_members</span> (6)
+        DONE members, <span class="inline">next_member_hi_bytes</span> their maximum, the cautious
+        value. When the finals rise or fall from member to member and that trend is significant
+        (three members or more, slope outside its 95% interval), each final is first carried along
+        the trend to the next member's position. A falling trend never lowers the cautious value.</p>
+      <p><b>Whether the filling member fits.</b> Its period is as long as the calendar period of its
+        token and is counted from its first growth day, so a family whose members fill a month late
+        is still right. A member that grew into the window (a yearly one) ends with its calendar
+        period. For the days left it grows at its own rate, the average since it began, and never
+        slower than the DONE members filled on average:</p>
+<pre>expected_final    = cur_used + GREATEST(own rate, next_member    / period_days) x days_left
+expected_final_hi = cur_used + GREATEST(own rate, next_member_hi / period_days) x days_left</pre>
+      <p>When <span class="inline">expected_final_hi_bytes</span> is above the member's ceiling the
+        family raises one alert, <code>TBSPC_FAMILY</code> (WARN). Its key is the family, so next
+        month's member continues the same alert. The family alert speaks from the first growth day,
+        when the member's own fit still reads <code>LOW_CONFIDENCE</code>. Not covered: a
+        <code>TBSPC_FULL</code> of the filling member is not held back when the family says it fits,
+        and a purge inside a member's window is not treated.</p>
+
       <!-- ===================== INTEGRATION ===================== -->
       <div class="section-head" id="integration">
         <h2>The integration layer</h2>
@@ -963,6 +1101,7 @@
         <span class="inline">(dbid, con_dbid)</span> plus the <code>db_pdb</code> label from
         <span class="inline">CAPR_CONTAINER</span>, metric value against threshold, and a message.
         Kinds: <code>TBSPC_FULL</code>, <code>TBSPC_NEARFULL</code>, <code>TBSPC_ANOM</code>,
+        <code>DISK_FULL</code>,
         <code>CPU_SAT</code>, <code>DBCPU_SAT</code>, <code>CPU_HOT</code>, <code>DBCPU_HOT</code>,
         <code>CPU_ANOM</code>, <code>DBCPU_ANOM</code>, <code>CPU_SHIFT</code>,
         <code>SERIES_LIMIT</code>, <code>SERIES_NEARLIMIT</code>, <code>SERIES_ANOM</code>,
@@ -1046,7 +1185,10 @@
         <span class="inline">CAPR_WEEKLY_DIGEST</span> compares the latest run with the one
         <span class="inline">digest_days</span> (7) earlier: days to full then and now, alerts opened
         or resolved. <span class="inline">CAPR_FORECAST_ACCURACY</span> compares each stored fit's
-        projection with what happened. <span class="inline">CAPR_RUNS</span> lists the runs and
+        projection with what happened. <span class="inline">CAPR_FIT_TRACK</span> turns the stored
+        fits into a track record per series: how far the forecasts of 30 days ago were off, whether
+        they lean one way, how often the value stayed inside the band issued then, and the factor
+        that band needed (<a href="usage.html#track">in the reports</a>). <span class="inline">CAPR_RUNS</span> lists the runs and
         how fresh the last one is, <span class="inline">CAPR_COVERAGE</span> what the suite can see
         per database, and <span class="inline">CAPR_FIT_HISTORY</span> the stored fits of the OK
         runs. Every report driver can read the last run instead of the live
@@ -1071,7 +1213,7 @@
         <div class="track-card b">
           <div class="tk">Tier 2 · optional</div>
           <h4>OML ESM (exponential smoothing)</h4>
-          <p>One model per eligible tablespace (top 20 by days to full) and per CPU series (host
+          <p>One model per eligible tablespace (top 20 of each database by days to full) and per CPU series (host
             <code>BUSY_PCT</code>, each container's <code>DB_CPU_SEC</code>) via
             <code>DBMS_DATA_MINING</code>; the fixed-ceiling series are Tier 1 only. CPU uses additive Winters (weekly
             seasonality); tablespaces default to AUTO (backtest picks Holt or additive Winters per
@@ -1113,6 +1255,8 @@
           <tbody>
             <tr><td><span class="kt">CAP_CONFIG</span></td><td>Tuning knobs (name/value), MERGE-seeded</td><td><span class="pill ok">yes</span>: the MERGE inserts missing keys and never overwrites <code>cfg_value</code> (except <code>suite_version</code>)</td></tr>
             <tr><td><span class="kt">CAP_TBSPC_OVERRIDE</span></td><td>Operator tablespace ceilings, exclusions and alert thresholds</td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves it</td></tr>
+            <tr><td><span class="kt">CAP_TBSPC_FAMILY</span></td><td>Operator rows for <a href="#families">tablespace families</a>: add a member, rename a family, exclude a tablespace</td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves it</td></tr>
+            <tr><td><span class="kt">CAP_DISK_OVERRIDE</span></td><td>Operator-set free space and name of the disk the datafiles share, for the <a href="#shared-disk">shared-disk forecast</a></td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves it</td></tr>
             <tr><td><span class="kt">CAP_ML_MODEL</span></td><td>Tier 2 model registry (type, selection, holdout scores, status)</td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves it</td></tr>
             <tr><td><span class="kt">CAP_RUN</span> · <span class="kt">CAP_FIT_HIST</span> · <span class="kt">CAP_ALERT_STATE</span> · <span class="kt">CAP_ALERT_EVENT</span></td><td>Results layer: refresh runs, fits per run, one state per alert (with acks) and its change events. Written only by <code>cap_results</code></td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves them</td></tr>
             <tr><td><span class="kt">CAP_TARGET</span> · <span class="kt">CAP_TARGET_DBID</span> · <span class="kt">CAP_COLLECT_LOG</span> · <span class="kt">CAP_H_*</span></td><td>Repository: registered targets, their DBIDs, the collect log and the copies of each target's AWR (kept <code>repo_retention_days</code>, 400). Written only by <code>cap_repo</code></td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves them; copies cannot be re-pulled once the target's AWR has aged out</td></tr>

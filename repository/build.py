@@ -5,9 +5,9 @@ source manifest and repository/seam.sql.
     python3 repository/build.py           # write the generated files
     python3 repository/build.py --check   # exit 1 if one is stale or a list drifted
 
-The manifest below is the one place that says which DBA_HIST_* views a
-repository copies from its targets, which columns, how a copy is keyed and
-which rows are worth copying. From it this script writes, in one file:
+The manifest below is the one place that says which DBA_HIST_* views (and
+the one live view, kind L) a repository copies from its targets, which
+columns, how a copy is keyed and which rows are worth copying. From it this script writes, in one file:
 
   * CAP_H_<view>, one copy table per source view, created idempotently
     (persisted: ddl/00_drop never drops them, uninstall.sql does);
@@ -34,6 +34,7 @@ SEAM = ROOT / "repository" / "seam.sql"
 OUT = ROOT / "ddl" / "13_seam_repository.sql"
 COPY_CHECK = ROOT / "test" / "repo_copy_check.sql"
 PREPARE = ROOT / "target" / "prepare.sql"
+CHECK = ROOT / "target" / "check.sql"
 
 N = "NUMBER"
 TS = "TIMESTAMP(3)"
@@ -53,6 +54,12 @@ class Source:
             distinct row". scope names the fact whose chunk rows decide which
             dimension rows to pull (SEG_STAT_OBJ is too big to pull whole).
     filter: rows not worth copying. It must keep every row seam.sql keeps.
+    kind L: a live view, not AWR: no snap_id and no history. The copy of a
+            target is replaced whole at every collect and stamped with the
+            collect time (collected_at, the repository's clock). remote names
+            the view and pull is the whole INSERT (binds :1 :2 = the target's
+            newest DBID). seam.sql reads its copy under the copy's own name:
+            the copy has columns the view lacks (dbid, con_dbid, collected_at).
     optional: a target's reader may lack the grant (it was prepared before
             the view joined the manifest): probe warns instead of failing,
             and collect skips the source and copies the rest.
@@ -64,9 +71,21 @@ class Source:
     filter: str = ""
     scope: str = ""
     optional: bool = False
+    remote: str = ""
+    pull: str = ""
+
+    @property
+    def remote_view(self):
+        return (self.remote or f"dba_hist_{self.name}").lower()
 
 
 TIME_NAMES = "stat_name IN ('DB CPU','DB time','background cpu time')"
+# 'redo size' (REDO_GB_DAY) and the four I/O totals (IOPS, IO_MBPS). A name
+# added here is copied from the first collect after the upgrade: collect
+# starts above the high-water mark, so older snapshots are not backfilled.
+SYSSTAT_NAMES = ("stat_name IN ('redo size',\n             "
+                 "'physical read total IO requests','physical write total IO requests',\n             "
+                 "'physical read total bytes','physical write total bytes')")
 KEYS = [("dbid", N), ("con_dbid", N), ("instance_number", N), ("snap_id", N)]
 # The memory pressure events ddl/10's CAPV_SYSTEM_EVENT reads, one per line
 # so the pull statement keeps its lines short.
@@ -105,11 +124,11 @@ SOURCES = [
            filter="resource_name IN ('processes','sessions')"),
     Source("SYSSTAT", "F", [("dbid", N), ("con_dbid", N), ("instance_number", N),
                             ("snap_id", N), ("stat_name", v(64)), ("value", N)],
-           filter="stat_name = 'redo size'"),
+           filter=SYSSTAT_NAMES),
     Source("CON_SYSSTAT", "F", [("dbid", N), ("con_dbid", N), ("con_id", N),
                                 ("instance_number", N), ("snap_id", N),
                                 ("stat_name", v(64)), ("value", N)],
-           filter="stat_name = 'redo size'"),
+           filter=SYSSTAT_NAMES),
     Source("PARAMETER", "F", [("dbid", N), ("con_dbid", N), ("instance_number", N),
                               ("snap_id", N), ("parameter_name", v(64)), ("value", v(512))],
            filter="parameter_name IN ('cpu_count','processes','sessions',"
@@ -186,6 +205,24 @@ SOURCES = [
                                  ("subobject_name", v(128)), ("object_type", v(18)),
                                  ("tablespace_name", v(30))],
            key=["dbid", "con_dbid", "ts#", "obj#", "dataobj#"], scope="SEG_STAT"),
+    # The live tablespace ceilings (U09, the shared-disk forecast): Oracle caps
+    # TABLESPACE_SIZE by the free space of the filesystem / disk group behind
+    # the datafiles, which AWR's tablespace_maxsize is not. Sizes in blocks.
+    # The view has con_id only: DBA_HIST_TABLESPACE (already granted) maps it
+    # to con_dbid, on the target, so no function has to run remotely. A PDB
+    # whose con_id changed since AWR first saw it gets no row (no live limit).
+    Source("TBSPC_LIVE", "L", [("dbid", N), ("con_dbid", N), ("tablespace_name", v(30)),
+                               ("tablespace_size", N), ("used_space", N), ("collected_at", DT)],
+           key=["dbid", "con_dbid", "tablespace_name"],
+           remote="CDB_TABLESPACE_USAGE_METRICS", optional=True,
+           pull="INSERT INTO cap_h_tbspc_live (dbid, con_dbid, tablespace_name, tablespace_size,"
+                " used_space, collected_at)\n           "
+                "SELECT :1, t.con_dbid, m.tablespace_name, m.tablespace_size, m.used_space, SYSDATE\n           "
+                "FROM cdb_tablespace_usage_metrics@{LINK} m\n           "
+                "JOIN (SELECT DISTINCT NVL(con_id, 0) AS con_id, con_dbid, tsname\n           "
+                "      FROM dba_hist_tablespace@{LINK}\n           "
+                "      WHERE dbid = :2) t\n           "
+                "  ON t.con_id = m.con_id AND t.tsname = m.tablespace_name"),
 ]
 
 LINK = "@{LINK}"   # cap_repo replaces {LINK} with the target's DB link name
@@ -217,6 +254,8 @@ def pull_sql(src):
     F binds (:1 dbid, :2 after snap_id, :3 through snap_id).
     D binds (:1 dbid); with a scope (:1 dbid, :2 dbid, :3 after, :4 through).
     """
+    if src.kind == "L":
+        return src.pull
     cols = names(src)
     clist = column_list(cols)
     remote = f"dba_hist_{src.name.lower()}{LINK}"
@@ -292,6 +331,8 @@ def tables_block():
 def source_view():
     out = ["-- One row per copied source: the finished pull statement and its bind shape.",
            "-- optional = 'Y': a reader without the grant is warned about, not failed.",
+           "-- remote_view: the view read on the target. kind L: a live view, its copy",
+           "-- replaced whole per target at each collect (no snap_id).",
            "CREATE OR REPLACE VIEW cap_repo_source AS"]
     rows = []
     for i, s in enumerate(SOURCES, 1):
@@ -299,6 +340,7 @@ def source_view():
         opt = "Y" if s.optional else "N"
         rows.append(f"SELECT {i} AS seq, '{s.name}' AS source_name, '{kind}' AS kind,"
                     f" '{opt}' AS optional, 'CAP_H_{s.name}' AS copy_table,\n"
+                    f"       CAST('{s.remote_view.upper()}' AS VARCHAR2(40)) AS remote_view,\n"
                     f"       {sql_q(pull_sql(s))} AS pull_sql FROM dual")
     out.append("\nUNION ALL\n".join(rows) + ";")
     return out
@@ -341,6 +383,8 @@ COPY_CHECK_HEAD = """\
 -- there only a source row missing from the copy is a difference; copy-only
 -- rows are listed as kept. A stale copy of a keyed row still shows as its
 -- source row missing.
+-- A kind L copy (CAP_H_TBSPC_LIVE) is not compared: its source is a live
+-- view with no snapshot to pin, so its numbers move between collect and check.
 -- Prints "COPYCHECK <target> dbid=<n> <source> ..." per source and DBID, its
 -- first 10 differing rows, and one closing line
 --   COPYCHECK-RESULT EQUAL | DIFFERENT | MOVED | FAILED ...
@@ -534,6 +578,8 @@ UNDEFINE 1 2
 def copy_check():
     calls = []
     for s in SOURCES:
+        if s.kind == "L":
+            continue
         kind = "S" if s.scope else s.kind
         args = [f"'{s.name.lower()}'", f"'{kind}'", sql_q(", ".join(names(s))), sql_q(row_text(s))]
         if s.filter:
@@ -610,7 +656,9 @@ def filter_drift():
 
 
 def granted(path):
-    return re.findall(r"'DBA_HIST_(\w+)'", path.read_text())
+    """The views a target script lists: 'DBA_HIST_X' and the kind L remotes."""
+    live = "|".join(s.remote_view.upper() for s in SOURCES if s.kind == "L")
+    return {m.lower() for m in re.findall(rf"'(DBA_HIST_\w+|{live})'", path.read_text())}
 
 
 def render():
@@ -624,7 +672,8 @@ def render():
         "--",
         "-- A repository copies the DBA_HIST_* views seam.sql reads from each registered",
         "-- target (repository/cap_repo.sql pulls them over a DB link) into CAP_H_*",
-        "-- tables of the same shape. The seam views below are seam.sql's with every",
+        "-- tables of the same shape, and the live tablespace ceilings into",
+        "-- CAP_H_TBSPC_LIVE. The seam views below are seam.sql's with every",
         "-- dba_hist_<x> renamed cap_h_<x>; the notes on every view live in seam.sql.",
         "-- CAPV_TARGET reads the target registry, so cap_repo.sql is included before",
         "-- the seam.",
@@ -641,12 +690,18 @@ def render():
 
 
 def problems():
-    want = {s.name for s in SOURCES}
+    want = {s.name for s in SOURCES if s.kind != "L"}
+    views = {s.remote_view for s in SOURCES}
     out = []
     if seam_sources() != want:
         out.append(f"repository/seam.sql reads {sorted(seam_sources() ^ want)} that the manifest does not match")
-    if PREPARE.exists() and set(granted(PREPARE)) != want:
-        out.append(f"target/prepare.sql grants differ from the manifest: {sorted(set(granted(PREPARE)) ^ want)}")
+    seam_text = SEAM.read_text().lower()
+    for s in SOURCES:
+        if s.kind == "L" and not re.search(rf"\bfrom\s+cap_h_{s.name.lower()}\b", seam_text):
+            out.append(f"repository/seam.sql does not read cap_h_{s.name.lower()}, the copy of {s.remote_view}")
+    for path in (PREPARE, CHECK):
+        if path.exists() and granted(path) != views:
+            out.append(f"{path.relative_to(ROOT)} lists other views than the manifest: {sorted(granted(path) ^ views)}")
     out += filter_drift()
     seam = set(view_blocks(strip_comments(SEAM.read_text())))
     capv = lambda names: {n for n in names if n.startswith("capv_")}
@@ -658,6 +713,8 @@ def problems():
         for k in s.key:
             if k not in cols:
                 out.append(f"{s.name}: key column {k} not copied")
+        if s.kind == "L" and not (s.remote and s.pull and s.optional and "collected_at" in cols):
+            out.append(f"{s.name}: a live source needs remote, pull, optional and collected_at")
         if s.kind == "F" and not {"dbid", "snap_id"} <= set(cols):
             out.append(f"{s.name}: a fact needs dbid and snap_id")
         if len(f"cap_h_{s.name}") > 30:

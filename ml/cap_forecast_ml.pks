@@ -32,7 +32,11 @@
 CREATE OR REPLACE PACKAGE cap_forecast_ml AS
 
     -- Train an ESM model per permanent tablespace, limited to the p_top_n most
-    -- capacity-critical (nearest days_to_full, then largest current usage).
+    -- capacity-critical of each database (nearest days_to_full, then largest
+    -- current usage).
+    -- A full run (train_tablespaces / train_all) drops the models and backtest
+    -- twins of tablespaces it did not select; train_tablespace (one name) never
+    -- drops another series' model.
     -- M10.4 quality gate: only series whose Tier 1 quality is OK or
     -- LOW_CONFIDENCE are eligible -- FLAT / INSUFFICIENT_HISTORY are skipped.
     -- M10.4 model type, from CAP_CONFIG:

@@ -15,6 +15,7 @@
 # Exit 1 and list the offenders on a violation.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. test/repo_files.sh
 rc=0
 fail() { echo "lint_appinfo: $*"; rc=1; }
 
@@ -25,7 +26,7 @@ while IFS= read -r f; do
   esac
   grep -qiE '^set appinfo off$' "$f" || fail "$f has no SET APPINFO OFF"
   grep -qiF "set appinfo \"AWRCAP/$f\"" "$f" || fail "$f does not SET APPINFO \"AWRCAP/$f\""
-done < <(git ls-files '*.sql')
+done < <(repo_files '*.sql')
 
 # spec_procs <file> <package>: the PROCEDURE names declared in its spec.
 spec_procs() {

@@ -8,10 +8,11 @@ for making changes safely.
 ## Golden rules
 
 - **Read-only against AWR.** The suite writes only to `CAP_*` tables it owns
-  (and its OML models): the operator tables `CAP_CONFIG` / `CAP_TBSPC_OVERRIDE`,
-  the Tier 2 registry `CAP_ML_MODEL` (written by `cap_forecast_ml`) and the
+  (and its OML models): the operator tables `CAP_CONFIG` / `CAP_TBSPC_OVERRIDE`
+  / `CAP_TBSPC_FAMILY`, the Tier 2 registry `CAP_ML_MODEL` (written by `cap_forecast_ml`) and the
   results layer `CAP_RUN` / `CAP_FIT_HIST` / `CAP_ALERT_STATE` /
-  `CAP_ALERT_EVENT` (written only by `cap_results`). The reports and every
+  `CAP_ALERT_EVENT` (written only by `cap_results`). `CAP_DISK_OVERRIDE`
+  (the shared disk's free space) is an operator table too. The reports and every
   `CAPV/CAPD/CAPF/CAPA/CAPM/CAPR` view only SELECT. In repository mode
   `cap_repo` writes `CAP_TARGET` / `CAP_TARGET_DBID` / `CAP_COLLECT_LOG` and
   the `CAP_H_*` copies, and runs only SELECTs on a target (plus one
@@ -31,23 +32,38 @@ for making changes safely.
   limit is `LEAST(AWR limit, live CDB_TABLESPACE_USAGE_METRICS ceiling)`
   (`LIM LIVE`), and `dtf_worst` / `add_gb_90` use the wider of the OLS and
   DRIFT error models around the OLS slope (the median rate is 0 for most
-  real tablespaces, so the slope is never DRIFT's). A third: `dtf_shared`
+  real tablespaces, so the slope is never DRIFT's). `dtf_shared`
   / `dtf_shared_worst` / `limit_shared_gb` / `disk_dtf` forecast every tablespace against one shared disk (free
   space derived from the `LIVE` caps or `prm.disk_free_gb`: the view's
   ceiling is `LEAST(sum of maxbytes, allocated + device free)` per tablespace
   at any file count, verified 19.27), and STATUS
-  uses `dtf_shared`. A fourth: the fit window also restarts where growth
-  stopped or began (`RESTART` STOP / START beside PURGE, `prm.quiet_days` 0 =
-  off), judged on growth days (new highs) and the pauses between them: a
-  pause of `quiet_days`, `quiet_ratio` x the longest other pause, and a
-  chance `(span / (span + pause)) ^ (growth days - 1)` under `quiet_chance`.
-  The suite restarts at a purge cliff only. `standalone/README.md`
+  uses `dtf_shared`. That simulation is no longer a departure: the suite
+  runs it in ddl/33 ("Shared disk" below) with its own slope and worst-case
+  rate, so mirror a change to it in both. Still standalone only: the live
+  ceiling inside `limit_gb` / `dtf` (the suite keeps `limit_bytes` and has
+  `limit_own_bytes` beside it), and STATUS from `dtf_shared` (the suite's
+  TBSPC_FULL judges `days_to_full`, DISK_FULL the disk). Shared with the suite (ddl/30, same rule, knobs of the
+  same names in `CAP_CONFIG` / `prm`): cliff days at most `cliff_merge_days`
+  (1) apart are one purge event, the reset day its last cliff day; and the
+  fit window also restarts where growth stopped or began (`RESTART` STOP /
+  START beside PURGE, `quiet_days` 0 = off), judged on growth days (new
+  highs by more than `growth_floor` x the window's rise) and the pauses
+  between them: a pause of `quiet_days`, `quiet_ratio` x the longest other
+  pause, and a chance `(span / (span + pause)) ^ growth days` (START:
+  `growth days - 1`) under `quiet_chance`. One growth day has span 0: STOP
+  after `quiet_days` (a single load is not fitted as a step), START never.
+  The suite publishes it as `restart_reason` / `restart_day` on
+  `CAPF_TBSPC_FORECAST` and `CAPR_FIT` (`reset_day` stays the purge reset)
+  and does not judge a window whose cliffs did not reset it (CYCLIC,
+  `reset_on_shrink` 0). `standalone/README.md`
   explains its columns and formulas for readers outside the project (it is
   also pasted into Confluence): change it with the query.
   `standalone/tbspc_monitor.sql` is its monitoring companion (own doc
   `standalone/tbspc_monitor.md`, also pasted into Confluence): the same CTE
   chain `db` .. `res`, kept textually identical except the two `live_pct`
   lines (`live` and `lim`), so a change to the fit goes into both files.
+  `test/standalone_test.sh <SCHEMA>` checks that and tests both files
+  ("Standalone lever" below): run it after any change to either.
   Its rule judges the live `USED_PERCENT`: CRIT from `alert_pct_max` 95,
   from `alert_pct` 90 unless the ceiling is `alert_big_gb` or more and
   `dtf_shared_worst` is above `alert_dtf` (or absent: not growing), then
@@ -82,22 +98,24 @@ for making changes safely.
   cfg_default`. The one exception is `suite_version`, overwritten by every
   install (bump it in the MERGE and in its `CAP_CFG_CHECK` rule together).
   `CAP_CFG_CHECK` reports each knob OK / MISSING / BAD with a reason.
-- **Persisted tables survive a re-install:** `CAP_CONFIG` and
-  `CAP_TBSPC_OVERRIDE` (ddl/05), `CAP_ML_MODEL` (ddl/50), `CAP_RUN`,
+- **Persisted tables survive a re-install:** `CAP_CONFIG`,
+  `CAP_TBSPC_OVERRIDE`, `CAP_TBSPC_FAMILY` and `CAP_DISK_OVERRIDE` (ddl/05), `CAP_ML_MODEL` (ddl/50), `CAP_RUN`,
   `CAP_FIT_HIST`, `CAP_ALERT_STATE`, `CAP_ALERT_EVENT` (ddl/60), and in
   repository mode `CAP_TARGET`, `CAP_TARGET_DBID`, `CAP_COLLECT_LOG`
   (repository/cap_repo.sql) and the `CAP_H_*` copies (ddl/13), which cannot
   be re-pulled once a target's AWR has aged out. Each is created
   idempotently, NOT dropped by `ddl/00_drop.sql`, dropped only by
   `uninstall.sql` (which first spools the knobs off their default and the
-  override rows to `reports/cap_config_replay_<schema>_<ts>.sql`, to run in
+  override and family rows to `reports/cap_config_replay_<schema>_<ts>.sql`, to run in
   the new owner after the next install, M25.6, then drops the links
   `add_target` made, through a throwaway definer's-rights procedure: only
   the owner can drop them). `CAP_TBSPC_OVERRIDE` holds operator-set tablespace
   ceilings, exclusions and per-tablespace `dtf_warn` / `dtf_crit` /
   `nearfull_warn_pct` / `nearfull_crit_pct` (NULL = the knob), applied once in
   `CAPD_TBSPC_DAILY`; `dbid`/`con_dbid` `0` are wildcards and the most
-  specific matching row wins.
+  specific matching row wins. `CAP_TBSPC_FAMILY` holds the operator rows of
+  the tablespace families (same wildcards, a `name_regex` instead of a
+  name), applied once in `CAPD_TBSPC_FAMILY`.
 - **SNAPSHOT reads stored tables (M24.13).** `cap_results.snap_views`
   (ddl/60) is the one list of the views the report drivers read; each is
   kept as table `<view>_S` (`snap_run_id`, then the view's columns).
@@ -112,8 +130,8 @@ for making changes safely.
   substitutes with `~` because its HTML entities use `&`); `cap_alerts` names
   the alert list's source (CAPR_ALERTS / CAPR_ALERTS_LATEST).
   `test/lint_snapshot_reads.sh` enforces it; the cheap table-backed reads it
-  allows live are CAP_CFG, CAPR_RUNS, CAPR_ALERTS_LATEST and
-  CAPR_FIT_HISTORY. The reports still only SELECT; refresh is the writer.
+  allows live are CAP_CFG, CAPR_RUNS, CAPR_ALERTS_LATEST,
+  CAPR_FIT_HISTORY and CAPR_FIT_TRACK. The reports still only SELECT; refresh is the writer.
   `test/snapshot_parity.sh <SCHEMA>` (or the harness's `--parity`) diffs
   LIVE and SNAPSHOT reports on the fixture and lists what a SNAPSHOT run's
   plans read.
@@ -126,8 +144,14 @@ for making changes safely.
 - **APEX contract.** `apex/build.py` selects `CAPR_SERIES_POINTS`,
   `CAPR_FORECAST_POINTS`, `CAPR_FIT`, `CAPR_ANOMALIES`, `CAPR_ALERTS` and
   `CAPR_CONTAINER` by named column. Only ADD columns to these six views; never
-  rename or drop one. `apex/test/apex_smoke.sql` proves it. ORDS, the ELK
-  export and `report/report_html.sql` select from the same views.
+  rename or drop one. The app also reads, by named column, `CAPR_TARGETS`
+  (Targets page), `CAPR_MEM_VERDICT`, `CAPR_MEM_EVIDENCE` and
+  `CAPR_MEM_COMP_POINTS` (Memory sizing page): a column `COLLECTIONS` in
+  build.py names must stay. `apex/test/apex_probe.sql` proves it on any
+  install of the suite with no APEX (`AWRCAP_PROBE_COLL` stands in for
+  `APEX_COLLECTIONS`), `apex/test/apex_smoke.sql` inside an APEX session.
+  ORDS, the ELK export and `report/report_html.sql` select from the same
+  views.
 - **The baseline mode is part of every anomaly key.** `CAPA_ANOM` holds one row
   per observation AND `baseline_mode` (2 per day, TRAILING + SAME_DOW; 1 per
   CPU hour, HOUR_OF_WEEK). Read it only with `baseline_mode = ...` or GROUP BY
@@ -153,24 +177,29 @@ for making changes safely.
 ## Layout / load order
 
 `install.sql` includes, in order: `ddl/00_drop` → `05_config` (CAP_CONFIG,
-CAP_CFG, CAP_CFG_CHECK, CAP_SCOPE, CAP_TBSPC_OVERRIDE) → the seam (`13`/`12` for
-`deploy_mode` repository / fixture: twenty-four CAPV_* views + CAPV_CONTRACT;
+CAP_CFG, CAP_CFG_CHECK, CAP_SCOPE, CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY, CAP_DISK_OVERRIDE) → the seam (`13`/`12` for
+`deploy_mode` repository / fixture: twenty-five CAPV_* views + CAPV_CONTRACT;
 `13`, generated from `repository/seam.sql`, also creates the copies and pulls
 `repository/cap_repo.sql`; the retired `local` aborts before any DDL and
 names the upgrade path, M25) → `20_daily` →
-`25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `35_series_forecast`
+`25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `32_tbspc_family`
+(CAPD_TBSPC_FAMILY, CAPD_TBSPC_FAMILY_DAILY, CAPF_TBSPC_FAMILY_MEMBER,
+CAPF_TBSPC_FAMILY, see "Tablespace families" below) → `33_shared_disk`
+(CAPF_TBSPC_SHARED, CAPF_DISK: "Shared disk" below) → `35_series_forecast`
 (CAPF_SERIES_FORECAST) → `40_anomaly` → `42_memory_views` (M26 verdicts, see
 "Memory verdicts" below) → `45_report_views` (CAPR_CONTAINER,
-CAPR_ANOMALIES, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
+CAPR_ANOMALIES, CAPR_ANOM_VOLUME, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
 CAPR_SEGMENT_GROWTH, the point feeds CAPR_SERIES_POINTS / CAPR_HOURLY_POINTS,
-CAPR_FIT, and the memory report views CAPR_MEM_AREA / CAPR_MEM_VERDICT /
-CAPR_MEM_EVIDENCE / CAPR_MEM_COMPONENTS / CAPR_MEM_COMP_POINTS, M26.4) → `50_ml` (CAP_ML_MODEL, the temporary CAP_ML_INPUT, pulls `ml/cap_forecast_ml.pks/.pkb`, the
+CAPR_FIT, the memory report views CAPR_MEM_AREA / CAPR_MEM_VERDICT /
+CAPR_MEM_EVIDENCE / CAPR_MEM_COMPONENTS / CAPR_MEM_COMP_POINTS, M26.4, and
+the family report views CAPR_TBSPC_FAMILY / CAPR_TBSPC_FAMILY_MEMBERS) → `50_ml` (CAP_ML_MODEL, the temporary CAP_ML_INPUT, pulls `ml/cap_forecast_ml.pks/.pkb`, the
 ESM views, CAPF_COMPARE, CAPF_BACKTEST, CAPF_ESM_HEALTH[_SUMMARY]) →
 `55_report_views_ml` (the Tier-2-dependent CAPR_* section views,
 CAPR_FORECAST_POINTS and CAPR_ALERTS, which reads the Tier 2 health views for
-MODEL_HEALTH) → `60_results` (the results tables, package CAP_RESULTS and the
+MODEL_HEALTH and CAPR_TBSPC_FAMILY for TBSPC_FAMILY, and CAPR_ALERT_VOLUME over it) → `60_results` (the results tables, package CAP_RESULTS and the
 CAPR_ALERTS_LATEST / CAPR_ALERT_EVENTS / CAPR_RUNS / CAPR_COVERAGE /
-CAPR_FIT_HISTORY / CAPR_WEEKLY_DIGEST / CAPR_FORECAST_ACCURACY views), and
+CAPR_FIT_HISTORY / CAPR_WEEKLY_DIGEST / CAPR_FORECAST_ACCURACY /
+CAPR_FIT_TRACK views), and
 last `cap_results.build_snap_tables`, which re-creates the SNAPSHOT cache
 `<view>_S` of every view in `cap_results.snap_views` (M24.13).
 `docs/reference.html` "Object index" lists every object (`test/docs_lint.sh`
@@ -189,10 +218,21 @@ valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 `CAPA_ANOM_DAY` (+ the untouched `CAPA_CPU_SHIFT`); ddl/45 `CAPR_ANOMALIES`
 (read by `CAPR_ALERTS` in ddl/55), `CAPR_SERIES_ANOMALIES`, `CAPR_HOURLY_POINTS`.
 `CAPA_TBSPC_ANOM` / `CAPA_CPU_ANOM` are gone (still in `00_drop` so an upgrade
-removes them). `test/dbmint_harness.sh <SCHEMA> [--ml]` runs
-`test/lint_anom_joins.sh`, `test/lint_appinfo.sh`, `test/lint_dbid_windows.sh`,
-`test/lint_snapshot_reads.sh` and `test/lint_dba_hist.sh` (plus build.py
---check and the two offline report tests), syncs and runs the whole fixture
+removes them). `test/check.sh [-v] [NAME...]` runs every check that needs no
+database: build.py --check of repository/, report/html/ and apex/,
+`apex/test/export_check.py`, every
+`test/lint_*.sh` (found by name: a new lint joins by existing),
+`test/docs_lint.sh` and the offline tests in its `OFFLINE_TESTS` list
+(`run_report_sh_test`, `report_html_test`, `notify_sh_test`, `oem_test`; a
+list, not `test/*_test.sh`, because a test of that name may need a
+database: a new offline test joins the list); one OK / FAIL line
+each, exit 1 when any failed. `.github/workflows/check.yml` runs it on push
+and pull request. The lints and docs_lint read tracked files only
+(`test/repo_files.sh`: `repo_files` / `repo_only`; a copy without git reads
+every file outside `reports/`), so a new file is judged once it is added to
+git and a new lint takes its file list from there.
+`test/dbmint_harness.sh <SCHEMA> [--ml]` runs `test/check.sh` first (exit 4,
+nothing synced, when a check fails), then syncs and runs the whole fixture
 harness on dbmint.
 `docs/architecture.html` is the architecture page: the system level by level
 (context, accounts and link, install flow, collector and copy contract, seam
@@ -249,12 +289,27 @@ past, ORA-20080 at the end; where package CAP_REPO exists also
 CAP_COLLECT_JOB hourly :05),
 `report/report_csv.sql` (one CSV per CAPR section view), `report/report_brief.sql`
 (one-page "Runway" briefing from CAPR_FIT + the alert list, plus one line per
-actionable CAPR_MEM_VERDICT row; demo
+actionable CAPR_MEM_VERDICT row and per BIASED / WIDE CAPR_FIT_TRACK series
+that a forecast alert names; demo
 `docs/demo/cap_brief_demo.html`), `report/run_report.sh`
 (cron wrapper: text / --html / --brief / --csv, --scope, --target, --snapshot, non-zero exit on a
 non-zero sqlplus exit or a line starting ORA-/SP2- (an alert message quoting
 an ORA- mid-line is content); `test/run_report_sh_test.sh` is its
-mock-sqlplus test, no DB needed), `report/report_html.sql` (one section per
+mock-sqlplus test, no DB needed), `report/notify.sh` (cron alert delivery,
+shell side only: runs `report/alert_events.sql`, which prints the
+CAPR_ALERT_EVENTS rows after an event_id as escaped TAB-separated lines
+between a BEGIN line with the position and an END line with the count, and
+sends ONE message per run, events grouped by target, by mail (mailx / mail /
+sendmail, `AWRCAP_MAIL_CMD` / `AWRCAP_SENDMAIL_CMD`) and / or webhook (curl,
+URL on stdin, never printed; `AWRCAP_WEBHOOK_URL` or `--webhook-file`). The
+position, `event_id` = `run_id * 100000 + n` in commit order, lives in
+`reports/notify.state` and moves only after every channel succeeded; no
+state file = only the last `--since-hours`. Events of alerts that are
+acknowledged now (`CAPR_ALERT_EVENTS.acked`, last column: the state today,
+not at the event) are skipped unless `--include-acked` (alert_events.sql
+argument 7); the position moves past them. Its awk uses no `gsub`: awks
+disagree on backslashes in the replacement. `test/notify_sh_test.sh` is its
+offline test: mock sqlplus, mail and curl), `report/report_html.sql` (one section per
 metric, one card per series: it spools the point-feed views as one JSON block
 between the generated `report/html/page_head.sql` / `page_tail.sql`; edit
 `report/html/report.css` / `report.js`, run `python3 report/html/build.py`,
@@ -278,9 +333,12 @@ chapter (M26.4) fills PGASTAT and the ten memory tables: ASMM on a 128 GiB
 host, sga_target 48 GiB, PGA target 10 / limit 20 GiB; PGA_TARGET UNDERSIZED
 (14 GiB), SGA_TOTAL and BUFFER_CACHE OVERSIZED (42 and 30 GiB), the rest OK,
 one deferred 1 GiB move from the cache to the shared pool on the release
-day, and a PGA_ALLOC_GB series with no alert. A fixture install with BOTH
-the PGASTAT and the PARAMETER stub fails (ORA-00932 in CAPD_SERIES_DAILY's
-PGA_ALLOC_GB branch, 19.27), so keep both tables. `docs/demo/` holds the reports generated from it (identity
+day, and a PGA_ALLOC_GB series with no alert. A stub is opaque (`WHERE
+ROWNUM < 1`, never `WHERE 1 = 0`): merged into its reader, a stub's
+constants made `NULLIF(<outer-joined stub column>, 0)` raise ORA-00932 at
+parse (19.27; CAPD_SERIES_DAILY's PGA_ALLOC_GB branch over the PGASTAT and
+PARAMETER stubs). `test/dbmint_stub_install.sh <SCHEMA>` installs over all
+fifteen stubs and checks that nothing is INVALID. `docs/demo/` holds the reports generated from it (identity
 strings genericised: database ECOMPRD, host db-prod-01.example.com, schema
 CAPMON) for the docs site. Regenerate it in a throwaway schema (not CAPDEMO,
 which feeds the lab dashboards): demo_fixture (it drops every CAP_FIXTURE_*
@@ -292,9 +350,17 @@ CAPR_ views; `export.sh` runs it ON THE DB HOST into Filebeat's `generated/`
 dir, `filebeat/awrcap.yml` + `logstash/oracle_capacity.conf` carry it into the
 ES index `awrcap-capacity` (mapping = `elk/elasticsearch/index-template.json`,
 `dynamic: strict`, so add a field there FIRST and re-run `elk/setup.sh`).
-`elk/kibana/build_*.py` generate the three dashboards (edit the builder, never
+`elk/kibana/build_*.py` generate the four dashboards (edit the builder, never
 the `.ndjson`); `setup.sh` applies the template and imports them. Nothing on
-the DB host talks to Elasticsearch directly.
+the DB host talks to Elasticsearch directly. `elk/setup.sh` requires
+`ES_PASSWORD` and `KIBANA_PASSWORD` (no default). Every record carries
+`cap.target_name`: each SELECT of the export drives from alias `t` and ends
+its FROM with the define `tgt` (the dbid's target from `CAPR_CONTAINER`),
+which the shared `ident` define names. The memory records (`mem_verdict`,
+`mem_evidence`, `mem_component`, `cap.kind` MEM, fields under `cap.mem.*`)
+come from the CAPR_MEM_ views; verdicts and evidence are stamped with the
+export day, like fits. Kibana 9.4 answers the settings call of `setup.sh`
+only with the header `x-elastic-internal-origin`.
 See `elk/README.md`.
 `LAB.md` is the workstation runbook (Tailscale URLs, start order, VM facts)
 for the visual paths; read it before touching the lab.
@@ -304,17 +370,72 @@ for the visual paths; read it before touching the lab.
 in ddl/45, `CAPR_FORECAST_POINTS` and `CAPR_ALERTS` in ddl/55, plus a GET
 `metrics` handler in Prometheus text format; contract `grafana/API.md`; the
 ELK export selects from the same views, so change the view, not the
-consumers) and
-`grafana/build_*.py` generate the provisioned Grafana boards. ORDS install
-state and passwords under `grafana/` are gitignored.
+consumers), `CAPR_TARGETS` and the four CAPR_MEM_ views (`mem_*` handlers),
+and `grafana/build_*.py` generate the four provisioned Grafana boards. A
+handler with a dbid drives from alias `t` and ends its FROM with `c_tgt`,
+which gives it `target_name` and the `target=` filter.
+**The module is protected** (U15): the ORDS privilege `awrcap.read` covers
+it and requires the ORDS role `awrcap_reader`, so every handler, `metrics`
+too, answers 401 without a bearer token. `grafana/ords/awrcap_client.sql`
+creates the OAuth2 client (client credentials) and prints its id and secret
+once; they live only in the gitignored `grafana/.env`
+(`ORDS_CLIENT_ID` / `ORDS_CLIENT_SECRET`), which the compose file hands to
+the Infinity data source. `install.sh` `ORDS=Y` always publishes protected;
+`PUBLIC` is the third argument of a hand run of the module script.
+`ORDS_SECURITY.REGISTER_CLIENT` registers no secret unless it is given
+`ords_types.oauth_client_secret()` (verified ORDS 26.3). As SYS,
+`SELECT ords.<function>` raises ORA-06598: read the ORDS dictionary views
+instead. ORDS install
+state and passwords under `grafana/` are gitignored. The compose file
+requires `GF_ADMIN_PASSWORD` (from `grafana/.env`). No tracked file holds a
+login literal (the repository is public): a placeholder, a variable or a
+pointer to the gitignored file instead. `test/lint_secrets.sh` enforces it
+(default image logins, and a literal password after curl `-u user:`, as a
+shell default of a password variable, after `IDENTIFIED BY`, in a `connect`
+/ `sqlplus` login or a password assignment; it reads `pw`, `password`,
+`secret`, `change-me` and the like as placeholders and does not judge
+`plans/`).
 `apex/` is the third optional path (nothing outside the database): `apex/build.py`
 generates `apex/awrcap_app.sql`, an APEX 26.2 application export (Oracle JET
 charts + Interactive Reports, no external JS) that reads the same CAPR point
-feeds plus `CAP_CONFIG` from its parsing schema, loading each view once per
-session into `AWRCAP_*` APEX collections. `apex/install.sql` imports it into
+feeds plus `CAPR_TARGETS`, three `CAPR_MEM_*` views and `CAP_CONFIG` from its
+parsing schema, loading each view once per session into `AWRCAP_*` APEX
+collections. Pages: Overview, Targets, Tablespaces, CPU and workload (with
+`IOPS` / `IO_MBPS`), Memory sizing, Fleet anomalies; a Target filter and a
+Target column (`CAPR_CONTAINER.target_name`) on every listing.
+`build.py --smoke` also writes `apex/test/apex_smoke.sql` (needs an APEX
+session) and `apex/test/apex_probe.sql` (needs none: the loader queries fill
+a table shaped like `APEX_COLLECTIONS`, then every region query, LOV and
+default runs with the items bound through DBMS_SQL; run it from the repo
+root, e.g. `test/dbmint_harness.sh <SCHEMA> --no-fixture --sql
+apex/test/apex_probe.sql`). `test/check.sh` runs `apex/build.py --check`
+(the three generated files are current) and `apex/test/export_check.py`
+(the export parsed on its own against the builder's registries). No APEX
+instance exists in the lab since 2026-11: the import and the rendered pages
+of the Targets and Memory sizing pages are unverified. `apex/install.sql` imports it into
 a given workspace/schema/app id; `apex/workspace.sql` creates the workspace
 and accounts; `apex/publish.sh` is the lab wrapper for the `23cfree` docker
 instance (see `LAB.md`). Edit the builder, never the generated export.
+`oem/` is the Oracle Enterprise Manager hook (opt-in, outside install.sql):
+`oem/awrcap_alerts.sql` is the query of a SQL metric extension, one SELECT
+over the table `CAP_ALERT_STATE` and the view `CAPR_RUNS` (stored rows only):
+key `ALERT_KEY` (the state_key, cut to 200 with its MD5 when longer),
+`SEV_NUM` 3 / 2 / 1 for an open, unacked CRIT / WARN / INFO and 0 for an
+acked alert or one resolved inside 7 days (EM clears on the threshold, so
+the row stays), plus one row `REFRESH` (WARN when `CAPR_RUNS.stale_run`).
+The metric extension takes the statement between `-- ME-QUERY-BEGIN` and the
+lone `;`, which must stay free of comments, blank lines and `;`
+(`test/oem_test.sh` checks). The column order is the extension's contract:
+only append. `oem/grant_monitor.sql <user>` grants READ on those two
+objects. `oem/prepare_targets.sh` reads the EM inventory with one
+`emcli list -sql` and prints (default) the per-target prepare.sql steps and
+an `add_targets.sql` for the repository, or with `--submit` creates an EM
+SQLScript job holding target/prepare.sql + check.sql verbatim behind a
+wrapper that ends the script where the reader exists (prepare.sql would
+reset its password) and gives a new reader a random server-made password.
+It handles no password: `ACCEPT ... HIDE` on both sides. `test/oem_test.sh`
+is its mock-emcli test, no OMS or DB needed. Verified against EM 24.1 with
+read-only verbs only; `oem/README.md` says what was not.
 Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomaly →
 `CAPM_` memory verdicts (report content, no alerts) → `CAPR_` integration
 (display labels + pollable alerts).
@@ -349,6 +470,12 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
 - **Positional args:** `COLUMN 1 NEW_VALUE 1` + a zero-row SELECT defines an
   unpassed `&1` as empty and leaves a passed one intact (verified 19c);
   scripts `UNDEFINE 1 2 3` at the end so a later script doesn't inherit them.
+  Never `NULLIF(TRIM('&1'), '-')`: `TRIM('')` folds to the NULL literal,
+  which NULLIF rejects as its first argument (ORA-00932 exactly when the
+  argument is omitted, 19.27; under TERMOUT OFF it left a lone `top_n`
+  ignored). Write `DECODE(TRIM('&1'), '-', NULL, TRIM('&1'))`.
+  `test/lint_nullif_args.sh` enforces it, and `test/snapshot_parity.sh`
+  passes `top_n` 12 alone on its unscoped LIVE runs and checks the spools.
 - **A substitution variable cannot hold a whole command line** (SP2-0734),
   only its arguments: uninstall.sql runs `SPOOL &cap_replay_spool`, the
   variable being the replay file's name or `OFF`.
@@ -383,7 +510,11 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   expiry (`cap_repo.reader_expiry`, WARN inside `reader_expiry_warn_days`,
   30), and leaves `cap_doctor_fail` (count of FAIL lines, "1" if the block
   did not finish). `quickstart.sql` stops before install on a FAIL unless
-  `DEFINE force_install = Y`.
+  `DEFINE force_install = Y`. Section 12 (the last) reads `CAPR_ALERT_VOLUME`
+  once, live: alerts per kind, and per noisy anomaly series the two
+  `UPDATE cap_config` statements that quiet it (the floor knob at
+  `suggested_floor`, or the mode's bit cleared in `alert_modes_*`). PASS or
+  one WARN, never a FAIL.
 - **Scheduler jobs.** `install_jobs.sql` creates jobs with unqualified names;
   DBMS_SCHEDULER resolves them in `CURRENT_SCHEMA`, so a SYSDBA +
   `CURRENT_SCHEMA` run creates them in the target schema, and the script lists
@@ -422,6 +553,13 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   AS day_dt, val AS <target> FROM cap_ml_input`. Every data query must start
   `SELECT day_dt, <target>`. One that starts with `WITH` builds an EMPTY
   model, no error (verified 19.27).
+- **ESM selection is per database and a full run owns the set.** `c_tbspc`
+  ranks with `PARTITION BY dbid` and keeps the top `p_top_n` of each
+  database (`test/lint_dbid_windows.sh` reads the package body too). A full
+  run (`train_all` / `train_tablespaces`) that selected at least one series
+  drops the models and twins of every tablespace it did not select;
+  `train_tablespace(name)` drops nothing. Models per night: `p_top_n` x
+  databases.
 - `DM$VP<model>` result view columns: `PARTITION_NAME, CASE_ID, VALUE,
   PREDICTION, LOWER, UPPER`. `get_forecast` reads the last five.
 - **In CDB$ROOT the SYS_ time model and sysstat are CDB-wide.**
@@ -467,7 +605,24 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   logical CPUs.
 - **Fixture partial day:** one weekday at fixture index 14..20 (about 100 days back, far outside the 35-day shift windows) restarts at noon
   and keeps only its 06:00 interval: `covered_sec` 43200, `is_complete = 'N'`
-  (below `complete_day_pct` 80). CPU and REDO fits read complete days only.
+  (below `complete_day_pct` 80). CPU, REDO and I/O fits read complete days only.
+- **I/O series (M27):** `IOPS` / `IO_MBPS` in `CAPD_SERIES_DAILY`, per
+  container, from four `CAPV_SYSSTAT` counters (`physical read / write total
+  IO requests`, `... total bytes`) through `CAPD_COUNTER_DELTA`. Daily value
+  = `PERCENTILE_CONT(0.95)` of the day's per-snapshot rates (the BUSY_P95
+  precedent, not MAX), units `IO_PER_SEC` / `MB_PER_SEC` (MB = 2^20), no
+  limit, so no SERIES_LIMIT / SERIES_NEARLIMIT. Flow series like REDO:
+  `covered_sec` / `is_complete` / `gap_flag`. Scored by `CAPA_OBS` on the
+  level, floors `series_floor_iops` 100 / `series_floor_mbps` 10. AWR writes
+  no row for a container's statistic that is still zero since startup
+  (19.27: a PDB had 1265 write rows beside 1572 read rows), so an interval
+  counts with one side present. The counters join the copies at the first
+  collect after the upgrade (no backfill). Fixture, root only: night
+  interval 1000 requests/s and 20 MB/s, day interval 2000 + 10i and 50, so
+  `IOPS = 1950 + 9.5i` (OK, slope 9.5, cur 3090) and `IO_MBPS = 48.5`
+  (FLAT). Day 0 reads 2000 / 50 and the partial day 1000 / 20, both
+  incomplete. No row on the restart day, no alert, no anomaly. Not in the
+  demo fixture or the ELK / Grafana / APEX boards.
 - **Other fixture series** (closed forms in run_test.sql): `FIX_CYCLIC` /
   `FIX_CYCLIC_UP` (30-day sawtooths graded CYCLIC, flat vs growing peaks),
   `FIX_OVERFULL` (override ceiling below usage: `limit_below_used`, clamped
@@ -478,7 +633,12 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   `CAP_FIXTURE_ASM_DISKGROUP` (DATA 200 + 5i of 1000 GiB: a second
   SERIES_LIMIT, FRA flat), `CAP_FIXTURE_SEG_STAT` (three segments in
   `FIX_FILLING`, 70/20/10 % of its growth) and a 3-day burst on `FIX_GAP`
-  (one anomaly episode).
+  (one anomaly episode). `FIX_PURGE2` (a purge over days 80 and 81: one
+  event, reset on day 81, OK. `cliff_merge_days` 0: CYCLIC), `FIX_STOPPED`
+  (ramp to day 90, then flat: STOP on day 91, FLAT, no full date.
+  `quiet_days` 0: OK, 45 days, a TBSPC_FULL WARN) and `FIX_STARTED` (flat
+  to day 95, then 16 MiB/day: START on day 95, OK, 200 days). Each adds
+  under 0.5 GiB a day, so DB_SIZE_GB flags nothing new.
 - **PGA fixture (M26):** `CAP_FIXTURE_PGASTAT`, root only, both PGA_LIMIT
   names on every snapshot. `total PGA allocated` 0.5 GiB at 06:00, 1 + i/1200 at
   18:00: `PGA_ALLOC_GB` exactly linear, 1.1 of 2 GiB (55%), no alert, no
@@ -514,6 +674,14 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   fixture's snapshots are 12 h apart (06:00 / 18:00) and, more importantly,
   because `gap_flag` SUPPRESSES anomaly scoring — an over-sensitive default
   silences the whole CPU anomaly layer on a site with wide AWR intervals.
+- **Tier 2 reads complete CPU days only** (`is_complete = 'Y'`): the CPU
+  models and twins train on them, `CAPF_ESM_CANDIDATE` and `CAPF_BACKTEST`
+  score on them, and the `CAPF_BACKTEST` cutoff and `CAPF_ESM_HEALTH`'s
+  series last day are `CAPF_CPU_TREND.last_day` (the last complete day). A
+  model trained today has age 0 while today's partial day has a value. A day
+  left out is a missing date to ESM (`EXSM_MISS_AUTO`), like a restart day.
+  Fixture rows: PDB DB_CPU_SEC 121 - 3 (first, partial, restart day), the
+  root's CPU series 121 - 4 (the AWR gap day too).
 - Backtest ESM twins (`train_backtest`) share the 19c 30-step cap AND the
   `FLOOR(rows/4)` floor, so they may cover fewer than holdout_days forecast
   days (fixture: 93 rows -> 23 of 28). `CAPF_BACKTEST.n_days` reports actual
@@ -555,6 +723,25 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   (`first_day`, `n_days`, `max_z`) and downgrades a per-day CPU anomaly inside
   an active CPU_SHIFT window to INFO. DATA_STALE is the one deliberate SYSDATE
   test (`stale_hours`); a dbid older than `data_stale_max_days` is retired.
+- **Forecast track record (ddl/60, `CAPR_FIT_TRACK`).** `refresh` stores each
+  fit's +30 point and band in `CAP_FIT_HIST` (`proj_30`, `proj_30_lo`,
+  `proj_30_hi`: not CAPR_FIT columns, MERGEd from `CAPR_FORECAST_POINTS_S`
+  REGR horizon 30 after the fit insert; NULL on older runs). The view reads
+  `CAP_FIT_HIST` / `CAP_RUN` only (table scan, same rows LIVE and SNAPSHOT,
+  no rows without an OK run) and pairs every stored fit (one per series and
+  `last_day`, newest run) with the fit `accuracy_horizon_days` later, else
+  the nearest within 2 days (earlier on a tie), outcome day inside
+  `accuracy_window_days`. A fit graded INSUFFICIENT_HISTORY or CYCLIC is an
+  actual only, never a forecast. The pair is picked first, the window applied after
+  (filtering candidates first paired a forecast with a non-nearest day).
+  Join the outcome by equality on `last_day + horizon + offset` (five
+  offsets), never by a day range (series x runs squared). `band_factor` =
+  `GREATEST(1, PERCENTILE_CONT(calib_quantile_pct))` of |error| / half-width,
+  2 decimals, NULL below `calib_min_forecasts` banded forecasts; a band of
+  width 0 (FLAT) or none is not judged. `reliability` is the first matching
+  row of the view's `rule` (UNKNOWN, BIASED, WIDE, GOOD): a new grade is a
+  row. Advice only: no alert, fit or slope method reads it. The reports read
+  it live in both modes (text section 9, HTML card line, briefing, CSV).
 - **M15 hour grain.** `hour_ts = TRUNC(end_time - 5/1440, 'HH24') + 1/24`: the
   bucket is labelled by the interval's END hour, with 5 min of AWR flush
   grace (09:59:58 and 10:00:03 both land in 10:00). `day_dt` stays
@@ -573,6 +760,28 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   4=HOUR_OF_WEEK, AND inside `anomaly_report_days`); `CAPR_ALERTS` has one
   branch over its `alerting = 'Y'` rows (TBSPC_ANOM, CPU_ANOM, DBCPU_ANOM,
   SERIES_ANOM), an HOUR_OF_WEEK day rolled up to its worst hour.
+  The message words a value by its unit, not its series: CTE `ut` in
+  `CAPR_ANOMALIES` (divisor, format, suffix per `CAPA_OBS` unit; a unit
+  without a row prints the number and the unit's name). The alert's `unit`
+  is the series' unit in upper case (`IO_PER_SEC`, `MB_PER_SEC`, ...), with
+  `BYTES` for bytes a day and `GIB` for both GiB and GiB a day. report.js
+  tells those two apart by the series' anomaly rows (`anomUnit`).
+- **Alert volume (U14).** `CAPR_ANOM_VOLUME` (ddl/45, because it reads
+  `CAPA_ANOM`, grouped by the mode; in the snapshot registry, read by the
+  text report's closing line of section 0, one line in the briefing and
+  `meta.noisy` in the HTML report) holds per series and alerting
+  baseline mode the scored and flagged days of the `anomaly_report_days`
+  window, the episodes, `floor_knob`, `max_dev`, `suggested_floor` and
+  `noisy` (`noise_episodes` 3, or `noise_flag_pct` 10 on at least
+  `noise_min_days` 7 scored days: 1 flagged of 1 is 100%). Its `fk` CTE mirrors
+  `CAPA_OBS.ufloor` (unit, grain -> knob): a new unit needs a row in both.
+  `CAPR_ALERT_VOLUME` (ddl/55) counts `CAPR_ALERTS` per `state_key` and
+  joins it; only doctor reads it (two passes of the anomaly engine).
+  The engine's threshold floor is `mad_k x (thr_floor / mad_k)`, which
+  NUMBER division can leave a last digit below `thr_floor` (3 x (100 / 3)
+  reads 99.99...), so a floor equal to a deviation does not always silence
+  it: `suggested_floor` tests its candidate with that arithmetic and takes
+  the next step when it falls short (fixture: PROCESSES +100 suggests 101).
 - **Knob renames (M15):** `tbspc_min_hist` → `trailing_min_hist`,
   `cpu_min_dow_hist` → `weekly_min_hist`. A carry-over MERGE before the seed
   MERGE copies an operator's value to the new key, then the old keys are
@@ -582,6 +791,98 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   fixture-owned type. But a collection METHOD (`v.COUNT`) inside a SQL
   statement is ORA-00984 ("column not allowed here"); assign it to a local
   variable first.
+
+## Tablespace families (ddl/32)
+
+- **What.** Tablespaces of one container that belong together (one per
+  month, quarter, year) are a family. `CAPD_TBSPC_FAMILY` (membership) →
+  `CAPD_TBSPC_FAMILY_DAILY` (total per day) → `CAPF_TBSPC_FAMILY_MEMBER`
+  (state, final size, fill window) → `CAPF_TBSPC_FAMILY` (next member size,
+  the filling member against its ceiling) → `CAPR_TBSPC_FAMILY` /
+  `CAPR_TBSPC_FAMILY_MEMBERS` (ddl/45, both in the snapshot registry). ddl/32
+  reads `CAPF_TBSPC_FORECAST` and does not change ddl/30.
+- **Membership.** Automatic (`family_auto` 1): the first period token in the
+  name, rules as rows of `pat` in `CAPD_TBSPC_FAMILY` (YYYYMM / YYYY_MM,
+  YYYYQn, MONYY / MONYYYY, YYYYMON, YYYY, in that order. YYYY is 19xx / 20xx.
+  A numeric token must not touch a digit, a month name not a letter. YYMM and
+  MMYYYY are not read). Family name = the name with the token replaced by
+  `#`. At least `family_min_members` (3) current members (`stale_days`: a
+  dropped tablespace leaves the family). `CAP_TBSPC_FAMILY` rows (regular
+  expression, most specific row wins, then the `name_regex` that sorts
+  first) add, rename or exclude. A family with an operator member needs no
+  minimum. A check constraint evaluates the expression, so an invalid one
+  never reaches the views (it would raise in every report).
+- **States.** `member_seq` = period order (token), then first growth day.
+  FILLING = the newest member with a growth day (ddl/30's notion, over
+  `train_days`) unless its fit says STOP. DONE = every member before it
+  (as soon as the successor grows, not after `quiet_days`), or growth
+  stopped. EMPTY = after the newest grown one. `final_bytes` = the window's
+  largest used size.
+- **Numbers.** `next_member_bytes` / `_hi_bytes` = median / maximum of the
+  newest `family_recent_members` (6) DONE finals, each carried to the next
+  position along the trend across members when it is significant (k >= 3,
+  the M9.1 t). The filling member's period ends `period_days` (the token's
+  calendar length) after its first growth day, or on the calendar period end
+  when it grew into the window. `expected_final_bytes` = `cur_used +
+  GREATEST(own rate, next / period_days) x days_left`, `_hi` with the
+  cautious size. `fits = 'N'` (cautious value above the ceiling) is the one
+  alert, `TBSPC_FAMILY` WARN, `series_key` = the family name so the next
+  member continues the same `state_key`.
+- **Not built.** TBSPC_FULL of a filling member is not held back when the
+  family says it fits. Purges inside a member's window are not treated. No
+  mirror in the standalone queries. Dashboards do not read the views.
+- **Fixture.** `FIXM_#` (six monthly members: two flat DONE, two filled in
+  the window, FIXM_202311 FILLING 53 MiB/day with 20 days left against 1600
+  MiB, FIXM_202312 EMPTY: next 1586.5 MiB, cautious 1612, expected 1591,
+  cautious 1605.67, the one TBSPC_FAMILY alert), `FIXY_#` (yearly, quiet,
+  the member named after the load year grows into the window: calendar
+  period end, fit slope) and the pair `FIXP_2024Q1` / `Q2` (no family).
+  Every step is under 100 MiB a day, so no anomaly and no other alert moves.
+
+## Shared disk (U09, ddl/33)
+
+- **Layers.** `CAPV_TBSPC_LIVE` (seam; fixture twin
+  `CAP_FIXTURE_TBSPC_LIVE`, a stub without it) → `CAPF_TBSPC_SHARED` (every
+  `CAPF_TBSPC_FORECAST` column, then the shared columns) → `CAPF_DISK` (per
+  dbid and disk) → `CAPR_DISK` (ddl/45, owner of the DISK_FULL severity and
+  message) and `CAPR_TBSPC_SHARED` (the per-tablespace columns for the
+  reports), both in the snapshot registry → the `DISK_FULL` branch of
+  `CAPR_ALERTS`.
+- **Not inside `CAPR_FIT` or `CAPR_TBSPC_DAYS_TO_FULL`.** With
+  `CAPF_TBSPC_SHARED` as the TBSPC branch, `CAPR_FIT`'s hard parse went from
+  15 s to 42 s (19.27, fixture, EXPLAIN PLAN of `SELECT *`), 48 s unmerged,
+  76 s and 113 s as an outer join, and the first `cap_results.refresh` of
+  run_test.sql was still parsing after an hour of parse CPU. Both views
+  keep their base text. `CAPF_TBSPC_SHARED` alone parses in 5 s,
+  `CAPR_DISK` in 9 s. The `DISK_FULL` branch takes `CAPR_ALERTS` from 5 s
+  to 12 s. Consumers join `CAPR_TBSPC_SHARED` on (dbid, con_dbid,
+  tablespace_name).
+- **One disk per database.** All tablespaces of a dbid (every container)
+  share it. Datafiles are not mapped to devices or ASM disk groups
+  (`DBA_HIST_DATAFILE.filename` is not copied). The disk is named by the
+  `CAP_DISK_OVERRIDE` row, else `DATAFILES`.
+- **Free space:** `OVERRIDE` (`CAP_DISK_OVERRIDE.free_gb`, the dbid's row
+  before the dbid 0 one; NULL only names the disk), else `LIVE`
+  (`MIN(live ceiling - allocated)` over the current tablespaces whose fresh
+  ceiling is under an `AUTOEXTEND` limit; a ceiling under an `OVERRIDE` or
+  `ALLOCATED` limit says nothing about the disk), else `NONE`. Fresh =
+  `TRUNC(collected_at) >= newest_day - stale_days`.
+- **Rates.** E = `slope_bpd` when > 0 and the window is not CYCLIC
+  (`cycle_peak_bytes IS NULL`), at any quality. W = `GREATEST(E, ci_slope +
+  slope_ci_bpd)`, `ci_slope` = the OLS slope (DRIFT: the drift), the rate
+  behind `days_to_full_lo`. Only `is_current = 'Y'` rows take part; the
+  shared columns of the others are NULL.
+- **DISK_FULL** judges `disk_dtf` (expected case) against `dtf_warn` /
+  `dtf_crit` and needs one growing tablespace at quality OK (`gated_by`
+  `NO OK FIT`). `series_key` `DISK:<disk_name>`, `con_dbid = dbid`, so a
+  PDB-scoped report shows no disk. TBSPC_FULL's rule is unchanged.
+- **Fixture:** FIX_LINEAR capped at allocated + 40 GiB, FIX_SPIKE at + 45
+  GiB: `LIVE`, 40 GiB free, no alert. FIX_OVERRIDE's ceiling (1562.5 MiB)
+  is under its 2 GiB override: `dtf_own` 26, not a disk figure.
+  run_test.sql builds a closed-form disk in a savepoint (every tablespace
+  but four excluded, 105 MiB of room inside FIX_LINEAR's files, the free
+  space set in `CAP_DISK_OVERRIDE`): the disk day lands on x.5, and the
+  growers' `limit_shared_bytes - alloc_bytes` add up to the free space.
 
 ## Memory verdicts (M26, ddl/42)
 
@@ -606,6 +907,27 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   sources (`zero_fill`) a key's first row in a startup counts in full.
   Advisor rows never zero-fill. A negative step is dropped (the buffer cache
   advisor resets at a resize).
+- **Old startups are skipped (plan 006).** `CAPM_SNAP.seg_in_win` = Y when
+  the snapshot's startup has a snapshot in the window. `CAPM_DELTA`,
+  `CAPM_COMP` and `CAPM_PGA_LIMIT`'s `ps` join only those startups. Exact,
+  because no increment crosses a restart and every reader keeps `in_win =
+  'Y'` rows. A new reader of the two views must keep that filter. It saves
+  nothing for an instance up for the whole history.
+- **The window is not the read set (U08, not built).** "Window plus one
+  snapshot before" is not exact: a key that skips snapshots (an advisor size,
+  the fixture's `over allocation count`) pairs with a row further back, and
+  a zero-filled key without it would count its cumulative value. Exact is
+  each key's last row before the window (pre-window rows collapsed by GROUP
+  BY before the LAG): same window increments on both fixtures, 0.9 s against
+  1.3 to 2.6 s for `CAPM_DELTA` on the demo story, but the view would hold
+  window increments only, and three assertions read its earlier rows.
+- **An advisor interval's DB time is the whole interval's (plan 007).**
+  `CAPM_ADVICE.dbc` is a running total of DB time per instance; `pair` takes
+  `cum(snap_id) - cum(prev_snap_id)`, both in one startup. An interval that
+  starts before the window, or on a snapshot without DB time, keeps the DB
+  time of its last snapshot. The fixture's advisor lists have no gap, so
+  run_test.sql deletes one snapshot's cache advisor rows (0.4573 percent
+  with the old join, 0.4500 exact).
 - **Advisor facts (verified 19.27):** the SGA, cache and shared pool
   advisors list MB, the PGA advisor bytes. The lists are ragged: the shared
   pool list moves with the pool, low sizes come and go, some lists stop
@@ -639,7 +961,8 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   whole aggregation once per size (`SELECT * FROM capm_area` 5 minutes,
   19.27): the sizes ride into `agg` as rows of a UNION ALL, carrying
   `current_bytes` / `reference_bytes`. Time `capm_advice`, `capm_area` AND
-  `capm_verdict` after any change here; the plans differ.
+  `capm_verdict` after any change here (`test/mem_timing.sql`); the plans
+  differ.
 - **`exceeds_sga`** (CAPM_VERDICT, last column): a BUFFER_CACHE or
   SHARED_POOL suggestion under ASMM above `cache_bytes + shpool_bytes` of
   CAPM_SGA_BALANCE cannot fit in sga_target. Flagged, never reduced, like
@@ -652,9 +975,21 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   parameter), else OK / STABLE.
 - **Only the CAPR_MEM_ report views read a CAPM_ view, and nothing reads
   those** (run_test.sql asserts both from ALL_DEPENDENCIES): no alert, no
-  series. Cost on the real 30-day AWR: `SELECT * FROM capm_verdict` about
-  8 s, 150 MB PGA, most of it `CAPM_AREA` evaluated twice (under the
-  evidence and for the facts).
+  series.
+- **`CAPM_VERDICT` reads `CAPM_AREA` once (U08).** CTE `ar` gives the facts
+  and the ADVISOR signals, counted from `gain_dir` / `shrink_dir` /
+  `overalloc_dir` (NULL = no row; `CAPM_EVIDENCE` writes its ADVISOR rows
+  from the same three columns, so a new advisor signal is a direction column
+  there). The other kinds come from `capm_evidence WHERE kind <> 'ADVISOR'`:
+  that filter prunes the advisor branch of the view (19.27 plan), and it
+  holds only while `ar` in `CAPM_EVIDENCE` has one reader (window_end comes
+  from `inst`, not from `ar`). `CAPM_ADVICE.dl` names its metrics in a
+  conjunct of its own so the filter reaches `CAPM_DELTA`'s sources. Fixture
+  plan: the verdict sorts 6411 + 2278 increment rows, before 8328 + 8328 +
+  2278. Demo story (150 days hourly, 95-day startup, 265155 increments,
+  83685 in the window), shared VM, parsed: `capm_verdict` 5.9 s (11.5 s
+  before), `capr_mem_verdict` 6.1 s (17.5 s), `capr_mem_evidence` 5 s
+  (unchanged), peak PGA 150 to 200 MB. `test/mem_timing.sql` repeats it.
 - **Memory in the reports (M26.4, ddl/45).** `CAPR_MEM_AREA` names and
   orders the six areas. `CAPR_MEM_VERDICT` adds `reason_text`,
   `actionable`, the size texts and `headline` (one sentence per row of the
@@ -696,6 +1031,19 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
   [--pga] [--parity] [--sql FILE]` lints, rsyncs to `~/awr_cap_<schema>/` and runs the steps as
   SYSDBA + `CURRENT_SCHEMA` in PDB1; log `/tmp/dbmint_harness_<SCHEMA>.log`.
   `--pga` ends each step with `test/pga_probe.sql` (the session's peak PGA).
+  The run is detached: the steps run on the VM from
+  `~/awr_cap_<schema>.harness/run.sh` (setsid + nohup; `harness.log`,
+  `state` and a flock `lock` beside it, a sibling of the tree because the
+  levers rsync `--delete` into it) and the lever only follows the log, so a
+  killed lever or a dropped connection loses nothing. `--attach` follows the
+  schema's run or prints its last result with that exit status (never starts
+  one), `--status` prints one line, and a start while the lock is held is
+  refused (exit 3). `--ml-only` runs `train_all` + run_test_ml.sql on the
+  schema as it is, `--sql-only` only the `--sql` files, `--wait-slot [N]`
+  waits while N (default 2) or more SQL*Plus processes or harness runs are
+  active on the VM. It warns within 100 minutes of the VM's midnight
+  (run_test.sql fails date assertions across it). From an agent's shell,
+  start it in the background and `--attach` after a cut-off.
   `CAPX1`..`CAPX3` and `CAPW1`..`CAPW3` in PDB1 are throwaway schemas for
   parallel runs (one schema per concurrent run; ask before dropping them);
   `CAPDEMO` feeds the lab dashboards and `CAPTEST` is the shared default.
@@ -704,6 +1052,24 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
   `C##M25_EXPIRY` is unused). C##CAPLOC in the root is an empty common user
   since M25.7 (its local install uninstalled, its grants revoked).
   Shared schemas collide (ORA-04063 / ORA-00942 mid-reinstall).
+- **Standalone lever:** `test/standalone_test.sh <SCHEMA> [--no-fixture]`
+  (CAPS1 in PDB1 is its throwaway schema; log
+  `/tmp/standalone_test_<SCHEMA>.log`, under a minute). The two standalone
+  files name their sources unqualified, so `test/standalone_fixture.sql`
+  creates views named `DBA_HIST_*` / `CDB_TABLESPACE_USAGE_METRICS` in
+  CURRENT_SCHEMA over designed series (`SA_TS` / `SA_DAY`; it refuses an
+  Oracle-maintained schema and qualifies every DDL with the schema).
+  `SA_CTX (world, asof_i)` picks what they show: world W1 the growth shapes,
+  W2 one shared disk, W3 the monitoring rule, and "today" as a day index
+  (the queries take today from the newest snapshot, never SYSDATE). The
+  script cuts each file's SELECT into a view at test time (`SA_CAP_V`,
+  `SA_MON_V`, plus three with one `prm` knob edited by sed), so the shipped
+  text runs. `test/standalone_test.sql` asserts closed forms and prints
+  `RESULT:`. The script also diffs the `db` .. `res` chain of the two files
+  and runs both as they are against the fixture. Design every days-to-full
+  quotient with a fraction (x.5): an exact integer flips with the last
+  digit of REGR_SLOPE. A new shape is a series in the fixture's `f` plus
+  its assertions.
 - **Copy check (M25.1, replaced the M24.5 parity lever):**
   `test/dbmint_copy_check.sh <REPO_SCHEMA> [TARGET] [--collect] [--plant SRC]`
   runs the generated `test/repo_copy_check.sql` in PDB1: per target, DBID and
@@ -734,7 +1100,7 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
 
 - **Every install is a repository (M25).** A target gets only
   `target/prepare.sql` (a read-only common user, direct SELECT on the
-  twenty-eight views, nothing else) and the repository runs the suite with
+  twenty-eight AWR views and `CDB_TABLESPACE_USAGE_METRICS`, nothing else) and the repository runs the suite with
   `deploy_mode=repository` over `CAP_H_*` copies that `cap_repo.collect`
   pulls over one DB link per target. Standalone is the same install with the
   repository as its own target over a loopback link (target/self.sql +
@@ -760,6 +1126,22 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
   edit either; change the manifest or seam.sql and rerun it. `--check` (also
   run by the dbmint scripts) fails on a stale generated file or when
   seam.sql or target/prepare.sql name other views than the manifest.
+- **The live source (kind L).** `CDB_TABLESPACE_USAGE_METRICS` is the one
+  copied view that is not AWR: no snap_id, no history. Manifest kind `L`
+  (`remote`, `pull`, always optional): `cap_repo.collect_live` runs once per
+  target after its DBIDs, deletes the target's rows of `CAP_H_TBSPC_LIVE`
+  and inserts the view's rows under the DBID of the target's newest
+  snapshot, stamped `collected_at` (SYSDATE of the repository: in a
+  distributed statement SYSDATE is the local one), in one transaction. The
+  view has `con_id` only: the pull joins `DBA_HIST_TABLESPACE` on the target
+  for `con_dbid` (its `con_id` is the container's id, verified 19.27), so no
+  function has to run remotely. A PDB whose con_id changed since AWR first
+  saw it gets no row. seam.sql reads the copy under its own name
+  (`cap_h_tbspc_live`), `build.py --check` proves that, and both
+  target/prepare.sql and target/check.sql list the view. Outside
+  `test/repo_copy_check.sql` (a live view cannot be pinned to a snapshot)
+  and `CAPV_CONTRACT`. `CAP_REPO_SOURCE.remote_view` names the view read on
+  the target for every source.
 - **Optional sources (M26).** `Source(optional=True)` (`CAP_REPO_SOURCE.optional
   = 'Y'`: `PGASTAT`, copied with every name, and the ten memory sizing
   sources) is a view a target's reader may lack: `probe` / `ping` warn instead of failing, and `collect`

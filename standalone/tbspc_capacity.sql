@@ -6,11 +6,11 @@
 -- changes nothing. It is the suite's Tier 1 tablespace forecast (ddl/20
 -- CAPD_TBSPC_DAILY + ddl/30 CAPF_TBSPC_FORECAST, slope_method 0) cut down
 -- to one SELECT, with its defaults inlined in the prm CTE instead of
--- CAP_CONFIG. No ML, no CAP_TBSPC_OVERRIDE, no anomaly scoring. Four
+-- CAP_CONFIG. No ML, no CAP_TBSPC_OVERRIDE, no anomaly scoring. Three
 -- things differ from the suite: the limit takes the live ceiling when that
--- is lower, the worst case takes the wider of two error models, every
--- tablespace is also forecast against the one disk they share, and the fit
--- restarts where growth stopped or began (all below).
+-- is lower, the worst case takes the wider of two error models, and every
+-- tablespace is also forecast against the one disk they share (all below).
+-- The purge and STOP / START restarts are the suite's.
 --
 -- One row per (container, permanent tablespace) still sampled by AWR:
 --   used / limit / pct    newest day's sample. limit = autoextend maxsize
@@ -50,7 +50,7 @@
 --   add_gb_90             space to add so the high edge of the 95% band
 --                         stays under the limit through +90 days
 --   quality               INSUFFICIENT_HISTORY (< min_train_days days),
---                         CYCLIC (>= 2 purge cliffs, judged on peak_pct only),
+--                         CYCLIC (>= 2 purges, judged on peak_pct only),
 --                         FLAT, LOW_CONFIDENCE (R^2 < r2_gate), OK
 --   status / why          CRIT / WARN from pct used (any quality) or from
 --                         dtf_shared (quality OK only), else OK. why reads
@@ -63,8 +63,10 @@
 --
 -- Day series: the last snapshot of each day, blocks x block size. Purge
 -- cliff: a day-over-day drop larger than GREATEST(shrink_mad_k x MAD sigma
--- of the window's deltas, abs_floor_bytes). One cliff restarts the fit at
--- that day.
+-- of the window's deltas, abs_floor_bytes). Cliff days at most
+-- cliff_merge_days days apart are one purge (1 = adjacent days: a purge
+-- that ran past midnight). One purge restarts the fit at its last cliff
+-- day.
 --
 -- Growth that stopped or began (restart STOP / START): one line through
 -- the whole window is wrong when the tablespace grew in only a part of it.
@@ -79,12 +81,15 @@
 -- Long = all three of: quiet_days days or more. quiet_ratio x the longest
 -- other pause or more (STOP: the pauses between two growth days. START:
 -- those and the pause up to the newest day). And unlikely by chance: g
--- growth days that span s days make a pause of q days as likely as
--- (s / (s + q)) ^ (g - 1), which must be below quiet_chance. So a
--- tablespace that grows in rare steps or in monthly bursts keeps its whole
--- window, and one growth day alone never restarts it. Not for CYCLIC. A
--- rate that changes without a pause (fast to slow) is still averaged.
--- quiet_days 0 = no STOP / START.
+-- growth days, the first and the last s days apart, make a pause of q
+-- days as likely as (s / (s + q)) ^ g for STOP and (s / (s + q)) ^ (g - 1)
+-- for START, which must be below quiet_chance. So a tablespace that grows
+-- in rare steps or in monthly bursts keeps its whole window while two of
+-- its growth days are in it. One growth day is a load, not a rate (s = 0):
+-- STOP fires after quiet_days quiet days, START never. A line through one
+-- load would read as growth, at quality OK when the load is mid-window.
+-- Not for CYCLIC. A rate that changes without a pause (fast to slow) is
+-- still averaged. quiet_days 0 = no STOP / START.
 --
 -- Worst case (dtf_worst, full_by, add_gb_90): two error models around the
 -- OLS slope and today's value, the wider one wins.
@@ -181,7 +186,8 @@ WITH prm AS (
                0.60      AS r2_gate,            -- R^2 below = LOW_CONFIDENCE
                6         AS shrink_mad_k,       -- purge cliff = drop > k x MAD sigma
                104857600 AS abs_floor_bytes,    -- ... and > 100 MiB
-               2         AS cyclic_min_cliffs,  -- this many cliffs = CYCLIC, below 2 = never
+               2         AS cyclic_min_cliffs,  -- this many purges = CYCLIC, below 2 = never
+               1         AS cliff_merge_days,   -- cliff days this close are one purge, 0 = never
                14        AS quiet_days,         -- stopped / began = a pause this long, 0 = never ...
                2         AS quiet_ratio,        -- ... and this many x the longest other pause ...
                0.01      AS quiet_chance,       -- ... and less likely than this by chance
@@ -298,19 +304,34 @@ WITH prm AS (
         WHERE  t.delta IS NOT NULL
         GROUP  BY t.con_dbid, t.tablespace_id
      ),
-     cliff AS (
-        SELECT t.con_dbid, t.tablespace_id,
-               MAX(t.day_dt)  AS last_cliff,
-               CASE WHEN MAX(prm.cyclic_min_cliffs) >= 2
-                     AND COUNT(*) >= MAX(prm.cyclic_min_cliffs)
-                    THEN 1 ELSE 0 END AS is_cyclic
-        FROM   tw t
-        JOIN   dsig s ON s.con_dbid = t.con_dbid AND s.tablespace_id = t.tablespace_id
+     -- The cliff days. is_ev = 1 on the first of each purge: cliff days at
+     -- most cliff_merge_days days apart are one purge.
+     cday AS (
+        SELECT c.con_dbid, c.tablespace_id, c.day_dt,
+               CASE WHEN c.prev_days IS NULL OR c.prev_days > prm.cliff_merge_days
+                    THEN 1 ELSE 0 END AS is_ev
+        FROM  (SELECT t.con_dbid, t.tablespace_id, t.day_dt,
+                      t.day_dt - LAG(t.day_dt) OVER (PARTITION BY t.con_dbid, t.tablespace_id
+                                                     ORDER BY t.day_dt) AS prev_days
+               FROM   tw t
+               JOIN   dsig s ON s.con_dbid = t.con_dbid AND s.tablespace_id = t.tablespace_id
+               CROSS  JOIN prm
+               WHERE  t.delta < -GREATEST(prm.shrink_mad_k * s.sig, prm.abs_floor_bytes)) c
         CROSS  JOIN prm
-        WHERE  t.delta < -GREATEST(prm.shrink_mad_k * s.sig, prm.abs_floor_bytes)
-        GROUP  BY t.con_dbid, t.tablespace_id
      ),
-     -- The days since the latest cliff (all of the window when CYCLIC),
+     -- last_cliff = the last cliff day of the latest purge, where used is
+     -- the level after it.
+     cliff AS (
+        SELECT c.con_dbid, c.tablespace_id,
+               MAX(c.day_dt)  AS last_cliff,
+               CASE WHEN MAX(prm.cyclic_min_cliffs) >= 2
+                     AND SUM(c.is_ev) >= MAX(prm.cyclic_min_cliffs)
+                    THEN 1 ELSE 0 END AS is_cyclic
+        FROM   cday c
+        CROSS  JOIN prm
+        GROUP  BY c.con_dbid, c.tablespace_id
+     ),
+     -- The days since the latest purge (all of the window when CYCLIC),
      -- numbered. is_grow = a growth day (header, "Growth that stopped or
      -- began").
      cw AS (
@@ -356,7 +377,9 @@ WITH prm AS (
         GROUP  BY con_dbid, tablespace_id
      ),
      -- Where growth stopped (the fit starts after the last growth day) or
-     -- began (it starts on the day before the first). STOP wins.
+     -- began (it starts on the day before the first). STOP wins. The chance
+     -- of the pause: exponent g for STOP (one growth day: span 0, chance 0),
+     -- g - 1 for START (one growth day: chance 1, never).
      regime AS (
         SELECT a.con_dbid, a.tablespace_id,
                CASE WHEN a.is_stop = 1 THEN 'STOP'        ELSE 'START'        END AS cut,
@@ -364,7 +387,7 @@ WITH prm AS (
         FROM  (SELECT a.*,
                       CASE WHEN a.trail >= prm.quiet_days
                             AND a.trail >= prm.quiet_ratio * a.gap_max
-                            AND POWER(a.span / NULLIF(a.span + a.trail, 0), a.g - 1) < prm.quiet_chance
+                            AND POWER(a.span / NULLIF(a.span + a.trail, 0), a.g) < prm.quiet_chance
                            THEN 1 ELSE 0 END AS is_stop,
                       CASE WHEN a.lead >= prm.quiet_days
                             AND a.lead >= prm.quiet_ratio * GREATEST(a.gap_max, a.trail)

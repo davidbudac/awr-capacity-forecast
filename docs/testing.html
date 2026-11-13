@@ -55,7 +55,9 @@
         <h1>Testing</h1>
         <p class="lead"><strong>Track A</strong>: fixture data with closed-form answers.
           <strong>Track B</strong>: the same code against live AWR.
-          <a href="#bench">Track C</a> (optional): a swingbench workload that generates AWR history.</p>
+          <a href="#bench">Track C</a> (optional): a swingbench workload that generates AWR history.
+          The two no-install queries under <span class="inline">standalone/</span> have
+          <a href="#standalone-queries">their own lever</a>.</p>
       </section>
 
       <!-- ===================== BEFORE YOU START ===================== -->
@@ -111,7 +113,7 @@
           </thead>
           <tbody>
             <tr><td class="def"><code>CREATE SESSION</code></td><td>connecting</td></tr>
-            <tr><td class="def"><code>CREATE TABLE</code></td><td>the twenty-four <span class="inline">CAP_FIXTURE_*</span> tables, plus the seven persisted tables (<span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span> / <span class="inline">CAP_FIT_HIST</span> / <span class="inline">CAP_ALERT_STATE</span> / <span class="inline">CAP_ALERT_EVENT</span>), the SNAPSHOT cache tables <span class="inline">&lt;view&gt;_S</span> (<span class="inline">cap_results.build_snap_tables</span>, re-created by every install) and the temporary <span class="inline">CAP_ML_INPUT</span></td></tr>
+            <tr><td class="def"><code>CREATE TABLE</code></td><td>the twenty-five <span class="inline">CAP_FIXTURE_*</span> tables, plus the eight persisted tables (<span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_DISK_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span> / <span class="inline">CAP_FIT_HIST</span> / <span class="inline">CAP_ALERT_STATE</span> / <span class="inline">CAP_ALERT_EVENT</span>), the SNAPSHOT cache tables <span class="inline">&lt;view&gt;_S</span> (<span class="inline">cap_results.build_snap_tables</span>, re-created by every install) and the temporary <span class="inline">CAP_ML_INPUT</span></td></tr>
             <tr><td class="def"><code>CREATE VIEW</code></td><td>every <span class="inline">CAPV_/CAPD_/CAPF_/CAPA_/CAPM_/CAPR_</span> view</td></tr>
             <tr><td class="def"><code>CREATE PROCEDURE</code></td><td>the <span class="inline">cap_forecast_ml</span> and <span class="inline">cap_results</span> packages</td></tr>
             <tr><td class="def"><code>CREATE TYPE</code></td><td>the pipelined forecast row type used by <span class="inline">get_forecast</span></td></tr>
@@ -170,7 +172,7 @@
         <li><b>Restart day (<span class="inline">i = 60</span>)</b>: no 06:00 snapshot. The 18:00
           snapshot has a new <span class="inline">startup_time</span> and reset counters, so its
           interval spans the restart and the startup-time guard drops it. The day is absent from the
-          CPU series and <span class="inline">REDO_GB_DAY</span>.</li>
+          CPU series, <span class="inline">REDO_GB_DAY</span>, <span class="inline">IOPS</span> and <span class="inline">IO_MBPS</span>.</li>
         <li><b>CPU gap day</b> (latest <b>Sunday</b> in <span class="inline">i = 70..80</span>): both
           snapshots exist but carry no OSSTAT / time-model rows. The next 06:00 interval differences
           against 18:00 of the day before and spans <b>36&nbsp;h</b>.</li>
@@ -310,6 +312,24 @@
             <tr><td class="def">25</td><td><code>FIX_UNDO</code></td>
                 <td>UNDO, 4&nbsp;GiB autoextending to 10&nbsp;GiB, peak 3&nbsp;GiB every day</td>
                 <td><code>UNDO_PEAK:FIX_UNDO</code> reads 3 of 10&nbsp;GiB, FLAT, silent</td></tr>
+            <tr><td class="def">30</td><td><code>FIX_PURGE2</code></td>
+                <td>10&nbsp;MiB/day, a purge of <b>302.5&nbsp;MiB on day&nbsp;80 and again on day&nbsp;81</b></td>
+                <td>one purge event (<code>cliff_merge_days</code>): <code>cycle_n = 1</code>, <code>reset_day</code> = day&nbsp;81, <code>train_n = 40</code>, exactly 10&nbsp;MiB/day, OK. With <code>cliff_merge_days = 0</code>: two cliffs, <code>CYCLIC</code>, no reset</td></tr>
+            <tr><td class="def">31</td><td><code>FIX_STOPPED</code></td>
+                <td>1&nbsp;GiB + 16&nbsp;MiB/day until day&nbsp;90, then flat at 2464 of 3000&nbsp;MiB</td>
+                <td><code>restart_reason = STOP</code>, <code>restart_day</code> = day&nbsp;91, 30 flat days, FLAT, no <code>days_to_full</code>, no alert. With <code>quiet_days = 0</code>: 11.7&nbsp;MiB/day, OK, 45 days, a <code>TBSPC_FULL</code> WARN</td></tr>
+            <tr><td class="def">32</td><td><code>FIX_STARTED</code></td>
+                <td>flat at 1&nbsp;GiB until day&nbsp;95, then 16&nbsp;MiB/day</td>
+                <td><code>restart_reason = START</code>, <code>restart_day</code> = day&nbsp;95, <code>train_n = 26</code>, exactly 16&nbsp;MiB/day, OK, <code>days_to_full = 200</code>. With <code>quiet_days = 0</code>: 3.1&nbsp;MiB/day, <code>LOW_CONFIDENCE</code></td></tr>
+            <tr><td class="def">40&ndash;45</td><td><code>FIXM_202307</code> .. <code>FIXM_202312</code></td>
+                <td>a monthly <a href="concepts.html#families">tablespace family</a>: two flat members (811 and 1036&nbsp;MiB), one filled 40&nbsp;MiB/day on days&nbsp;50&ndash;79 (1201&nbsp;MiB), one 45&nbsp;MiB/day on days&nbsp;80&ndash;110 (1396&nbsp;MiB), <code>FIXM_202311</code> filling 53&nbsp;MiB/day from day&nbsp;111 (531 of 1600&nbsp;MiB), <code>FIXM_202312</code> empty</td>
+                <td>family <code>FIXM_#</code>: four DONE, one FILLING, one EMPTY. The finals rise 192&nbsp;MiB a member: <code>next_member_bytes</code> 1586.5&nbsp;MiB, cautious 1612&nbsp;MiB. 20 days left: expected final 1591&nbsp;MiB (its own rate), cautious 1605.67&nbsp;MiB (the family rate), over the ceiling: the one <code>TBSPC_FAMILY</code> WARN. Its own fit is <code>LOW_CONFIDENCE</code>, so no <code>TBSPC_FULL</code></td></tr>
+            <tr><td class="def">46&ndash;48</td><td><code>FIXY_2023</code>, <code>FIXY_2024</code>, <code>FIXY_&lt;load year&gt;</code></td>
+                <td>a yearly family: two flat members (600 and 500&nbsp;MiB) and one that grows 8&nbsp;MiB/day over the whole spine</td>
+                <td>family <code>FIXY_#</code>: the filling member grew into the window, so its period ends on 31&nbsp;December and its rate is the fit's slope. Next member 550&nbsp;MiB, no trend. Fits, no alert</td></tr>
+            <tr><td class="def">49&ndash;50</td><td><code>FIXP_2024Q1</code>, <code>FIXP_2024Q2</code></td>
+                <td>two flat look-alikes, 300&nbsp;MiB each</td>
+                <td>under <code>family_min_members</code>: no family. With the knob at 2, or a <code>CAP_TBSPC_FAMILY</code> row, a quarterly family of two</td></tr>
           </tbody>
         </table>
       </div>
@@ -470,6 +490,9 @@
             <tr><td class="def"><code>REDO_GB_DAY</code></td>
                 <td><code>redo size</code> cumulative counter, +1&nbsp;GiB per 12&nbsp;h interval, reset at the restart</td>
                 <td>exactly <b>2.0 GiB/day</b>, no ceiling ⇒ <code>days_to_limit</code> NULL, never alerts; no row on the restart day. A decoy stat (<code>user commits</code>, absurd value) catches a missing <code>redo size</code> filter</td></tr>
+            <tr><td class="def"><code>IOPS</code> / <code>IO_MBPS</code></td>
+                <td>four cumulative I/O counters beside <code>redo size</code>, same resets. Night interval 600 read + 400 write requests/s and 15 + 5&nbsp;MB/s; day interval (1400 + 10·i) + 600 requests/s and 30 + 20&nbsp;MB/s</td>
+                <td>the day's p95 of its two interval rates, lo + 0.95·(hi − lo): <code>IOPS = 1950 + 9.5·i</code> (slope 9.5/day, R² = 1, <code>OK</code>), <code>IO_MBPS = 48.5</code> (<code>FLAT</code>); no ceiling, no alert, no anomaly. Day 0 and the partial day read their one interval (2000 and 1000 requests/s) and are incomplete; no row on the restart day. A caged PDB with read counters only proves one side of a pair is enough</td></tr>
             <tr><td class="def"><code>DB_SIZE_GB</code></td>
                 <td>no fixture table; derived from <code>CAPD_TBSPC_DAILY</code></td>
                 <td>re-derived <code>SUM(used_bytes)</code>, positive fittable slope. UNDO/TEMPORARY excluded, M9.5 overrides and exclusions applied</td></tr>
@@ -545,7 +568,7 @@
         headline sentence, the evidence order and the component rows.</p>
       </div>
 
-      <h3>The twenty-four fixture tables</h3>
+      <h3>The twenty-five fixture tables</h3>
       <div class="tablewrap">
         <table>
           <thead>
@@ -559,7 +582,7 @@
             <tr><td class="def"><code>CAP_FIXTURE_OSSTAT</code></td><td><code>DBA_HIST_OSSTAT</code>: cumulative centiseconds and the CPU counts, root only; <code>PHYSICAL_MEMORY_BYTES</code> 16&nbsp;GiB (M26)</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_TIME_MODEL</code></td><td><code>DBA_HIST_CON_SYS_TIME_MODEL</code>: cumulative microseconds, all three containers</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_RESOURCE_LIMIT</code></td><td><code>DBA_HIST_RESOURCE_LIMIT</code> (M11): <code>processes</code> / <code>sessions</code></td></tr>
-            <tr><td class="def"><code>CAP_FIXTURE_SYSSTAT</code></td><td><code>DBA_HIST_CON_SYSSTAT</code> (M11): <code>redo size</code> + one decoy stat</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_SYSSTAT</code></td><td><code>DBA_HIST_CON_SYSSTAT</code> (M11): <code>redo size</code>, the four I/O totals (M27) + one decoy stat</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_PARAMETER</code></td><td><code>DBA_HIST_PARAMETER</code>: nine numeric init parameters, as numbers</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_ASM_DISKGROUP</code></td><td><code>DBA_HIST_ASM_DISKGROUP_STAT</code> + <code>DBA_HIST_ASM_DISKGROUP</code>: diskgroups DATA and FRA</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_PGASTAT</code></td><td><code>DBA_HIST_PGASTAT</code> (M26), root only: <code>total PGA allocated</code> (0.5&nbsp;GiB at 06:00, 1&nbsp;+&nbsp;i/1200&nbsp;GiB at 18:00) and <code>maximum PGA allocated</code> (1.2, 1.25, then 1.9&nbsp;GiB from day 110 18:00); <code>bytes processed</code> and <code>extra bytes read/written</code> on every snapshot; <code>over allocation count</code>, absent until its first use in a startup and then on the 18:00 snapshots only, one more a day; <code>aggregate PGA auto target</code> 0.75 of the 1&nbsp;GiB <code>aggregate PGA target parameter</code>, 0.6&nbsp;GiB once in the window</td></tr>
@@ -573,6 +596,7 @@
             <tr><td class="def"><code>CAP_FIXTURE_LIBRARYCACHE</code></td><td><code>DBA_HIST_LIBRARYCACHE</code> (M26): two namespaces, 400 reloads per 100000 pins (0.4%)</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_ROWCACHE</code></td><td><code>DBA_HIST_ROWCACHE_SUMMARY</code> (M26): two parameters, 1000 misses per 50000 gets (2%)</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_SYSTEM_EVENT</code></td><td><code>DBA_HIST_SYSTEM_EVENT</code> (M26): temporary segment direct path I/O at 1% of DB time, shared pool waits at 0.04%, <code>free buffer waits</code> with no row until day 100 (0.02%), and <code>buffer busy waits</code>, which no signal reads</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_TBSPC_LIVE</code></td><td><code>CDB_TABLESPACE_USAGE_METRICS</code> as the collector copies it (<code>CAPV_TBSPC_LIVE</code>): the live ceilings on the last day. <code>FIX_LINEAR</code> capped at allocated + 40 GiB and <code>FIX_SPIKE</code> at + 45 GiB, so the shared disk has 40 GiB free and no <code>DISK_FULL</code>. <code>FIX_OVERRIDE</code> capped under its override limit, <code>FIX_FILLING</code> not capped.</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_SEG_STAT</code></td><td><code>DBA_HIST_SEG_STAT</code> + <code>DBA_HIST_SEG_STAT_OBJ</code>, pre-joined: three segments in <code>FIX_FILLING</code></td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_CONTAINER</code></td><td><code>DBA_HIST_PDB_INSTANCE</code> (M7.2): <code>FIXCDB</code>/<code>CDB$ROOT</code>, <code>FIXCDB</code>/<code>FIXPDB1</code>, <code>FIXCDB</code>/<code>FIXPDB2</code>; covers both <code>db_pdb</code> label branches</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_META</code></td><td>nothing in AWR; the expectations (below)</td></tr>
@@ -624,16 +648,16 @@
 
       <figure class="dd-fig">
         <div class="dd-scroll">
-<svg class="dd" viewBox="0 0 760 324" role="img" aria-labelledby="dd-harness-title dd-harness-desc">
+<svg class="dd" viewBox="0 0 760 338" role="img" aria-labelledby="dd-harness-title dd-harness-desc">
 <title id="dd-harness-title">What test/dbmint_harness.sh runs</title>
-<desc id="dd-harness-desc">The harness runs eight offline checks on the workstation and stops with exit 4 if one fails, rsyncs the checkout to dbmint (exit 3 on failure), then runs the fixture load, the fixture-mode install, the Tier 1 self-check and, with --ml, the Tier 2 self-check as SYSDBA with CURRENT_SCHEMA set in PDB1, each in its own SQL*Plus session that stops the run on a non-zero exit, and finally prints the RESULT, FAIL and ORA- lines of its log.</desc>
+<desc id="dd-harness-desc">The harness runs test/check.sh, the checks that need no database, on the workstation and stops with exit 4 if one fails, rsyncs the checkout to dbmint (exit 3 on failure), then starts a detached run there: the fixture load, the fixture-mode install, the Tier 1 self-check and, with --ml, the Tier 2 self-check as SYSDBA with CURRENT_SCHEMA set in PDB1, each in its own SQL*Plus session that stops the run on a non-zero exit. The run keeps its script, log, state and lock in ~/awr_cap_&lt;schema&gt;.harness/ on dbmint. The workstation follows that log and finally prints its RESULT, FAIL and ORA- lines.</desc>
 <defs><marker id="dd-harness-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker></defs>
-<rect class="paper" width="760" height="324"/>
+<rect class="paper" width="760" height="338"/>
 <!-- zones -->
 <rect class="zone" x="12" y="12" width="736" height="100" rx="8"/>
 <rect class="paper" x="20" y="8" width="80" height="10"/>
 <text class="eb" x="24" y="15">WORKSTATION</text>
-<rect class="zone" x="12" y="140" width="736" height="136" rx="8"/>
+<rect class="zone" x="12" y="140" width="736" height="150" rx="8"/>
 <rect class="paper" x="120" y="136" width="236" height="10"/>
 <text class="eb" x="124" y="143">DBMINT · PDB1 · SYSDBA + CURRENT_SCHEMA</text>
 <!-- connectors -->
@@ -650,7 +674,7 @@
 <text class="eb" x="50" y="47" text-anchor="middle" style="letter-spacing:.08em">SH</text>
 <text class="eb" x="204" y="47" text-anchor="end">EXIT 4</text>
 <text class="nm" x="120" y="66" text-anchor="middle">Local checks</text>
-<text class="sub" x="120" y="80" text-anchor="middle">build.py, 5 lints, 2 tests</text>
+<text class="sub" x="120" y="80" text-anchor="middle">test/check.sh</text>
 <rect class="paper" x="260" y="32" width="168" height="60" rx="6"/>
 <rect class="n" x="260" y="32" width="168" height="60" rx="6"/>
 <rect class="tag" x="268" y="38" width="28" height="12" rx="2"/>
@@ -694,20 +718,21 @@
 <text class="sub" x="658" y="216" text-anchor="middle">train_all + run_test_ml</text>
 <text class="sub" x="658" y="228" text-anchor="middle">only with --ml</text>
 <text class="lgt" x="28" y="260">Each step is one SQL*Plus session (WHENEVER SQLERROR EXIT FAILURE); a non-zero exit stops the run with that status.</text>
+<text class="lgt" x="28" y="274">The run is detached (run.sh, harness.log, state, lock in ~/awr_cap_&lt;schema&gt;.harness/); the workstation follows its log.</text>
 <!-- legend -->
-<line class="rule" x1="12" y1="292" x2="748" y2="292"/>
-<text class="lg" x="12" y="314">LEGEND</text>
-<rect class="n-focal" x="84" y="305" width="16" height="12" rx="3"/>
-<text class="lgt" x="108" y="315">the test run</text>
-<rect class="n" x="208" y="305" width="16" height="12" rx="3"/>
-<text class="lgt" x="232" y="315">always runs</text>
-<rect class="n-opt" x="320" y="305" width="16" height="12" rx="3"/>
-<text class="lgt" x="344" y="315">a flag skips or adds it</text>
-<text class="eb" x="480" y="314">EXIT n</text>
-<text class="lgt" x="524" y="315">harness exit status when that step fails</text>
+<line class="rule" x1="12" y1="306" x2="748" y2="306"/>
+<text class="lg" x="12" y="328">LEGEND</text>
+<rect class="n-focal" x="84" y="319" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="329">the test run</text>
+<rect class="n" x="208" y="319" width="16" height="12" rx="3"/>
+<text class="lgt" x="232" y="329">always runs</text>
+<rect class="n-opt" x="320" y="319" width="16" height="12" rx="3"/>
+<text class="lgt" x="344" y="329">a flag skips or adds it</text>
+<text class="eb" x="480" y="328">EXIT n</text>
+<text class="lgt" x="524" y="329">harness exit status when that step fails</text>
 </svg>
         </div>
-        <figcaption>Steps 1 to 6 below in one script, <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>. The local checks are <span class="inline">repository/build.py --check</span>, five lints and two offline report tests. After a passing run <span class="inline">--parity</span> then runs <span class="inline">test/snapshot_parity.sh</span>. Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>.</figcaption>
+        <figcaption>Steps 1 to 6 below in one script, <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>, as a detached run on dbmint that <span class="inline">--attach</span> takes up again. The local checks are <span class="inline">test/check.sh</span>: the generated-file checks, the lints, the docs lint and the offline tests. After a passing run <span class="inline">--parity</span> then runs <span class="inline">test/snapshot_parity.sh</span>. Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>.</figcaption>
       </figure>
 
       <div class="steps">
@@ -753,7 +778,7 @@ sqlplus captest/&lt;password&gt;@localhost:1521/pdb1.world</pre>
           <div class="step__rail"><div class="step__n">3</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Load the fixtures</h4>
-            <p>Creates and fills the twenty-four <span class="inline">CAP_FIXTURE_*</span> tables
+            <p>Creates and fills the twenty-five <span class="inline">CAP_FIXTURE_*</span> tables
               (<a href="#fixture">above</a>) and seeds the <span class="inline">CAP_TBSPC_OVERRIDE</span>
               rows. Values are dated relative to today; expected answers go to
               <span class="inline">CAP_FIXTURE_META</span>.</p>
@@ -950,16 +975,43 @@ All fixture assertions passed.</pre>
               <span class="ico">i</span>
               <p><strong>Steps 1 to 6 on dbmint in one script.</strong>
               <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>
-              runs <span class="inline">repository/build.py --check</span>, <span class="inline">test/lint_anom_joins.sh</span>, <span class="inline">test/lint_appinfo.sh</span>, <span class="inline">test/lint_dbid_windows.sh</span>, <span class="inline">test/lint_snapshot_reads.sh</span>, <span class="inline">test/lint_dba_hist.sh</span> and the two offline report tests (<span class="inline">test/run_report_sh_test.sh</span>: the exit rules of <span class="inline">report/run_report.sh</span> under a mock sqlplus; <span class="inline">test/report_html_test.sh</span>: the generated HTML report files, rendered under a stub DOM) first and stops on a failure (exit 4),
+              runs <span class="inline">test/check.sh</span> (below) first and stops on a failure (exit 4),
               rsyncs the checkout to <span class="inline">~/awr_cap_&lt;schema&gt;/</span>, runs the fixture
               install, the install, <span class="inline">run_test.sql</span> and, with
               <span class="inline">--ml</span>, the Tier&nbsp;2 steps as SYSDBA with
               <span class="inline">CURRENT_SCHEMA</span> set in PDB1, and echoes the RESULT, FAIL and ORA- lines.
               Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>. One schema per
               concurrent run: two runs reinstalling one schema fail with ORA-04063 or ORA-00942.
+              The lever refuses a start (exit 3) while the schema has a run.
               <span class="inline">--pga</span> ends every step with <span class="inline">test/pga_probe.sql</span>,
               which logs that session's peak PGA and largest work areas (see
-              <a href="reference.html#memory">Memory (PGA)</a>).</p>
+              <a href="reference.html#memory">Memory (PGA)</a>).
+              <span class="inline">--sql test/mem_timing.sql</span> times one read of each memory verdict
+              view, to compare before and after a change to <span class="inline">ddl/42_memory_views.sql</span>.</p>
+              <p><strong>The run is detached.</strong> The steps run on dbmint under
+              <span class="inline">setsid</span> and <span class="inline">nohup</span>, from
+              <span class="inline">~/awr_cap_&lt;schema&gt;.harness/run.sh</span>. Beside it are
+              <span class="inline">harness.log</span>, <span class="inline">state</span> (pid, start time,
+              git SHA, step list, then exit status and end time) and <span class="inline">lock</span>, which
+              the run and its SQL*Plus sessions hold. The workstation only follows the log into
+              <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>. When the lever is killed or
+              the connection drops, the run finishes on dbmint.
+              <span class="inline">--attach</span> starts nothing: it follows the schema's run to its end,
+              or prints the result of the last finished one, and exits with that run's status (5 when
+              there is none). <span class="inline">--status</span> prints one line: running since,
+              finished with exit N, or none. The state keeps the last run only. With
+              <span class="inline">--parity</span> the parity run is the last step of the detached run.</p>
+              <p><strong>Partial runs and queueing.</strong>
+              <span class="inline">--ml-only</span> takes the schema as it is: no fixture load, no install,
+              no <span class="inline">run_test.sql</span>, only <span class="inline">cap_forecast_ml.train_all</span>
+              and <span class="inline">run_test_ml.sql</span>. <span class="inline">--sql-only</span> runs
+              only the <span class="inline">--sql FILE</span> scripts.
+              <span class="inline">--wait-slot [N]</span> waits before the start while N (default 2) or
+              more SQL*Plus processes or harness runs are active on dbmint, polling every 15 seconds.
+              The fixture is anchored to its load day, so <span class="inline">run_test.sql</span> fails
+              date assertions when a run crosses the VM's midnight, or when a partial run uses a fixture
+              loaded the day before. The lever prints a warning when the VM clock is within 100 minutes
+              of midnight.</p>
               <p><strong>Throwaway schema by hand.</strong> Create a user with the privileges above (no
               password needed if only SYSDBA uses it), then in one SQL*Plus session as SYSDBA:
               <span class="inline">ALTER SESSION SET CONTAINER = PDB1;</span>
@@ -968,6 +1020,32 @@ All fixture assertions passed.</pre>
               follows the session user, so check validity with
               <span class="inline">SELECT object_name, status FROM all_objects WHERE owner = 'CAPX1' AND status &lt;&gt; 'VALID'</span>.
               Drop the user when you are done.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
+              <p><strong>Offline checks in one run.</strong>
+              <span class="inline">test/check.sh [-v] [NAME...]</span> runs every check that needs no database:
+              <span class="inline">repository/build.py --check</span>, <span class="inline">report/html/build.py --check</span>
+              and <span class="inline">apex/build.py --check</span> (the generated files are current),
+              <span class="inline">apex/test/export_check.py</span> (the APEX export parsed against its builder), every <span class="inline">test/lint_*.sh</span> (found by name, so a
+              new lint joins by existing), <span class="inline">test/docs_lint.sh</span> and the four offline
+              tests (<span class="inline">test/run_report_sh_test.sh</span>: the exit rules of
+              <span class="inline">report/run_report.sh</span> under a mock sqlplus;
+              <span class="inline">test/report_html_test.sh</span>: the generated HTML report files, rendered under a
+              stub DOM; <span class="inline">test/notify_sh_test.sh</span>: <span class="inline">report/notify.sh</span>
+              under a mock sqlplus, mail and curl; <span class="inline">test/oem_test.sh</span>:
+              <span class="inline">oem/prepare_targets.sh</span> under a mock emcli, and the metric
+              extension's query). The tests are a list in the script, not every
+              <span class="inline">test/*_test.sh</span>: a test of that name may need a database. It prints one OK or FAIL line per check and the whole output of a failing one,
+              and exits 1 when any failed. It runs from any directory and needs bash, git, python3 and
+              node. A NAME runs only the checks whose name contains it; <span class="inline">-v</span> also prints
+              the output of the passing checks. The harness runs it first, and the GitHub workflow
+              <span class="inline">.github/workflows/check.yml</span> runs it on every push and pull request.</p>
+              <p>The lints and the docs lint judge the repository: in a git checkout they read tracked
+              files only (<span class="inline">test/repo_files.sh</span>), so a spooled report under
+              <span class="inline">reports/</span> or an ad-hoc probe script does not fail them. A new file is
+              judged once it is added to git. A copy without git reads every file outside
+              <span class="inline">reports/</span>.</p>
             </div>
             <div class="callout tip">
               <span class="ico">▸</span>
@@ -1017,6 +1095,21 @@ All fixture assertions passed.</pre>
             </div>
             <div class="callout tip">
               <span class="ico">▸</span>
+              <p><strong>Stub install.</strong>
+              A fixture without an optional table (<span class="inline">CAP_FIXTURE_PARAMETER</span>,
+              <span class="inline">CAP_FIXTURE_ASM_DISKGROUP</span>, <span class="inline">CAP_FIXTURE_SEG_STAT</span>,
+              <span class="inline">CAP_FIXTURE_PGASTAT</span> and the ten memory tables) gets a zero-row
+              stub view from <span class="inline">ddl/12_seam_fixture.sql</span>.
+              <span class="inline">test/dbmint_stub_install.sh &lt;SCHEMA&gt; [--no-fixture] [--only TABLE]</span>
+              installs the fixture, drops those tables (all of them, or the ones named), installs and
+              fails when the install fails, a <code>CAP%</code> object is INVALID, a stubbed seam view
+              returns a row, or <span class="inline">CAPD_SERIES_DAILY</span> or
+              <span class="inline">CAPR_ALERTS</span> does not run. It leaves the schema on the stub
+              install: the next <span class="inline">test/dbmint_harness.sh</span> run restores the
+              fixture. Log: <span class="inline">/tmp/dbmint_stub_install_&lt;SCHEMA&gt;.log</span>.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
               <p><strong>AWR-read lint.</strong>
               <span class="inline">test/lint_dba_hist.sh</span> fails when SQL, shell or Python code outside
               <span class="inline">repository/</span>, <span class="inline">target/</span>,
@@ -1025,6 +1118,38 @@ All fixture assertions passed.</pre>
               <span class="inline">ddl/13_seam_repository.sql</span> names a <code>DBA_HIST_*</code> view
               (comments aside). Everything else reads the <code>CAPV_*</code> seam. Standalone:
               <span class="inline">test/lint_dba_hist.sh</span> from the repo root.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
+              <p><strong>Secrets lint.</strong>
+              The repository is public, so no tracked file holds a login.
+              <span class="inline">test/lint_secrets.sh</span> fails on a default login of the lab images
+              and on a literal password in these places: after curl's <code>-u user:</code>, as the
+              shell default of a password variable (<code>${X_PASSWORD:-...}</code>), after
+              <code>IDENTIFIED BY</code>, in a <code>connect</code> or <code>sqlplus</code> login, in a
+              <code>user/...@host</code> address, and in a password assignment
+              (<code>X_PASSWORD=</code>, <code>DEFINE x_pw =</code>, <code>password:</code> in a YAML,
+              JSON or <code>.env</code> file). Write a placeholder (<code>&lt;password&gt;</code>,
+              <code>...</code>), a variable (<code>$VAR</code>, <code>&amp;var</code>) or one of the words
+              <code>pw</code>, <code>pwd</code>, <code>pass</code>, <code>passwd</code>,
+              <code>password</code>, <code>secret</code>, <code>change-me</code>, which it reads as
+              placeholders. It does not judge <span class="inline">plans/</span>. Standalone:
+              <span class="inline">test/lint_secrets.sh</span> from the repo root.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
+              <p><strong>Argument lint.</strong>
+              An omitted positional argument is the empty string, and <code>TRIM('')</code> folds to the
+              NULL literal, which <code>NULLIF</code> rejects as its first argument:
+              <code>NULLIF(TRIM('&amp;1'), '-')</code> raises ORA-00932 exactly when the argument is left
+              out (19.27). The report drivers ran that under <code>TERMOUT OFF</code>, so
+              <span class="inline">@report/report.sql 40</span> printed the top 10.
+              <span class="inline">test/lint_nullif_args.sh</span> fails on a <code>NULLIF</code> over a
+              function of a substitution variable in any tracked <code>.sql</code> file; write
+              <code>DECODE(TRIM('&amp;1'), '-', NULL, TRIM('&amp;1'))</code>.
+              <span class="inline">test/snapshot_parity.sh</span> proves the argument on the database: its
+              unscoped LIVE runs pass <code>top_n</code> alone and both spools must show it. Standalone:
+              <span class="inline">test/lint_nullif_args.sh</span> from the repo root.</p>
             </div>
             <div class="callout tip">
               <span class="ico">▸</span>
@@ -1241,7 +1366,7 @@ CAP_OWNER=CAPM5 CAP_READER=C##AWRM25 ./quickstart.sh        <span class="c-cmt">
             <div class="term">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">output</span><span class="term__tag out">expect</span></div>
-<pre>  [PASS] grants           SELECT on all 28 DBA_HIST_* views
+<pre>  [PASS] grants           SELECT on all 29 views (DBA_HIST_* and the live tablespace view)
   [PASS] container data   ALL: the reader sees every container's AWR rows
   [PASS] pack access      DIAGNOSTIC+TUNING
 ...
@@ -1344,7 +1469,7 @@ test/dbmint_copy_check.sh CAPM5 --plant OSSTAT</pre>
             <div class="term in">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">SQL*Plus · the suite owner</span><span class="term__tag in">you run</span></div>
-<pre><span class="c-prompt">SQL&gt;</span> EXEC cap_forecast_ml.train_all(20);      <span class="c-cmt">-- top-20 tablespaces + CPU</span>
+<pre><span class="c-prompt">SQL&gt;</span> EXEC cap_forecast_ml.train_all(20);      <span class="c-cmt">-- top 20 tablespaces per database + CPU</span>
 <span class="c-prompt">SQL&gt;</span> EXEC cap_forecast_ml.train_backtest(20); <span class="c-cmt">-- holdout twins for section 6c</span>
 <span class="c-prompt">SQL&gt;</span> @report/report.sql</pre>
             </div>
@@ -1357,6 +1482,57 @@ test/dbmint_copy_check.sh CAPM5 --plant OSSTAT</pre>
           </div>
         </div>
       </div><!-- /steps -->
+
+      <!-- ===================== STANDALONE QUERIES ===================== -->
+      <div class="section-head" id="standalone-queries">
+        <span class="eyebrow">Outside the suite</span>
+        <h2>The standalone queries</h2>
+        <p><span class="inline">standalone/tbspc_capacity.sql</span> and
+          <span class="inline">standalone/tbspc_monitor.sql</span> install nothing and read AWR
+          directly, so the fixture harness does not reach them.
+          <span class="inline">test/standalone_test.sh &lt;SCHEMA&gt; [--no-fixture]</span> tests them
+          against designed series, in under a minute. Log:
+          <span class="inline">/tmp/standalone_test_&lt;SCHEMA&gt;.log</span>.</p>
+      </div>
+
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">workstation · bash</span><span class="term__tag in">you run</span></div>
+<pre>test/standalone_test.sh CAPS1</pre>
+      </div>
+
+      <ul>
+        <li><strong>How the unchanged files get test data.</strong> Both files name their sources
+          without a schema. <span class="inline">test/standalone_fixture.sql</span> creates views
+          named like them (<span class="inline">DBA_HIST_SNAPSHOT</span>,
+          <span class="inline">DBA_HIST_TBSPC_SPACE_USAGE</span>,
+          <span class="inline">CDB_TABLESPACE_USAGE_METRICS</span> and four more) in a throwaway
+          schema. Under <span class="inline">ALTER SESSION SET CURRENT_SCHEMA</span> the queries
+          read those instead of the real AWR. The script refuses an Oracle-maintained schema.</li>
+        <li><strong>The shipped text runs.</strong> The lever cuts each file's SELECT out of the
+          file and puts <span class="inline">CREATE OR REPLACE VIEW</span> in front of it. Three
+          more views carry one edited setting each (<span class="inline">quiet_days</span> 0,
+          <span class="inline">disk_free_gb</span> set, <span class="inline">alerts_only</span> 0).
+          At the end both files also run as they are, with <span class="inline">@file</span>.</li>
+        <li><strong>Today is a setting.</strong> The queries take today from the newest snapshot.
+          The one-row table <span class="inline">SA_CTX</span> holds a world and a day index, and
+          the views show the snapshots up to that day. So one series is judged on many days, for
+          example a month's tablespace on every day from the day its growth stopped until its
+          last growth day has left the 90-day window.</li>
+        <li><strong>Three worlds.</strong> W1 holds the growth shapes: a steady grower, a month
+          that fills and stops, one bulk load, two growth days, rare steps, a weekly batch, a
+          purge, a sawtooth, the status thresholds and what must not be listed. W2 holds four
+          tablespaces on one shared disk. W3 holds one tablespace per branch of the monitoring
+          rule.</li>
+        <li><strong>Closed forms.</strong> <span class="inline">test/standalone_test.sql</span>
+          asserts restart, fit window, growth per day, quality, days to full, the shared-disk
+          columns, status and alert from the series as designed. It prints PASS or FAIL per check
+          and a <span class="inline">RESULT:</span> line, and exits non-zero on a failure.</li>
+        <li><strong>One forecast in two files.</strong> Before it syncs, the lever compares the
+          CTE chain <span class="inline">db</span> to <span class="inline">res</span> of the two
+          files and stops when they differ in more than the monitor's
+          <span class="inline">live_pct</span> lines.</li>
+      </ul>
 
       <!-- ===================== BENCH ===================== -->
       <div class="section-head" id="bench">

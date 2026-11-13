@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generate dashboards/awrcap-fleet-anomalies.json (AWR capacity: fleet anomalies)."""
 from dash_lib import (
-    AMBER, ANOMALY_KINDS, BASELINE_MODES, BLUE, DB, GREEN, GREY, RED, RANGE, Board,
-    alerts_table, cell_bg, custom_var, data, db_var, fixed, keep, override, prop, q,
-    sev_cell, stat, steps, table, timeseries, where, width,
+    AMBER, ANOMALY_KINDS, BASELINE_MODES, BLUE, DB, GREEN, GREY, RED, RANGE, TARGET_COL,
+    Board, alerts_table, cell_bg, custom_var, data, db_var, fixed, keep, override, prop,
+    q, sev_cell, stat, steps, table, target_var, timeseries, where, width,
 )
 
 MODE_COLORS = dict(zip(BASELINE_MODES, (RED, AMBER, BLUE)))
@@ -28,6 +28,7 @@ b = Board("awrcap-fleet-anomalies", "AWR Capacity - Fleet anomalies",
           "CPU, workload series outliers, and DB CPU level shifts.",
           "now-120d", "now")
 b.variables += [
+    target_var(),
     db_var(),
     custom_var("kind", "Anomaly kind", ANOMALY_KINDS),
     custom_var("mode", "Baseline mode", BASELINE_MODES),
@@ -45,13 +46,14 @@ LINKS = [
 # into view. A y=0 stat is always visible.
 anomalies = b.add(stat(
     "Anomalies in range",
-    q("A", f"anomalies?{RANGE}", ["ts", "obs_day", "db", "series", "anomaly_kind",
+    q("A", f"anomalies?{RANGE}", ["ts", "obs_day", "target_name", "db", "series", "anomaly_kind",
                                    "baseline_mode", "sev", "sev_rank",
                                    "z", "anomaly_flag", "message"], filt=FILT),
     field="sev_rank", calc="count", color_steps=ALARM), 0, 0, 6, 4)
 b.add(table(
     "Anomalies, newest first (click a database or series to drill in)", anomalies, [
         ("ts", "When", [width(140), prop("unit", "time:YYYY-MM-DD HH:mm")]),
+        TARGET_COL,
         ("db", "Database", [width(190), prop("links", LINKS)]),
         ("series", "Series", [width(170), prop("links", LINKS)]),
         ("anomaly_kind", "Kind", [width(130)]),

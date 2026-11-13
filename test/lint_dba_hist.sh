@@ -10,6 +10,7 @@
 # Exit 1 and list the offending lines.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. test/repo_files.sh
 rc=0
 
 while IFS= read -r f; do
@@ -26,7 +27,7 @@ while IFS= read -r f; do
     echo "$hits" | sed "s|^|lint_dba_hist: $f: |"
     rc=1
   fi
-done < <(git ls-files '*.sql' '*.sh' '*.py')
+done < <(repo_files '*.sql' '*.sh' '*.py')
 
 [ $rc = 0 ] && echo "lint_dba_hist: no DBA_HIST_* read outside repository/, target/, standalone/, test/, bench/"
 exit $rc

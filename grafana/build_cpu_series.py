@@ -2,8 +2,8 @@
 """Generate dashboards/awrcap-cpu-series.json (AWR capacity: CPU and workload series)."""
 from dash_lib import (
     AMBER, DASHED, DB, DOTTED, GREEN, GREY, NO_LEGEND, PAST_120D, RANGE, RED,
-    SOONEST, Board, alerts_table, keep, named, annotation, cell_bg, db_var, fixed, override, prop, q,
-    red_points, sev_cell, steps, table, timeseries, where, width,
+    SOONEST, TARGET_COL, Board, alerts_table, keep, named, annotation, cell_bg, db_var, fixed,
+    override, prop, q, red_points, sev_cell, steps, table, target_var, timeseries, where, width,
 )
 
 REGR = where("method == 'REGR'", DB)
@@ -12,10 +12,10 @@ DTF_STEPS = ((RED, None), (AMBER, 31), (GREEN, 91))
 
 b = Board("awrcap-cpu-series", "AWR Capacity - CPU and workload series",
           "Host CPU against the 80 % saturation line, DB CPU per container with "
-          "level shifts, and sessions / processes / size / redo against their "
-          "limits, each with its forecast.",
+          "level shifts, and sessions / processes / size / redo / I/O against "
+          "their limits, each with its forecast.",
           "now-120d", "now+120d")
-b.variables.append(db_var())
+b.variables += [target_var(), db_var()]
 
 
 FORECAST_STYLE = [
@@ -75,7 +75,8 @@ b.add(timeseries(
 
 
 def trend_table(title, kind, value_label, dtf_label, with_limit, description=""):
-    cols = [("db", "Database", [width(190)]), ("series", "Series", [width(150)]),
+    cols = [TARGET_COL,
+            ("db", "Database", [width(190)]), ("series", "Series", [width(150)]),
             ("sev", "Sev", sev_cell()),
             ("value", value_label, [prop("decimals", 1)])]
     if with_limit:
@@ -106,6 +107,9 @@ WORKLOAD = [
     ("PROCESSES", "Processes vs limit", "none", 0),
     ("DB_SIZE_GB", "Database size", "gbytes", 1),
     ("REDO_GB_DAY", "Redo per day", "gbytes", 1),
+    # I/O (M27): the day's p95 of the per-snapshot rates, MB = 2^20. No limit.
+    ("IOPS", "I/O requests per second (daily p95)", "iops", 0),
+    ("IO_MBPS", "I/O throughput (daily p95)", "MiBs", 1),
 ]
 workload_src = [
     q("A", f"series?kind=SERIES&{RANGE}",
@@ -125,9 +129,9 @@ for i, (series, title, unit, decimals) in enumerate(WORKLOAD):
 
 b.add(trend_table("Workload series (latest fit, soonest limit first)",
                   "SERIES", "Current", "Days to limit", True),
-      0, 45, 24, 9)
+      0, 55, 24, 9)
 
-b.add(alerts_table("CPU and series alerts", where("kind != 'TBSPC'", DB)), 0, 54, 24, 8)
+b.add(alerts_table("CPU and series alerts", where("kind != 'TBSPC'", DB)), 0, 64, 24, 8)
 
 b.annotations += [
     annotation("Host CPU anomalies",

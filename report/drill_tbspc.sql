@@ -130,7 +130,9 @@ PROMPT == 1. FIT HEADER (CAPF_TBSPC_FORECAST + CAPR_CONTAINER) ==
 PROMPT    FIT(day_n) = ICEPT_MIB + MIB/DAY * day_n. R2/QUALITY grade the fit
 PROMPT    (INSUFFICIENT_HISTORY = TRAIN_N below min_train_days &k_min).
 PROMPT    TRAIN_START = first fitted day, RESET_DAY = the purge that restarted
-PROMPT    the window (empty = no reset). Projections start from today:
+PROMPT    the window (empty = no reset). RESTART = why the window is shorter
+PROMPT    than train_days: PURGE, STOP (growth stopped, the fit is the quiet
+PROMPT    days since) or START (growth began). Projections start from today:
 PROMPT    +h days = CUR + MIB/DAY * h, and DAYS_FULL counts from CUR too.
 PROMPT    +-CI = 95% half-width on the slope; WORST/BEST = days-to-full at the
 PROMPT    fast/slow edge of that CI (BEST empty = might never fill).
@@ -139,6 +141,7 @@ COLUMN db_pdb    FORMAT A18            HEADING 'DB/PDB'
 COLUMN last_day  FORMAT A10            HEADING 'LAST_DAY'
 COLUMN tr_start  FORMAT A11            HEADING 'TRAIN_START'
 COLUMN reset_day FORMAT A10            HEADING 'RESET_DAY'
+COLUMN restart   FORMAT A7             HEADING 'RESTART'
 COLUMN train_n   FORMAT 99990          HEADING 'TRAIN_N'
 COLUMN slope_mib FORMAT 999990.000     HEADING 'MIB/DAY'
 COLUMN slope_ci  FORMAT 99990.000      HEADING '+-CI'
@@ -156,6 +159,7 @@ SELECT NVL(c.db_pdb, TO_CHAR(f.con_dbid))     AS db_pdb,
        TO_CHAR(f.last_day, 'YYYY-MM-DD')      AS last_day,
        TO_CHAR(f.train_start, 'YYYY-MM-DD')   AS tr_start,
        TO_CHAR(f.reset_day, 'YYYY-MM-DD')     AS reset_day,
+       f.restart_reason                       AS restart,
        f.train_n                              AS train_n,
        f.slope_bpd     / 1048576              AS slope_mib,
        f.slope_ci_bpd  / 1048576              AS slope_ci,

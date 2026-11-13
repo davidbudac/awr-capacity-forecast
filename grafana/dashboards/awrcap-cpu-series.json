@@ -1,7 +1,7 @@
 {
   "uid": "awrcap-cpu-series",
   "title": "AWR Capacity - CPU and workload series",
-  "description": "Host CPU against the 80 % saturation line, DB CPU per container with level shifts, and sessions / processes / size / redo against their limits, each with its forecast.",
+  "description": "Host CPU against the 80 % saturation line, DB CPU per container with level shifts, and sessions / processes / size / redo / I/O against their limits, each with its forecast.",
   "tags": [
     "awrcap"
   ],
@@ -28,6 +28,70 @@
   ],
   "templating": {
     "list": [
+      {
+        "name": "target",
+        "label": "Target",
+        "type": "query",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "awrcap-ords"
+        },
+        "query": {
+          "queryType": "infinity",
+          "infinityQuery": {
+            "refId": "V",
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "awrcap-ords"
+            },
+            "type": "json",
+            "source": "url",
+            "parser": "backend",
+            "format": "table",
+            "url": "/containers",
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "root_selector": "items",
+            "columns": [
+              {
+                "selector": "target_name",
+                "text": "target_name",
+                "type": "string"
+              },
+              {
+                "selector": "db",
+                "text": "db",
+                "type": "string"
+              }
+            ],
+            "filters": [],
+            "computed_columns": [],
+            "summarizeExpression": "count(db)",
+            "summarizeBy": "target_name",
+            "summarizeAlias": "summary"
+          },
+          "meta": {
+            "valueField": "target_name",
+            "textField": "target_name"
+          },
+          "refId": "var-target"
+        },
+        "definition": "/containers",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
       {
         "name": "db",
         "label": "Database",
@@ -59,10 +123,16 @@
                 "selector": "db",
                 "text": "db",
                 "type": "string"
+              },
+              {
+                "selector": "target_name",
+                "text": "target_name",
+                "type": "string"
               }
             ],
             "filters": [],
-            "computed_columns": []
+            "computed_columns": [],
+            "filterExpression": "target_name IN (${target:singlequote})"
           },
           "meta": {
             "valueField": "db",
@@ -1020,6 +1090,11 @@
               "type": "number"
             },
             {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
               "selector": "value",
               "text": "value",
               "type": "number"
@@ -1052,19 +1127,21 @@
           "id": "organize",
           "options": {
             "indexByName": {
-              "db": 0,
-              "series": 1,
-              "sev": 2,
-              "value": 3,
-              "slope_per_day": 4,
-              "days_to_full": 5,
-              "days_to_full_lo": 6,
-              "days_to_full_hi": 7,
-              "r2": 8,
-              "quality": 9,
-              "soonest": 10
+              "target_name": 0,
+              "db": 1,
+              "series": 2,
+              "sev": 3,
+              "value": 4,
+              "slope_per_day": 5,
+              "days_to_full": 6,
+              "days_to_full_lo": 7,
+              "days_to_full_hi": 8,
+              "r2": 9,
+              "quality": 10,
+              "soonest": 11
             },
             "renameByName": {
+              "target_name": "Target",
               "db": "Database",
               "series": "Series",
               "sev": "Sev",
@@ -1093,6 +1170,18 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -2058,6 +2147,342 @@
       "gridPos": {
         "x": 0,
         "y": 45,
+        "w": 12,
+        "h": 10
+      },
+      "type": "timeseries",
+      "title": "I/O requests per second (daily p95), with forecast (dashed)",
+      "description": "",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 5,
+          "withTransforms": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "any",
+            "filters": [
+              {
+                "fieldName": "series",
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "IOPS"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "db"
+            ],
+            "keepFields": false
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "iops",
+          "displayName": "${__field.labels.db} ${__field.name}",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisSoftMin": 0
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/forecast/"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/low|high/"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    2,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/limit/"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "gridPos": {
+        "x": 12,
+        "y": 45,
+        "w": 12,
+        "h": 10
+      },
+      "type": "timeseries",
+      "title": "I/O throughput (daily p95), with forecast (dashed)",
+      "description": "",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 5,
+          "withTransforms": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "any",
+            "filters": [
+              {
+                "fieldName": "series",
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "IO_MBPS"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "db"
+            ],
+            "keepFields": false
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "MiBs",
+          "displayName": "${__field.labels.db} ${__field.name}",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisSoftMin": 0
+          },
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/forecast/"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/low|high/"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    2,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/limit/"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "gridPos": {
+        "x": 0,
+        "y": 55,
         "w": 24,
         "h": 9
       },
@@ -2142,6 +2567,11 @@
               "type": "number"
             },
             {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
               "selector": "value",
               "text": "value",
               "type": "number"
@@ -2174,21 +2604,23 @@
           "id": "organize",
           "options": {
             "indexByName": {
-              "db": 0,
-              "series": 1,
-              "sev": 2,
-              "value": 3,
-              "limit_value": 4,
-              "pct": 5,
-              "slope_per_day": 6,
-              "days_to_full": 7,
-              "days_to_full_lo": 8,
-              "days_to_full_hi": 9,
-              "r2": 10,
-              "quality": 11,
-              "soonest": 12
+              "target_name": 0,
+              "db": 1,
+              "series": 2,
+              "sev": 3,
+              "value": 4,
+              "limit_value": 5,
+              "pct": 6,
+              "slope_per_day": 7,
+              "days_to_full": 8,
+              "days_to_full_lo": 9,
+              "days_to_full_hi": 10,
+              "r2": 11,
+              "quality": 12,
+              "soonest": 13
             },
             "renameByName": {
+              "target_name": "Target",
               "db": "Database",
               "series": "Series",
               "sev": "Sev",
@@ -2218,6 +2650,18 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -2483,10 +2927,10 @@
       }
     },
     {
-      "id": 10,
+      "id": 12,
       "gridPos": {
         "x": 0,
-        "y": 54,
+        "y": 64,
         "w": 24,
         "h": 8
       },
@@ -2533,6 +2977,11 @@
             {
               "selector": "kind",
               "text": "kind",
+              "type": "string"
+            },
+            {
+              "selector": "target_name",
+              "text": "target_name",
               "type": "string"
             },
             {
@@ -2594,19 +3043,21 @@
             "indexByName": {
               "sev": 0,
               "alert_kind": 1,
-              "db": 2,
-              "series": 3,
-              "obs_day": 4,
-              "message": 5,
-              "sev_rank": 6,
-              "kind": 7,
-              "value": 8,
-              "threshold": 9,
-              "unit": 10
+              "target_name": 2,
+              "db": 3,
+              "series": 4,
+              "obs_day": 5,
+              "message": 6,
+              "sev_rank": 7,
+              "kind": 8,
+              "value": 9,
+              "threshold": 10,
+              "unit": 11
             },
             "renameByName": {
               "sev": "Sev",
               "alert_kind": "Alert",
+              "target_name": "Target",
               "db": "Database",
               "series": "Series",
               "obs_day": "Day",
@@ -2685,6 +3136,18 @@
               {
                 "id": "custom.width",
                 "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
               }
             ]
           },

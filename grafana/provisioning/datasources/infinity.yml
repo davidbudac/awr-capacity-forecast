@@ -1,4 +1,7 @@
 apiVersion: 1
+# The awrcap ORDS module answers 401 without a bearer token. Infinity fetches
+# one with the OAuth2 client credentials flow and renews it when it expires.
+# The health check reads `containers`, so it fails when the token does.
 datasources:
   - name: AWR capacity (ORDS)
     uid: awrcap-ords
@@ -7,6 +10,17 @@ datasources:
     isDefault: true
     url: ${ORDS_URL}
     jsonData:
+      auth_method: ${ORDS_AUTH_METHOD}
+      oauth2:
+        oauth2_type: client_credentials
+        client_id: ${ORDS_CLIENT_ID}
+        token_url: ${ORDS_TOKEN_URL}
       allowedHosts:
         - ${ORDS_URL}
+      # mem_verdicts and mem_evidence read a 30-day AWR window per request.
+      timeoutInSeconds: 300
+      customHealthCheckEnabled: true
+      customHealthCheckUrl: ${ORDS_URL}/containers
+    secureJsonData:
+      oauth2ClientSecret: ${ORDS_CLIENT_SECRET}
     editable: false

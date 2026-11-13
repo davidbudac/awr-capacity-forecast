@@ -45,6 +45,7 @@ DECLARE
     v_dbid  NUMBER;
     d_spike DATE; d_restart DATE; d_inj DATE; d_probe DATE;
     d_purge DATE; d_reset DATE; d_tstart DATE;
+    d_rsd   DATE;                -- a reset_day read (d_purge stays the FIX_PURGE day)
     n_slope NUMBER; n_dtf NUMBER;
 
     v_n     PLS_INTEGER;
@@ -637,6 +638,220 @@ BEGIN
     SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE series_key = 'FIX_PURGE';
     chk_int('PURGE raises no CAPR_ALERTS (cliff predates the alert window)', v_n, 0);
 
+    DBMS_OUTPUT.PUT_LINE('=== purge events: a two-day purge is one cliff (FIX_PURGE2, cliff_merge_days) ===');
+    SELECT cfg_value INTO v_num FROM cap_config WHERE cfg_name = 'cliff_merge_days';
+    chk_int('knob cliff_merge_days default', v_num, 1);
+    SELECT reset_day, train_start, train_n, slope_bpd, days_to_full, quality, cycle_n, cur_used
+      INTO d_reset, d_tstart, v_n, v_num, v_num2, v_str, v_num3, v_r2
+      FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_PURGE2';
+    chk_int  ('PURGE2 cycle_n (two cliff days, one event)', v_num3, 1);
+    chk_int  ('PURGE2 reset_day - the second cliff day', d_reset - meta_d('PURGE2_DAY'), 0);
+    chk_int  ('PURGE2 reset_day - the first cliff day', d_reset - meta_d('PURGE2_FIRST'), 1);
+    chk_int  ('PURGE2 train_start - reset_day', d_tstart - d_reset, 0);
+    chk_int  ('PURGE2 train_n (the days from the second cliff day)', v_n, meta_n('PURGE2_TRAIN_N'));
+    chk_close('PURGE2 slope_bpd = 10 MiB/day', v_num, n_slope, 0.000001);
+    chk_int  ('PURGE2 cur_used', v_r2, meta_n('PURGE2_CUR'));
+    chk_int  ('PURGE2 days_to_full off the post-purge line', v_num2, meta_n('PURGE2_DTF'));
+    chk_str  ('PURGE2 quality (not CYCLIC)', v_str, 'OK');
+    -- Both cliff days are LOW anomalies of the tablespace, 40 days back.
+    chk_str('PURGE2 first cliff day LOW (TRAILING)',
+            anom_flag('TBSPC', 'FIX_PURGE2', 'TRAILING', meta_d('PURGE2_FIRST'), v_dbid), 'LOW');
+    chk_str('PURGE2 second cliff day LOW (TRAILING)',
+            anom_flag('TBSPC', 'FIX_PURGE2', 'TRAILING', meta_d('PURGE2_DAY'), v_dbid), 'LOW');
+    chk_int('PURGE2 has exactly two anomalies (TRAILING)',
+            anom_n('TBSPC', 'FIX_PURGE2', 'TRAILING', 'ANY', v_dbid), 2);
+    SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE series_key = 'FIX_PURGE2';
+    chk_int('PURGE2 raises no CAPR_ALERTS', v_n, 0);
+    -- A single-day purge and the sawtooths count as before.
+    SELECT cycle_n INTO v_n FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_PURGE';
+    chk_int('PURGE cycle_n', v_n, 1);
+    SELECT cycle_n, cycle_days INTO v_n, v_num FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_CYCLIC';
+    chk_int('CYCLIC cycle_n = its cliffs (one-day purges)', v_n, meta_n('CYC0_N'));
+    chk_int('CYCLIC cycle_days', v_num, meta_n('CYC0_DAYS'));
+    -- cliff_merge_days = 0: every cliff day is an event again. Two cliffs one
+    -- day apart, so CYCLIC, no reset, no full date. Uncommitted, then reset.
+    SAVEPOINT u05_merge;
+    BEGIN
+        knob('cliff_merge_days', 0);
+        SELECT quality, reset_day, train_n, cycle_n, cycle_days, cycle_peak_bytes,
+               days_to_full, days_to_full_lo
+          INTO v_str, d_reset, v_n, v_num, v_num2, v_num3, v_r2, n_aux
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_PURGE2';
+        chk_str ('cliff_merge_days = 0: PURGE2 quality', v_str, 'CYCLIC');
+        chk_true('cliff_merge_days = 0: PURGE2 reset_day IS NULL', d_reset IS NULL);
+        chk_int ('cliff_merge_days = 0: PURGE2 train_n (the whole window)', v_n, 90);
+        chk_int ('cliff_merge_days = 0: PURGE2 cycle_n', v_num, 2);
+        chk_int ('cliff_merge_days = 0: PURGE2 cycle_days', v_num2, 1);
+        chk_int ('cliff_merge_days = 0: PURGE2 cycle_peak_bytes (the day before the purge)',
+                 v_num3, meta_n('PURGE2_PEAK'));
+        chk_true('cliff_merge_days = 0: PURGE2 days_to_full / _lo NULL', v_r2 IS NULL AND n_aux IS NULL);
+        SELECT quality, reset_day INTO v_str, d_reset
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_PURGE';
+        chk_str ('cliff_merge_days = 0: PURGE quality unchanged', v_str, 'OK');
+        chk_int ('cliff_merge_days = 0: PURGE reset_day unchanged', d_reset - meta_d('PURGE_DAY'), 0);
+        knob('cliff_merge_days', 1.5);
+        SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'cliff_merge_days';
+        chk_str ('CAP_CFG_CHECK cliff_merge_days = 1.5', v_str, 'BAD');
+    EXCEPTION
+        WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u05_merge; RAISE;
+    END;
+    ROLLBACK TO SAVEPOINT u05_merge;
+    SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'cliff_merge_days';
+    chk_str('CAP_CFG_CHECK cliff_merge_days default', v_str, 'OK');
+
+    DBMS_OUTPUT.PUT_LINE('=== STOP / START: growth that stopped or began (FIX_STOPPED / FIX_STARTED) ===');
+    SELECT COUNT(*) INTO v_n FROM cap_config
+      WHERE (cfg_name = 'quiet_days'   AND cfg_value = 14)
+         OR (cfg_name = 'quiet_ratio'  AND cfg_value = 2)
+         OR (cfg_name = 'quiet_chance' AND cfg_value = 0.01)
+         OR (cfg_name = 'growth_floor' AND cfg_value = 0.001);
+    chk_int('knobs quiet_days 14 / quiet_ratio 2 / quiet_chance 0.01 / growth_floor 0.001', v_n, 4);
+    SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+      WHERE knob IN ('quiet_days', 'quiet_ratio', 'quiet_chance', 'growth_floor') AND status = 'OK';
+    chk_int('CAP_CFG_CHECK: the four STOP / START knobs OK', v_n, 4);
+    -- FIX_STOPPED: the fit is the 30 flat days after the last growth day.
+    SELECT restart_reason, restart_day, train_start, reset_day, train_n, slope_bpd, quality,
+           days_to_full, days_to_full_lo, cur_used, proj_90_bytes
+      INTO v_str, d_reset, d_tstart, d_rsd, v_n, v_num, v_str2, v_num2, v_num3, v_r2, n_aux
+      FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STOPPED';
+    chk_str  ('STOPPED restart_reason', v_str, 'STOP');
+    chk_int  ('STOPPED restart_day - the day after the last growth day', d_reset - meta_d('STOPPED_DAY'), 0);
+    chk_int  ('STOPPED train_start - restart_day', d_tstart - d_reset, 0);
+    chk_true ('STOPPED reset_day IS NULL (no purge)', d_rsd IS NULL);
+    chk_int  ('STOPPED train_n (the quiet days)', v_n, meta_n('STOPPED_TRAIN_N'));
+    chk_int  ('STOPPED slope_bpd', v_num, 0);
+    chk_str  ('STOPPED quality', v_str2, 'FLAT');
+    chk_true ('STOPPED days_to_full / _lo NULL', v_num2 IS NULL AND v_num3 IS NULL);
+    chk_int  ('STOPPED cur_used', v_r2, meta_n('STOPPED_CUR'));
+    chk_int  ('STOPPED proj_90_bytes = cur_used', n_aux, meta_n('STOPPED_CUR'));
+    SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE series_key = 'FIX_STOPPED';
+    chk_int  ('STOPPED raises no CAPR_ALERTS', v_n, 0);
+    -- FIX_STARTED: the fit is the ramp, from the last day before it.
+    SELECT restart_reason, restart_day, train_start, reset_day, train_n, slope_bpd, quality,
+           days_to_full, r2, cur_used
+      INTO v_str, d_reset, d_tstart, d_rsd, v_n, v_num, v_str2, v_num2, v_num3, v_r2
+      FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STARTED';
+    chk_str  ('STARTED restart_reason', v_str, 'START');
+    chk_int  ('STARTED restart_day - the last day before the first growth day', d_reset - meta_d('STARTED_DAY'), 0);
+    chk_int  ('STARTED train_start - restart_day', d_tstart - d_reset, 0);
+    chk_true ('STARTED reset_day IS NULL (no purge)', d_rsd IS NULL);
+    chk_int  ('STARTED train_n', v_n, meta_n('STARTED_TRAIN_N'));
+    chk_close('STARTED slope_bpd = 16 MiB/day', v_num, meta_n('STARTED_SLOPE'), 0.000001);
+    chk_close('STARTED r2', v_num3, 1, 0.000001);
+    chk_str  ('STARTED quality', v_str2, 'OK');
+    chk_int  ('STARTED cur_used', v_r2, meta_n('STARTED_CUR'));
+    chk_int  ('STARTED days_to_full', v_num2, meta_n('STARTED_DTF'));
+    SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE series_key = 'FIX_STARTED';
+    chk_int  ('STARTED raises no CAPR_ALERTS (200 days is past dtf_warn)', v_n, 0);
+    -- No other series restarts for STOP / START, PURGE names the two purged
+    -- ones, and restart_day is the first fitted day wherever a reason is set.
+    -- Two members of the FIXM_# family (ddl/32) restart by construction:
+    -- FIXM_202309 filled on days 50 .. 79 (STOP), FIXM_202310 on days 80 ..
+    -- 110 (START, 10 quiet days are no STOP). Asserted in the family block.
+    SELECT COUNT(CASE WHEN restart_reason IN ('STOP', 'START')
+                       AND tablespace_name NOT IN ('FIX_STOPPED', 'FIX_STARTED',
+                                                   'FIXM_202309', 'FIXM_202310') THEN 1 END),
+           COUNT(CASE WHEN restart_reason = 'PURGE' THEN 1 END),
+           COUNT(CASE WHEN restart_reason = 'PURGE'
+                       AND tablespace_name IN ('FIX_PURGE', 'FIX_PURGE2') AND restart_day = reset_day THEN 1 END),
+           COUNT(CASE WHEN (restart_reason IS NULL AND restart_day IS NOT NULL)
+                        OR (restart_reason IS NOT NULL AND (restart_day IS NULL OR restart_day <> train_start))
+                        OR NVL(restart_reason, 'PURGE') NOT IN ('PURGE', 'STOP', 'START') THEN 1 END),
+           COUNT(CASE WHEN restart_reason IS NULL THEN 1 END), COUNT(*)
+      INTO v_n, v_num, v_num2, v_num3, v_r2, n_aux
+      FROM capf_tbspc_forecast;
+    chk_int('no other tablespace restarts for STOP / START (FIX_STOPPED, FIX_STARTED, FIXM_202309, FIXM_202310)', v_n, 0);
+    chk_int('restart_reason PURGE rows', v_num, 2);
+    chk_int('restart_reason PURGE = FIX_PURGE and FIX_PURGE2, restart_day = reset_day', v_num2, 2);
+    chk_int('restart_day set with a reason only, and equal to train_start', v_num3, 0);
+    chk_int('rows with no restart = all but the six (2 PURGE, 2 + 2 STOP / START)', v_r2, n_aux - 6);
+    -- The report views pass both columns through, CAPR_FIT for TBSPC only.
+    SELECT COUNT(*) INTO v_n
+      FROM capf_tbspc_forecast t
+      JOIN capr_fit f ON f.kind = 'TBSPC' AND f.dbid = t.dbid AND f.con_dbid = t.con_dbid
+                     AND f.series = t.tablespace_name
+      JOIN capr_tbspc_forecast r ON r.dbid = t.dbid AND r.con_dbid = t.con_dbid
+                                AND r.tablespace_name = t.tablespace_name
+      JOIN capr_tbspc_days_to_full d ON d.dbid = t.dbid AND d.con_dbid = t.con_dbid
+                                    AND d.tablespace_name = t.tablespace_name
+     WHERE DECODE(f.restart_reason, t.restart_reason, 0, 1) + DECODE(f.restart_day, t.restart_day, 0, 1)
+         + DECODE(r.restart_reason, t.restart_reason, 0, 1) + DECODE(r.restart_day, t.restart_day, 0, 1)
+         + DECODE(d.restart_reason, t.restart_reason, 0, 1) + DECODE(d.restart_day, t.restart_day, 0, 1) > 0;
+    chk_int('CAPR_FIT / CAPR_TBSPC_FORECAST / CAPR_TBSPC_DAYS_TO_FULL restart columns differ from CAPF', v_n, 0);
+    SELECT COUNT(*) INTO v_n FROM capr_fit
+      WHERE kind <> 'TBSPC' AND (restart_reason IS NOT NULL OR restart_day IS NOT NULL);
+    chk_int('CAPR_FIT restart columns NULL for CPU and SERIES', v_n, 0);
+    SELECT COUNT(*) INTO v_n FROM capr_fit WHERE kind = 'TBSPC' AND restart_reason IN ('STOP', 'START');
+    chk_int('CAPR_FIT rows with restart STOP / START (FIX_STOPPED, FIX_STARTED, FIXM_202309, FIXM_202310)', v_n, 4);
+    -- quiet_days = 0: no STOP / START. Both fits are the whole window again,
+    -- OLS through ramp + flat: the stopped tablespace gets a slope, grade OK
+    -- and a full date inside dtf_warn, so a TBSPC_FULL alert. The started one
+    -- reads slow and LOW_CONFIDENCE. Uncommitted, then rolled back.
+    SAVEPOINT u05_quiet;
+    BEGIN
+        knob('quiet_days', 0);
+        SELECT restart_reason, train_n, slope_bpd, r2, quality, days_to_full
+          INTO v_str, v_n, v_num, v_num2, v_str2, v_num3
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STOPPED';
+        chk_true ('quiet_days = 0: STOPPED restart_reason IS NULL', v_str IS NULL);
+        chk_int  ('quiet_days = 0: STOPPED train_n', v_n, 90);
+        chk_close('quiet_days = 0: STOPPED slope_bpd (OLS over ramp + flat)', v_num, meta_n('STOPPED_Q0_SLOPE'), 0.000001);
+        chk_close('quiet_days = 0: STOPPED r2', v_num2, meta_n('STOPPED_Q0_R2'), 0.000001);
+        chk_str  ('quiet_days = 0: STOPPED quality', v_str2, 'OK');
+        chk_int  ('quiet_days = 0: STOPPED days_to_full (a full date it never reaches)', v_num3, meta_n('STOPPED_Q0_DTF'));
+        SELECT COUNT(*), MAX(severity) INTO v_n, v_str FROM capr_alerts
+          WHERE kind = 'TBSPC_FULL' AND series_key = 'FIX_STOPPED';
+        chk_int  ('quiet_days = 0: STOPPED raises TBSPC_FULL', v_n, 1);
+        chk_str  ('quiet_days = 0: STOPPED TBSPC_FULL severity (45 days)', v_str, 'WARN');
+        SELECT restart_reason, train_n, slope_bpd, r2, quality, days_to_full
+          INTO v_str, v_n, v_num, v_num2, v_str2, v_num3
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STARTED';
+        chk_true ('quiet_days = 0: STARTED restart_reason IS NULL', v_str IS NULL);
+        chk_int  ('quiet_days = 0: STARTED train_n', v_n, 90);
+        chk_close('quiet_days = 0: STARTED slope_bpd (OLS over flat + ramp)', v_num, meta_n('STARTED_Q0_SLOPE'), 0.000001);
+        chk_close('quiet_days = 0: STARTED r2', v_num2, meta_n('STARTED_Q0_R2'), 0.000001);
+        chk_str  ('quiet_days = 0: STARTED quality', v_str2, 'LOW_CONFIDENCE');
+        chk_int  ('quiet_days = 0: STARTED days_to_full', v_num3, meta_n('STARTED_Q0_DTF'));
+        SELECT COUNT(CASE WHEN restart_reason IN ('STOP', 'START') THEN 1 END),
+               COUNT(CASE WHEN restart_reason = 'PURGE' THEN 1 END)
+          INTO v_n, v_num FROM capf_tbspc_forecast;
+        chk_int  ('quiet_days = 0: no STOP / START row', v_n, 0);
+        chk_int  ('quiet_days = 0: the two PURGE rows stay', v_num, 2);
+        -- Just under the pause: 30 quiet days against quiet_days 31 is no STOP.
+        -- START still holds (64 quiet days before the ramp).
+        knob('quiet_days', 31);
+        SELECT COUNT(CASE WHEN tablespace_name = 'FIX_STOPPED' AND restart_reason IS NULL THEN 1 END),
+               COUNT(CASE WHEN tablespace_name = 'FIX_STARTED' AND restart_reason = 'START' THEN 1 END)
+          INTO v_n, v_num FROM capf_tbspc_forecast;
+        chk_int  ('quiet_days = 31: STOPPED not restarted (30 quiet days)', v_n, 1);
+        chk_int  ('quiet_days = 31: STARTED still START', v_num, 1);
+        knob('quiet_days', 30);
+        SELECT restart_reason INTO v_str FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STOPPED';
+        chk_str  ('quiet_days = 30: STOPPED restart_reason', v_str, 'STOP');
+        -- START needs min_train_days days left: 26 are, 27 are not.
+        knob('quiet_days', 14);
+        knob('min_train_days', 27);
+        SELECT restart_reason, train_n INTO v_str, v_n
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STARTED';
+        chk_true ('min_train_days = 27: STARTED not restarted (26 days left)', v_str IS NULL AND v_n = 90);
+        knob('min_train_days', 26);
+        SELECT restart_reason, train_n, quality INTO v_str, v_n, v_str2
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STARTED';
+        chk_true ('min_train_days = 26: STARTED START, 26 days, OK (got ' || v_str || ' ' || v_n || ' ' || v_str2 || ')',
+                  v_str = 'START' AND v_n = 26 AND v_str2 = 'OK');
+        knob('min_train_days', 14);
+        knob('quiet_chance', 2);
+        knob('growth_floor', 1);
+        SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+          WHERE knob IN ('quiet_chance', 'growth_floor') AND status = 'BAD';
+        chk_int  ('CAP_CFG_CHECK quiet_chance = 2 / growth_floor = 1', v_n, 2);
+    EXCEPTION
+        WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u05_quiet; RAISE;
+    END;
+    ROLLBACK TO SAVEPOINT u05_quiet;
+    SELECT restart_reason INTO v_str FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STOPPED';
+    chk_str('quiet_days restored: STOPPED restart_reason', v_str, 'STOP');
+
     DBMS_OUTPUT.PUT_LINE('=== clamp + limit_below_used (FIX_OVERFULL) ===');
     -- Flat at 1.5 GiB under a 1 GiB override: FLAT, so days_to_full is NULL
     -- (no growth to count with), not 0. limit_below_used and pct_used say
@@ -689,6 +904,333 @@ BEGIN
         WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u4a_clamp; RAISE;
     END;
     ROLLBACK TO SAVEPOINT u4a_clamp;
+
+    -- ==================================================================
+    -- U09 BEGIN -- the shared disk (ddl/33: CAPF_TBSPC_SHARED, CAPF_DISK;
+    -- CAPR_DISK; the DISK_FULL alert).
+    -- ==================================================================
+    DBMS_OUTPUT.PUT_LINE('=== U09 shared disk (CAPF_TBSPC_SHARED / CAPF_DISK / CAPR_DISK / DISK_FULL) ===');
+    DECLARE
+        c_mib CONSTANT NUMBER := 1048576;
+        c_gib CONSTANT NUMBER := 1073741824;
+        TYPE t_row IS RECORD (
+            is_current  VARCHAR2(1),  quality     VARCHAR2(20), days_to_full NUMBER,
+            limit_bytes NUMBER,       alloc       NUMBER,       own_limit    NUMBER,
+            limit_live  VARCHAR2(1),  grow        NUMBER,       ext_days     NUMBER,
+            dtf_own     NUMBER,       dtf_sh      NUMBER,       dtf_shw      NUMBER,
+            lim_sh      NUMBER,       stopped_by  VARCHAR2(5));
+        TYPE t_rows IS TABLE OF t_row INDEX BY VARCHAR2(30);
+        t      t_rows;
+        -- CAPF_DISK / CAPR_DISK of the fixture database.
+        k_name VARCHAR2(30); k_src  VARCHAR2(10); k_asof DATE;   k_free NUMBER;
+        k_dtf  NUMBER;       k_dtfw NUMBER;       k_day  DATE;   k_nts  NUMBER;
+        k_ngr  NUMBER;       k_nok  NUMBER;       k_grow NUMBER; k_top  VARCHAR2(400);
+        k_raw  VARCHAR2(4);  k_sev  VARCHAR2(4);  k_gate VARCHAR2(20); k_msg VARCHAR2(4000);
+        k_take NUMBER;
+        v_lin  NUMBER := meta_n('LINEAR_CUR');     -- 1300 MiB, FIX_FILLING's too
+        v_sta  NUMBER := meta_n('STARTED_CUR');    -- 1424 MiB
+        v_fdtf NUMBER := meta_n('FILLING_DTF');    -- 20
+        d_live DATE   := meta_d('LIVE_AT');
+
+        -- One read of each view per state.
+        PROCEDURE load IS
+        BEGIN
+            t.DELETE;
+            FOR r IN (SELECT tablespace_name, is_current, quality, days_to_full, limit_bytes,
+                             alloc_bytes, limit_own_bytes, limit_live, grow_bpd, ext_days,
+                             dtf_own, dtf_shared, dtf_shared_worst, limit_shared_bytes, stopped_by
+                      FROM   capf_tbspc_shared WHERE dbid = v_dbid) LOOP
+                t(r.tablespace_name).is_current   := r.is_current;
+                t(r.tablespace_name).quality      := r.quality;
+                t(r.tablespace_name).days_to_full := r.days_to_full;
+                t(r.tablespace_name).limit_bytes  := r.limit_bytes;
+                t(r.tablespace_name).alloc        := r.alloc_bytes;
+                t(r.tablespace_name).own_limit    := r.limit_own_bytes;
+                t(r.tablespace_name).limit_live   := r.limit_live;
+                t(r.tablespace_name).grow         := r.grow_bpd;
+                t(r.tablespace_name).ext_days     := r.ext_days;
+                t(r.tablespace_name).dtf_own      := r.dtf_own;
+                t(r.tablespace_name).dtf_sh       := r.dtf_shared;
+                t(r.tablespace_name).dtf_shw      := r.dtf_shared_worst;
+                t(r.tablespace_name).lim_sh       := r.limit_shared_bytes;
+                t(r.tablespace_name).stopped_by   := r.stopped_by;
+            END LOOP;
+            SELECT disk_name, disk_source, disk_as_of, disk_free_gb, disk_dtf, disk_dtf_worst,
+                   disk_full_day, n_tbspc, n_growing, n_growing_ok, grow_mb, top_growers,
+                   raw_sev, sev, gated_by, message
+              INTO k_name, k_src, k_asof, k_free, k_dtf, k_dtfw,
+                   k_day, k_nts, k_ngr, k_nok, k_grow, k_top,
+                   k_raw, k_sev, k_gate, k_msg
+              FROM capr_disk WHERE dbid = v_dbid;
+            -- What the growing tablespaces take from the disk until they are
+            -- stuck: the free space, when the disk fills.
+            k_take := 0;
+            v_str := t.FIRST;
+            WHILE v_str IS NOT NULL LOOP
+                IF t(v_str).grow IS NOT NULL THEN
+                    k_take := k_take + t(v_str).lim_sh - t(v_str).alloc;
+                END IF;
+                v_str := t.NEXT(v_str);
+            END LOOP;
+        END load;
+        PROCEDURE free_mib(p_mib NUMBER) IS
+        BEGIN
+            UPDATE cap_disk_override SET free_gb = p_mib / 1024 WHERE dbid = v_dbid;
+            load;
+        END;
+    BEGIN
+        -- ---- the fixture as loaded: source LIVE, 40 GiB free, no alert ----
+        load;
+        SELECT COUNT(*) INTO v_n FROM capf_tbspc_forecast WHERE dbid = v_dbid;
+        chk_int ('CAPF_TBSPC_SHARED has one row per CAPF_TBSPC_FORECAST row', t.COUNT, v_n);
+        SELECT COUNT(*) INTO v_n FROM capf_disk;
+        chk_int ('CAPF_DISK rows (one database, one disk)', v_n, 1);
+        chk_str ('disk_name without an operator row', k_name, 'DATAFILES');
+        chk_str ('disk_source', k_src, 'LIVE');
+        chk_close('disk_free_gb = MIN(live ceiling - allocated) over the capped AUTOEXTEND rows',
+                  k_free, meta_n('LIVE_FREE_GB'), 0.000000001);
+        chk_int ('disk_as_of = the copy''s collected_at', (k_asof - d_live) * 86400, 0);
+        SELECT COUNT(*) INTO v_n FROM capf_tbspc_forecast WHERE dbid = v_dbid AND is_current = 'Y';
+        chk_int ('n_tbspc = the current tablespaces', k_nts, v_n);
+        SELECT COUNT(*) INTO v_n FROM capf_tbspc_forecast
+          WHERE dbid = v_dbid AND is_current = 'Y' AND quality <> 'CYCLIC' AND slope_bpd > 0;
+        chk_int ('n_growing = current, not CYCLIC, slope > 0', k_ngr, v_n);
+        chk_true('disk fills after dtf_warn (got ' || k_dtf || '): no DISK_FULL as loaded',
+                 k_dtf > 90 AND k_sev = 'OK' AND k_raw = 'OK' AND k_msg IS NULL AND k_gate IS NULL);
+        chk_true('disk_dtf_worst <= disk_dtf (got ' || k_dtfw || ')', k_dtfw <= k_dtf);
+        chk_int ('disk_full_day = newest day + disk_dtf', k_day - meta_last_day, k_dtf);
+        chk_close('the growers'' takes add up to the free space', k_take, meta_n('LIVE_FREE_GB') * c_gib, 0.000000001);
+        v_n := 0;
+        v_str := t.FIRST;
+        WHILE v_str IS NOT NULL LOOP
+            IF t(v_str).limit_live = 'Y' THEN v_n := v_n + 1; END IF;
+            v_str := t.NEXT(v_str);
+        END LOOP;
+        chk_int ('limit_live = Y rows', v_n, 3);
+        chk_true('limit_live = Y on FIX_LINEAR, FIX_SPIKE, FIX_OVERRIDE',
+                 t('FIX_LINEAR').limit_live = 'Y' AND t('FIX_SPIKE').limit_live = 'Y'
+                 AND t('FIX_OVERRIDE').limit_live = 'Y');
+        chk_int ('LINEAR limit_own_bytes = allocated + 40 GiB', t('FIX_LINEAR').own_limit, v_lin + 40 * c_gib);
+        chk_int ('LINEAR limit_bytes unchanged (50 GiB)', t('FIX_LINEAR').limit_bytes, 50 * c_gib);
+        chk_str ('FILLING limit_live (ceiling = maxsize)', t('FIX_FILLING').limit_live, 'N');
+        -- FIX_OVERRIDE: a live ceiling under its OVERRIDE limit caps the
+        -- tablespace and says nothing about the disk (262.5 MiB would be it).
+        chk_int ('OVERRIDE limit_own_bytes = the live ceiling', t('FIX_OVERRIDE').own_limit, meta_n('OVERRIDE_LIVE_LIMIT'));
+        chk_int ('OVERRIDE dtf_own (262.5 MiB at 10 MiB/day)', t('FIX_OVERRIDE').dtf_own, meta_n('OVERRIDE_DTF_OWN'));
+        chk_int ('OVERRIDE dtf_shared = dtf_own', t('FIX_OVERRIDE').dtf_sh, meta_n('OVERRIDE_DTF_OWN'));
+        chk_int ('OVERRIDE days_to_full unchanged', t('FIX_OVERRIDE').days_to_full, meta_n('OVERRIDE_DTF'));
+        chk_int ('FILLING dtf_shared = days_to_full', t('FIX_FILLING').dtf_sh, v_fdtf);
+        chk_str ('FILLING stopped_by', t('FIX_FILLING').stopped_by, 'LIMIT');
+        chk_int ('FILLING limit_shared_bytes = its own limit', t('FIX_FILLING').lim_sh, t('FIX_FILLING').limit_bytes);
+        chk_true('FLAT not growing: no rate, no dtf_shared, no stopped_by',
+                 t('FIX_FLAT').grow IS NULL AND t('FIX_FLAT').dtf_sh IS NULL AND t('FIX_FLAT').stopped_by IS NULL);
+        chk_int ('FLAT limit_shared_bytes = allocated (600 MiB)', t('FIX_FLAT').lim_sh, 600 * c_mib);
+        chk_true('CYCLIC and stopped tablespaces do not grow',
+                 t('FIX_CYCLIC').grow IS NULL AND t('FIX_CYCLIC_UP').grow IS NULL AND t('FIX_STOPPED').grow IS NULL);
+        chk_true('DROPPED (not current): shared columns NULL',
+                 t('FIX_DROPPED').is_current = 'N' AND t('FIX_DROPPED').grow IS NULL
+                 AND t('FIX_DROPPED').dtf_sh IS NULL AND t('FIX_DROPPED').lim_sh IS NULL
+                 AND t('FIX_DROPPED').dtf_own IS NULL);
+        SELECT COUNT(*) INTO v_n FROM capf_tbspc_shared s
+          JOIN capf_tbspc_forecast f ON f.dbid = s.dbid AND f.con_dbid = s.con_dbid
+                                    AND f.tablespace_name = s.tablespace_name
+          WHERE DECODE(s.days_to_full, f.days_to_full, 0, 1) = 1
+             OR DECODE(s.slope_bpd, f.slope_bpd, 0, 1) = 1 OR s.limit_bytes <> f.limit_bytes;
+        chk_int ('CAPF_TBSPC_SHARED passes days_to_full / slope_bpd / limit_bytes through', v_n, 0);
+        SELECT dtf_shared, limit_shared_gb, disk_name, db_pdb INTO v_num, v_num2, v_str, v_str2
+          FROM capr_tbspc_shared WHERE tablespace_name = 'FIX_FILLING';
+        chk_int ('CAPR_TBSPC_SHARED FILLING dtf_shared', v_num, v_fdtf);
+        chk_close('CAPR_TBSPC_SHARED FILLING limit_shared_gb', v_num2, 1500 / 1024, 0.000000001);
+        chk_str ('CAPR_TBSPC_SHARED FILLING disk_name', v_str, 'DATAFILES');
+        chk_str ('CAPR_TBSPC_SHARED FILLING db_pdb', v_str2, 'FIXCDB');
+        SELECT dtf_shared, stopped_by, limit_own_gb, limit_live, grow_mb INTO v_num, v_str, v_num2, v_c1, v_num3
+          FROM capr_tbspc_shared WHERE tablespace_name = 'FIX_OVERRIDE';
+        chk_true('CAPR_TBSPC_SHARED OVERRIDE (got ' || v_num || ' ' || v_str || ' ' || v_c1 || ')',
+                 v_num = meta_n('OVERRIDE_DTF_OWN') AND v_str = 'LIMIT' AND v_c1 = 'Y'
+                 AND ABS(v_num2 - meta_n('OVERRIDE_LIVE_LIMIT') / c_gib) < 0.000000001);
+        chk_close('CAPR_TBSPC_SHARED OVERRIDE grow_mb', v_num3, 10, 0.000000001);
+        -- rank_shared: growing tablespaces first, the soonest stuck first.
+        SELECT COUNT(*), COUNT(CASE WHEN grow_mb IS NULL THEN 1 END),
+               MIN(CASE WHEN grow_mb IS NULL THEN rank_shared END),
+               MAX(CASE WHEN rank_shared = 1 THEN tablespace_name END),
+               COUNT(DISTINCT rank_shared)
+          INTO v_n, v_num, v_num2, v_str, v_num3 FROM capr_tbspc_shared WHERE dbid = v_dbid;
+        chk_int ('CAPR_TBSPC_SHARED rows', v_n, t.COUNT);
+        chk_true('CAPR_TBSPC_SHARED rank_shared: unique, the not growing rows last (got ' || v_num3 || ' ' || v_num2 || ')',
+                 v_num3 = v_n AND v_num2 = v_n - v_num + 1);
+        chk_str ('CAPR_TBSPC_SHARED rank_shared 1 = FIX_FILLING (stuck in 20 days)', v_str, 'FIX_FILLING');
+
+        -- ---- a designed disk. Three growers and one flat tablespace are
+        -- left (every other one excluded), FIX_LINEAR gets 105 MiB of free
+        -- space inside its files, and the operator sets the free space.
+        --   FIX_LINEAR  10 MiB/day, extends from day 10.5, own limit far
+        --   FIX_FILLING 10 MiB/day, extends now, own limit on day 20
+        --   FIX_STARTED 16 MiB/day, extends now, own limit on day 200.5
+        -- The disk gives 26 MiB/day to day 10.5 (273 MiB), 36 to day 20
+        -- (615 MiB), 26 after that. Uncommitted, then rolled back.
+        SAVEPOINT u09_disk;
+        BEGIN
+            UPDATE cap_tbspc_override SET exclude_flag = 'Y'
+             WHERE dbid = v_dbid AND tablespace_name IN ('FIX_OVERRIDE', 'FIX_OVERFULL');
+            INSERT INTO cap_tbspc_override (dbid, con_dbid, tablespace_name, exclude_flag, note)
+            SELECT x.dbid, x.con_dbid, x.tablespace_name, 'Y', 'run_test U09'
+              FROM cap_fixture_tablespace x
+             WHERE x.contents = 'PERMANENT'
+               AND x.tablespace_name NOT IN ('FIX_LINEAR', 'FIX_FILLING', 'FIX_STARTED', 'FIX_FLAT')
+               AND NOT EXISTS (SELECT 1 FROM cap_tbspc_override o
+                                WHERE o.dbid = x.dbid AND o.con_dbid = x.con_dbid
+                                  AND o.tablespace_name = x.tablespace_name);
+            UPDATE cap_fixture_tbspc_usage SET tablespace_size = tablespace_usedsize + 105 * 128
+             WHERE tablespace_id = 10
+               AND snap_id = (SELECT MAX(snap_id) FROM cap_fixture_tbspc_usage WHERE tablespace_id = 10);
+            -- 1408 MiB: 615 by day 20, then 26 MiB/day for 30.5 days. The
+            -- dbid = 0 row must lose against the database's own.
+            INSERT INTO cap_disk_override (dbid, disk_name, free_gb, set_at, note)
+            VALUES (v_dbid, '/u02', 1408 / 1024, DATE '2026-01-15', 'run_test U09');
+            INSERT INTO cap_disk_override (dbid, disk_name, free_gb, set_at, note)
+            VALUES (0, 'DECOY', 99999, DATE '2020-01-01', 'run_test U09 wildcard');
+            load;
+            chk_int ('designed disk: tablespaces left', t.COUNT, 4);
+            chk_str ('designed disk: disk_name (the dbid row beats dbid = 0)', k_name, '/u02');
+            chk_str ('designed disk: disk_source', k_src, 'OVERRIDE');
+            chk_int ('designed disk: disk_as_of = set_at', k_asof - DATE '2026-01-15', 0);
+            chk_close('designed disk: disk_free_gb', k_free, 1408 / 1024, 0.000000001);
+            chk_true('designed disk: 4 current, 3 growing, 3 at quality OK (got ' || k_nts || ' ' || k_ngr || ' ' || k_nok || ')',
+                     k_nts = 4 AND k_ngr = 3 AND k_nok = 3);
+            chk_close('designed disk: grow_mb = 10 + 10 + 16', k_grow, 36, 0.000000001);
+            chk_str ('designed disk: top_growers', k_top, 'FIX_STARTED 16.0, FIX_FILLING 10.0, FIX_LINEAR 10.0');
+            chk_close('LINEAR ext_days (105 MiB inside its files)', t('FIX_LINEAR').ext_days, 10.5, 0.000000001);
+            chk_int ('1408 MiB: disk_dtf = FLOOR(20 + (1408 - 615) / 26) = FLOOR(50.5)', k_dtf, 50);
+            chk_int ('1408 MiB: disk_dtf_worst (exact lines: no slope CI)', k_dtfw, 50);
+            chk_int ('1408 MiB: disk_full_day', k_day - meta_last_day, 50);
+            chk_int ('1408 MiB: LINEAR dtf_shared', t('FIX_LINEAR').dtf_sh, 50);
+            chk_str ('1408 MiB: LINEAR stopped_by', t('FIX_LINEAR').stopped_by, 'DISK');
+            chk_int ('1408 MiB: LINEAR dtf_shared_worst', t('FIX_LINEAR').dtf_shw, 50);
+            chk_close('1408 MiB: LINEAR limit_shared = 1300 + 10 x 50.5 MiB', t('FIX_LINEAR').lim_sh, v_lin + 505 * c_mib, 0.000000001);
+            chk_int ('1408 MiB: FILLING dtf_shared (its own limit first)', t('FIX_FILLING').dtf_sh, v_fdtf);
+            chk_str ('1408 MiB: FILLING stopped_by', t('FIX_FILLING').stopped_by, 'LIMIT');
+            chk_int ('1408 MiB: FILLING limit_shared = its own limit', t('FIX_FILLING').lim_sh, 1500 * c_mib);
+            chk_int ('1408 MiB: STARTED dtf_shared', t('FIX_STARTED').dtf_sh, 50);
+            chk_int ('1408 MiB: STARTED days_to_full unchanged', t('FIX_STARTED').days_to_full, meta_n('STARTED_DTF'));
+            chk_close('1408 MiB: STARTED limit_shared = 1424 + 16 x 50.5 MiB', t('FIX_STARTED').lim_sh, v_sta + 808 * c_mib, 0.000000001);
+            chk_true('1408 MiB: FLAT no dtf_shared, limit_shared = allocated',
+                     t('FIX_FLAT').dtf_sh IS NULL AND t('FIX_FLAT').lim_sh = 600 * c_mib);
+            chk_close('1408 MiB: takes 400 + 200 + 808 MiB = the free space', k_take, 1408 * c_mib, 0.000000001);
+            chk_true('1408 MiB: raw_sev WARN, not gated', k_raw = 'WARN' AND k_sev = 'WARN' AND k_gate IS NULL);
+            chk_str ('1408 MiB: DISK_FULL message', k_msg,
+                     'Disk /u02 forecast full in 50 days, on ' || TO_CHAR(meta_last_day + 50, 'YYYY-MM-DD')
+                     || ' (1.38 GiB free, 3 growing tablespaces take 36.0 MiB/day, worst case 50 days).'
+                     || ' Fastest growing: FIX_STARTED 16.0, FIX_FILLING 10.0, FIX_LINEAR 10.0 MiB/day');
+            SELECT COUNT(*), MAX(severity), MAX(value), MAX(threshold), MAX(alarm_threshold),
+                   MAX(unit || '/' || direction), MAX(series_key), MAX(con_dbid), MAX(state_key), MAX(day_dt)
+              INTO v_n, v_str, v_num, v_num2, v_num3, v_str2, v_msg, n_aux, k_msg, d_rsd
+              FROM capr_alerts WHERE kind = 'DISK_FULL';
+            chk_int ('1408 MiB: DISK_FULL alerts', v_n, 1);
+            chk_true('1408 MiB: DISK_FULL WARN, value 50 DAYS LE, threshold 90 (got ' || v_str || ' ' || v_num || ' ' || v_num2 || ' ' || v_str2 || ')',
+                     v_str = 'WARN' AND v_num = 50 AND v_num2 = 90 AND v_num3 = 90 AND v_str2 = 'DAYS/LE');
+            chk_str ('1408 MiB: DISK_FULL series_key', v_msg, 'DISK:/u02');
+            chk_int ('1408 MiB: DISK_FULL con_dbid = dbid', n_aux, v_dbid);
+            chk_str ('1408 MiB: DISK_FULL state_key', k_msg, 'DISK_FULL|' || v_dbid || '|' || v_dbid || '|DISK:/u02|-');
+            chk_int ('1408 MiB: DISK_FULL day_dt = newest day', d_rsd - meta_last_day, 0);
+
+            -- 758 MiB: 615 by day 20, then 26 MiB/day for 5.5 days. CRIT.
+            free_mib(758);
+            chk_int ('758 MiB: disk_dtf = FLOOR(25.5)', k_dtf, 25);
+            chk_int ('758 MiB: LINEAR dtf_shared', t('FIX_LINEAR').dtf_sh, 25);
+            chk_int ('758 MiB: FILLING dtf_shared (own limit, day 20)', t('FIX_FILLING').dtf_sh, v_fdtf);
+            chk_close('758 MiB: STARTED limit_shared = 1424 + 16 x 25.5 MiB', t('FIX_STARTED').lim_sh, v_sta + 408 * c_mib, 0.000000001);
+            chk_close('758 MiB: takes 150 + 200 + 408 MiB', k_take, 758 * c_mib, 0.000000001);
+            chk_true('758 MiB: CRIT', k_raw = 'CRIT' AND k_sev = 'CRIT');
+            SELECT COUNT(*), MAX(severity), MAX(threshold), MAX(alarm_threshold)
+              INTO v_n, v_str, v_num, v_num2 FROM capr_alerts WHERE kind = 'DISK_FULL';
+            chk_true('758 MiB: one DISK_FULL CRIT, threshold 30, alarm_threshold 90 (got ' || v_n || ' ' || v_str || ' ' || v_num || ')',
+                     v_n = 1 AND v_str = 'CRIT' AND v_num = 30 AND v_num2 = 90);
+
+            -- 453 MiB: 273 by day 10.5, then 36 MiB/day for 5 days. The disk
+            -- is full on day 15.5, before FIX_FILLING's own limit.
+            free_mib(453);
+            chk_int ('453 MiB: disk_dtf = FLOOR(15.5)', k_dtf, 15);
+            chk_int ('453 MiB: FILLING dtf_shared (the disk first)', t('FIX_FILLING').dtf_sh, 15);
+            chk_str ('453 MiB: FILLING stopped_by', t('FIX_FILLING').stopped_by, 'DISK');
+            chk_close('453 MiB: FILLING limit_shared = 1300 + 10 x 15.5 MiB', t('FIX_FILLING').lim_sh, v_lin + 155 * c_mib, 0.000000001);
+            chk_close('453 MiB: LINEAR limit_shared = 1300 + 10 x 15.5 MiB', t('FIX_LINEAR').lim_sh, v_lin + 155 * c_mib, 0.000000001);
+            chk_close('453 MiB: takes 50 + 155 + 248 MiB', k_take, 453 * c_mib, 0.000000001);
+
+            -- 143 MiB: 26 MiB/day for 5.5 days. FIX_LINEAR still has room
+            -- inside its files then: it is stuck on day 10.5, at its
+            -- allocated size, and takes nothing.
+            free_mib(143);
+            chk_int ('143 MiB: disk_dtf = FLOOR(5.5)', k_dtf, 5);
+            chk_int ('143 MiB: LINEAR dtf_shared = FLOOR(ext_days 10.5)', t('FIX_LINEAR').dtf_sh, 10);
+            chk_int ('143 MiB: LINEAR limit_shared = allocated', t('FIX_LINEAR').lim_sh, t('FIX_LINEAR').alloc);
+            chk_int ('143 MiB: FILLING dtf_shared', t('FIX_FILLING').dtf_sh, 5);
+            chk_int ('143 MiB: STARTED dtf_shared', t('FIX_STARTED').dtf_sh, 5);
+            chk_close('143 MiB: takes 0 + 55 + 88 MiB', k_take, 143 * c_mib, 0.000000001);
+
+            -- The gate: no growing tablespace at quality OK (every fit short).
+            knob('min_train_days', 200);
+            load;
+            chk_true('gate: raw_sev CRIT, NO OK FIT, sev OK, no message (got ' || k_raw || ' ' || k_gate || ' ' || k_sev || ' ' || k_nok || ')',
+                     k_raw = 'CRIT' AND k_gate = 'NO OK FIT' AND k_sev = 'OK' AND k_msg IS NULL AND k_nok = 0);
+            knob('min_train_days', 14);
+
+            -- No free space: full now.
+            free_mib(0);
+            chk_int ('0 MiB: disk_dtf', k_dtf, 0);
+            chk_int ('0 MiB: FILLING dtf_shared', t('FIX_FILLING').dtf_sh, 0);
+            chk_int ('0 MiB: LINEAR dtf_shared (room inside its files)', t('FIX_LINEAR').dtf_sh, 10);
+
+            -- More than the growers can take: the disk does not fill.
+            free_mib(10000 * 1024);
+            chk_true('10000 GiB: the disk does not fill, no alert',
+                     k_dtf IS NULL AND k_dtfw IS NULL AND k_day IS NULL AND k_sev = 'OK' AND k_src = 'OVERRIDE');
+            chk_int ('10000 GiB: FILLING dtf_shared = days_to_full', t('FIX_FILLING').dtf_sh, v_fdtf);
+            chk_int ('10000 GiB: STARTED dtf_shared = days_to_full', t('FIX_STARTED').dtf_sh, meta_n('STARTED_DTF'));
+            chk_int ('10000 GiB: STARTED limit_shared = its limit', t('FIX_STARTED').lim_sh, t('FIX_STARTED').limit_bytes);
+            chk_int ('10000 GiB: LINEAR limit_shared = the live ceiling', t('FIX_LINEAR').lim_sh, v_lin + 40 * c_gib);
+
+            -- An operator row without free_gb only names the disk: the free
+            -- space is the live one (FIX_SPIKE is excluded here, so FIX_LINEAR
+            -- alone: 40 GiB less the 105 MiB its files gained).
+            UPDATE cap_disk_override SET free_gb = NULL WHERE dbid = v_dbid;
+            load;
+            chk_true('name only: disk_name /u02, source LIVE', k_name = '/u02' AND k_src = 'LIVE');
+            chk_close('name only: disk_free_gb = 40 GiB - 105 MiB', k_free, 40 - 105 / 1024, 0.000000001);
+            chk_int ('name only: disk_as_of = collected_at', (k_asof - d_live) * 86400, 0);
+
+            -- The copy ages: stale_days (3) days behind the newest day it
+            -- still counts, one more and it does not.
+            DELETE FROM cap_disk_override WHERE dbid IN (0, v_dbid);
+            UPDATE cap_fixture_tbspc_live SET collected_at = collected_at - 3;
+            load;
+            chk_true('copy 3 days old: still LIVE', k_src = 'LIVE' AND t('FIX_LINEAR').limit_live = 'Y');
+            UPDATE cap_fixture_tbspc_live SET collected_at = collected_at - 1;
+            load;
+            chk_true('copy 4 days old: source NONE, disk columns NULL (got ' || k_src || ')',
+                     k_src = 'NONE' AND k_name = 'DATAFILES' AND k_free IS NULL AND k_dtf IS NULL
+                     AND k_asof IS NULL AND k_sev = 'OK');
+            chk_true('copy 4 days old: no live limit',
+                     t('FIX_LINEAR').limit_live = 'N' AND t('FIX_LINEAR').own_limit = t('FIX_LINEAR').limit_bytes);
+            chk_true('copy 4 days old: dtf_shared = days_to_full, limit_shared = limit',
+                     t('FIX_FILLING').dtf_sh = v_fdtf AND t('FIX_STARTED').dtf_sh = meta_n('STARTED_DTF')
+                     AND t('FIX_LINEAR').dtf_sh = t('FIX_LINEAR').days_to_full
+                     AND t('FIX_STARTED').lim_sh = t('FIX_STARTED').limit_bytes
+                     AND t('FIX_FLAT').lim_sh = t('FIX_FLAT').limit_bytes);
+            -- No copy at all.
+            DELETE FROM cap_fixture_tbspc_live;
+            load;
+            chk_true('no copy: source NONE, dtf_shared = days_to_full',
+                     k_src = 'NONE' AND k_free IS NULL AND k_dtf IS NULL
+                     AND t('FIX_FILLING').dtf_sh = v_fdtf AND t('FIX_LINEAR').limit_live = 'N');
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u09_disk; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT u09_disk;
+        load;
+        chk_true('rolled back: source LIVE, DATAFILES, every tablespace again',
+                 k_src = 'LIVE' AND k_name = 'DATAFILES' AND t.COUNT > 4);
+    END;
+    -- U09 END
 
     DBMS_OUTPUT.PUT_LINE('=== staleness (stale_days / is_current, FIX_DROPPED) ===');
     SELECT cfg_value INTO v_num FROM cap_config WHERE cfg_name = 'stale_days';
@@ -1317,6 +1859,9 @@ BEGIN
           WHERE kind = 'SERIES_LIMIT' AND series_key NOT IN ('SESSIONS','ASM_DG:+DATA');
         chk_int('SERIES_LIMIT only for SESSIONS and ASM_DG:+DATA', v_n, 0);
         SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap
+          WHERE series_key IN ('IOPS', 'IO_MBPS');
+        chk_int('no alert of any kind for IOPS / IO_MBPS', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap
           WHERE kind = 'SERIES_NEARLIMIT' AND series_key = 'SESSIONS';
         chk_int('no SERIES_NEARLIMIT for SESSIONS (88%, under 90)', v_n, 0);
         SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap
@@ -1331,6 +1876,194 @@ BEGIN
         chk_int('CAPR_SERIES SESSIONS ranks first', v_num, 1);
         SELECT COUNT(*) INTO v_n FROM capr_series WHERE db_pdb <> 'FIXCDB';
         chk_int('CAPR_SERIES resolves db_pdb', v_n, 0);
+    END;
+
+    -- M27 I/O series. The fixture's closed form (test/fixture_install.sql):
+    -- a night interval at IOPS_NIGHT / IO_MBPS_NIGHT and a day interval at
+    -- IOPS_DAY0 + 10 * i / IO_MBPS_DAY, so the day's p95 of its two interval
+    -- rates is lo + 0.95 * (hi - lo): IOPS = IOPS_BASE + IOPS_SLOPE * i and
+    -- IO_MBPS = IO_MBPS_P95 on every complete day.
+    DECLARE
+        d_last  DATE   := meta_d('LAST_DAY');
+        d_base  DATE   := meta_d('BASE_DAY');
+        d_part  DATE   := meta_d('PARTIAL_DAY');
+        n_days  NUMBER := meta_d('LAST_DAY') - meta_d('BASE_DAY') + 1;
+        n_base  NUMBER := meta_n('IOPS_BASE');
+        n_slp   NUMBER := meta_n('IOPS_SLOPE');
+        n_mb    NUMBER := meta_n('IO_MBPS_P95');
+        n_pdb   NUMBER := meta_n('PDB_CON_DBID');
+        v_u     VARCHAR2(40);
+        v_c     VARCHAR2(1);
+        v_lim   NUMBER;
+        v_cov   NUMBER;
+        v_ivl   NUMBER;
+        d_row   DATE;
+    BEGIN
+        DBMS_OUTPUT.PUT_LINE('=== M27 I/O series (IOPS / IO_MBPS) ===');
+        SELECT COUNT(*), COUNT(DISTINCT stat_name) INTO v_n, v_num FROM capv_sysstat
+          WHERE stat_name IN ('physical read total IO requests', 'physical write total IO requests',
+                              'physical read total bytes', 'physical write total bytes');
+        chk_int('CAPV_SYSSTAT I/O rows (241 snaps x 4 counters)', v_n, 964);
+        chk_int('CAPV_SYSSTAT I/O counter names', v_num, 4);
+
+        SELECT value, unit, limit_value, n_samples, covered_sec, is_complete, max_interval_hours
+          INTO v_num, v_u, v_lim, v_n, v_cov, v_c, v_ivl
+          FROM capd_series_daily
+          WHERE dbid = v_dbid AND con_dbid = v_dbid AND series = 'IOPS' AND day_dt = d_probe;
+        chk_close('IOPS probe day = p95 of the night and day interval rates',
+                  v_num, n_base + n_slp * (d_probe - d_base), 0.000000001);
+        chk_str  ('IOPS unit', v_u, 'IO_PER_SEC');
+        chk_true ('IOPS has no ceiling on the probe day', v_lim IS NULL);
+        chk_int  ('IOPS probe day n_samples (two snapshots)', v_n, 2);
+        chk_int  ('IOPS probe day covered_sec', v_cov, 86400);
+        chk_str  ('IOPS probe day is_complete', v_c, 'Y');
+        chk_int  ('IOPS probe day max_interval_hours', v_ivl, 12);
+        SELECT value, unit, limit_value, n_samples, covered_sec, is_complete
+          INTO v_num, v_u, v_lim, v_n, v_cov, v_c
+          FROM capd_series_daily
+          WHERE dbid = v_dbid AND con_dbid = v_dbid AND series = 'IO_MBPS' AND day_dt = d_probe;
+        chk_close('IO_MBPS probe day = p95 of 20 and 50 MB/s', v_num, n_mb, 0.000000001);
+        chk_str  ('IO_MBPS unit', v_u, 'MB_PER_SEC');
+        chk_true ('IO_MBPS has no ceiling on the probe day', v_lim IS NULL);
+        chk_int  ('IO_MBPS probe day n_samples (two snapshots)', v_n, 2);
+        chk_int  ('IO_MBPS probe day covered_sec', v_cov, 86400);
+        chk_str  ('IO_MBPS probe day is_complete', v_c, 'Y');
+
+        -- Every complete day, not only the probe day.
+        SELECT COUNT(*), COUNT(CASE WHEN ABS(value - (n_base + n_slp * (day_dt - d_base))) > 0.000001 THEN 1 END)
+          INTO v_n, v_num
+          FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IOPS' AND is_complete = 'Y';
+        chk_int('IOPS complete days (all but day 0, the restart and the partial day)', v_n, n_days - 3);
+        chk_int('IOPS complete days off the closed form', v_num, 0);
+        SELECT COUNT(*), COUNT(CASE WHEN ABS(value - n_mb) > 0.000001 THEN 1 END)
+          INTO v_n, v_num
+          FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IO_MBPS' AND is_complete = 'Y';
+        chk_int('IO_MBPS complete days', v_n, n_days - 3);
+        chk_int('IO_MBPS complete days off the closed form', v_num, 0);
+
+        -- One valid interval: the day reads that interval's rate, incomplete.
+        SELECT value, covered_sec, is_complete INTO v_num, v_cov, v_c FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IOPS' AND day_dt = d_part;
+        chk_close('IOPS partial day = the night interval rate', v_num, meta_n('IOPS_NIGHT'), 0.000000001);
+        chk_int  ('IOPS partial day covered_sec', v_cov, 43200);
+        chk_str  ('IOPS partial day is_complete', v_c, 'N');
+        SELECT value, is_complete INTO v_num, v_c FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IO_MBPS' AND day_dt = d_part;
+        chk_close('IO_MBPS partial day = the night interval rate', v_num, meta_n('IO_MBPS_NIGHT'), 0.000000001);
+        chk_str  ('IO_MBPS partial day is_complete', v_c, 'N');
+        SELECT value, is_complete INTO v_num, v_c FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IOPS' AND day_dt = d_base;
+        chk_close('IOPS first day = the day interval rate', v_num, meta_n('IOPS_DAY0'), 0.000000001);
+        chk_str  ('IOPS first day is_complete', v_c, 'N');
+        SELECT value, is_complete INTO v_num, v_c FROM capd_series_daily
+          WHERE dbid = v_dbid AND series = 'IO_MBPS' AND day_dt = d_base;
+        chk_close('IO_MBPS first day = the day interval rate', v_num, meta_n('IO_MBPS_DAY'), 0.000000001);
+        chk_str  ('IO_MBPS first day is_complete', v_c, 'N');
+        SELECT COUNT(*) INTO v_n FROM capd_series_daily
+          WHERE dbid = v_dbid AND series IN ('IOPS', 'IO_MBPS') AND day_dt = d_restart;
+        chk_int('IOPS / IO_MBPS restart day excluded', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM capd_series_daily
+          WHERE series IN ('IOPS', 'IO_MBPS') AND (limit_value IS NOT NULL OR gap_flag = 'Y' OR value < 0);
+        chk_int('IOPS / IO_MBPS: no ceiling, no gap day, no negative rate', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM capd_series_daily
+          WHERE series IN ('IOPS', 'IO_MBPS') AND (dbid <> v_dbid OR con_dbid <> v_dbid);
+        chk_int('IOPS / IO_MBPS only where the fixture has I/O counters (the root)', v_n, 0);
+
+        -- The fit: IOPS a straight line, IO_MBPS constant.
+        SELECT train_n, slope_per_day, r2, quality, cur_val, proj_30, days_to_limit, cur_limit, pct_of_limit
+          INTO v_n, v_num, v_r2, v_str, v_num2, v_num3, v_lim, v_cov, v_ivl
+          FROM capf_series_forecast WHERE dbid = v_dbid AND series = 'IOPS';
+        chk_int  ('IOPS train_n = the REDO_GB_DAY training days', v_n, meta_n('REDO_TRAIN_N'));
+        chk_close('IOPS slope_per_day (0.95 x 10 a day)', v_num, n_slp, 0.000000001);
+        chk_close('IOPS r2 (a straight line)', v_r2, 1, 0.000000001);
+        chk_str  ('IOPS quality', v_str, 'OK');
+        chk_close('IOPS cur_val', v_num2, meta_n('IOPS_CUR'), 0.000000001);
+        chk_close('IOPS proj_30 = cur_val + 30 x slope', v_num3, meta_n('IOPS_CUR') + 30 * n_slp, 0.000000001);
+        chk_true ('IOPS days_to_limit / cur_limit / pct_of_limit NULL (no ceiling)',
+                  v_lim IS NULL AND v_cov IS NULL AND v_ivl IS NULL);
+        SELECT train_n, slope_per_day, quality, cur_val, days_to_limit
+          INTO v_n, v_num, v_str, v_num2, v_lim
+          FROM capf_series_forecast WHERE dbid = v_dbid AND series = 'IO_MBPS';
+        chk_int  ('IO_MBPS train_n', v_n, meta_n('REDO_TRAIN_N'));
+        chk_close('IO_MBPS slope_per_day (constant)', v_num, 0, 0.000000001);
+        chk_str  ('IO_MBPS quality (constant -> FLAT)', v_str, 'FLAT');
+        chk_close('IO_MBPS cur_val', v_num2, n_mb, 0.000000001);
+        chk_true ('IO_MBPS days_to_limit NULL (no ceiling)', v_lim IS NULL);
+        SELECT COUNT(*), MIN(sev) INTO v_n, v_str FROM capr_series
+          WHERE dbid = v_dbid AND series IN ('IOPS', 'IO_MBPS');
+        chk_int('CAPR_SERIES lists IOPS and IO_MBPS', v_n, 2);
+        chk_str('CAPR_SERIES IOPS / IO_MBPS sev', v_str, 'OK');
+        SELECT COUNT(*) INTO v_n FROM capr_severity
+          WHERE fit_kind = 'SERIES' AND series_key IN ('IOPS', 'IO_MBPS') AND sev <> 'OK';
+        chk_int('CAPR_SEVERITY: no IOPS / IO_MBPS row above OK', v_n, 0);
+
+        -- Anomaly layer: scored on the level, floored by the two knobs, and a
+        -- straight line or a constant never flags.
+        SELECT COUNT(*), MIN(thr_floor), MAX(thr_floor), MIN(unit), MIN(anomaly_kind), MIN(alert_kind)
+          INTO v_n, v_num, v_num2, v_u, v_str, v_str2
+          FROM capa_obs WHERE kind = 'SERIES' AND series = 'IOPS';
+        chk_int('CAPA_OBS IOPS rows (every day but the restart day)', v_n, n_days - 1);
+        chk_true('CAPA_OBS IOPS thr_floor = series_floor_iops 100', v_num = 100 AND v_num2 = 100);
+        chk_str ('CAPA_OBS IOPS unit', v_u, 'IO_PER_SEC');
+        chk_str ('CAPA_OBS IOPS anomaly_kind', v_str, 'SERIES_LEVEL');
+        chk_str ('CAPA_OBS IOPS alert_kind', v_str2, 'SERIES_ANOM');
+        SELECT COUNT(*), MIN(thr_floor), MAX(thr_floor), MIN(unit) INTO v_n, v_num, v_num2, v_u
+          FROM capa_obs WHERE kind = 'SERIES' AND series = 'IO_MBPS';
+        chk_int('CAPA_OBS IO_MBPS rows', v_n, n_days - 1);
+        chk_true('CAPA_OBS IO_MBPS thr_floor = series_floor_mbps 10', v_num = 10 AND v_num2 = 10);
+        chk_str ('CAPA_OBS IO_MBPS unit', v_u, 'MB_PER_SEC');
+        SELECT COUNT(*), COUNT(anomaly_flag) INTO v_n, v_num FROM capa_anom
+          WHERE kind = 'SERIES' AND series IN ('IOPS', 'IO_MBPS');
+        chk_int('CAPA_ANOM IOPS / IO_MBPS rows (2 series x 2 day modes)', v_n, 4 * (n_days - 1));
+        chk_int('IOPS / IO_MBPS never flag', v_num, 0);
+        SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'series_floor_iops';
+        chk_str('CAP_CFG_CHECK series_floor_iops', v_str, 'OK');
+        SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'series_floor_mbps';
+        chk_str('CAP_CFG_CHECK series_floor_mbps', v_str, 'OK');
+        SAVEPOINT m27_knob;
+        BEGIN
+            knob('series_floor_iops', -1);
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'series_floor_iops';
+            chk_str('CAP_CFG_CHECK series_floor_iops -1', v_str, 'BAD');
+            knob('series_floor_iops', 250);
+            SELECT MIN(thr_floor) INTO v_num FROM capa_obs WHERE kind = 'SERIES' AND series = 'IOPS';
+            chk_int('series_floor_iops 250 -> CAPA_OBS thr_floor', v_num, 250);
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT m27_knob; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT m27_knob;
+
+        -- Per container, and one side of a pair is enough: FIXPDB1 gets read
+        -- requests only on the last three snapshots (AWR writes no row for a
+        -- statistic still zero since startup), 100/s over the night and
+        -- 300/s over the day: p95 = 100 + 0.95 x 200 = 290. A write counter
+        -- that first appears on the last snapshot has no predecessor and
+        -- adds nothing. No byte counters: no IO_MBPS row for the PDB.
+        SAVEPOINT m27_pdb;
+        BEGIN
+            INSERT INTO cap_fixture_sysstat VALUES (v_dbid, n_pdb, 1, 2001 + 2 * (n_days - 2), 'physical read total IO requests', 0);
+            INSERT INTO cap_fixture_sysstat VALUES (v_dbid, n_pdb, 1, 2000 + 2 * (n_days - 1), 'physical read total IO requests', 100 * 43200);
+            INSERT INTO cap_fixture_sysstat VALUES (v_dbid, n_pdb, 1, 2001 + 2 * (n_days - 1), 'physical read total IO requests', 400 * 43200);
+            INSERT INTO cap_fixture_sysstat VALUES (v_dbid, n_pdb, 1, 2001 + 2 * (n_days - 1), 'physical write total IO requests', 999999999);
+            SELECT COUNT(*), MAX(value), MAX(n_samples), MAX(day_dt) INTO v_n, v_num, v_num2, d_row
+              FROM capd_series_daily
+              WHERE dbid = v_dbid AND con_dbid = n_pdb AND series = 'IOPS';
+            chk_int  ('FIXPDB1 IOPS rows (the last day only)', v_n, 1);
+            chk_true ('FIXPDB1 IOPS row is the last day', d_row = d_last);
+            chk_close('FIXPDB1 IOPS = 100 + 0.95 x 200 (read side only)', v_num, 290, 0.000000001);
+            chk_int  ('FIXPDB1 IOPS n_samples', v_num2, 2);
+            SELECT COUNT(*) INTO v_n FROM capd_series_daily
+              WHERE dbid = v_dbid AND con_dbid = n_pdb AND series = 'IO_MBPS';
+            chk_int('FIXPDB1 has no IO_MBPS row (no byte counters)', v_n, 0);
+            SELECT value INTO v_num FROM capd_series_daily
+              WHERE dbid = v_dbid AND con_dbid = v_dbid AND series = 'IOPS' AND day_dt = d_last;
+            chk_close('root IOPS on the last day unchanged by the PDB rows', v_num, meta_n('IOPS_CUR'), 0.000000001);
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT m27_pdb; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT m27_pdb;
     END;
 
     -- RAC worst instance (PROCESSES / SESSIONS). The main fixture is one
@@ -2035,6 +2768,9 @@ BEGIN
         a_thin   VARCHAR2(1);
         a_ref    NUMBER;
         a_fb     VARCHAR2(1);
+        a_gdir   VARCHAR2(10);
+        a_sdir   VARCHAR2(10);
+        a_odir   VARCHAR2(10);
         v_xsga   VARCHAR2(1);
         v_exp    NUMBER;
         v_d      DATE;
@@ -2086,8 +2822,9 @@ BEGIN
         PROCEDURE area(p_area VARCHAR2) IS
         BEGIN
             SELECT cover_hours, n_days, best_gain, best_bytes, grow_bytes, slack_bytes, current_bytes,
-                   advisor_thin, reference_bytes, reference_fallback
-              INTO a_cover, a_days, a_best, a_bestb, a_grow, a_slack, a_cur, a_thin, a_ref, a_fb
+                   advisor_thin, reference_bytes, reference_fallback, gain_dir, shrink_dir, overalloc_dir
+              INTO a_cover, a_days, a_best, a_bestb, a_grow, a_slack, a_cur, a_thin, a_ref, a_fb,
+                   a_gdir, a_sdir, a_odir
               FROM capm_area
              WHERE dbid = v_dbid AND instance_number = 1 AND area = p_area;
         END;
@@ -2127,6 +2864,14 @@ BEGIN
         chk_int('CAPM_SNAP in_win snapshots (days 91..120, two a day)', v_num, 60);
         chk_int('CAPM_SNAP every startup is longer than mem_min_uptime_hours', v_num2, 0);
         chk_int('CAPM_SNAP three startups, each first snapshot without a predecessor', v_num3, 3);
+        -- The two startups before the day-60 restart ended before the window:
+        -- days 0..59, two snapshots a day (the partial day keeps both).
+        SELECT COUNT(CASE WHEN in_win = 'Y' AND seg_in_win = 'N' THEN 1 END),
+               COUNT(CASE WHEN seg_in_win = 'N' THEN 1 END)
+          INTO v_n, v_num
+          FROM capm_snap WHERE dbid = v_dbid;
+        chk_int('CAPM_SNAP no window snapshot in a skipped startup', v_n, 0);
+        chk_int('CAPM_SNAP seg_in_win N: the snapshots of the two startups before the day-60 restart', v_num, 120);
         SELECT prev_snap_id, ivl_hours, uptime_hours, latest_snap_id INTO v_num, v_num2, v_num3, v_r2
           FROM capm_snap WHERE dbid = v_dbid AND snap_id = n_latest;
         chk_int('CAPM_SNAP latest snapshot pairs with the one before', v_num, n_latest - 1);
@@ -2139,6 +2884,10 @@ BEGIN
 
         SELECT COUNT(*) INTO v_n FROM capm_delta WHERE dbid = v_dbid AND snap_id IN (2000, 2001 + 2 * n_p, 2121);
         chk_int('CAPM_DELTA no increment ends on the first snapshot of a startup', v_n, 0);
+        SELECT MIN(snap_id) INTO v_n FROM capm_delta WHERE dbid = v_dbid;
+        chk_int('CAPM_DELTA first increment: the second snapshot of the startup that reaches the window', v_n, 2122);
+        SELECT MIN(snap_id) INTO v_n FROM capm_comp WHERE dbid = v_dbid;
+        chk_int('CAPM_COMP first row: the first snapshot of the startup that reaches the window', v_n, 2121);
         SELECT COUNT(*) INTO v_n FROM capm_delta WHERE dbid = v_dbid AND delta < 0;
         chk_int('CAPM_DELTA no negative increment', v_n, 0);
         SELECT COUNT(*), MIN(delta), MAX(delta), COUNT(CASE WHEN prev_snap_id = snap_id - 2 THEN 1 END)
@@ -2237,6 +2986,22 @@ BEGIN
         chk_int  ('CAPM_AREA SGA_TOTAL best_bytes: the smallest size reaching it', a_bestb, 6144 * n_mib);
         SELECT COUNT(*) INTO v_n FROM capm_area WHERE dbid = v_dbid;
         chk_int('CAPM_AREA four advisor areas', v_n, 4);
+        -- The directions of the three ADVISOR signals. PGA: a gain of 10
+        -- points against the knob's 2, a loss of 10 at the nearest smaller
+        -- size (no slack size), 180 over-allocations. Cache: 0.2% under the
+        -- knob's 1%, 0.45% lost at the slack size. Shared pool: 1.5% gained,
+        -- 0.6% lost above the knob's 0.5%. SGA: 0.3% and 1%. Only the PGA
+        -- advisor counts over-allocations.
+        FOR r IN (SELECT 'PGA_TARGET' AS a, 'PRESSURE' AS g, 'NEUTRAL' AS s, 'PRESSURE' AS o FROM dual
+                  UNION ALL SELECT 'BUFFER_CACHE', 'NEUTRAL',  'SLACK',   NULL FROM dual
+                  UNION ALL SELECT 'SHARED_POOL',  'PRESSURE', 'NEUTRAL', NULL FROM dual
+                  UNION ALL SELECT 'SGA_TOTAL',    'NEUTRAL',  'NEUTRAL', NULL FROM dual) LOOP
+            area(r.a);
+            chk_str ('CAPM_AREA ' || r.a || ' gain_dir', a_gdir, r.g);
+            chk_str ('CAPM_AREA ' || r.a || ' shrink_dir', a_sdir, r.s);
+            chk_true('CAPM_AREA ' || r.a || ' overalloc_dir (got ' || a_odir || ')',
+                     a_odir = r.o OR (a_odir IS NULL AND r.o IS NULL));
+        END LOOP;
         SELECT n_days, n_ops, n_reversals, cache_grows, shpool_forced_grows, sga_forced_grows,
                cache_bytes, shpool_bytes, floor_bytes
           INTO v_days, v_num, v_num2, v_num3, v_r2, n_aux, v_cur, v_sug, v_exp
@@ -2356,6 +3121,18 @@ BEGIN
         chk_true('SGA_BALANCE exceeds_host_ram NULL', v_xram IS NULL);
         chk_true('SGA_BALANCE exceeds_sga NULL', v_xsga IS NULL);
         chk_int('SGA_BALANCE n_days', v_days, 30);
+        -- The verdict counts an area's ADVISOR signals from CAPM_AREA's
+        -- directions and the others from CAPM_EVIDENCE: together every
+        -- evidence row of the area, as counted above.
+        FOR r IN (SELECT 'PGA_TARGET' AS a, 8 AS n, 4 AS p FROM dual
+                  UNION ALL SELECT 'BUFFER_CACHE', 4, 0 FROM dual
+                  UNION ALL SELECT 'SHARED_POOL',  7, 1 FROM dual
+                  UNION ALL SELECT 'SGA_TOTAL',    4, 0 FROM dual
+                  UNION ALL SELECT 'SGA_BALANCE',  3, 0 FROM dual) LOOP
+            verdict(r.a);
+            chk_int('CAPM_VERDICT ' || r.a || ' n_evidence = its CAPM_EVIDENCE rows', v_nev, r.n);
+            chk_int('CAPM_VERDICT ' || r.a || ' n_pressure', v_npr, r.p);
+        END LOOP;
 
         DBMS_OUTPUT.PUT_LINE('=== M26.4 CAPR_MEM_* report views (shipped knobs) ===');
         SELECT COUNT(*), COUNT(CASE WHEN rank_mem = area_rank THEN 1 END),
@@ -2483,6 +3260,9 @@ BEGIN
             chk_int('mem_min_uptime_hours 721: PGA_TARGET symptoms still count (multi-pass, over-allocations)', v_npr, 2);
             chk_int('mem_min_uptime_hours 721: PGA_TARGET has no ADVISOR row left', v_nev, 5);
             chk_int('mem_min_uptime_hours 721: PGA_TARGET current_bytes stays', v_cur, n_gib);
+            area('PGA_TARGET');
+            chk_true('mem_min_uptime_hours 721: CAPM_AREA PGA_TARGET has no ADVISOR direction',
+                     a_gdir IS NULL AND a_sdir IS NULL AND a_odir IS NULL);
             chk_v('mem_min_uptime_hours 721', 'BUFFER_CACHE', 'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);
             chk_v('mem_min_uptime_hours 721', 'SHARED_POOL',  'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);
             chk_v('mem_min_uptime_hours 721', 'SGA_TOTAL',    'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);
@@ -2569,6 +3349,12 @@ BEGIN
             -- startups, none across a restart. Day 0's snapshots are outside.
             knob('mem_window_days', 120);
             n_all := (2 * n_p - 1) + (118 - 2 * n_p) + 120;
+            SELECT COUNT(CASE WHEN seg_in_win = 'N' THEN 1 END) INTO v_n FROM capm_snap WHERE dbid = v_dbid;
+            chk_int('mem_window_days 120: no startup is skipped', v_n, 0);
+            SELECT MIN(snap_id) INTO v_n FROM capm_delta WHERE dbid = v_dbid;
+            chk_int('mem_window_days 120: CAPM_DELTA starts at day 0 18:00', v_n, 2001);
+            SELECT MIN(snap_id) INTO v_n FROM capm_comp WHERE dbid = v_dbid;
+            chk_int('mem_window_days 120: CAPM_COMP starts at day 0 06:00', v_n, 2000);
             area('PGA_TARGET');
             chk_int('mem_window_days 120: PGA_TARGET cover_hours = 237 intervals x 12 h', a_cover, n_all * 12);
             chk_int('mem_window_days 120: n_days (the restart day ends no interval)', a_days, 119);
@@ -2704,6 +3490,45 @@ BEGIN
             chk_v('cache advisor reset', 'BUFFER_CACHE', 'OVERSIZED', 'SHRINK_COSTS_LITTLE', 1536);
             area('SHARED_POOL');
             chk_int('cache advisor reset: the shared pool advisor keeps its 720 hours', a_cover, 720);
+            ROLLBACK TO SAVEPOINT m25_mem;
+
+            -- A snapshot without buffer cache advisor rows (day 115 18:00,
+            -- snapshot n_latest - 10): the next increment spans two snapshots,
+            -- 24 hours, and is compared with the DB time of both. 59 intervals
+            -- carry the 60 increments over the window's DB time, so no figure
+            -- moves but n_intervals.
+            DELETE FROM cap_fixture_cache_advice WHERE bpid = 3 AND snap_id = n_latest - 10;
+            chk_int('advisor gap: the ten pool 3 rows of one snapshot removed', SQL%ROWCOUNT, 10);
+            SELECT n_intervals, cover_hours, est_cost, cur_cost, dbtime_sec, gain
+              INTO v_n, v_num, v_num2, v_num3, v_r2, n_aux
+              FROM capm_advice WHERE dbid = v_dbid AND area = 'BUFFER_CACHE' AND size_bytes = 1536 * n_mib;
+            chk_int  ('advisor gap: n_intervals', v_n, 59);
+            chk_int  ('advisor gap: cover_hours = 58 x 12 h + 24 h', v_num, 720);
+            chk_close('advisor gap: est_cost = 60 x 2.45 u', v_num2, 60 * 2.45 * n_u, 0.000001);
+            chk_close('advisor gap: cur_cost = 60 x 2 u', v_num3, 60 * 2 * n_u, 0.000001);
+            chk_close('advisor gap: dbtime_sec = the window''s DB time, the skipped snapshot''s included',
+                      v_r2, n_dbt, 0.000001);
+            chk_close('advisor gap: cache 1536 MiB gain -0.45 u in percent of DB time, as without the gap',
+                      n_aux, -pct(60, 0.45, n_dbt), 0.000001);
+            chk_e('advisor gap', 'CACHE_ADV_SHRINK_LOSS_DBTIME_PCT', pct(60, 0.45, n_dbt), 'SLACK');
+            chk_v('advisor gap', 'BUFFER_CACHE', 'OVERSIZED', 'SHRINK_COSTS_LITTLE', 1536);
+            ROLLBACK TO SAVEPOINT m25_mem;
+
+            -- The same gap on the last snapshot before the window (day 90
+            -- 18:00, n_latest - 60): the first window interval starts before
+            -- the window, where no DB time is read. It keeps the DB time of
+            -- its last snapshot beside two increments, the window-edge
+            -- approximation.
+            DELETE FROM cap_fixture_cache_advice WHERE bpid = 3 AND snap_id = n_latest - 60;
+            SELECT n_intervals, cover_hours, est_cost, dbtime_sec, gain
+              INTO v_n, v_num, v_num2, v_r2, n_aux
+              FROM capm_advice WHERE dbid = v_dbid AND area = 'BUFFER_CACHE' AND size_bytes = 1536 * n_mib;
+            chk_int  ('advisor gap before the window: n_intervals', v_n, 60);
+            chk_int  ('advisor gap before the window: cover_hours = 59 x 12 h + 24 h', v_num, 732);
+            chk_close('advisor gap before the window: est_cost = 61 x 2.45 u', v_num2, 61 * 2.45 * n_u, 0.000001);
+            chk_close('advisor gap before the window: dbtime_sec = the window''s DB time', v_r2, n_dbt, 0.000001);
+            chk_close('advisor gap before the window: gain -61 x 0.45 u over the window''s DB time',
+                      n_aux, -pct(61, 0.45, n_dbt), 0.000001);
             ROLLBACK TO SAVEPOINT m25_mem;
 
             -- The shared pool advisor's list changes mid-window. Every size is
@@ -3946,8 +4771,8 @@ BEGIN
         SELECT COUNT(*) INTO v_n FROM capa_anom
           WHERE kind = 'TBSPC' AND baseline_mode = 'SAME_DOW' AND anomaly_flag IS NOT NULL
             AND series NOT IN ('FIX_CYCLIC', 'FIX_CYCLIC_UP');
-        chk_int('other TBSPC SAME_DOW flags: the spike, the purge and the FIX_GAP burst days',
-                v_n, 2 + meta_n('BURST_DAYS'));
+        chk_int('other TBSPC SAME_DOW flags: the spike, the purge, FIX_PURGE2''s two cliff days and the FIX_GAP burst days',
+                v_n, 2 + 2 + meta_n('BURST_DAYS'));
         SELECT COUNT(*) INTO v_n FROM capa_anom
           WHERE kind = 'SERIES' AND series IN ('SESSIONS', 'PROCESSES', 'REDO_GB_DAY')
             AND anomaly_flag IS NOT NULL;
@@ -4198,6 +5023,473 @@ BEGIN
     EXCEPTION
         WHEN OTHERS THEN
             fail('M15 anomaly-modes block raised ' || SQLERRM);
+    END;
+
+    -- Alert volume: CAPR_ANOM_VOLUME (the noise facts per series and mode)
+    -- and CAPR_ALERT_VOLUME (CAPR_ALERTS counted per state_key). With the
+    -- shipped knobs the 14-day window (days 107..120) holds five anomaly
+    -- alerts, every series scored on all 14 days:
+    --   FIX_SPIKE   TRAILING  the +2 GiB day 110               1 day
+    --   FIX_GAP     TRAILING  the +256 MiB burst 115..117      3 days, 1 episode
+    --   BUSY_PCT    SAME_DOW  the injected Tuesday, 70 vs 40   1 day
+    --   DB_CPU_PCT  SAME_DOW  FIXPDB1's +18 points, 114..120   7 days, 1 episode
+    --   DB_SIZE_GB  TRAILING  the spike day's growth           1 day
+    -- So 1 of 14 days is 7.1% (below noise_flag_pct 10), 3 of 14 and 7 of 14
+    -- are noisy, and no series reaches noise_episodes 3.
+    DECLARE
+        d_last   DATE   := meta_d('LAST_DAY');
+        d_base   DATE   := meta_d('LAST_DAY') - 120;
+        n_pdb    NUMBER := meta_n('PDB_CON_DBID');
+        v_adj    BOOLEAN := meta_d('INVERTED_WED') = meta_d('INJECTED_TUE') + 1;
+        c_burst  CONSTANT NUMBER := 32768 * 8192;     -- the burst: c_burstb blocks a day
+        c_day    CONSTANT PLS_INTEGER := 112;         -- the day the unit spikes land on
+        n_k      NUMBER;
+        n_dbsz   NUMBER;
+        v_rows   PLS_INTEGER := 0;
+        v_seen   PLS_INTEGER := 0;
+        v_a      NUMBER;
+        v_b      NUMBER;
+        v_c      NUMBER;
+        TYPE t_num IS TABLE OF NUMBER INDEX BY VARCHAR2(30);
+        v_max    t_num;
+        v_knob   VARCHAR2(30);
+
+        -- One CAPR_ANOM_VOLUME row against its closed form. e_dev is the
+        -- largest |value - expected| in the series' own unit, e_factor what
+        -- the floor knob is multiplied by (mad_k for the CPU knobs), e_sugg
+        -- e_dev / e_factor rounded up to the knob's step.
+        PROCEDURE chk_vol(p_tag VARCHAR2, p_scored NUMBER, p_flagged NUMBER, p_eps NUMBER,
+                          p_max_dev NUMBER, p_knob VARCHAR2, p_floor NUMBER, p_sugg NUMBER,
+                          p_mknob VARCHAR2, p_bit NUMBER, p_noisy VARCHAR2,
+                          e_scored NUMBER, e_flagged NUMBER, e_eps NUMBER, e_dev NUMBER,
+                          e_factor NUMBER, e_knob VARCHAR2, e_floor NUMBER, e_sugg NUMBER,
+                          e_mknob VARCHAR2, e_bit NUMBER, e_noisy VARCHAR2) IS
+        BEGIN
+            chk_true(p_tag || ': scored ' || e_scored || ', flagged ' || e_flagged || ', episodes ' || e_eps
+                     || ' (got ' || p_scored || ' / ' || p_flagged || ' / ' || p_eps || ')',
+                     p_scored = e_scored AND p_flagged = e_flagged AND p_eps = e_eps);
+            chk_close(p_tag || ': max_dev in ' || e_knob || ' units', p_max_dev, e_dev / e_factor, 0.000000001);
+            chk_true(p_tag || ': floor ' || e_knob || ' = ' || e_floor || ' (got ' || p_knob || ' = ' || p_floor || ')',
+                     p_knob = e_knob AND p_floor = e_floor);
+            chk_int(p_tag || ': suggested_floor', p_sugg, e_sugg);
+            chk_true(p_tag || ': ' || e_mknob || ' bit ' || e_bit || ', noisy ' || e_noisy
+                     || ' (got ' || p_mknob || ' ' || p_bit || ' ' || p_noisy || ')',
+                     p_mknob = e_mknob AND p_bit = e_bit AND p_noisy = e_noisy);
+        END;
+    BEGIN
+        SELECT mad_k INTO n_k FROM cap_cfg;
+        -- DB_SIZE_GB is scored on its growth rate: the spike day's against
+        -- the median of the scored days in its 28-day window, re-derived here
+        -- from the daily series.
+        SELECT MAX(CASE WHEN day_dt = d_spike THEN rate END)
+               - MEDIAN(CASE WHEN day_dt < d_spike AND day_dt >= d_spike - 28 AND gap_flag = 'N' THEN rate END)
+          INTO n_dbsz
+          FROM (SELECT day_dt, gap_flag,
+                       (value - LAG(value) OVER (PARTITION BY dbid, con_dbid ORDER BY day_dt)) / day_gap AS rate
+                FROM   capd_series_daily
+                WHERE  dbid = v_dbid AND con_dbid = v_dbid AND series = 'DB_SIZE_GB');
+
+        DBMS_OUTPUT.PUT_LINE('=== alert volume: CAPR_ANOM_VOLUME with the shipped knobs ===');
+        FOR r IN (SELECT * FROM capr_anom_volume) LOOP
+            v_rows := v_rows + 1;
+            chk_int(r.alert_kind || ' ' || r.series || ' window_days = anomaly_report_days', r.window_days, 14);
+            chk_close(r.alert_kind || ' ' || r.series || ' flagged_pct = 100 x flagged / scored', r.flagged_pct,
+                      100 * r.flagged_days / r.scored_days, 0.000000001);
+            IF r.alert_kind = 'TBSPC_ANOM' AND r.series = 'FIX_SPIKE' AND r.con_dbid = v_dbid THEN
+                v_seen := v_seen + 1;
+                chk_vol('FIX_SPIKE TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                        r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                        14, 1, 1, 2147483648, 1, 'abs_floor_bytes', 104857600, 2147483648, 'alert_modes_tbspc', 1, 'N');
+            ELSIF r.alert_kind = 'TBSPC_ANOM' AND r.series = 'FIX_GAP' AND r.con_dbid = v_dbid THEN
+                v_seen := v_seen + 1;
+                chk_vol('FIX_GAP TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                        r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                        14, meta_n('BURST_DAYS'), 1, c_burst, 1, 'abs_floor_bytes', 104857600, c_burst,
+                        'alert_modes_tbspc', 1, 'Y');
+            ELSIF r.alert_kind = 'CPU_ANOM' AND r.series = 'BUSY_PCT' AND r.con_dbid = v_dbid THEN
+                v_seen := v_seen + 1;
+                chk_vol('BUSY_PCT SAME_DOW', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                        r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                        14, 1, 1, 70 - 40, n_k, 'cpu_min_mad_pct', 3, 10, 'alert_modes_cpu', 2, 'N');
+            ELSIF r.alert_kind = 'DBCPU_ANOM' AND r.series = 'DB_CPU_PCT' AND r.con_dbid = n_pdb THEN
+                v_seen := v_seen + 1;
+                chk_vol('FIXPDB1 DB_CPU_PCT SAME_DOW', r.scored_days, r.flagged_days, r.episodes, r.max_dev,
+                        r.floor_knob, r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                        14, 7, 1, 18, n_k, 'cpu_min_mad_pct', 3, 6, 'alert_modes_cpu', 2, 'Y');
+            ELSIF r.alert_kind = 'SERIES_ANOM' AND r.series = 'DB_SIZE_GB' AND r.con_dbid = v_dbid THEN
+                v_seen := v_seen + 1;
+                chk_vol('DB_SIZE_GB TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                        r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                        14, 1, 1, n_dbsz, 1, 'series_floor_gib', 0.5, CEIL(n_dbsz * 100) / 100, 'alert_modes_series', 1, 'N');
+                chk_true('DB_SIZE_GB max_dev: the 2 GiB step and no more than one day of growth swing (got '
+                         || r.max_dev || ')', r.max_dev >= 2 AND r.max_dev < 2.1);
+            END IF;
+        END LOOP;
+        chk_int('CAPR_ANOM_VOLUME rows (the five anomaly alerts)', v_rows, 5);
+        chk_int('CAPR_ANOM_VOLUME rows matched by key', v_seen, 5);
+
+        DBMS_OUTPUT.PUT_LINE('=== alert volume: CAPR_ALERT_VOLUME = CAPR_ALERTS per state_key ===');
+        snap_alerts;
+        SELECT COUNT(*), COUNT(a.state_key), COUNT(v.state_key),
+               COUNT(CASE WHEN v.episodes = a.n AND v.n_crit = a.n_crit AND v.n_warn = a.n_warn
+                           AND v.n_info = a.n_info AND v.db_pdb = a.db_pdb THEN 1 END),
+               SUM(v.episodes),
+               COUNT(CASE WHEN v.noisy = 'Y' THEN 1 END),
+               COUNT(CASE WHEN v.floor_knob IS NOT NULL THEN 1 END),
+               COUNT(CASE WHEN v.kind NOT IN ('TBSPC_ANOM', 'CPU_ANOM', 'DBCPU_ANOM', 'SERIES_ANOM')
+                           AND (v.noisy <> 'N' OR v.episodes <> 1
+                                OR COALESCE(v.window_days, v.scored_days, v.flagged_days, v.flagged_pct, v.max_dev,
+                                            v.floor_value, v.suggested_floor, v.mode_bit) IS NOT NULL
+                                OR v.floor_knob IS NOT NULL OR v.mode_knob IS NOT NULL OR v.baseline_mode IS NOT NULL)
+                          THEN 1 END)
+          INTO v_n, v_a, v_b, v_c, v_num, v_num2, v_num3, v_rows
+          FROM capr_alert_volume v
+          FULL OUTER JOIN (SELECT state_key, MAX(db_pdb) AS db_pdb, COUNT(*) AS n,
+                                  COUNT(CASE WHEN severity = 'CRIT' THEN 1 END) AS n_crit,
+                                  COUNT(CASE WHEN severity = 'WARN' THEN 1 END) AS n_warn,
+                                  COUNT(CASE WHEN severity = 'INFO' THEN 1 END) AS n_info
+                           FROM   cap_fixture_alerts_snap
+                           GROUP  BY state_key) a
+            ON a.state_key = v.state_key;
+        chk_true('CAPR_ALERT_VOLUME: one row per CAPR_ALERTS state_key, same counts by severity (' || v_n
+                 || ' keys, ' || v_a || ' / ' || v_b || ' / ' || v_c || ')',
+                 v_n > 0 AND v_a = v_n AND v_b = v_n AND v_c = v_n);
+        SELECT COUNT(*) INTO v_a FROM cap_fixture_alerts_snap;
+        chk_int('CAPR_ALERT_VOLUME SUM(episodes) = CAPR_ALERTS rows', v_num, v_a);
+        chk_int('CAPR_ALERT_VOLUME noisy rows (FIX_GAP, FIXPDB1 DB_CPU_PCT)', v_num2, 2);
+        chk_int('CAPR_ALERT_VOLUME rows with a floor knob (the five anomaly alerts)', v_num3, 5);
+        chk_int('CAPR_ALERT_VOLUME forecast and threshold kinds: one episode, no floor, noisy N (rows off)',
+                v_rows, 0);
+        SELECT COUNT(*) INTO v_n
+          FROM capr_alert_volume v
+          JOIN capr_anom_volume a
+            ON a.dbid = v.dbid AND a.con_dbid = v.con_dbid AND a.alert_kind = v.kind
+           AND a.series = v.series_key AND a.baseline_mode = v.baseline_mode
+          WHERE a.episodes = v.episodes AND a.scored_days = v.scored_days
+            AND a.flagged_days = v.flagged_days AND a.max_dev = v.max_dev
+            AND a.floor_knob = v.floor_knob AND a.suggested_floor = v.suggested_floor
+            AND a.mode_knob = v.mode_knob AND a.mode_bit = v.mode_bit AND a.noisy = v.noisy;
+        chk_int('CAPR_ALERT_VOLUME anomaly rows carry CAPR_ANOM_VOLUME, and its episodes = the alert rows',
+                v_n, 5);
+
+        DBMS_OUTPUT.PUT_LINE('=== alert volume: the suggested floor silences the series ===');
+        SAVEPOINT u14_floor;
+        BEGIN
+            -- One step below the suggestion every burst day still flags.
+            knob('abs_floor_bytes', c_burst - 1048576);
+            SELECT MAX(flagged_days), MAX(suggested_floor) INTO v_a, v_b FROM capr_anom_volume
+              WHERE alert_kind = 'TBSPC_ANOM' AND series = 'FIX_GAP';
+            chk_true('abs_floor_bytes one MiB below the suggestion: FIX_GAP still flags 3 days, same suggestion (got '
+                     || v_a || ' / ' || v_b || ')', v_a = 3 AND v_b = c_burst);
+            knob('abs_floor_bytes', c_burst);
+            SELECT COUNT(CASE WHEN series = 'FIX_GAP' THEN 1 END),
+                   COUNT(CASE WHEN series = 'FIX_SPIKE' THEN 1 END), COUNT(*)
+              INTO v_a, v_b, v_c FROM capr_anom_volume;
+            chk_true('abs_floor_bytes = FIX_GAP suggested_floor: FIX_GAP gone, FIX_SPIKE and the other three stay (got '
+                     || v_a || ' / ' || v_b || ' / ' || v_c || ')', v_a = 0 AND v_b = 1 AND v_c = 4);
+            SELECT COUNT(CASE WHEN series_key = 'FIX_GAP' THEN 1 END),
+                   COUNT(CASE WHEN series_key = 'FIX_SPIKE' THEN 1 END)
+              INTO v_a, v_b FROM capr_alerts WHERE kind = 'TBSPC_ANOM';
+            chk_true('abs_floor_bytes = FIX_GAP suggested_floor: no FIX_GAP TBSPC_ANOM alert, FIX_SPIKE keeps its one (got '
+                     || v_a || ' / ' || v_b || ')', v_a = 0 AND v_b = 1);
+            ROLLBACK TO SAVEPOINT u14_floor;
+
+            -- A CPU knob is in sigma points: the threshold floor is mad_k x
+            -- the knob. FIXPDB1's 18 points need 6; 5.9 gives 17.7.
+            knob('cpu_min_mad_pct', 18 / n_k - 0.1);
+            SELECT COUNT(*), MAX(n_days) INTO v_a, v_b FROM capr_alerts WHERE kind = 'DBCPU_ANOM';
+            chk_true('cpu_min_mad_pct 0.1 below the suggestion: the DBCPU_ANOM episode stays, 7 days (got '
+                     || v_a || ' / ' || v_b || ')', v_a = 1 AND v_b = 7);
+            knob('cpu_min_mad_pct', 18 / n_k);
+            SELECT COUNT(CASE WHEN kind = 'DBCPU_ANOM' THEN 1 END), COUNT(CASE WHEN kind = 'CPU_ANOM' THEN 1 END),
+                   COUNT(CASE WHEN kind = 'CPU_SHIFT' THEN 1 END)
+              INTO v_a, v_b, v_c FROM capr_alerts;
+            chk_true('cpu_min_mad_pct = the DBCPU suggestion: DBCPU_ANOM gone, CPU_ANOM (30 points) and CPU_SHIFT stay (got '
+                     || v_a || ' / ' || v_b || ' / ' || v_c || ')', v_a = 0 AND v_b = 1 AND v_c = 1);
+            ROLLBACK TO SAVEPOINT u14_floor;
+
+            DBMS_OUTPUT.PUT_LINE('=== alert volume: noise_episodes / noise_flag_pct ===');
+            -- 7 of 14 days is 50%: above it nothing is noisy by share.
+            knob('noise_flag_pct', 50.1);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END) INTO v_a FROM capr_anom_volume;
+            chk_int('noise_flag_pct 50.1: no noisy series', v_a, 0);
+            knob('noise_flag_pct', 50);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END), MAX(CASE WHEN noisy = 'Y' THEN series END)
+              INTO v_a, v_str FROM capr_anom_volume;
+            chk_true('noise_flag_pct 50: FIXPDB1 DB_CPU_PCT alone (7 of 14) (got ' || v_a || ' ' || v_str || ')',
+                     v_a = 1 AND v_str = 'DB_CPU_PCT');
+            knob('noise_flag_pct', 100);
+            knob('noise_episodes', 1);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END) INTO v_a FROM capr_anom_volume;
+            chk_int('noise_episodes 1: every series with an episode is noisy', v_a, 5);
+            FOR k IN (SELECT 'noise_episodes' AS kn, 0 AS v FROM dual UNION ALL
+                      SELECT 'noise_episodes', 2.5 FROM dual UNION ALL
+                      SELECT 'noise_flag_pct', 0   FROM dual UNION ALL
+                      SELECT 'noise_flag_pct', 101 FROM dual) LOOP
+                knob(k.kn, k.v);
+                SELECT status INTO v_str FROM cap_cfg_check WHERE knob = k.kn;
+                chk_str('CAP_CFG_CHECK ' || k.kn || ' ' || k.v, v_str, 'BAD');
+            END LOOP;
+            ROLLBACK TO SAVEPOINT u14_floor;
+            SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+              WHERE knob IN ('noise_episodes', 'noise_flag_pct') AND status = 'OK';
+            chk_int('CAP_CFG_CHECK noise_episodes / noise_flag_pct OK as shipped', v_n, 2);
+            SELECT COUNT(*) INTO v_n FROM cap_cfg WHERE noise_episodes = 3 AND noise_flag_pct = 10;
+            chk_int('CAP_CFG noise_episodes 3, noise_flag_pct 10', v_n, 1);
+
+            -- ---- U22 begin: noise_min_days ---------------------------------
+            -- The share rule (noise_flag_pct) needs noise_min_days scored
+            -- days. Shipped 7, and every fixture series is scored on all 14
+            -- days of the window, so the two noisy series above stand. At
+            -- 15 no series has the days and none reaches noise_episodes 3;
+            -- at 14 both are back. The episode rule needs no days.
+            DBMS_OUTPUT.PUT_LINE('=== alert volume: noise_min_days ===');
+            SELECT COUNT(*) INTO v_n FROM cap_cfg WHERE noise_min_days = 7;
+            chk_int('CAP_CFG noise_min_days 7', v_n, 1);
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'noise_min_days';
+            chk_str('CAP_CFG_CHECK noise_min_days as shipped', v_str, 'OK');
+            knob('noise_min_days', 15);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END), COUNT(*) INTO v_a, v_b FROM capr_anom_volume;
+            chk_true('noise_min_days 15 (window 14): no noisy series, the 5 rows stay (got ' || v_a || ' / ' || v_b || ')',
+                     v_a = 0 AND v_b = 5);
+            knob('noise_min_days', 14);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END),
+                   COUNT(CASE WHEN noisy = 'Y' AND series IN ('FIX_GAP', 'DB_CPU_PCT') THEN 1 END)
+              INTO v_a, v_b FROM capr_anom_volume;
+            chk_true('noise_min_days 14: FIX_GAP (3 of 14) and FIXPDB1 DB_CPU_PCT (7 of 14) are noisy (got '
+                     || v_a || ' / ' || v_b || ')', v_a = 2 AND v_b = 2);
+            knob('noise_min_days', 15);
+            knob('noise_episodes', 1);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END) INTO v_a FROM capr_anom_volume;
+            chk_int('noise_min_days 15, noise_episodes 1: the episode rule needs no scored days', v_a, 5);
+            ROLLBACK TO SAVEPOINT u14_floor;
+            -- One scored day: anomaly_report_days 1 keeps the last day only,
+            -- and FIXPDB1's DB_CPU_PCT flags on it (its step covers the last
+            -- 7 days). 1 of 1 is 100 percent, above noise_flag_pct 10, and
+            -- read noisy before the knob. It does at noise_min_days 1.
+            knob('anomaly_report_days', 1);
+            SELECT MAX(scored_days), MAX(flagged_days), MAX(flagged_pct), MAX(episodes), MAX(noisy), COUNT(*)
+              INTO v_a, v_b, v_c, v_num, v_str, v_n
+              FROM capr_anom_volume
+             WHERE alert_kind = 'DBCPU_ANOM' AND series = 'DB_CPU_PCT' AND con_dbid = n_pdb;
+            chk_true('anomaly_report_days 1: DB_CPU_PCT 1 scored, 1 flagged, 100 percent, 1 episode (got ' || v_n
+                     || ' row: ' || v_a || ' / ' || v_b || ' / ' || v_c || ' / ' || v_num || ')',
+                     v_n = 1 AND v_a = 1 AND v_b = 1 AND v_c = 100 AND v_num = 1);
+            chk_str('1 of 1 scored days flagged, noise_min_days 7: not noisy', v_str, 'N');
+            knob('noise_min_days', 1);
+            SELECT MAX(noisy) INTO v_str FROM capr_anom_volume
+             WHERE alert_kind = 'DBCPU_ANOM' AND series = 'DB_CPU_PCT' AND con_dbid = n_pdb;
+            chk_str('1 of 1 scored days flagged, noise_min_days 1: noisy (the rule before the knob)', v_str, 'Y');
+            FOR k IN (SELECT 0 AS v FROM dual UNION ALL SELECT 2.5 FROM dual) LOOP
+                knob('noise_min_days', k.v);
+                SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'noise_min_days';
+                chk_str('CAP_CFG_CHECK noise_min_days ' || k.v, v_str, 'BAD');
+            END LOOP;
+            ROLLBACK TO SAVEPOINT u14_floor;
+            -- ---- U22 end: noise_min_days -----------------------------------
+
+            -- Every unit and grain has its floor knob. Day 112 gets a spike
+            -- in the four families the shipped fixture never flags, and
+            -- alert_modes_cpu 6 adds the hour grain:
+            --   IOPS      +10000 read requests/s over the day interval: the
+            --             daily p95 moves 0.95 x 10000, and a straight line
+            --             sits 14.5 slopes (9.5 a day) over its 28-day median
+            --   IO_MBPS   +100 MB/s the same way: 0.95 x 100 over a constant
+            --   PROCESSES +100 on the flat 150. Its suggestion is 101: the
+            --             engine's threshold floor is mad_k x (floor / mad_k),
+            --             and 3 x (100 / 3) reads 99.99..., below the 100.
+            --   PGA_ALLOC_GB +1 GiB at 18:00: 1 + 14.5 days of 1/1200 GiB
+            --   BUSY_PCT HOUR_OF_WEEK: the injected Tuesday 06:00, 70 vs 20
+            DBMS_OUTPUT.PUT_LINE('=== alert volume: one floor knob per unit and grain ===');
+            knob('alert_modes_cpu', 6);
+            UPDATE cap_fixture_sysstat SET value = value + 10000 * 43200
+             WHERE dbid = v_dbid AND con_dbid = v_dbid AND stat_name = 'physical read total IO requests'
+               AND snap_id >= 2001 + 2 * c_day;
+            UPDATE cap_fixture_sysstat SET value = value + 100 * 1048576 * 43200
+             WHERE dbid = v_dbid AND con_dbid = v_dbid AND stat_name = 'physical read total bytes'
+               AND snap_id >= 2001 + 2 * c_day;
+            UPDATE cap_fixture_resource_limit SET max_utilization = max_utilization + 100
+             WHERE dbid = v_dbid AND resource_name = 'processes' AND snap_id = 2001 + 2 * c_day;
+            UPDATE cap_fixture_pgastat SET value = value + 1073741824
+             WHERE dbid = v_dbid AND stat_name = 'total PGA allocated' AND snap_id = 2001 + 2 * c_day;
+            v_rows := 0; v_seen := 0;
+            FOR r IN (SELECT * FROM capr_anom_volume) LOOP
+                v_rows := v_rows + 1;
+                IF r.floor_knob IS NOT NULL THEN
+                    v_max(r.floor_knob) := GREATEST(r.suggested_floor,
+                                                    CASE WHEN v_max.EXISTS(r.floor_knob) THEN v_max(r.floor_knob) ELSE 0 END);
+                END IF;
+                IF r.series = 'IOPS' THEN
+                    v_seen := v_seen + 1;
+                    chk_vol('IOPS TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                            r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                            14, 1, 1, 0.95 * 10000 + 14.5 * 9.5, 1, 'series_floor_iops', 100, 9638,
+                            'alert_modes_series', 1, 'N');
+                ELSIF r.series = 'IO_MBPS' THEN
+                    v_seen := v_seen + 1;
+                    chk_vol('IO_MBPS TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                            r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                            14, 1, 1, 0.95 * 100, 1, 'series_floor_mbps', 10, 95, 'alert_modes_series', 1, 'N');
+                ELSIF r.series = 'PROCESSES' THEN
+                    v_seen := v_seen + 1;
+                    chk_vol('PROCESSES TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                            r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                            14, 1, 1, 100, 1, 'series_floor_count', 10, 101, 'alert_modes_series', 1, 'N');
+                ELSIF r.series = 'PGA_ALLOC_GB' THEN
+                    v_seen := v_seen + 1;
+                    chk_vol('PGA_ALLOC_GB TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev,
+                            r.floor_knob, r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                            14, 1, 1, 1 + 14.5 / 1200, 1, 'series_floor_gib', 0.5, 1.02, 'alert_modes_series', 1, 'N');
+                ELSIF r.series = 'BUSY_PCT' AND r.baseline_mode = 'HOUR_OF_WEEK' THEN
+                    v_seen := v_seen + 1;
+                    chk_vol('BUSY_PCT HOUR_OF_WEEK', r.scored_days, r.flagged_days, r.episodes, r.max_dev,
+                            r.floor_knob, r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                            14, 2, CASE WHEN v_adj THEN 1 ELSE 2 END, 70 - 20, n_k, 'cpu_min_mad_pct_hour', 5, 16.7,
+                            'alert_modes_cpu', 4, 'Y');
+                END IF;
+            END LOOP;
+            chk_int('unit spikes: CAPR_ANOM_VOLUME rows (5 shipped + 4 series + 2 HOUR_OF_WEEK)', v_rows, 11);
+            chk_int('unit spikes: rows matched by key', v_seen, 5);
+            chk_int('unit spikes: floor knobs suggested for (all seven)', v_max.COUNT, 7);
+
+            -- ---- U22 begin: anomaly text and alert unit ---------------------
+            -- CAPR_ANOMALIES words a value in its series' unit and
+            -- CAPR_ALERTS carries that unit: the I/O series read IO/s and
+            -- MB/s (they read GiB/day, alert unit GIB). Day 112 as spiked
+            -- above, each value against the median of its 28 days before,
+            -- 14.5 daily steps back:
+            --   IOPS         1950 + 9.5 x 112 + 9500 = 12514, usual 2876.25
+            --   IO_MBPS      48.5 + 95 = 143.5, usual 48.5
+            --   PROCESSES    150 + 100, usual 150
+            --   PGA_ALLOC_GB 1 + 112 / 1200 + 1 = 2.093, usual 1.081 GiB
+            -- and from the shipped fixture FIX_SPIKE (+2 GiB on its 5
+            -- MiB/day), DB_SIZE_GB on that day, the host's injected Tuesday.
+            DECLARE
+                d_c     DATE := d_base + c_day;
+                v_io    VARCHAR2(4000);
+                v_hit   PLS_INTEGER := 0;
+                TYPE t_unit IS TABLE OF VARCHAR2(30) INDEX BY VARCHAR2(256);
+                v_unit  t_unit;
+                v_got   t_unit;
+                PROCEDURE chk_text(p_tag VARCHAR2, p_unit VARCHAR2, p_msg VARCHAR2,
+                                   e_unit VARCHAR2, e_head VARCHAR2) IS
+                BEGIN
+                    v_hit := v_hit + 1;
+                    chk_str(p_tag || ' unit', p_unit, e_unit);
+                    chk_true(p_tag || ' message starts "' || e_head || '" (got ' || p_msg || ')',
+                             SUBSTR(p_msg, 1, LENGTH(e_head)) = e_head);
+                    chk_true(p_tag || ' message ends in the robust z and the percent vs median',
+                             REGEXP_LIKE(SUBSTR(p_msg, LENGTH(e_head) + 1),
+                                         '^(off-scale|[+-][0-9.]+)( \([+-][0-9]+% vs median\))?(, [+-][0-9]+% vs [0-9]+-day avg rate)?$'));
+                END;
+            BEGIN
+                DBMS_OUTPUT.PUT_LINE('=== anomaly text and alert unit follow the series'' unit ===');
+                FOR r IN (SELECT kind, series, obs_day, unit, message
+                          FROM   capr_anomalies
+                          WHERE  dbid = v_dbid AND con_dbid = v_dbid AND grain = 'DAY'
+                            AND  ((kind = 'SERIES' AND baseline_mode = 'TRAILING' AND obs_day IN (d_c, d_spike))
+                               OR (kind = 'TBSPC' AND series = 'FIX_SPIKE' AND baseline_mode = 'TRAILING'
+                                   AND obs_day = d_spike)
+                               OR (kind = 'CPU' AND series = 'BUSY_PCT' AND baseline_mode = 'SAME_DOW'
+                                   AND obs_day = d_inj))) LOOP
+                    IF r.series = 'IOPS' THEN
+                        v_io := r.message;
+                        chk_text('IOPS anomaly', r.unit, r.message, 'io_per_sec',
+                                 'IOPS at ' || TO_CHAR(1950 + 9.5 * c_day + 0.95 * 10000) || ' IO/s on '
+                                 || TO_CHAR(d_c, 'YYYY-MM-DD') || ' vs usual '
+                                 || TO_CHAR(ROUND(1950 + 9.5 * (c_day - 14.5))) || ' IO/s over the last 28 days, robust z ');
+                    ELSIF r.series = 'IO_MBPS' THEN
+                        chk_text('IO_MBPS anomaly', r.unit, r.message, 'mb_per_sec',
+                                 'IO_MBPS at 143.5 MB/s on ' || TO_CHAR(d_c, 'YYYY-MM-DD')
+                                 || ' vs usual 48.5 MB/s over the last 28 days, robust z ');
+                    ELSIF r.series = 'PROCESSES' THEN
+                        chk_text('PROCESSES anomaly', r.unit, r.message, 'count',
+                                 'PROCESSES at 250 on ' || TO_CHAR(d_c, 'YYYY-MM-DD')
+                                 || ' vs usual 150 over the last 28 days, robust z ');
+                    ELSIF r.series = 'PGA_ALLOC_GB' THEN
+                        chk_text('PGA_ALLOC_GB anomaly', r.unit, r.message, 'gib',
+                                 'PGA_ALLOC_GB at ' || TO_CHAR(2 + c_day / 1200, 'FM990.00') || ' GiB on '
+                                 || TO_CHAR(d_c, 'YYYY-MM-DD') || ' vs usual '
+                                 || TO_CHAR(1 + (c_day - 14.5) / 1200, 'FM990.00')
+                                 || ' GiB over the last 28 days, robust z ');
+                    ELSIF r.series = 'DB_SIZE_GB' THEN
+                        v_hit := v_hit + 1;
+                        chk_str('DB_SIZE_GB anomaly unit', r.unit, 'gib_per_day');
+                        chk_true('DB_SIZE_GB anomaly message in GiB and GiB/day (got ' || r.message || ')',
+                                 REGEXP_LIKE(r.message, '^DB_SIZE_GB grew [0-9]+\.[0-9]{2} GiB on '
+                                     || TO_CHAR(d_spike, 'YYYY-MM-DD')
+                                     || ' vs usual [0-9]+\.[0-9]{2} GiB/day over the last 28 days, robust z '));
+                    ELSIF r.series = 'FIX_SPIKE' THEN
+                        chk_text('FIX_SPIKE anomaly', r.unit, r.message, 'bytes_per_day',
+                                 'Tablespace FIX_SPIKE grew 2.00 GiB on ' || TO_CHAR(d_spike, 'YYYY-MM-DD')
+                                 || ' vs usual 5.0 MiB/day over the last 28 days, robust z ');
+                    ELSIF r.series = 'BUSY_PCT' THEN
+                        chk_text('BUSY_PCT anomaly', r.unit, r.message, 'pct',
+                                 'Host CPU 70.0% busy on ' || TO_CHAR(d_inj, 'YYYY-MM-DD')
+                                 || ' vs usual 40.0% for that weekday, robust z ');
+                    END IF;
+                END LOOP;
+                chk_int('anomaly text: the seven series were found', v_hit, 7);
+                chk_true('anomaly text: no I/O message names GiB',
+                         v_io IS NOT NULL AND INSTR(v_io, 'GiB') = 0);
+
+                v_unit('IOPS') := 'IO_PER_SEC';  v_unit('IO_MBPS') := 'MB_PER_SEC';
+                v_unit('PROCESSES') := 'COUNT';  v_unit('PGA_ALLOC_GB') := 'GIB';
+                v_unit('DB_SIZE_GB') := 'GIB';   v_unit('FIX_SPIKE') := 'BYTES';
+                v_unit('FIX_GAP') := 'BYTES';    v_unit('BUSY_PCT') := 'PCT';
+                FOR r IN (SELECT kind, series_key, unit, value, message, n_days, baseline_mode
+                          FROM   capr_alerts
+                          WHERE  dbid = v_dbid AND con_dbid = v_dbid
+                            AND  kind IN ('TBSPC_ANOM', 'CPU_ANOM', 'SERIES_ANOM')) LOOP
+                    chk_true('alert ' || r.kind || ' ' || r.series_key || ' ' || r.baseline_mode || ' unit '
+                             || r.unit, v_unit.EXISTS(r.series_key) AND r.unit = v_unit(r.series_key));
+                    v_got(r.series_key) := r.unit;
+                    IF r.series_key = 'IOPS' THEN
+                        chk_close('alert IOPS value', r.value, 1950 + 9.5 * c_day + 0.95 * 10000, 0.000000001);
+                        chk_true('alert IOPS: one day, the message is the anomaly''s', r.n_days = 1 AND r.message = v_io);
+                    END IF;
+                END LOOP;
+                chk_int('alert units: anomaly alerts of all eight series', v_got.COUNT, v_unit.COUNT);
+                -- cap_results.refresh stores the unit in CAP_ALERT_STATE:
+                -- the column must hold whatever the view can give (it was
+                -- 8 characters, IO_PER_SEC is 10).
+                SELECT MAX(CASE WHEN table_name = 'CAPR_ALERTS' THEN char_length END),
+                       MAX(CASE WHEN table_name = 'CAP_ALERT_STATE' THEN char_length END)
+                  INTO v_a, v_b
+                  FROM all_tab_columns
+                 WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+                   AND ((table_name = 'CAPR_ALERTS' AND column_name = 'UNIT')
+                     OR (table_name = 'CAP_ALERT_STATE' AND column_name = 'LAST_UNIT'));
+                chk_true('CAP_ALERT_STATE.last_unit (' || v_b || ') holds CAPR_ALERTS.unit (' || v_a
+                         || ') and IO_PER_SEC', v_b >= v_a AND v_b >= LENGTH('IO_PER_SEC'));
+            END;
+            -- ---- U22 end: anomaly text and alert unit -----------------------
+            knob('series_floor_count', 100);
+            SELECT MAX(flagged_days), MAX(suggested_floor) INTO v_a, v_b FROM capr_anom_volume
+              WHERE series = 'PROCESSES';
+            chk_true('series_floor_count = the deviation itself (100): PROCESSES still flags, suggestion 101 (got '
+                     || v_a || ' / ' || v_b || ')', v_a = 1 AND v_b = 101);
+            -- Each knob at the largest suggestion of its series: nothing
+            -- flags any more, in the view or in CAPR_ALERTS.
+            v_knob := v_max.FIRST;
+            WHILE v_knob IS NOT NULL LOOP
+                knob(v_knob, v_max(v_knob));
+                v_knob := v_max.NEXT(v_knob);
+            END LOOP;
+            SELECT COUNT(*) INTO v_n FROM capr_anom_volume;
+            chk_int('every floor knob at its largest suggestion: CAPR_ANOM_VOLUME rows', v_n, 0);
+            SELECT COUNT(*) INTO v_n FROM capr_alerts
+              WHERE kind IN ('TBSPC_ANOM', 'CPU_ANOM', 'DBCPU_ANOM', 'SERIES_ANOM');
+            chk_int('every floor knob at its largest suggestion: anomaly alerts', v_n, 0);
+            SELECT COUNT(*) INTO v_n FROM cap_cfg_check WHERE status <> 'OK';
+            chk_int('every floor knob at its largest suggestion: CAP_CFG_CHECK rows not OK', v_n, 0);
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u14_floor; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT u14_floor;
+    EXCEPTION
+        WHEN OTHERS THEN
+            fail('alert volume block raised ' || SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
     END;
 
     -- Alert surface: CAPR_SEVERITY, the stable state_key, direction,
@@ -4897,6 +6189,23 @@ BEGIN
     SELECT COUNT(*) INTO v_n FROM cap_cfg_check
       WHERE knob IN ('cyclic_min_cliffs', 'slope_method', 'cpu_quality_gate', 'cpu_deseason') AND status = 'OK';
     chk_int('new knobs OK after reset', v_n, 4);
+    -- Zero must not raise ORA-01476 in the views, and the rules grade it.
+    UPDATE cap_config SET cfg_value = 0 WHERE cfg_name = 'mad_k';
+    SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'mad_k';
+    chk_str('CAP_CFG_CHECK mad_k = 0', v_str, 'BAD');
+    SELECT COUNT(*) INTO v_n FROM capa_anom WHERE baseline_mode = 'TRAILING' AND anomaly_flag IS NOT NULL;
+    chk_int('mad_k = 0: CAPA_ANOM reads and flags nothing (TRAILING)', v_n, 0);
+    UPDATE cap_config SET cfg_value = 0 WHERE cfg_name = 'accel_slope_floor_bpd';
+    SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'accel_slope_floor_bpd';
+    chk_str('CAP_CFG_CHECK accel_slope_floor_bpd = 0', v_str, 'OK');
+    SELECT COUNT(*) INTO v_n FROM capf_tbspc_forecast WHERE quality = 'FLAT' AND accel_ratio IS NOT NULL;
+    chk_int('accel_slope_floor_bpd = 0: FLAT series keep a NULL accel_ratio', v_n, 0);
+    UPDATE cap_config SET cfg_value = -1 WHERE cfg_name = 'accel_slope_floor_bpd';
+    SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'accel_slope_floor_bpd';
+    chk_str('CAP_CFG_CHECK accel_slope_floor_bpd = -1', v_str, 'BAD');
+    UPDATE cap_config SET cfg_value = cfg_default
+     WHERE cfg_name IN ('mad_k', 'accel_slope_floor_bpd');
+    COMMIT;
 
     -- Results-layer knobs and their range rules.
     SELECT COUNT(*) INTO v_n FROM cap_cfg
@@ -4922,10 +6231,10 @@ BEGIN
 
     -- suite_version: stamped by every install, BAD when older than this release.
     SELECT suite_version INTO v_num FROM cap_cfg;
-    chk_int('suite_version = 26.4', v_num, 26.4);
+    chk_int('suite_version = 27.0', v_num, 27.0);
     UPDATE cap_config SET cfg_value = 24.13 WHERE cfg_name = 'suite_version';
     SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'suite_version';
-    chk_str('CAP_CFG_CHECK suite_version=24.13 < 26.4', v_str, 'BAD');
+    chk_str('CAP_CFG_CHECK suite_version=24.13 < 27.0', v_str, 'BAD');
     UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'suite_version';
     COMMIT;
 
@@ -5063,6 +6372,8 @@ BEGIN
           INTO v_n FROM dual;
         chk_int('every results view answers on empty tables (rows)', v_n, 0);
         chk_str('cap_results.deploy_mode', cap_results.deploy_mode, 'fixture');
+        SELECT COUNT(*) INTO v_n FROM capr_fit_track;
+        chk_int('CAPR_FIT_TRACK answers on empty tables (rows)', v_n, 0);
 
         DBMS_OUTPUT.PUT_LINE('=== results layer: R0 backdated, R1, R2 ===');
         SELECT u.* BULK COLLECT INTO v_hidden
@@ -5127,6 +6438,15 @@ BEGIN
                 + DECODE(h.quality, f.quality, 0, 1) + DECODE(h.sev, f.sev, 0, 1)
                 + DECODE(h.last_day, f.last_day, 0, 1) + DECODE(h.add_by_day, f.add_by_day, 0, 1)) > 0;
         chk_int ('R2 snapshot = CAPR_FIT now (value, days_to_full, quality, sev, last_day, add_by_day mismatches)', v_n, 0);
+        SELECT COUNT(CASE WHEN DECODE(h.restart_reason, f.restart_reason, 0, 1)
+                             + DECODE(h.restart_day, f.restart_day, 0, 1) > 0 THEN 1 END),
+               COUNT(CASE WHEN h.restart_reason IN ('STOP', 'START') THEN 1 END)
+          INTO v_n, v_num
+          FROM cap_fit_hist h JOIN capr_fit f
+            ON f.kind = h.kind AND f.dbid = h.dbid AND f.con_dbid = h.con_dbid AND f.series = h.series
+         WHERE h.run_id = run_2;
+        chk_int ('R2 snapshot restart_reason / restart_day mismatches', v_n, 0);
+        chk_int ('R2 snapshot rows with restart STOP / START', v_num, 4);
         -- Every run keeps CAPR_COVERAGE on its CAP_RUN row (the backdated one
         -- too): the fixture is one current dbid. R1 and R2 ran on the restored
         -- data, so their summary is the view's now.
@@ -5192,14 +6512,14 @@ BEGIN
         -- The fixture's alerts: TBSPC_FULL 2 (FILLING, OVERRIDE), TBSPC_NEARFULL
         -- 2 (NEARFULL, OVERFULL), SERIES_LIMIT 2 (SESSIONS, ASM_DG:+DATA),
         -- SERIES_NEARLIMIT 1 (TEMP_PEAK), DBCPU_HOT 1 (FIXPDB2), CPU_SHIFT 1,
-        -- and 5 anomaly rows: TBSPC_ANOM 2 (spike, FIX_GAP burst), CPU_ANOM 1,
+        -- TBSPC_FAMILY 1 (FIXM_#), and 5 anomaly rows: TBSPC_ANOM 2 (spike, FIX_GAP burst), CPU_ANOM 1,
         -- DBCPU_ANOM 1 (the step episode), SERIES_ANOM 1. One row per key.
         SELECT COUNT(*), COUNT(DISTINCT state_key), COUNT(DISTINCT alert_key),
                COUNT(CASE WHEN kind IN ('TBSPC_ANOM', 'CPU_ANOM', 'DBCPU_ANOM', 'SERIES_ANOM') THEN 1 END)
           INTO n_rows, n_state, v_n, v_a FROM capr_alerts;
-        chk_true('CAPR_ALERTS: 14 rows, 14 state_keys, 14 alert_keys, 5 anomaly rows (got ' || n_rows || '/'
+        chk_true('CAPR_ALERTS: 15 rows, 15 state_keys, 15 alert_keys, 5 anomaly rows (got ' || n_rows || '/'
                  || n_state || '/' || v_n || '/' || v_a || ')',
-                 n_rows = 14 AND n_state = 14 AND v_n = 14 AND v_a = 5);
+                 n_rows = 15 AND n_state = 15 AND v_n = 15 AND v_a = 5);
         SELECT COUNT(*), COUNT(CASE WHEN state = 'OPEN' THEN 1 END) INTO v_a, v_b FROM cap_alert_state;
         chk_true('CAP_ALERT_STATE = the distinct CAPR_ALERTS state_keys, every one OPEN (got ' || v_a || '/' || v_b || ')',
                  v_a = n_state AND v_b = n_state);
@@ -5216,8 +6536,8 @@ BEGIN
         chk_int ('R2 events in total (nothing changed)', n_ev(run_2, 'ANY'), 0);
         chk_int ('R0 events (backdated: no alert state)', n_ev(run_0, 'ANY'), 0);
         SELECT n_alert, n_anom, n_event INTO v_a, v_b, v_c FROM cap_run WHERE run_id = run_1;
-        chk_true('R1 n_alert 14, n_anom 5, n_event 14 (got ' || v_a || '/' || v_b || '/' || v_c || ')',
-                 v_a = 14 AND v_b = 5 AND v_c = 14);
+        chk_true('R1 n_alert 15, n_anom 5, n_event 15 (got ' || v_a || '/' || v_b || '/' || v_c || ')',
+                 v_a = 15 AND v_b = 5 AND v_c = 15);
         SELECT COUNT(*) INTO v_n FROM cap_alert_event
          WHERE run_id = run_1 AND event_id NOT BETWEEN run_1 * 100000 + 1 AND run_1 * 100000 + n_state;
         chk_int ('R1 event_id = run_id * 100000 + 1 .. n', v_n, 0);
@@ -5227,8 +6547,8 @@ BEGIN
           INTO v_n, v_a, v_b, v_c1, v_s1, v_s2 FROM capr_runs;
         chk_true('CAPR_RUNS: 3 rows, is_last = R2, last_ok_run_id = R2, stale_run N (got ' || v_n || ' '
                  || v_a || ' ' || v_b || ' ' || v_c1 || ')', v_n = 3 AND v_a = run_2 AND v_b = run_2 AND v_c1 = 'N');
-        chk_true('CAPR_RUNS summary "refresh run <R2> at <time> (14 alerts, <n> fits)" (got: ' || v_s1 || ')',
-                 v_s1 LIKE 'refresh run ' || run_2 || ' at % (14 alerts, ' || n_fit || ' fits)');
+        chk_true('CAPR_RUNS summary "refresh run <R2> at <time> (15 alerts, <n> fits)" (got: ' || v_s1 || ')',
+                 v_s1 LIKE 'refresh run ' || run_2 || ' at % (15 alerts, ' || n_fit || ' fits)');
         chk_true('CAPR_RUNS R0 summary says backdated (got: ' || v_s2 || ')',
                  v_s2 LIKE '% (backdated as of ' || TO_CHAR(TRUNC(SYSDATE) - 7, 'YYYY-MM-DD') || ', ' || n_fit
                            || ' fits, no alert state)');
@@ -5258,8 +6578,15 @@ BEGIN
         DBMS_OUTPUT.PUT_LINE('=== results layer: CAPR_WEEKLY_DIGEST (R2 vs R0) ===');
         SELECT COUNT(*), MIN(run_then), MIN(run_now), SUM(n_new), SUM(n_resolved), SUM(n_reopened), SUM(n_sev_changes)
           INTO v_n, v_a, v_b, v_c, v_d, v_num, v_num2 FROM capr_weekly_digest;
-        chk_true('digest: one row per series, R0 vs R2 (got ' || v_n || ' rows, ' || v_a || ' vs ' || v_b || ')',
-                 v_n = n_fit AND v_a = run_0 AND v_b = run_2);
+        -- The TBSPC_FAMILY alert is keyed on the family FIXM_#, which is no
+        -- fit series: its event has a digest row of its own, kind OTHER.
+        chk_true('digest: one row per series and one for the family alert, R0 vs R2 (got ' || v_n || ' rows, '
+                 || v_a || ' vs ' || v_b || ')',
+                 v_n = n_fit + 1 AND v_a = run_0 AND v_b = run_2);
+        SELECT COUNT(*), MAX(n_new), MAX(events) INTO v_n, v_a, v_s1 FROM capr_weekly_digest
+         WHERE kind = 'OTHER' AND series = 'FIXM_#';
+        chk_true('digest: the one OTHER row is FIXM_#, "TBSPC_FAMILY NEW 1" (got ' || v_n || ' ' || v_a || ' ' || v_s1 || ')',
+                 v_n = 1 AND v_a = 1 AND v_s1 = 'TBSPC_FAMILY NEW 1');
         chk_true('digest: NEW = the state count, nothing resolved / reopened / re-graded (got ' || v_c || '/' || v_d
                  || '/' || v_num || '/' || v_num2 || ')',
                  v_c = n_state AND v_d = 0 AND v_num = 0 AND v_num2 = 0);
@@ -5299,6 +6626,55 @@ BEGIN
         chk_close('accuracy FIX_ZIGZAG slope_then = OLS on i 24..113', v_b, meta_n('ZZ_ACC7_SLOPE'), 0.000001);
         chk_close('accuracy FIX_ZIGZAG error = zz(LAST) - (zz(LAST - 7) + 7 * slope_then)', v_c, meta_n('ZZ_ACC7_ERR'), 0.000001);
         chk_true ('accuracy FIX_ZIGZAG error non-zero (got ' || v_c || ', ' || v_d || '%)', ABS(v_c) > 1000000);
+
+        -- CAPR_FIT_TRACK over the same runs. Every fit of R2 carries the +30
+        -- point CAPR_FORECAST_POINTS shows (at 12 decimals: two plans of the
+        -- view can differ in the 38th digit, see above). At the shipped horizon no stored
+        -- forecast is 30 days old; at 7 days R0's two forecasts are checked
+        -- against R2's values (the ones CAPR_FORECAST_ACCURACY scores above).
+        DBMS_OUTPUT.PUT_LINE('=== results layer: CAPR_FIT_TRACK (R0 forecasts vs R2) ===');
+        SELECT COUNT(*) INTO v_n
+          FROM cap_fit_hist h
+          LEFT JOIN capr_forecast_points p
+            ON p.kind = h.kind AND p.dbid = h.dbid AND p.con_dbid = h.con_dbid AND p.series = h.series
+           AND p.method = 'REGR' AND p.horizon_days = 30
+         WHERE h.run_id = run_2
+           AND DECODE(ROUND(h.proj_30, 12), ROUND(p.value, 12), 0, 1)
+               + DECODE(ROUND(h.proj_30_lo, 12), ROUND(p.lo, 12), 0, 1)
+               + DECODE(ROUND(h.proj_30_hi, 12), ROUND(p.hi, 12), 0, 1) > 0;
+        chk_int ('R2 fits carry the +30 point and band of CAPR_FORECAST_POINTS (mismatches)', v_n, 0);
+        SELECT COUNT(h.proj_30), COUNT(CASE WHEN h.proj_30_hi > h.proj_30_lo THEN 1 END),
+               MAX(CASE WHEN h.kind = 'TBSPC' AND h.series = 'FIX_LINEAR' THEN h.proj_30 END)
+          INTO v_a, v_b, v_c FROM cap_fit_hist h WHERE h.run_id = run_2;
+        chk_true ('R2: fits with a +30 point and with a band (got ' || v_a || ' / ' || v_b || ')', v_a > 0 AND v_b > 0);
+        chk_close('R2 FIX_LINEAR proj_30 = LINEAR_CUR + 30 x slope', v_c, meta_n('LINEAR_CUR') + 30 * n_slope, 1e-9);
+        SELECT COUNT(*), COUNT(CASE WHEN n_forecasts = 0 AND reliability = 'UNKNOWN' AND band_factor IS NULL THEN 1 END),
+               MIN(run_id), MAX(run_id)
+          INTO v_n, v_a, v_b, v_c FROM capr_fit_track;
+        chk_true ('track at horizon 30: one row per fit of R2, nothing to check, all UNKNOWN (got ' || v_n || ' / ' || v_a || ')',
+                  v_n = n_fit AND v_a = n_fit AND v_b = run_2 AND v_c = run_2);
+        knob('accuracy_horizon_days', 7);
+        SELECT COUNT(*), MIN(series), MAX(series), SUM(n_forecasts) INTO v_n, v_s1, v_s2, v_a
+          FROM capr_fit_track WHERE n_forecasts > 0;
+        chk_true ('track at horizon 7: FIX_LINEAR and FIX_ZIGZAG, one checked forecast each (got ' || v_n || ' ' || v_s1 || ' ' || v_s2 || ')',
+                  v_n = 2 AND v_s1 = 'FIX_LINEAR' AND v_s2 = 'FIX_ZIGZAG' AND v_a = 2);
+        SELECT abs_err_pct, bias_pct, reliability INTO v_a, v_b, v_str
+          FROM capr_fit_track WHERE kind = 'TBSPC' AND series = 'FIX_LINEAR';
+        chk_true ('track FIX_LINEAR: error 0, bias 0, UNKNOWN (1 of 8) (got ' || v_a || ' ' || v_b || ' ' || v_str || ')',
+                  v_a = 0 AND v_b = 0 AND v_str = 'UNKNOWN');
+        -- zz(LAST) = zz(LAST - 7) + 7 x slope_then + the error, all from the fixture.
+        v_d := (12800 + 1280 * 113 - 2560) * 8192 + 7 * meta_n('ZZ_ACC7_SLOPE') + meta_n('ZZ_ACC7_ERR');
+        SELECT (proj_30_hi - proj_30_lo) / 2 INTO v_c FROM cap_fit_hist
+         WHERE run_id = run_0 AND kind = 'TBSPC' AND series = 'FIX_ZIGZAG';
+        SELECT abs_err_pct, bias_pct, n_banded, band_hits, horizon_days INTO v_a, v_b, v_num, v_num2, v_n
+          FROM capr_fit_track WHERE kind = 'TBSPC' AND series = 'FIX_ZIGZAG';
+        chk_close('track FIX_ZIGZAG bias_pct = ROUND(100 x ZZ_ACC7_ERR / zz(LAST), 2)', v_b,
+                  ROUND(100 * meta_n('ZZ_ACC7_ERR') / v_d, 2), 1e-9);
+        chk_true ('track FIX_ZIGZAG: abs_err_pct = |bias_pct|, one banded forecast, inside R0''s band or not by its half-width (got '
+                  || v_a || ' ' || v_num || ' ' || v_num2 || ', half ' || v_c || ')',
+                  v_a = ABS(v_b) AND v_num = 1 AND v_n = 7 AND v_c > 0
+                  AND v_num2 = CASE WHEN ABS(meta_n('ZZ_ACC7_ERR')) <= v_c THEN 1 ELSE 0 END);
+        knob('accuracy_horizon_days', 30);
 
         DBMS_OUTPUT.PUT_LINE('=== results layer: resolve (grace), reopen ===');
         SELECT cfg_value INTO v_old FROM cap_config WHERE cfg_name = 'dtf_warn';
@@ -5357,7 +6733,24 @@ BEGIN
         SELECT ack_until, ack_note, ack_by INTO v_dt, v_s1, v_s2 FROM cap_alert_state WHERE state_key = v_skey;
         chk_true('ack: ack_until tomorrow, note, ack_by = SESSION_USER (got ' || v_s2 || ')',
                  v_dt = TRUNC(SYSDATE) + 1 AND v_s1 = 'known spike' AND v_s2 = SYS_CONTEXT('USERENV', 'SESSION_USER'));
+        SELECT COUNT(CASE WHEN acked = 'Y' THEN 1 END),
+               COUNT(CASE WHEN acked = 'Y' AND state_key = v_skey THEN 1 END),
+               COUNT(CASE WHEN state_key = v_skey THEN 1 END),
+               COUNT(CASE WHEN acked = 'N' THEN 1 END), COUNT(*)
+          INTO v_a, v_b, v_c, v_d, v_n FROM capr_alert_events;
+        chk_true('ack: CAPR_ALERT_EVENTS.acked Y on that alert''s events, N on every other (got ' || v_a || ' Y of ' || v_n || ')',
+                 v_a = v_b AND v_b = v_c AND v_c >= 1 AND v_a + v_d = v_n);
+        SELECT MAX(column_name) KEEP (DENSE_RANK LAST ORDER BY column_id) INTO v_s1
+          FROM all_tab_columns
+         WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND table_name = 'CAPR_ALERT_EVENTS';
+        chk_str ('CAPR_ALERT_EVENTS: acked is the last column', v_s1, 'ACKED');
+        cap_results.ack(v_skey, SYSDATE - 1 / 24);
+        SELECT COUNT(CASE WHEN acked = 'Y' THEN 1 END) INTO v_a FROM capr_alert_events;
+        chk_int ('an ack that ran out an hour ago: acked N again', v_a, 0);
+        cap_results.ack(v_skey, TRUNC(SYSDATE) + 1);
         cap_results.unack(v_skey);
+        SELECT COUNT(CASE WHEN acked = 'Y' THEN 1 END) INTO v_a FROM capr_alert_events;
+        chk_int ('unack: no event reads acked Y', v_a, 0);
         SELECT COUNT(*) INTO v_n FROM capr_alerts_latest WHERE state_key = v_skey;
         chk_int ('unack: back in CAPR_ALERTS_LATEST', v_n, 1);
         SELECT last_alert_key INTO v_akey FROM cap_alert_state WHERE state_key = v_okey;
@@ -5455,6 +6848,207 @@ BEGIN
             fail('results-layer block raised ' || SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
     END;
 
+    -- ================================================================
+    -- CAPR_FIT_TRACK on a designed run history. The fixture's runs are all
+    -- of one day, so the history is seeded: one OK run per data day (run_id
+    -- 1000 - j for day LAST - j, all below the real runs), five series of
+    -- kind SERIES whose newest row sits in the newest real run. Every actual
+    -- is 1000 and every slope 2, so a forecast issued at value 940 - e is
+    -- wrong by e after 30 days, e / 10 percent. Savepoint DML, rolled back.
+    --   TRK_WIDE  10 forecasts, half-width 40, errors -30 -10 5 10 20 20 40
+    --             50 60 80: median |e| 2.5%, bias 2%, 7 inside, the 90th
+    --             percentile of |e| / 40 is 1.5 + 0.1 * 0.5 = 1.55
+    --   TRK_BIAS  8 forecasts, errors -120 .. -190, two bands of width 0
+    --   TRK_GOOD  8 forecasts, errors +-1 .. +-4, half-width 10
+    --   TRK_FEW   6 forecasts + one whose outcome day is missing (the value
+    --             2 days later stands in, elapsed 32) + one with no outcome
+    --             + a CYCLIC and an INSUFFICIENT_HISTORY fit, not forecasts
+    --   TRK_OLD   8 forecasts stored without a band + one with a band whose
+    --             outcome day is missing with a value on both sides
+    -- ================================================================
+    DECLARE
+        d0     DATE := meta_d('LAST_DAY');
+        r_now  NUMBER;
+        n_real NUMBER;
+        v_rel  VARCHAR2(16);
+        v_sum  VARCHAR2(400);
+        v_a    NUMBER; v_b NUMBER;
+        v_f    NUMBER; v_lo NUMBER; v_hi NUMBER; v_nb NUMBER; v_h NUMBER; v_hp NUMBER;
+        TYPE num_list IS TABLE OF NUMBER;
+        e_wide num_list := num_list(-30, -10, 5, 10, 20, 20, 40, 50, 60, 80);
+        e_good num_list := num_list(-4, -3, -2, -1, 1, 2, 3, 4);
+
+        -- Day LAST - p_j of a series: the newest day lives in the newest run.
+        PROCEDURE fit(p_series VARCHAR2, p_j NUMBER, p_value NUMBER, p_slope NUMBER, p_half NUMBER,
+                      p_run NUMBER DEFAULT NULL, p_quality VARCHAR2 DEFAULT 'OK') IS
+        BEGIN
+            INSERT INTO cap_fit_hist (run_id, kind, dbid, con_dbid, series, as_of_day, db, unit, quality,
+                                      value, slope_per_day, last_day, is_current, proj_30, proj_30_lo, proj_30_hi)
+            VALUES (NVL(p_run, CASE WHEN p_j = 0 THEN r_now ELSE 1000 - p_j END), 'SERIES', v_dbid, v_dbid,
+                    p_series, d0 - p_j, 'TRACK', 'count', p_quality, p_value, p_slope, d0 - p_j, 1,
+                    CASE WHEN p_half IS NOT NULL THEN p_value + 30 * p_slope END,
+                    p_value + 30 * p_slope - p_half, p_value + 30 * p_slope + p_half);
+        END;
+        PROCEDURE trk(p_series VARCHAR2, p_n NUMBER, p_abs NUMBER, p_bias NUMBER, p_nb NUMBER, p_hits NUMBER,
+                      p_factor NUMBER, p_rel VARCHAR2) IS
+            v_n NUMBER; v_a NUMBER; v_b NUMBER;
+        BEGIN
+            SELECT n_forecasts, abs_err_pct, bias_pct, n_banded, band_hits, band_factor, reliability
+              INTO v_n, v_a, v_b, v_nb, v_h, v_f, v_rel
+              FROM capr_fit_track WHERE kind = 'SERIES' AND dbid = v_dbid AND series = p_series;
+            chk_true('track ' || p_series || ': n ' || p_n || ', median |error| ' || p_abs || '%, bias ' || p_bias
+                     || '%, banded ' || p_nb || ', hits ' || NVL(TO_CHAR(p_hits), 'NULL') || ', factor '
+                     || NVL(TO_CHAR(p_factor), 'NULL') || ', ' || p_rel || ' (got ' || v_n || ' ' || v_a || ' ' || v_b
+                     || ' ' || v_nb || ' ' || NVL(TO_CHAR(v_h), 'NULL') || ' ' || NVL(TO_CHAR(v_f), 'NULL') || ' ' || v_rel || ')',
+                     v_n = p_n AND v_a = p_abs AND v_b = p_bias AND v_nb = p_nb
+                     AND (v_h = p_hits OR (v_h IS NULL AND p_hits IS NULL))
+                     AND (v_f = p_factor OR (v_f IS NULL AND p_factor IS NULL)) AND v_rel = p_rel);
+        END;
+    BEGIN
+        DBMS_OUTPUT.PUT_LINE('=== CAPR_FIT_TRACK: designed run history ===');
+        SELECT accuracy_horizon_days * 1e12 + accuracy_window_days * 1e9 + calib_quantile_pct * 1e6
+               + calib_min_forecasts * 1e3 + calib_bias_pct, calib_wide_factor
+          INTO v_num, v_num2 FROM cap_cfg;
+        chk_true('track knobs (shipped): horizon 30, window 180, quantile 90, minimum 8, bias 10, wide factor 1.5',
+                 v_num = 30180090008010 AND v_num2 = 1.5);
+        SELECT MAX(run_id) INTO r_now FROM cap_run WHERE status = 'OK';
+        SELECT COUNT(*), COUNT(CASE WHEN n_forecasts = 0 AND reliability = 'UNKNOWN' AND abs_err_pct IS NULL
+                                     AND bias_pct IS NULL AND n_banded = 0 AND band_hits IS NULL
+                                     AND band_hit_pct IS NULL AND band_factor IS NULL
+                                     AND proj_30_lo_cal IS NULL AND proj_30_hi_cal IS NULL
+                                     AND summary = 'No 30-day forecast is old enough to check yet.' THEN 1 END)
+          INTO n_real, v_n FROM capr_fit_track;
+        SELECT COUNT(*) INTO v_num FROM cap_fit_hist WHERE run_id = r_now;
+        chk_true('track, runs of one day only: one row per fit of the newest OK run, each UNKNOWN with no numbers (got '
+                 || n_real || ' rows, ' || v_n || ' empty, ' || v_num || ' fits)',
+                 n_real = v_num AND v_n = n_real AND n_real > 0);
+
+        SAVEPOINT trk_seed;
+        INSERT INTO cap_run (run_id, as_of_day, deploy_mode, started_at, ended_at, status, backdated)
+        SELECT 1000 - (LEVEL - 1), d0 - (LEVEL - 1), 'fixture', SYSTIMESTAMP, SYSTIMESTAMP, 'OK', 'N'
+          FROM dual CONNECT BY LEVEL <= 61;
+        FOR k IN 0 .. 9 LOOP
+            fit('TRK_WIDE', k,      1000,              2, 50);
+            fit('TRK_WIDE', 30 + k, 940 - e_wide(k + 1), 2, 40);
+        END LOOP;
+        -- An older run that saw the same day: the newest run of a day counts.
+        fit('TRK_WIDE', 30, 0, 2, 40, p_run => 941);
+        FOR k IN 0 .. 7 LOOP
+            fit('TRK_BIAS', k,      1000,                   2, 50);
+            fit('TRK_BIAS', 30 + k, 940 + 120 + 10 * k,     2, CASE WHEN k < 2 THEN 0 ELSE 200 END);
+            fit('TRK_GOOD', k,      1000,                   2, 50);
+            fit('TRK_GOOD', 30 + k, 940 - e_good(k + 1),    2, 10);
+            fit('TRK_OLD',  k,      1000,                   2, 50);
+            fit('TRK_OLD',  30 + k, 940 - 5,                2, NULL);
+        END LOOP;
+        FOR k IN 0 .. 5 LOOP
+            fit('TRK_FEW', k,      1000,          2, 50);
+            fit('TRK_FEW', 30 + k, 940 - 10 * k,  2, 100);
+        END LOOP;
+        -- Day LAST - 7 is missing: LAST - 5 stands in (elapsed 32, error 70).
+        -- The forecast of LAST - 45 has no value within 2 days of LAST - 15.
+        fit('TRK_FEW', 37, 1000 - 32 * 2 - 70, 2, 100);
+        fit('TRK_FEW', 45, 500, 2, 100);
+        -- A CYCLIC or INSUFFICIENT_HISTORY fit issued no straight-line forecast:
+        -- LAST - 5 (elapsed 31) and LAST (elapsed 28) would stand in for
+        -- these two, and do not.
+        fit('TRK_FEW', 36, 0, 2, 100, p_quality => 'CYCLIC');
+        fit('TRK_FEW', 28, 0, 2, 100, p_quality => 'INSUFFICIENT_HISTORY');
+        -- Day LAST - 10 is missing, LAST - 11 reads 2000 and LAST - 9 1000:
+        -- the earlier one stands in (elapsed 29, error 100 = 5%, inside 150).
+        fit('TRK_OLD', 9,  1000, NULL, NULL);
+        fit('TRK_OLD', 11, 2000, NULL, NULL);
+        fit('TRK_OLD', 40, 2000 - 29 * 2 - 100, 2, 150);
+
+        SELECT COUNT(*), COUNT(CASE WHEN n_forecasts = 0 AND reliability = 'UNKNOWN' THEN 1 END)
+          INTO v_n, v_a FROM capr_fit_track WHERE series NOT LIKE 'TRK\_%' ESCAPE '\';
+        chk_true('track: the seeded history leaves the fixture series alone (got ' || v_n || ' rows, ' || v_a || ' empty)',
+                 v_n = n_real AND v_a = n_real);
+        trk('TRK_WIDE', 10, 2.5,  2,     10, 7,    1.55, 'WIDE');
+        trk('TRK_BIAS', 8,  15.5, -15.5, 6,  6,    NULL, 'BIASED');
+        trk('TRK_GOOD', 8,  0.25, 0,     8,  8,    1,    'GOOD');
+        trk('TRK_FEW',  7,  3,    3,     7,  7,    NULL, 'UNKNOWN');
+        trk('TRK_OLD',  9,  0.5,  0.5,   1,  1,    NULL, 'GOOD');
+        SELECT band_hit_pct, proj_30, proj_30_lo_cal, proj_30_hi_cal, summary, horizon_days, run_id
+          INTO v_hp, v_num, v_lo, v_hi, v_sum, v_a, v_b FROM capr_fit_track WHERE series = 'TRK_WIDE';
+        chk_true('track TRK_WIDE: band_hit_pct 70, calibrated +30 band 1060 -/+ 1.55 * 50 = 982.5 .. 1137.5, horizon 30, newest run (got '
+                 || v_hp || ' ' || v_lo || ' .. ' || v_hi || ')',
+                 v_hp = 70 AND v_num = 1060 AND v_lo = 982.5 AND v_hi = 1137.5 AND v_a = 30 AND v_b = r_now);
+        chk_str ('track TRK_WIDE summary', v_sum,
+                 '10 forecasts checked after 30 days: median error 2.5%, bias +2.0%, 7 of 10 inside the 95% band, band widened x1.55.');
+        SELECT proj_30_lo_cal, proj_30_hi_cal, proj_30_lo, proj_30_hi, summary INTO v_lo, v_hi, v_a, v_b, v_sum
+          FROM capr_fit_track WHERE series = 'TRK_GOOD';
+        chk_true('track TRK_GOOD: band_factor never below 1 (percentile 0.4), calibrated band = the issued one 1010 .. 1110 (got '
+                 || v_lo || ' .. ' || v_hi || ')', v_lo = 1010 AND v_hi = 1110 AND v_a = 1010 AND v_b = 1110);
+        chk_str ('track TRK_GOOD summary', v_sum,
+                 '8 forecasts checked after 30 days: median error 0.3%, bias 0.0%, 8 of 8 inside the 95% band.');
+        SELECT summary, proj_30_lo_cal INTO v_sum, v_lo FROM capr_fit_track WHERE series = 'TRK_FEW';
+        chk_str ('track TRK_FEW summary (below the minimum, no factor)', v_sum,
+                 '7 forecasts checked after 30 days (a grade needs 8): median error 3.0%, bias +3.0%, 7 of 7 inside the 95% band.');
+        chk_true('track TRK_FEW: no calibrated band without a factor', v_lo IS NULL);
+        SELECT summary INTO v_sum FROM capr_fit_track WHERE series = 'TRK_BIAS';
+        chk_str ('track TRK_BIAS summary (a band of width 0 is not judged)', v_sum,
+                 '8 forecasts checked after 30 days: median error 15.5%, bias -15.5%, 6 of 6 inside the 95% band.');
+        SELECT LISTAGG(series, ' ') WITHIN GROUP (ORDER BY rank_track) INTO v_sum
+          FROM capr_fit_track WHERE dbid = v_dbid AND rank_track <= 5;
+        chk_str ('track rank: BIASED, WIDE, GOOD by error, then UNKNOWN', v_sum,
+                 'TRK_BIAS TRK_WIDE TRK_OLD TRK_GOOD TRK_FEW');
+
+        -- The knobs. Each flip is undone by the next line.
+        knob('accuracy_window_days', 5);
+        trk('TRK_WIDE', 5, 1, 0.5, 5, 5, NULL, 'UNKNOWN');
+        knob('accuracy_window_days', 180);
+        knob('calib_quantile_pct', 50);
+        trk('TRK_WIDE', 10, 2.5, 2, 10, 7, 1, 'GOOD');
+        knob('calib_quantile_pct', 100);
+        trk('TRK_WIDE', 10, 2.5, 2, 10, 7, 2, 'WIDE');
+        knob('calib_quantile_pct', 90);
+        knob('calib_wide_factor', 1.6);
+        trk('TRK_WIDE', 10, 2.5, 2, 10, 7, 1.55, 'GOOD');
+        knob('calib_wide_factor', 1.5);
+        knob('calib_bias_pct', 1.5);
+        trk('TRK_WIDE', 10, 2.5, 2, 10, 7, 1.55, 'BIASED');
+        knob('calib_bias_pct', 10);
+        knob('calib_min_forecasts', 11);
+        trk('TRK_WIDE', 10, 2.5, 2, 10, 7, NULL, 'UNKNOWN');
+        knob('calib_min_forecasts', 7);
+        trk('TRK_FEW', 7, 3, 3, 7, 7, 1, 'GOOD');
+        knob('calib_min_forecasts', 8);
+        -- Horizon 28: a TRK_GOOD forecast finds its value 28 days on, or the
+        -- nearest stored one up to 2 days later (days LAST - 8 and - 9 are not stored).
+        knob('accuracy_horizon_days', 28);
+        SELECT n_forecasts, horizon_days INTO v_a, v_b FROM capr_fit_track WHERE series = 'TRK_GOOD';
+        chk_true('accuracy_horizon_days 28: TRK_GOOD checks the 8 forecasts at 28..30 days (got ' || v_a || ')',
+                 v_a = 8 AND v_b = 28);
+        knob('accuracy_horizon_days', 60);
+        SELECT COUNT(CASE WHEN n_forecasts > 0 THEN 1 END) INTO v_a FROM capr_fit_track;
+        chk_int ('accuracy_horizon_days 60: no stored pair is that far apart', v_a, 0);
+        knob('accuracy_horizon_days', 6);
+        knob('calib_quantile_pct', 40);
+        knob('calib_wide_factor', 0.5);
+        SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+         WHERE knob IN ('accuracy_horizon_days', 'calib_quantile_pct', 'calib_wide_factor') AND status = 'BAD';
+        chk_int ('CAP_CFG_CHECK BAD: accuracy_horizon_days 6, calib_quantile_pct 40, calib_wide_factor 0.5', v_n, 3);
+        ROLLBACK TO SAVEPOINT trk_seed;
+        SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+         WHERE (knob LIKE 'accuracy\_%' ESCAPE '\' OR knob LIKE 'calib\_%' ESCAPE '\') AND status = 'OK';
+        chk_int ('CAP_CFG_CHECK: the six track knobs OK after the rollback', v_n, 6);
+        SELECT COUNT(*) INTO v_n FROM capr_fit_track WHERE series LIKE 'TRK\_%' ESCAPE '\';
+        chk_int ('track: the seeded series are gone after the rollback', v_n, 0);
+
+        -- No run at all: no rows, and the view still answers.
+        SAVEPOINT trk_empty;
+        DELETE FROM cap_fit_hist;
+        DELETE FROM cap_run;
+        SELECT COUNT(*) INTO v_n FROM capr_fit_track;
+        chk_int ('track on empty results tables (rows)', v_n, 0);
+        ROLLBACK TO SAVEPOINT trk_empty;
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            fail('track-record block raised ' || SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
+    END;
+
     -- CAPR_SEGMENT_GROWTH: FIX_FILLING's three segments take 7 / 2 / 1 MiB
     -- of its 10 MiB a day, FIX_LINEAR's one segment all 10 MiB, on every
     -- day; the seg_window_days window holds 28 of those days, so the
@@ -5512,6 +7106,371 @@ BEGIN
             UPDATE cap_config SET cfg_value = cfg_default WHERE cfg_name = 'seg_window_days';
             COMMIT;
             fail('segment-growth block raised ' || SQLERRM);
+    END;
+
+    -- =================================================================
+    -- Tablespace families (ddl/32): FIXM_# (monthly, the alert), FIXY_#
+    -- (yearly, quiet) and the FIXP pair that forms none. Closed forms in
+    -- test/fixture_install.sql, header FAMILIES and its FAM_ meta block.
+    -- =================================================================
+    DECLARE
+        mib     CONSTANT NUMBER := 1048576;
+        gib     CONSTANT NUMBER := 1073741824;
+        d_last  DATE := meta_d('LAST_DAY');
+        d_base  DATE := meta_d('BASE_DAY');
+        v_fy    VARCHAR2(30);
+        v_txt   VARCHAR2(4000);
+        v_txt2  VARCHAR2(4000);
+        v_d     DATE;
+        v_d2    DATE;
+        v_a     NUMBER;
+        v_b     NUMBER;
+        v_c     NUMBER;
+        v_e     NUMBER;
+        v_f     NUMBER;
+        v_raised BOOLEAN;
+        -- One family's row of CAPF_TBSPC_FAMILY.
+        r       capf_tbspc_family%ROWTYPE;
+        PROCEDURE fam(p_name VARCHAR2) IS
+        BEGIN
+            SELECT * INTO r FROM capf_tbspc_family WHERE dbid = v_dbid AND family_name = p_name;
+        END;
+        FUNCTION n_fam RETURN NUMBER IS x NUMBER;
+        BEGIN SELECT COUNT(*) INTO x FROM capf_tbspc_family WHERE dbid = v_dbid; RETURN x; END;
+        FUNCTION states(p_name VARCHAR2) RETURN VARCHAR2 IS x VARCHAR2(4000);
+        BEGIN
+            SELECT LISTAGG(tablespace_name || ':' || state, ' ') WITHIN GROUP (ORDER BY member_seq)
+              INTO x FROM capf_tbspc_family_member WHERE dbid = v_dbid AND family_name = p_name;
+            RETURN x;
+        END;
+    BEGIN
+        DBMS_OUTPUT.PUT_LINE('=== Tablespace families (ddl/32): FIXM_# / FIXY_# / the FIXP pair ===');
+        SELECT sval INTO v_fy FROM cap_fixture_meta WHERE mkey = 'FAM_Y_FILLING';
+
+        -- ---- membership ----
+        SELECT COUNT(*), COUNT(DISTINCT family_name) INTO v_n, v_num
+          FROM capd_tbspc_family WHERE dbid = v_dbid;
+        chk_int('families: member rows (6 FIXM_ + 3 FIXY_)', v_n, 9);
+        chk_int('families: two families', v_num, 2);
+        SELECT COUNT(*) INTO v_n FROM capd_tbspc_family
+          WHERE tablespace_name LIKE 'FIXP%' OR tablespace_name LIKE 'FIX!_%' ESCAPE '!';
+        chk_int('families: the FIXP pair (2 < family_min_members) and the FIX_ names form none', v_n, 0);
+        SELECT COUNT(*), MIN(period) || '/' || MAX(period), MIN(source) || '/' || MAX(source), MIN(n_members)
+          INTO v_n, v_str, v_str2, v_num
+          FROM capd_tbspc_family WHERE dbid = v_dbid AND family_name = 'FIXM_#';
+        chk_int('FIXM_# members', v_n, 6);
+        chk_str('FIXM_# period (YYYYMM token)', v_str, 'MONTH/MONTH');
+        chk_str('FIXM_# source', v_str2, 'AUTO/AUTO');
+        chk_int('FIXM_# n_members on every row', v_num, 6);
+        SELECT period_start, period_end, period_days INTO v_d, v_d2, v_num
+          FROM capd_tbspc_family WHERE tablespace_name = 'FIXM_202311';
+        chk_true('FIXM_202311 period = November 2023', v_d = DATE '2023-11-01' AND v_d2 = DATE '2023-11-30');
+        chk_int ('FIXM_202311 period_days', v_num, 30);
+        SELECT period, period_start, period_end, period_days INTO v_str, v_d, v_d2, v_num
+          FROM capd_tbspc_family WHERE tablespace_name = 'FIXY_2024';
+        chk_str ('FIXY_2024 period (YYYY token)', v_str, 'YEAR');
+        chk_true('FIXY_2024 period = the year 2024', v_d = DATE '2024-01-01' AND v_d2 = DATE '2024-12-31');
+        chk_int ('FIXY_2024 period_days (leap year)', v_num, 366);
+        SELECT COUNT(*) INTO v_n FROM capd_tbspc_family WHERE con_dbid <> v_dbid;
+        chk_int('families: a container without a family has no row', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM capd_tbspc_family_daily
+          WHERE dbid = v_dbid AND family_name = 'FIXM_#' AND day_dt = d_last;
+        chk_int('CAPD_TBSPC_FAMILY_DAILY one row per family and day', v_n, 1);
+        SELECT used_bytes, n_members INTO v_a, v_num FROM capd_tbspc_family_daily
+          WHERE dbid = v_dbid AND family_name = 'FIXM_#' AND day_dt = d_base + 49;
+        chk_int('FIXM_# total on day 49 = 811 + 1036 + 4 x 1 MiB (nothing filled yet)', v_a, (811 + 1036 + 4) * mib);
+        chk_int('FIXM_# daily n_members', v_num, 6);
+
+        -- ---- members: order, state, final size, fill window ----
+        chk_str('FIXM_# members in period order with their states', states('FIXM_#'),
+                'FIXM_202307:DONE FIXM_202308:DONE FIXM_202309:DONE FIXM_202310:DONE FIXM_202311:FILLING FIXM_202312:EMPTY');
+        chk_str('FIXY_# members in period order with their states', states('FIXY_#'),
+                'FIXY_2023:DONE FIXY_2024:DONE ' || v_fy || ':FILLING');
+        SELECT final_bytes, grow_days, fill_from, fill_days INTO v_a, v_num, v_d, v_num2
+          FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202307';
+        chk_int ('FIXM_202307 final_bytes = 811 MiB (flat, never grew in the window)', v_a, 811 * mib);
+        chk_true('FIXM_202307 no growth day, no fill window', v_num = 0 AND v_d IS NULL AND v_num2 IS NULL);
+        SELECT final_bytes INTO v_a FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202308';
+        chk_int ('FIXM_202308 final_bytes = 1036 MiB', v_a, 1036 * mib);
+        SELECT final_bytes, grow_days, fill_from, fill_to, fill_days, restart_reason
+          INTO v_a, v_num, v_d, v_d2, v_num2, v_str
+          FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202309';
+        chk_int ('FIXM_202309 final_bytes = 1 + 30 x 40 = 1201 MiB', v_a, 1201 * mib);
+        chk_int ('FIXM_202309 final_bytes = FAM_M_FINAL3', v_a, meta_n('FAM_M_FINAL3'));
+        chk_int ('FIXM_202309 grow_days', v_num, 30);
+        chk_true('FIXM_202309 fill window days 50 .. 79', v_d = d_base + 50 AND v_d2 = d_base + 79);
+        chk_int ('FIXM_202309 fill_days', v_num2, 30);
+        chk_str ('FIXM_202309 the fit says STOP (41 quiet days)', v_str, 'STOP');
+        SELECT final_bytes, fill_from, fill_to, fill_days, NVL(restart_reason, '-')
+          INTO v_a, v_d, v_d2, v_num2, v_str
+          FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202310';
+        chk_int ('FIXM_202310 final_bytes = 1 + 31 x 45 = 1396 MiB', v_a, 1396 * mib);
+        chk_true('FIXM_202310 fill window days 80 .. 110', v_d = d_base + 80 AND v_d2 = d_base + 110);
+        chk_int ('FIXM_202310 fill_days', v_num2, 31);
+        chk_true('FIXM_202310 is DONE because its successor grows: 10 quiet days, the fit says no STOP (got '
+                 || v_str || ')', v_str <> 'STOP');
+        SELECT cur_used, limit_bytes, fill_from, fill_rate_bpd, quality, NVL(restart_reason, '-'), final_bytes
+          INTO v_a, v_b, v_d, v_c, v_str, v_str2, v_e
+          FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202311';
+        chk_int  ('FIXM_202311 cur_used = 1 + 10 x 53 = 531 MiB', v_a, 531 * mib);
+        chk_int  ('FIXM_202311 limit_bytes = 1600 MiB', v_b, 1600 * mib);
+        chk_true ('FIXM_202311 fill_from = day 111', v_d = d_base + 111);
+        chk_close('FIXM_202311 fill_rate_bpd = 53 MiB/day (since the day before its first growth day)', v_c, 53 * mib, 1e-12);
+        chk_str  ('FIXM_202311 own fit: 80 flat days and 10 on the ramp', v_str, 'LOW_CONFIDENCE');
+        chk_str  ('FIXM_202311 own fit not restarted (11 days are under min_train_days)', v_str2, '-');
+        chk_true ('FIXM_202311 no final size while filling', v_e IS NULL);
+        SELECT final_bytes, fill_rate_bpd, cur_used INTO v_a, v_b, v_c
+          FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202312';
+        chk_true('FIXM_202312 EMPTY: no final size, no rate, 1 MiB used', v_a IS NULL AND v_b IS NULL AND v_c = mib);
+        SELECT fill_from, fill_rate_bpd, quality INTO v_d, v_a, v_str
+          FROM capf_tbspc_family_member WHERE tablespace_name = v_fy;
+        chk_true ('FIXY filling member grew into the window: no fill_from', v_d IS NULL);
+        chk_close('FIXY filling member fill_rate_bpd = the fit slope, 8 MiB/day', v_a, meta_n('FAM_Y_RATE'), 1e-9);
+        chk_str  ('FIXY filling member fit', v_str, 'OK');
+
+        -- ---- FIXM_#: next member, the filling member against its ceiling ----
+        fam('FIXM_#');
+        chk_str  ('FIXM_# members by state', r.n_members || '/' || r.n_done || '/' || r.n_filling || '/' || r.n_empty, '6/4/1/1');
+        chk_str  ('FIXM_# period / source', r.period || ' ' || r.source, 'MONTH AUTO');
+        chk_int  ('FIXM_# used_bytes = 811 + 1036 + 1201 + 1396 + 531 + 1 = 4976 MiB', r.used_bytes, 4976 * mib);
+        chk_int  ('FIXM_# used_bytes = FAM_M_USED', r.used_bytes, meta_n('FAM_M_USED'));
+        chk_int  ('FIXM_# max_limit_bytes = 50 GiB', r.max_limit_bytes, 50 * gib);
+        chk_close('FIXM_# slope_bpd = OLS of the daily total', r.slope_bpd, meta_n('FAM_M_SLOPE'), 1e-9);
+        chk_int  ('FIXM_# train_n', r.train_n, 90);
+        chk_int  ('FIXM_# period_days (the filling member''s November)', r.period_days, 30);
+        chk_close('FIXM_# growth_per_period_bytes = 30 x slope', r.growth_per_period_bytes, 30 * meta_n('FAM_M_SLOPE'), 1e-9);
+        chk_int  ('FIXM_# recent_n (4 DONE of family_recent_members 6)', r.recent_n, 4);
+        chk_close('FIXM_# trend_bpm = 192 MiB a member', r.trend_bpm, 192 * mib, 1e-9);
+        chk_close('FIXM_# trend_bpm = FAM_M_TREND', r.trend_bpm, meta_n('FAM_M_TREND'), 1e-9);
+        chk_str  ('FIXM_# trend_sig', r.trend_sig, 'Y');
+        chk_close('FIXM_# next_member_bytes = median(1579, 1612, 1585, 1588) = 1586.5 MiB', r.next_member_bytes, 1586.5 * mib, 1e-9);
+        chk_close('FIXM_# next_member_hi_bytes = 1612 MiB', r.next_member_hi_bytes, 1612 * mib, 1e-9);
+        chk_close('FIXM_# next_member_bytes = FAM_M_NEXT', r.next_member_bytes, meta_n('FAM_M_NEXT'), 1e-9);
+        chk_str  ('FIXM_# next_over_limit (1586.5 MiB under 50 GiB)', r.next_over_limit, 'N');
+        chk_str  ('FIXM_# filling_member', r.filling_member, 'FIXM_202311');
+        chk_int  ('FIXM_# filling_used_bytes', r.filling_used_bytes, 531 * mib);
+        chk_int  ('FIXM_# filling_limit_bytes', r.filling_limit_bytes, 1600 * mib);
+        chk_true ('FIXM_# filling_from = day 111', r.filling_from = d_base + 111);
+        chk_true ('FIXM_# period_end_day = day 111 + 30 - 1 = day 140', r.period_end_day = d_base + 140
+                                                                   AND r.period_end_day = meta_d('FAM_M_PERIOD_END'));
+        chk_int  ('FIXM_# days_left', r.days_left, 20);
+        chk_close('FIXM_# expected_final_bytes = 531 + 20 x 53 = 1591 MiB (own rate beats 1586.5 / 30)',
+                  r.expected_final_bytes, 1591 * mib, 1e-9);
+        chk_close('FIXM_# expected_final_hi_bytes = 531 + 20 x 1612 / 30 MiB (the cautious family rate)',
+                  r.expected_final_hi_bytes, (531 + 20 * 1612 / 30) * mib, 1e-9);
+        chk_close('FIXM_# expected_final_hi_bytes = FAM_M_EXP_HI', r.expected_final_hi_bytes, meta_n('FAM_M_EXP_HI'), 1e-9);
+        chk_true ('FIXM_# expected under the ceiling, cautious value over it',
+                  r.expected_final_bytes < r.filling_limit_bytes AND r.expected_final_hi_bytes > r.filling_limit_bytes);
+        chk_str  ('FIXM_# fits', r.fits, 'N');
+
+        -- ---- FIXY_#: quiet, calendar period end, no trend ----
+        fam('FIXY_#');
+        chk_str  ('FIXY_# members by state', r.n_members || '/' || r.n_done || '/' || r.n_filling || '/' || r.n_empty, '3/2/1/0');
+        chk_str  ('FIXY_# period', r.period, 'YEAR');
+        chk_int  ('FIXY_# used_bytes', r.used_bytes, meta_n('FAM_Y_USED'));
+        chk_int  ('FIXY_# recent_n', r.recent_n, 2);
+        chk_str  ('FIXY_# trend_sig (two members carry no trend)', r.trend_sig, 'N');
+        chk_close('FIXY_# next_member_bytes = median(600, 500) = 550 MiB', r.next_member_bytes, 550 * mib, 1e-9);
+        chk_close('FIXY_# next_member_hi_bytes = 600 MiB', r.next_member_hi_bytes, 600 * mib, 1e-9);
+        chk_str  ('FIXY_# filling_member', r.filling_member, v_fy);
+        chk_true ('FIXY_# no filling_from', r.filling_from IS NULL);
+        chk_true ('FIXY_# period_end_day = 31 December of the load year', r.period_end_day = meta_d('FAM_Y_PERIOD_END'));
+        chk_int  ('FIXY_# days_left', r.days_left, meta_n('FAM_Y_PERIOD_END'));
+        chk_int  ('FIXY_# period_days', r.period_days, meta_n('FAM_Y_PERIOD_DAYS'));
+        chk_close('FIXY_# slope_bpd = 8 MiB/day (two flat members and one line)', r.slope_bpd, 8 * mib, 1e-9);
+        chk_close('FIXY_# expected_final_bytes = 1060 MiB + 8 MiB x days_left', r.expected_final_bytes, meta_n('FAM_Y_EXP'), 1e-9);
+        chk_close('FIXY_# expected_final_hi_bytes the same (8 MiB/day beats 600 MiB a year)',
+                  r.expected_final_hi_bytes, meta_n('FAM_Y_EXP'), 1e-9);
+        chk_str  ('FIXY_# fits', r.fits, 'Y');
+        chk_int  ('CAPF_TBSPC_FAMILY one row per family', n_fam, 2);
+
+        -- ---- report views ----
+        SELECT COUNT(*), COUNT(CASE WHEN db_pdb = 'FIXCDB' THEN 1 END) INTO v_n, v_num FROM capr_tbspc_family;
+        chk_int('CAPR_TBSPC_FAMILY rows', v_n, 2);
+        chk_int('CAPR_TBSPC_FAMILY db_pdb', v_num, 2);
+        SELECT sev, actionable, rank_family, headline, next_member_gb, expected_final_hi_gb, filling_limit_gb
+          INTO v_str, v_c1, v_num, v_txt, v_a, v_b, v_c
+          FROM capr_tbspc_family WHERE family_name = 'FIXM_#';
+        chk_str  ('CAPR_TBSPC_FAMILY FIXM_# sev', v_str, 'WARN');
+        chk_str  ('CAPR_TBSPC_FAMILY FIXM_# actionable', v_c1, 'Y');
+        chk_int  ('CAPR_TBSPC_FAMILY FIXM_# rank_family (WARN first)', v_num, 1);
+        chk_close('CAPR_TBSPC_FAMILY FIXM_# next_member_gb = 1586.5 / 1024', v_a, 1586.5 / 1024, 1e-9);
+        chk_close('CAPR_TBSPC_FAMILY FIXM_# filling_limit_gb = 1600 / 1024', v_c, 1600 / 1024, 1e-9);
+        v_txt2 := 'Family FIXM_#: FIXM_202311 may reach 1.57 GiB by ' || TO_CHAR(d_last + 20, 'YYYY-MM-DD')
+                  || ' (expected 1.55 GiB), ceiling 1.56 GiB. Next member: 1.55 GiB (cautious 1.57 GiB)';
+        chk_true('CAPR_TBSPC_FAMILY FIXM_# headline (got ' || v_txt || ')', v_txt = v_txt2);
+        SELECT sev, actionable, headline INTO v_str, v_c1, v_txt FROM capr_tbspc_family WHERE family_name = 'FIXY_#';
+        chk_str ('CAPR_TBSPC_FAMILY FIXY_# sev / actionable', v_str || ' ' || v_c1, 'OK N');
+        chk_true('CAPR_TBSPC_FAMILY FIXY_# headline (got ' || v_txt || ')',
+                 v_txt LIKE 'Family FIXY!_#: ' || v_fy || ' stays under its ceiling, at most % GiB by '
+                            || TO_CHAR(meta_d('FAM_Y_PERIOD_END'), 'YYYY-MM-DD')
+                            || ' (expected % GiB), ceiling 50.00 GiB. Next member: 0.54 GiB (cautious 0.59 GiB)' ESCAPE '!');
+        SELECT COUNT(*), COUNT(CASE WHEN state = 'DONE' THEN final_gb END) INTO v_n, v_num FROM capr_tbspc_family_members;
+        chk_int('CAPR_TBSPC_FAMILY_MEMBERS rows', v_n, 9);
+        chk_int('CAPR_TBSPC_FAMILY_MEMBERS final_gb on the six DONE members', v_num, 6);
+        SELECT final_gb, used_gb, limit_gb INTO v_a, v_b, v_c FROM capr_tbspc_family_members
+          WHERE tablespace_name = 'FIXM_202308';
+        chk_close('CAPR_TBSPC_FAMILY_MEMBERS FIXM_202308 final_gb', v_a, 1036 / 1024, 1e-9);
+        chk_true ('CAPR_TBSPC_FAMILY_MEMBERS FIXM_202308 used_gb = final_gb, limit 50 GiB', v_b = v_a AND v_c = 50);
+
+        -- ---- the alert ----
+        snap_alerts;
+        SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE kind = 'TBSPC_FAMILY';
+        chk_int('TBSPC_FAMILY alerts (FIXM_# only)', v_n, 1);
+        SELECT severity, series_key, value, threshold, alarm_threshold, state_key, day_dt, message, db_pdb
+          INTO v_str, v_str2, v_a, v_b, v_c, v_txt, v_d, v_msg, v_txt2
+          FROM cap_fixture_alerts_snap WHERE kind = 'TBSPC_FAMILY';
+        chk_str  ('TBSPC_FAMILY severity', v_str, 'WARN');
+        chk_str  ('TBSPC_FAMILY series_key = the family', v_str2, 'FIXM_#');
+        chk_close('TBSPC_FAMILY value = expected_final_hi in GiB', v_a, meta_n('FAM_M_EXP_HI') / gib, 1e-9);
+        chk_close('TBSPC_FAMILY threshold = the ceiling in GiB', v_b, 1600 / 1024, 1e-9);
+        chk_close('TBSPC_FAMILY alarm_threshold = the ceiling in GiB', v_c, 1600 / 1024, 1e-9);
+        chk_str  ('TBSPC_FAMILY state_key (family, not member: the next member continues it)', v_txt,
+                  'TBSPC_FAMILY|' || v_dbid || '|' || v_dbid || '|FIXM_#|-');
+        chk_true ('TBSPC_FAMILY day_dt = the last day', v_d = d_last);
+        chk_true ('TBSPC_FAMILY message names family, member, expected size, ceiling and the next member (got '
+                  || v_msg || ')',
+                  v_msg = 'Family FIXM_#: FIXM_202311 may reach 1.57 GiB by ' || TO_CHAR(d_last + 20, 'YYYY-MM-DD')
+                          || ' (expected 1.55 GiB), ceiling 1.56 GiB. Next member: 1.55 GiB (cautious 1.57 GiB)');
+        chk_str  ('TBSPC_FAMILY db_pdb', v_txt2, 'FIXCDB');
+        SELECT unit, direction, is_current INTO v_str, v_str2, v_c1
+          FROM cap_fixture_alerts_snap WHERE kind = 'TBSPC_FAMILY';
+        chk_str  ('TBSPC_FAMILY unit / direction / is_current', v_str || ' ' || v_str2 || ' ' || v_c1, 'GIB GE Y');
+        SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap
+          WHERE kind <> 'TBSPC_FAMILY'
+            AND (series_key LIKE 'FIXM%' OR series_key LIKE 'FIXY%' OR series_key LIKE 'FIXP%');
+        chk_int('the family tablespaces raise no other alert (no TBSPC_FULL, NEARFULL or ANOM)', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM capa_anom
+          WHERE dbid = v_dbid AND kind = 'TBSPC' AND anomaly_flag IS NOT NULL
+            AND (series LIKE 'FIXM%' OR series LIKE 'FIXY%' OR series LIKE 'FIXP%');
+        chk_int('the family tablespaces flag no anomaly (every step under the 100 MiB floor)', v_n, 0);
+
+        -- ---- knobs ----
+        SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+          WHERE knob IN ('family_auto', 'family_min_members', 'family_recent_members') AND status = 'OK';
+        chk_int('CAP_CFG_CHECK: the three family knobs OK', v_n, 3);
+        SAVEPOINT u10_family;
+        BEGIN
+            -- family_recent_members 2: the two newest finals, no trend, and
+            -- the member's own 53 MiB/day beats 1396 / 30: it fits.
+            knob('family_recent_members', 2);
+            fam('FIXM_#');
+            chk_int  ('recent 2: recent_n', r.recent_n, 2);
+            chk_str  ('recent 2: trend_sig', r.trend_sig, 'N');
+            chk_close('recent 2: next_member_bytes = median(1201, 1396) = 1298.5 MiB', r.next_member_bytes, 1298.5 * mib, 1e-9);
+            chk_close('recent 2: next_member_bytes = FAM_M_NEXT_R2', r.next_member_bytes, meta_n('FAM_M_NEXT_R2'), 1e-9);
+            chk_close('recent 2: next_member_hi_bytes = 1396 MiB', r.next_member_hi_bytes, 1396 * mib, 1e-9);
+            chk_close('recent 2: expected_final_hi_bytes = 1591 MiB (own rate both ways)', r.expected_final_hi_bytes, 1591 * mib, 1e-9);
+            chk_str  ('recent 2: fits', r.fits, 'Y');
+            SELECT COUNT(*) INTO v_n FROM capr_alerts WHERE kind = 'TBSPC_FAMILY';
+            chk_int  ('recent 2: no TBSPC_FAMILY alert', v_n, 0);
+            knob('family_recent_members', 0);
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'family_recent_members';
+            chk_str  ('CAP_CFG_CHECK family_recent_members = 0', v_str, 'BAD');
+            knob('family_recent_members', 6);
+
+            -- family_min_members: 7 dissolves both families, 2 lets the
+            -- FIXP pair form one (quarter tokens, no growth: both DONE).
+            knob('family_min_members', 7);
+            chk_int('min members 7: no family', n_fam, 0);
+            SELECT COUNT(*) INTO v_n FROM capr_tbspc_family;
+            chk_int('min members 7: CAPR_TBSPC_FAMILY empty', v_n, 0);
+            SELECT COUNT(*) INTO v_n FROM capr_tbspc_family_members;
+            chk_int('min members 7: CAPR_TBSPC_FAMILY_MEMBERS empty', v_n, 0);
+            knob('family_min_members', 2);
+            chk_int('min members 2: three families', n_fam, 3);
+            fam('FIXP_#');
+            chk_str  ('min members 2: FIXP_# period', r.period, 'QUARTER');
+            chk_str  ('min members 2: FIXP_# states', states('FIXP_#'), 'FIXP_2024Q1:DONE FIXP_2024Q2:DONE');
+            chk_close('min members 2: FIXP_# next_member_bytes = 300 MiB', r.next_member_bytes, 300 * mib, 1e-9);
+            chk_true ('min members 2: FIXP_# no filling member, no verdict', r.filling_member IS NULL AND r.fits IS NULL
+                                                                           AND r.expected_final_bytes IS NULL);
+            chk_int  ('min members 2: FIXP_# period_days (the newest member''s quarter, Q2 2024)', r.period_days, 91);
+            SELECT period_start, period_end INTO v_d, v_d2 FROM capd_tbspc_family WHERE tablespace_name = 'FIXP_2024Q2';
+            chk_true ('min members 2: FIXP_2024Q2 = April .. June 2024', v_d = DATE '2024-04-01' AND v_d2 = DATE '2024-06-30');
+            SELECT headline INTO v_txt FROM capr_tbspc_family WHERE family_name = 'FIXP_#';
+            chk_true ('min members 2: FIXP_# headline (got ' || v_txt || ')',
+                      v_txt = 'Family FIXP_#: no member is filling. Next member: 0.29 GiB (cautious 0.29 GiB)');
+            knob('family_min_members', 1);
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'family_min_members';
+            chk_str  ('CAP_CFG_CHECK family_min_members = 1', v_str, 'BAD');
+            knob('family_min_members', 3);
+
+            -- family_auto 0: no operator row, no family.
+            knob('family_auto', 0);
+            chk_int('family_auto 0: no family without CAP_TBSPC_FAMILY rows', n_fam, 0);
+            knob('family_auto', 2);
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'family_auto';
+            chk_str('CAP_CFG_CHECK family_auto = 2', v_str, 'BAD');
+            knob('family_auto', 1);
+
+            -- ---- CAP_TBSPC_FAMILY rows ----
+            -- Exclude the oldest member: three finals 1036 / 1201 / 1396,
+            -- 180 MiB a member (significant), each carried to 1576 / 1561 /
+            -- 1576 MiB: median and maximum 1576.
+            INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+            VALUES (0, 0, '^FIXM_202307$', NULL, 'Y');
+            fam('FIXM_#');
+            chk_str  ('exclude row: members by state', r.n_members || '/' || r.n_done || '/' || r.n_filling || '/' || r.n_empty, '5/3/1/1');
+            chk_close('exclude row: trend_bpm = 180 MiB a member', r.trend_bpm, 180 * mib, 1e-9);
+            chk_str  ('exclude row: trend_sig', r.trend_sig, 'Y');
+            chk_close('exclude row: next_member_bytes = 1576 MiB', r.next_member_bytes, 1576 * mib, 1e-9);
+            chk_close('exclude row: next_member_hi_bytes = 1576 MiB', r.next_member_hi_bytes, 1576 * mib, 1e-9);
+            chk_str  ('exclude row: fits (53 MiB/day beats 1576 / 30)', r.fits, 'Y');
+            chk_int  ('exclude row: used_bytes without the member', r.used_bytes, (4976 - 811) * mib);
+            -- A more specific row (real dbid) wins and puts it back.
+            INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+            VALUES (v_dbid, 0, '^FIXM_202307$', 'FIXM_#', 'N');
+            fam('FIXM_#');
+            chk_int  ('most specific row wins: six members again', r.n_members, 6);
+            chk_str  ('most specific row wins: the family has an operator member', r.source, 'OPERATOR');
+            chk_close('most specific row wins: next_member_bytes 1586.5 MiB again', r.next_member_bytes, 1586.5 * mib, 1e-9);
+            SELECT source INTO v_str FROM capd_tbspc_family WHERE tablespace_name = 'FIXM_202307';
+            chk_str  ('most specific row wins: member source', v_str, 'OPERATOR');
+            -- Rename a family. Its period tokens still order it.
+            INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+            VALUES (0, 0, '^FIXY_', 'FIX yearly', 'N');
+            chk_str  ('rename row: members and states under the new name', states('FIX yearly'),
+                      'FIXY_2023:DONE FIXY_2024:DONE ' || v_fy || ':FILLING');
+            SELECT COUNT(*) INTO v_n FROM capf_tbspc_family WHERE family_name = 'FIXY_#';
+            chk_int  ('rename row: the automatic name is gone', v_n, 0);
+            -- A family the period token does not give: two members, no minimum.
+            INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+            VALUES (0, 0, '^FIXP_2024Q[12]$', 'FIXP quarters', 'N');
+            fam('FIXP quarters');
+            chk_str  ('operator family: two members, under family_min_members', r.n_members || ' ' || r.source, '2 OPERATOR');
+            chk_int  ('operator rows: three families', n_fam, 3);
+            -- family_auto 0 keeps the operator members only.
+            knob('family_auto', 0);
+            chk_int  ('family_auto 0: the three families of the operator rows', n_fam, 3);
+            fam('FIXM_#');
+            chk_int  ('family_auto 0: FIXM_# is its one operator member', r.n_members, 1);
+            knob('family_auto', 1);
+            -- An unusable row never reaches the views.
+            v_raised := FALSE;
+            BEGIN
+                INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+                VALUES (0, 0, '^FIXM_(', 'BROKEN', 'N');
+            EXCEPTION
+                WHEN OTHERS THEN v_raised := TRUE;
+            END;
+            chk_true('CAP_TBSPC_FAMILY rejects an invalid regular expression', v_raised);
+            v_raised := FALSE;
+            BEGIN
+                INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+                VALUES (0, 0, '^FIXM_2', NULL, 'N');
+            EXCEPTION
+                WHEN OTHERS THEN v_raised := TRUE;
+            END;
+            chk_true('CAP_TBSPC_FAMILY rejects a row without family_name that excludes nothing', v_raised);
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u10_family; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT u10_family;
+        chk_int('families: two again after the rollback', n_fam, 2);
+    EXCEPTION
+        WHEN OTHERS THEN
+            fail('tablespace family block raised ' || SQLERRM);
     END;
 
     DBMS_OUTPUT.PUT_LINE('----------------------------------------');

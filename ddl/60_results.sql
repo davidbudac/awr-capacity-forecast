@@ -37,6 +37,8 @@
 --   CAPR_FIT_HISTORY       CAP_FIT_HIST of the OK runs
 --   CAPR_WEEKLY_DIGEST     latest run vs the latest run digest_days older
 --   CAPR_FORECAST_ACCURACY issued forecasts vs today's actual values
+--   CAPR_FIT_TRACK         per series of the newest OK run: how its stored
+--                          forecasts fared, the band factor and reliability
 --
 -- Tables: created with their key columns, then every other column is added
 -- one at a time (ORA-01430 = already there), so an older install gains new
@@ -134,6 +136,8 @@ BEGIN
     add_col('cap_fit_hist', 'need_gib_90        NUMBER');
     add_col('cap_fit_hist', 'need_gib_180       NUMBER');
     add_col('cap_fit_hist', 'add_by_day         DATE');
+    add_col('cap_fit_hist', 'restart_reason     VARCHAR2(5)');
+    add_col('cap_fit_hist', 'restart_day        DATE');
     add_ix('CREATE INDEX cap_fit_hist_day_ix ON cap_fit_hist (as_of_day)');
 
     -- ---- CAP_ALERT_STATE ----
@@ -160,7 +164,10 @@ BEGIN
     add_col('cap_alert_state', 'last_threshold  NUMBER');
     add_col('cap_alert_state', 'last_alarm      NUMBER');
     add_col('cap_alert_state', 'last_direction  VARCHAR2(3)');
-    add_col('cap_alert_state', 'last_unit       VARCHAR2(8)');
+    add_col('cap_alert_state', 'last_unit       VARCHAR2(32)');
+    -- Created as VARCHAR2(8). An anomaly alert carries its series' unit
+    -- (IO_PER_SEC), which refresh could not store. Widening is idempotent.
+    EXECUTE IMMEDIATE 'ALTER TABLE cap_alert_state MODIFY (last_unit VARCHAR2(32))';
     add_col('cap_alert_state', 'last_message    VARCHAR2(4000)');
     add_col('cap_alert_state', 'last_first_day  DATE');
     add_col('cap_alert_state', 'last_n_days     NUMBER');
@@ -182,6 +189,14 @@ BEGIN
     add_col('cap_alert_event', 'message       VARCHAR2(4000)');
     add_ix('CREATE INDEX cap_alert_event_run_ix ON cap_alert_event (run_id)');
     add_ix('CREATE INDEX cap_alert_event_key_ix ON cap_alert_event (state_key)');
+
+    -- ---- CAP_FIT_HIST: the +30 projection and its 95% band, as issued ----
+    -- Not CAPR_FIT columns: refresh takes them from CAPR_FORECAST_POINTS
+    -- (REGR, horizon 30). CAPR_FIT_TRACK checks them against later runs.
+    -- Rows of runs before these columns have none.
+    add_col('cap_fit_hist', 'proj_30            NUMBER');
+    add_col('cap_fit_hist', 'proj_30_lo         NUMBER');
+    add_col('cap_fit_hist', 'proj_30_hi         NUMBER');
 END;
 /
 
@@ -194,6 +209,9 @@ COMMENT ON COLUMN cap_run.backdated         IS 'Y when as_of_day is before the d
 COMMENT ON COLUMN cap_run.cov_n_dbid        IS 'CAPR_COVERAGE rows (dbids) at the run.';
 COMMENT ON COLUMN cap_run.cov_n_current     IS 'CAPR_COVERAGE rows with retired = N at the run.';
 COMMENT ON COLUMN cap_run.cov_summary       IS 'CAPR_COVERAGE summaries at the run, by dbid, joined with '' | ''. CAPR_RUNS shows it.';
+COMMENT ON COLUMN cap_fit_hist.proj_30      IS 'The REGR projection at last_day + 30 as the run issued it (CAPR_FORECAST_POINTS, horizon 30). NULL without a fit, and on runs that predate the column.';
+COMMENT ON COLUMN cap_fit_hist.proj_30_lo   IS 'Lower edge of its 95% band. CAPR_FIT_TRACK checks later values against the band.';
+COMMENT ON COLUMN cap_fit_hist.proj_30_hi   IS 'Upper edge of its 95% band.';
 COMMENT ON COLUMN cap_alert_state.missed_runs IS 'Consecutive live runs the key was missing from CAPR_ALERTS; resolve_grace_runs of them resolve it.';
 COMMENT ON COLUMN cap_alert_state.ack_until IS 'Acknowledged until this time (CAP_RESULTS.ack). 9999-12-31 = until it resolves. CAPR_ALERTS_LATEST hides it until then.';
 
@@ -268,6 +286,10 @@ WHERE  s.state = 'OPEN'
 -- as_of_day is the run's. prev_severity is the severity before the event
 -- (NULL on NEW). Refreshes are serialised for their whole lifetime, so
 -- run_id order equals commit order and the poller never skips a run.
+-- acked (last column) is the alert's state NOW, not at the event: Y while
+-- an acknowledgement is in force (CAP_ALERT_STATE.ack_until in the future,
+-- the test CAPR_ALERTS_LATEST hides a row by), else N, also for an event
+-- whose state row was purged. report/notify.sh skips the Y rows.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_alert_events AS
 SELECT e.event_id,
@@ -285,7 +307,8 @@ SELECT e.event_id,
        s.baseline_mode,
        e.state_key,
        e.alert_key,
-       e.message
+       e.message,
+       CASE WHEN s.ack_until > SYSDATE THEN 'Y' ELSE 'N' END AS acked
 FROM   cap_alert_event e
 LEFT   JOIN cap_run r         ON r.run_id = e.run_id
 LEFT   JOIN cap_alert_state s ON s.state_key = e.state_key
@@ -437,7 +460,8 @@ SELECT h.run_id,
        h.days_to_full, h.days_to_full_lo, h.days_to_full_hi, h.accel, h.train_n,
        h.sev, h.sev_rank, h.limit_source, h.last_day, h.is_current, h.limit_below_used,
        h.cycle_n, h.cycle_days, h.cycle_peak_pct, h.peak_slope_per_day, h.slope_sig, h.hot_now,
-       h.need_gib_30, h.need_gib_90, h.need_gib_180, h.add_by_day
+       h.need_gib_30, h.need_gib_90, h.need_gib_180, h.add_by_day,
+       h.restart_reason, h.restart_day
 FROM   cap_fit_hist h
 JOIN   cap_run r ON r.run_id = h.run_id
 WHERE  r.status = 'OK';
@@ -604,6 +628,204 @@ WHERE  a.last_day > h.last_day
   AND  a.value IS NOT NULL;
 
 -- --------------------------------------------------------------------
+-- CAPR_FIT_TRACK -- the forecast track record. One row per series of the
+-- newest OK run (the SNAPSHOT tables' run), read from CAP_FIT_HIST and
+-- CAP_RUN only, so it costs a table scan and says the same under LIVE and
+-- SNAPSHOT. No run, no rows.
+--
+-- A stored fit is both a forecast and, for the older fits of its series, the
+-- actual value. One fit per series and data day (last_day; the newest run
+-- that saw the day). A fit graded INSUFFICIENT_HISTORY or CYCLIC issued no
+-- straight-line forecast (no projection points, or a cycle judged on its
+-- peaks) and is an actual only. A forecast is checked against the fit whose last_day is
+-- accuracy_horizon_days later, or failing that the nearest within 2 days
+-- (the earlier one on a tie), when that outcome day lies in the last
+-- accuracy_window_days before the series' newest day:
+--   projected   value_then + slope_then * elapsed days (the anchored formula,
+--               as CAPR_FORECAST_ACCURACY)
+--   error       actual - projected, error percent = 100 * error / |actual|
+--   half        (proj_30_hi - proj_30_lo) / 2 of the forecast, the half-width
+--               of the +30 band issued then. A band of width 0 (a FLAT fit)
+--               or none (a run before the columns) is not judged.
+-- Per series:
+--   n_forecasts   forecasts checked
+--   abs_err_pct   median |error percent|
+--   bias_pct      median error percent. Positive = grew faster than forecast.
+--   n_banded, band_hits, band_hit_pct
+--                 forecasts with a band, and those whose |error| <= half
+--   band_factor   GREATEST(1, the calib_quantile_pct percentile of |error| /
+--                 half), 2 decimals: the factor the issued half-width needed
+--                 to contain that share of the errors. NULL below
+--                 calib_min_forecasts banded forecasts.
+--   proj_30, proj_30_lo, proj_30_hi  the newest run's +30 projection and band
+--   proj_30_lo_cal, proj_30_hi_cal   proj_30 -/+ band_factor * its half-width
+--   reliability   first matching row of `rule`: UNKNOWN (fewer than
+--                 calib_min_forecasts checked), BIASED (|bias_pct| above
+--                 calib_bias_pct), WIDE (band_factor above
+--                 calib_wide_factor), GOOD. reliability_rank orders them.
+--   summary       the one line the reports print
+--   rank_track    per database: reliability_rank, then abs_err_pct descending
+-- The band test uses the +30 band at any accuracy_horizon_days. Nothing here
+-- feeds a fit, an alert or the slope method.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_fit_track AS
+WITH ok AS (
+        SELECT run_id FROM cap_run WHERE status = 'OK'
+     ),
+     cur AS (
+        SELECT h.*
+        FROM   cap_fit_hist h
+        WHERE  h.run_id = (SELECT MAX(run_id) FROM ok)
+     ),
+     fc AS (
+        SELECT kind, dbid, con_dbid, series, last_day, value, slope_per_day, quality, proj_30_lo, proj_30_hi
+        FROM  (SELECT h.kind, h.dbid, h.con_dbid, h.series, h.last_day, h.value, h.slope_per_day,
+                      h.quality, h.proj_30_lo, h.proj_30_hi,
+                      ROW_NUMBER() OVER (PARTITION BY h.dbid, h.con_dbid, h.kind, h.series, h.last_day
+                                         ORDER BY h.run_id DESC) AS rn
+               FROM   cap_fit_hist h
+               JOIN   ok ON ok.run_id = h.run_id
+               WHERE  h.last_day IS NOT NULL
+                 AND  h.value IS NOT NULL)
+        WHERE  rn = 1
+     ),
+     off AS (
+        SELECT LEVEL - 3 AS o FROM dual CONNECT BY LEVEL <= 5
+     ),
+     pr AS (
+        SELECT f.kind, f.dbid, f.con_dbid, f.series,
+               a.value                                                 AS actual,
+               f.value + f.slope_per_day * (a.last_day - f.last_day)   AS projected,
+               CASE WHEN a.last_day > c.last_day - cfg.accuracy_window_days
+                    THEN 'Y' ELSE 'N' END                              AS in_window,
+               CASE WHEN f.proj_30_hi > f.proj_30_lo
+                    THEN (f.proj_30_hi - f.proj_30_lo) / 2 END         AS half,
+               ROW_NUMBER() OVER (PARTITION BY f.dbid, f.con_dbid, f.kind, f.series, f.last_day
+                                  ORDER BY ABS(off.o), off.o)          AS rn
+        FROM   fc f
+        CROSS  JOIN cap_cfg cfg
+        CROSS  JOIN off
+        JOIN   fc a
+          ON   a.kind = f.kind AND a.dbid = f.dbid AND a.con_dbid = f.con_dbid AND a.series = f.series
+         AND   a.last_day = f.last_day + cfg.accuracy_horizon_days + off.o
+        JOIN   cur c
+          ON   c.kind = f.kind AND c.dbid = f.dbid AND c.con_dbid = f.con_dbid AND c.series = f.series
+        WHERE  f.slope_per_day IS NOT NULL
+          AND  f.quality NOT IN ('INSUFFICIENT_HISTORY', 'CYCLIC')
+     ),
+     e AS (
+        SELECT kind, dbid, con_dbid, series,
+               CASE WHEN actual <> 0 THEN 100 * (actual - projected) / ABS(actual) END AS err_pct,
+               CASE WHEN half IS NOT NULL
+                    THEN CASE WHEN ABS(actual - projected) <= half THEN 1 ELSE 0 END END AS hit,
+               ABS(actual - projected) / half                                          AS ratio
+        FROM   pr
+        WHERE  rn = 1
+          AND  in_window = 'Y'
+     ),
+     st AS (
+        SELECT e.kind, e.dbid, e.con_dbid, e.series,
+               COUNT(*)                                  AS n_forecasts,
+               ROUND(MEDIAN(ABS(e.err_pct)), 2)          AS abs_err_pct,
+               ROUND(MEDIAN(e.err_pct), 2)               AS bias_pct,
+               COUNT(e.hit)                              AS n_banded,
+               SUM(e.hit)                                AS band_hits,
+               PERCENTILE_CONT(cfg.calib_quantile_pct / 100) WITHIN GROUP (ORDER BY e.ratio) AS ratio_q
+        FROM   e
+        CROSS  JOIN cap_cfg cfg
+        GROUP  BY e.kind, e.dbid, e.con_dbid, e.series, cfg.calib_quantile_pct
+     ),
+     rule AS (
+        SELECT 1 AS n, 'UNKNOWN' AS reliability, 4 AS reliability_rank,
+               'N' AS known, CAST(NULL AS VARCHAR2(1)) AS biased, CAST(NULL AS VARCHAR2(1)) AS wide FROM dual
+        --                n  reliability rank known biased wide
+        UNION ALL SELECT 2, 'BIASED',   1, NULL, 'Y',  NULL FROM dual
+        UNION ALL SELECT 3, 'WIDE',     2, NULL, NULL, 'Y'  FROM dual
+        UNION ALL SELECT 4, 'GOOD',     3, NULL, NULL, NULL FROM dual
+     ),
+     t AS (
+        SELECT c.run_id, c.as_of_day, c.dbid, c.con_dbid, c.db, c.kind, c.series, c.unit, c.quality,
+               c.is_current, c.last_day, c.value, c.proj_30, c.proj_30_lo, c.proj_30_hi,
+               cfg.accuracy_horizon_days                 AS horizon_days,
+               cfg.calib_min_forecasts                   AS min_forecasts,
+               NVL(s.n_forecasts, 0)                     AS n_forecasts,
+               s.abs_err_pct,
+               s.bias_pct,
+               NVL(s.n_banded, 0)                        AS n_banded,
+               s.band_hits,
+               ROUND(100 * s.band_hits / NULLIF(s.n_banded, 0), 1) AS band_hit_pct,
+               CASE WHEN s.n_banded >= cfg.calib_min_forecasts
+                    THEN ROUND(GREATEST(1, s.ratio_q), 2) END      AS band_factor,
+               cfg.calib_bias_pct,
+               cfg.calib_wide_factor
+        FROM   cur c
+        CROSS  JOIN cap_cfg cfg
+        LEFT   JOIN st s
+          ON   s.kind = c.kind AND s.dbid = c.dbid AND s.con_dbid = c.con_dbid AND s.series = c.series
+     ),
+     flagged AS (
+        SELECT t.*,
+               CASE WHEN t.n_forecasts >= t.min_forecasts      THEN 'Y' ELSE 'N' END AS known,
+               CASE WHEN ABS(t.bias_pct) > t.calib_bias_pct    THEN 'Y' ELSE 'N' END AS biased,
+               CASE WHEN t.band_factor > t.calib_wide_factor   THEN 'Y' ELSE 'N' END AS wide
+        FROM   t
+     ),
+     graded AS (
+        SELECT f.*, r.reliability, r.reliability_rank,
+               ROW_NUMBER() OVER (PARTITION BY f.dbid, f.con_dbid, f.kind, f.series ORDER BY r.n) AS rule_rn
+        FROM   flagged f
+        JOIN   rule r
+          ON   (r.known  IS NULL OR r.known  = f.known)
+         AND   (r.biased IS NULL OR r.biased = f.biased)
+         AND   (r.wide   IS NULL OR r.wide   = f.wide)
+     )
+SELECT g.run_id,
+       g.as_of_day,
+       g.dbid,
+       g.con_dbid,
+       g.db,
+       g.kind,
+       g.series,
+       g.unit,
+       g.quality,
+       g.is_current,
+       g.last_day,
+       g.value,
+       g.horizon_days,
+       g.n_forecasts,
+       g.abs_err_pct,
+       g.bias_pct,
+       g.n_banded,
+       g.band_hits,
+       g.band_hit_pct,
+       g.band_factor,
+       g.proj_30,
+       g.proj_30_lo,
+       g.proj_30_hi,
+       g.proj_30 - g.band_factor * (g.proj_30_hi - g.proj_30_lo) / 2 AS proj_30_lo_cal,
+       g.proj_30 + g.band_factor * (g.proj_30_hi - g.proj_30_lo) / 2 AS proj_30_hi_cal,
+       g.reliability,
+       g.reliability_rank,
+       CASE WHEN g.n_forecasts = 0
+            THEN 'No ' || g.horizon_days || '-day forecast is old enough to check yet.'
+            ELSE g.n_forecasts || ' forecast' || CASE WHEN g.n_forecasts <> 1 THEN 's' END
+                 || ' checked after ' || g.horizon_days || ' days'
+                 || CASE WHEN g.known = 'N' THEN ' (a grade needs ' || g.min_forecasts || ')' END
+                 || ': median error ' || NVL(TO_CHAR(g.abs_err_pct, 'FM999999990.0'), '?') || '%, bias '
+                 || CASE WHEN g.bias_pct > 0 THEN '+' END || NVL(TO_CHAR(g.bias_pct, 'FM999999990.0'), '?') || '%'
+                 || CASE WHEN g.n_banded > 0
+                         THEN ', ' || g.band_hits || ' of ' || g.n_banded || ' inside the 95% band' END
+                 || CASE WHEN g.band_factor > 1
+                         THEN ', band widened x' || TO_CHAR(g.band_factor, 'FM9990.00') END
+                 || '.'
+       END                                                           AS summary,
+       ROW_NUMBER() OVER (PARTITION BY g.dbid
+                          ORDER BY g.reliability_rank, g.abs_err_pct DESC NULLS LAST,
+                                   g.kind, g.con_dbid, g.series)     AS rank_track
+FROM   graded g
+WHERE  g.rule_rn = 1;
+
+-- --------------------------------------------------------------------
 -- CAP_RESULTS -- the only code in the suite that writes. See the spec.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE PACKAGE cap_results AUTHID DEFINER AS
@@ -703,9 +925,13 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
             'CAPR_TBSPC_ANOMALIES', 'CAPR_CPU_TREND', 'CAPR_CPU_ANOMALIES', 'CAPR_CPU_SHIFTS',
             'CAPR_ESM_COMPARE', 'CAPR_BACKTEST', 'CAPF_ESM_HEALTH_SUMMARY', 'CAPR_SERIES',
             'CAPR_SERIES_ANOMALIES', 'CAPR_ANOMALIES', 'CAPR_SERIES_POINTS',
+            'CAPR_ANOM_VOLUME',
             'CAPR_FORECAST_POINTS', 'CAPR_HOURLY_POINTS', 'CAPR_SEGMENT_GROWTH',
             'CAPR_MEM_VERDICT', 'CAPR_MEM_EVIDENCE', 'CAPR_MEM_COMPONENTS',
-            'CAPR_MEM_COMP_POINTS');
+            'CAPR_MEM_COMP_POINTS',
+            -- tablespace families (ddl/32)
+            'CAPR_TBSPC_FAMILY', 'CAPR_TBSPC_FAMILY_MEMBERS',
+            'CAPR_DISK', 'CAPR_TBSPC_SHARED');
     END snap_views;
 
     PROCEDURE build_snap_tables IS
@@ -976,16 +1202,31 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
                     value, limit_value, pct, slope_per_day, r2, quality, days_to_full, days_to_full_lo,
                     days_to_full_hi, accel, train_n, sev, sev_rank, limit_source, last_day, is_current,
                     limit_below_used, cycle_n, cycle_days, cycle_peak_pct, peak_slope_per_day, slope_sig,
-                    hot_now, need_gib_30, need_gib_90, need_gib_180, add_by_day)
+                    hot_now, need_gib_30, need_gib_90, need_gib_180, add_by_day,
+                    restart_reason, restart_day)
                 SELECT :r, :a, f.dbid, f.con_dbid, f.db, f.db_name, f.con_name, f.kind, f.series,
                        f.unit, f.method, f.value, f.limit_value, f.pct, f.slope_per_day, f.r2, f.quality,
                        f.days_to_full, f.days_to_full_lo, f.days_to_full_hi, f.accel, f.train_n, f.sev,
                        f.sev_rank, f.limit_source, f.last_day, f.is_current, f.limit_below_used,
                        f.cycle_n, f.cycle_days, f.cycle_peak_pct, f.peak_slope_per_day, f.slope_sig,
-                       f.hot_now, f.need_gib_30, f.need_gib_90, f.need_gib_180, f.add_by_day
+                       f.hot_now, f.need_gib_30, f.need_gib_90, f.need_gib_180, f.add_by_day,
+                       f.restart_reason, f.restart_day
                 FROM   capr_fit_s f'
                 USING l_run, l_asof;
             l_fit := SQL%ROWCOUNT;
+
+            -- The +30 projection and band each fit issued, for CAPR_FIT_TRACK.
+            DBMS_APPLICATION_INFO.SET_ACTION('fit bands');
+            EXECUTE IMMEDIATE
+               'MERGE INTO cap_fit_hist h
+                USING (SELECT kind, dbid, con_dbid, series, value, lo, hi
+                       FROM   capr_forecast_points_s
+                       WHERE  method = ''REGR'' AND horizon_days = 30) p
+                ON    (h.run_id = :r AND h.kind = p.kind AND h.dbid = p.dbid
+                       AND h.con_dbid = p.con_dbid AND h.series = p.series)
+                WHEN MATCHED THEN UPDATE
+                   SET h.proj_30 = p.value, h.proj_30_lo = p.lo, h.proj_30_hi = p.hi'
+                USING l_run;
 
             IF l_back = 'N' THEN
                 DBMS_APPLICATION_INFO.SET_ACTION('merge alerts');

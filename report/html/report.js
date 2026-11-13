@@ -102,6 +102,15 @@
         rateLabel: perDay ? 'Change per 30 d' : 'Growth'
       };
     }
+    if (u === 'io_per_sec' || u === 'mb_per_sec') {
+      var ps = u === 'io_per_sec' ? 'IO/s' : 'MB/s';
+      return {
+        scale: 1, short: ps,
+        fmt: function (v) { return v == null ? '–' : auto(v) + ' ' + ps; },
+        rate: function (v) { return v == null ? '–' : sign(v) + auto(Math.abs(v) * 30) + ' ' + ps; },
+        rateLabel: 'Change per 30 d'
+      };
+    }
     return {
       scale: 1, short: '',
       fmt: function (v) { return v == null ? '–' : auto(v); },
@@ -146,6 +155,11 @@
   var FC = groupBy(D.forecast, function (r) { return key(r.k, r.dbid, r.con, r.s); });
   var AN = groupBy(D.anomalies, function (r) { return key(r.dbid, r.con, r.s); });
   var AL = groupBy(D.alerts, function (r) { return key(r.dbid, r.con, r.s); });
+  var TRK = {};
+  (D.track || []).forEach(function (t) { TRK[key(t.k, t.dbid, t.con, t.s)] = t; });
+  var REL_TAG = { BIASED: 'forecasts biased', WIDE: 'band too narrow' };
+  var SHARED = {};
+  (D.shared || []).forEach(function (r) { SHARED[key(r.dbid, r.con, r.s)] = r; });
   var HOURS = {};
   (D.hours || []).forEach(function (h) { HOURS[key(h.dbid, h.con, h.s)] = h; });
 
@@ -173,8 +187,12 @@
       name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },
     { id: 'pga', perContainer: true, title: 'PGA', noun: 'instance', match: seriesIs('PGA_ALLOC_GB'),
       name: function (f) { return conName(f.dbid, f.con); }, facts: limitFacts('Peak', 'limit') },
-    { id: 'redo', perContainer: true, title: 'Redo', noun: 'database', match: seriesIs('REDO_GB_DAY'),
-      name: function (f) { return conName(f.dbid, f.con); }, facts: redoFacts },
+    { id: 'redo', perContainer: true, flow: 'today', title: 'Redo', noun: 'database', match: seriesIs('REDO_GB_DAY'),
+      name: function (f) { return conName(f.dbid, f.con); }, facts: flowFacts('Today') },
+    { id: 'iops', perContainer: true, flow: 'busy-hour p95', title: 'I/O requests', noun: 'container', match: seriesIs('IOPS'),
+      name: function (f) { return conName(f.dbid, f.con); }, facts: flowFacts('Busy-hour p95') },
+    { id: 'io-mbps', perContainer: true, flow: 'busy-hour p95', title: 'I/O throughput', noun: 'container', match: seriesIs('IO_MBPS'),
+      name: function (f) { return conName(f.dbid, f.con); }, facts: flowFacts('Busy-hour p95') },
     { id: 'undo', title: 'Undo', noun: 'tablespace', match: seriesPrefix('UNDO_PEAK:'),
       name: function (f) { return f.s.slice(10); }, facts: limitFacts('Peak', 'max size') },
     { id: 'temp', title: 'Temp', noun: 'tablespace', match: seriesPrefix('TEMP_PEAK:'),
@@ -207,7 +225,8 @@
       id: fam.id + '-' + String(f.dbid) + '-' + String(f.con) + '-' + f.s.replace(/[^A-Za-z0-9]+/g, '_'),
       name: fam.name(f), ctr: conLabel(f.dbid, f.con),
       pts: PTS[key(f.k, f.dbid, f.con, f.s)] || [],
-      fc: FC[key(f.k, f.dbid, f.con, f.s)] || []
+      fc: FC[key(f.k, f.dbid, f.con, f.s)] || [],
+      trk: TRK[key(f.k, f.dbid, f.con, f.s)]
     };
     if (fam.perContainer) m.ctr = conKind(f.dbid, f.con);
     if (fam.id === 'host-cpu') m.ctr = 'host';
@@ -234,7 +253,7 @@
       if (f.dtf > 3650) return { k: 'dtf', l: label, v: fDays(f.dtf), s: 'not in sight', tone: 'muted' };
       sub = '→ ' + fDay(LAST + f.dtf) + (f.dtfLo != null && f.dtfHi != null && Math.round(f.dtfLo) !== Math.round(f.dtfHi)
         ? ' · ' + Math.round(f.dtfLo) + '–' + Math.round(f.dtfHi) + ' d' : '');
-    } else if (f.q === 'FLAT') sub = 'no growth';
+    } else if (f.q === 'FLAT') sub = f.rst === 'STOP' ? 'growth stopped' : 'no growth';
     else if (f.q === 'CYCLIC') sub = 'peaks not growing';
     else if (f.slope != null && f.slope <= 0) sub = 'not growing';
     else sub = 'beyond the forecast';
@@ -245,17 +264,25 @@
 
   function pctTone(p, warn, crit) { return p == null ? '' : p >= crit ? 'crit' : p >= warn ? 'warn' : ''; }
 
+  // Why the fit window is shorter than the history (CAPR_FIT.restart_reason).
+  var RESTART = { PURGE: 'since the purge', STOP: 'since growth stopped', START: 'since growth began' };
+
   function tbspcFacts(m) {
     var f = m.f, out = [];
+    var since = f.rst && RESTART[f.rst] ? ' ' + RESTART[f.rst] + (f.rstDay ? ', ' + fDay(dayN(f.rstDay)) : '') : '';
     out.push({ k: 'pct', l: 'Used', v: num(f.pct, 1) + '<small>%</small>', s: m.unit.fmt(f.v) + ' of ' + m.unit.fmt(f.lim),
       tone: pctTone(f.pct, K.nfWarn, K.nfCrit) });
     if (f.q === 'CYCLIC') {
       out.push({ l: 'Cycle peak', v: num(f.cycPk, 1) + '<small>%</small>', s: (f.cycN || 0) + ' purges, every ' + Math.round(f.cycD || 0) + ' d' });
       out.push({ l: 'Peak growth', v: m.unit.rate(f.pkSlope) });
     } else {
-      out.push({ l: 'Growth', v: m.unit.rate(f.slope), s: f.accel != null && f.accel >= 1.5 ? 'accelerating ×' + num(f.accel, 1) : 'fit over ' + (f.n || '–') + ' d' });
+      out.push({ l: 'Growth', v: m.unit.rate(f.slope), s: f.accel != null && f.accel >= 1.5 ? 'accelerating ×' + num(f.accel, 1) : 'fit over ' + (f.n || '–') + ' d' + since });
     }
     out.push(dtfFact(f, 'Full in'));
+    // The disk the tablespaces share stops it before its own limit (CAPR_TBSPC_SHARED).
+    var sh = SHARED[key(f.dbid, f.con, f.s)];
+    if (sh && sh.by === 'DISK' && sh.dtfSh != null)
+      out.push({ l: 'On the shared disk', v: fDays(sh.dtfSh), s: 'stuck at ' + num(sh.limSh, 1) + ' GiB' + (sh.disk ? ', disk ' + esc(sh.disk) : '') });
     if (f.need90 > 0) out.push({ l: 'Add for 90 d', v: num(f.need90, 1) + '<small>GiB</small>', s: f.addBy ? 'by ' + fDay(dayN(f.addBy)) : '' });
     if (f.below) out.push({ l: 'Limit', v: 'below used', tone: 'crit' });
     return out;
@@ -272,14 +299,18 @@
     };
   }
 
-  function redoFacts(m) {
-    var f = m.f;
-    var avg = avgLast(m.pts, 7);
-    return [
-      { l: 'Today', v: m.unit.fmt(lastVal(m.pts)) },
-      { l: '7-day average', v: m.unit.fmt(avg) },
-      { l: m.unit.rateLabel, v: m.unit.rate(f.slope), s: 'fit over ' + (f.n || '–') + ' d' }
-    ];
+  /* A flow has no limit (redo per day, the I/O rates): the latest day, the
+     week's average and the trend. fam.flow words the latest day. */
+  function flowFacts(label) {
+    return function (m) {
+      var f = m.f;
+      var avg = avgLast(m.pts, 7);
+      return [
+        { l: label, v: m.unit.fmt(lastVal(m.pts)) },
+        { l: '7-day average', v: m.unit.fmt(avg) },
+        { l: m.unit.rateLabel, v: m.unit.rate(f.slope), s: 'fit over ' + (f.n || '–') + ' d' }
+      ];
+    };
   }
 
   function cpuFacts(m, p95, avg) {
@@ -315,10 +346,27 @@
     return '<span class="when">now</span>';
   }
 
+  /* An anomaly alert's value is in the unit the series is scored in. The
+     alert row has one name for some of them (GIB is GiB and GiB a day), so
+     the unit comes from the series' own anomaly rows when the metric is
+     known, else from the alert. */
+  var ALERT_UNIT = { BYTES: 'bytes_per_day', GIB: 'gib_per_day' };
+  function anomUnit(a, m) {
+    var rows = m ? m.anoms.filter(function (x) { return x.s === a.s && x.ak !== 'CPU_SHIFT' && x.u; }) : [];
+    return rows.length ? rows[0].u : ALERT_UNIT[a.u] || (a.u || '').toLowerCase();
+  }
+  var ANOM_SUFFIX = { gib_per_day: ' GiB/d', gib: ' GiB', io_per_sec: ' IO/s', mb_per_sec: ' MB/s' };
+  function anomFmt(u) {
+    if (u === 'bytes_per_day') return function (v) { return fBytes(v) + '/d'; };
+    if (u === 'pct') return function (v) { return num(v, 1) + '%'; };
+    return function (v) { return auto(v) + (ANOM_SUFFIX[u] || ''); };
+  }
+
   function alertFact(a, m) {
     var u = m ? m.unit : unitFor(a.u);
     switch (a.kind) {
       case 'TBSPC_FULL': return 'full in <b>' + fDays(a.v) + '</b>';
+      case 'DISK_FULL': return 'shared disk full in <b>' + fDays(a.v) + '</b>';
       case 'CPU_SAT': case 'DBCPU_SAT': return CPU_SAT + '% busy in <b>' + fDays(a.v) + '</b>';
       case 'SERIES_LIMIT': return SERIES_SAT + '% of limit in <b>' + fDays(a.v) + '</b>';
       case 'TBSPC_NEARFULL': return '<b>' + num(a.v, 1) + '%</b> used';
@@ -327,12 +375,12 @@
       case 'CPU_SHIFT': return 'level shift <b>' + sign(a.v) + num(Math.abs(a.v), 1) + '%</b>';
       case 'DATA_STALE': return 'no AWR snapshot for <b>' + auto(a.v) + ' h</b>';
       case 'MODEL_HEALTH': return 'ESM model ' + esc(a.msg || '');
+      case 'TBSPC_FAMILY': return 'filling member may reach <b>' + num(a.v, 2) + ' GiB</b>, ceiling ' + num(a.thr, 2) + ' GiB';
     }
     if (/_ANOM$/.test(a.kind)) {
-      var v = a.u === 'BYTES' ? fBytes(a.v) + '/d' : a.u === 'PCT' ? num(a.v, 1) + '%' : a.u === 'GIB' ? auto(a.v) + ' GiB/d' : auto(a.v);
-      var t = a.u === 'BYTES' ? fBytes(a.thr) + '/d' : a.u === 'PCT' ? num(a.thr, 1) + '%' : a.u === 'GIB' ? auto(a.thr) + ' GiB/d' : auto(a.thr);
+      var af = anomFmt(anomUnit(a, m));
       var span = a.n > 1 ? ' · ' + a.n + ' days' : '';
-      return 'unusual <b>' + v + '</b>, normal ≤ ' + t + (a.maxz != null ? ' · z ' + num(a.maxz, 1) : '') + span;
+      return 'unusual <b>' + af(a.v) + '</b>, normal ≤ ' + af(a.thr) + (a.maxz != null ? ' · z ' + num(a.maxz, 1) : '') + span;
     }
     return esc(a.msg || a.kind);
   }
@@ -666,7 +714,18 @@
     if (QUALITY_TAG[m.f.q]) t.push(QUALITY_TAG[m.f.q]);
     if (m.f.cur === 0) t.push('no longer reported');
     if (m.f.limSrc && m.f.limSrc !== 'MAXBYTES' && m.f.limSrc !== 'AUTOEXTEND' && m.fam.id === 'tablespaces') t.push('limit: ' + m.f.limSrc.toLowerCase());
-    return t.map(function (x) { return '<span class="tag">' + esc(x) + '</span>'; }).join('');
+    return t.map(function (x) { return '<span class="tag">' + esc(x) + '</span>'; }).join('') +
+      (m.trk && REL_TAG[m.trk.rel] ? '<span class="tag rel">' + REL_TAG[m.trk.rel] + '</span>' : '');
+  }
+
+  /* The forecast track record of the series (CAPR_FIT_TRACK): the view's
+     sentence, and the +30 band at its factor when that widens the band. */
+  function trackHtml(m) {
+    var t = m.trk, cal = '';
+    if (t.f > 1 && t.lo != null && t.hi != null && t.hi > t.lo) {
+      cal = ' <span class="cal">+30 d band at that factor: ' + m.unit.fmt(t.lo) + ' – ' + m.unit.fmt(t.hi) + '</span>';
+    }
+    return '<p class="trk' + (REL_TAG[t.rel] ? ' off' : t.rel === 'UNKNOWN' ? ' unk' : '') + '"><span class="tl">Track record</span>' + esc(t.txt) + cal + '</p>';
   }
 
   function cardHtml(m) {
@@ -685,6 +744,7 @@
     o.push(legendHtml(spec) + '</div>');
     if (m.fam.heat) o.push(heatSvg(m));
     o.push('</div>');
+    if (m.trk) o.push(trackHtml(m));
     var shifts = m.anoms.filter(function (a) { return a.ak === 'CPU_SHIFT'; });
     var evs = anomalyEvents(m);
     if (shifts.length || evs.length) {
@@ -723,7 +783,7 @@
     if (c.WARN) parts.push('<b>' + c.WARN + '</b> warning');
     var soon = ms.filter(function (m) { return m.f.dtf != null && m.f.q === 'OK'; })
       .sort(function (a, b) { return a.f.dtf - b.f.dtf; })[0];
-    if (soon && fam.id !== 'redo') {
+    if (soon && !fam.flow) {
       var what = fam.id === 'tablespaces' ? 'full' : fam.id.indexOf('cpu') >= 0 ? CPU_SAT + '%' : SERIES_SAT + '%';
       parts.push('soonest ' + what + ': <b>' + esc(soon.name) + '</b> in ' + fDays(soon.f.dtf));
     }
@@ -744,7 +804,7 @@
       return 'fullest <b>' + esc(full.name) + '</b> ' + num(full.f.pct, 1) + '%';
     }
     if (f.k === 'CPU') return '<b>' + esc(m.name) + '</b> p95 ' + num(f.v, 1) + '%';
-    if (fam.id === 'redo') return '<b>' + m.unit.fmt(lastVal(m.pts)) + '</b> today';
+    if (fam.flow) return '<b>' + m.unit.fmt(lastVal(m.pts)) + '</b> ' + fam.flow;
     return '<b>' + esc(m.name) + '</b> ' + m.unit.fmt(f.v) + (f.pct != null ? ' · ' + num(f.pct, 1) + '%' : '');
   }
 
@@ -787,6 +847,22 @@
       ' at ' + first.unit.rate(fillRate(f)) + ', ' + num(f.pct, 1) + '% used now</a>';
   }
 
+  /* The disk the datafiles of a database share (CAPR_DISK): one sentence each. */
+  function diskHtml() {
+    var ds = D.disks || [];
+    if (!ds.length) return '';
+    return '<h3>Shared disk</h3>' + ds.map(function (d) {
+      var head = '<div class="lead">' + esc(d.db) + ' <span>' + esc(d.disk) + '</span>: ';
+      if (d.free == null) return head + 'free space not known. Set it in CAP_DISK_OVERRIDE to forecast the disk.</div>';
+      var tone = d.sev === 'CRIT' ? 'crit' : d.sev === 'WARN' ? 'warn' : '';
+      return head + '<b>' + num(d.free, 1) + ' GiB</b> free (' +
+        (d.src === 'OVERRIDE' ? 'set by the operator' : 'from the live tablespace ceilings') + (d.asOf ? ', ' + fDay(dayN(d.asOf)) : '') + '), ' +
+        (d.dtf != null ? 'full in <b class="' + tone + '">' + fDays(d.dtf) + '</b>' + (d.fullDay ? ' (by ' + fDayY(dayN(d.fullDay)) + (d.dtfW != null ? ', worst case ' + fDays(d.dtfW) : '') + ')' : '')
+          : 'does <b>not fill</b> at the fitted rates') +
+        '. ' + (d.nGrow || 0) + ' growing tablespaces take ' + num(d.grow, 1) + ' MiB a day' + (d.top ? ': ' + esc(d.top) + ' MiB/day' : '') + '</div>';
+    }).join('');
+  }
+
   function spaceHtml() {
     var ts = famMetrics('tablespaces'), dbs = famMetrics('db-size');
     if (!ts.length && !dbs.length) return '';
@@ -813,6 +889,7 @@
         var f = m.f, r = fillRate(f);
         out.push(spaceRow(m, [num(f.pct, 1) + '%', m.unit.rate(r), sign(r) + fBytes(Math.abs(r) * 30), dtfFact(f, '').v]));
       });
+      out.push(diskHtml());
     }
     out.push('</div>');
     return out.join('');
@@ -1029,6 +1106,44 @@
     }).join('') + '</svg>';
   }
 
+  /* ---------- tablespace families: one tablespace per period, judged as a group ---------- */
+
+  var FAM_M = groupBy(D.famMembers || [], function (m) { return key(m.dbid, m.con, m.f); });
+  var FAM_BY = {};
+  var famCards = (D.families || []).map(function (f, i) {
+    var c = { f: f, id: 'family-' + i, ms: (FAM_M[key(f.dbid, f.con, f.f)] || []).slice().sort(function (a, b) { return a.seq - b.seq; }) };
+    FAM_BY[key(f.dbid, f.con, f.f)] = c;
+    return c;
+  });
+  var PERIOD_LABEL = { MONTH: 'monthly', QUARTER: 'quarterly', YEAR: 'yearly' };
+  function gib(v) { return v == null ? '' : num(v, 2) + ' GiB'; }
+
+  function famCardHtml(c) {
+    var f = c.f, warn = f.sev === 'WARN';
+    var o = ['<article class="fam card' + (warn ? ' warn' : '') + '" id="' + c.id + '"><div class="ch"><h3>' + esc(f.f) + '</h3>' +
+      '<span class="ctr">' + esc(conLabel(f.dbid, f.con)) + '</span>' + (PERIOD_LABEL[f.per] ? '<span class="tag">' + PERIOD_LABEL[f.per] + '</span>' : '') +
+      (warn ? pill('WARN') : '') + '</div><p class="mhl">' + esc(f.hl || '') + '</p><div class="fsz">' +
+      '<span>' + f.nd + ' done, ' + f.nf + ' filling, ' + f.ne + ' empty</span>' +
+      (f.next != null ? '<span>next member <b>' + gib(f.next) + '</b>, cautious ' + gib(f.nextHi) + (f.ts === 'Y' ? ' (trend)' : '') + '</span>' : '') +
+      (f.exp != null ? '<span>' + esc(f.fm) + ' by ' + fDayY(dayN(f.pe)) + ' <b>' + gib(f.exp) + '</b>, at most ' + gib(f.expHi) + ' of ' + gib(f.lim) + '</span>' : '') +
+      (f.gpp != null ? '<span>family ' + sign(f.gpp) + gib(Math.abs(f.gpp)) + ' a period</span>' : '') + '</div>'];
+    o.push('<table class="ftab"><thead><tr><th>Member</th><th>State</th><th class="n">Used</th><th class="n">Ceiling</th><th class="n">Final</th><th>Filled</th></tr></thead><tbody>');
+    c.ms.forEach(function (m) {
+      var filled = m.st === 'FILLING' ? (m.ff ? 'since ' + fDay(dayN(m.ff)) : 'filling') + (m.rate != null ? ', ' + num(m.rate * 1024, 0) + ' MiB/d' : '')
+        : m.fd != null ? m.fd + ' days to ' + fDay(dayN(m.ft)) : '';
+      o.push('<tr class="' + esc(String(m.st || '').toLowerCase()) + '"><td>' + esc(m.t) + '</td><td>' + esc(String(m.st || '').toLowerCase()) + '</td>' +
+        '<td class="n">' + gib(m.used) + '</td><td class="n">' + gib(m.lim) + '</td><td class="n">' + gib(m.fin) + '</td><td>' + filled + '</td></tr>');
+    });
+    o.push('</tbody></table></article>');
+    return o.join('');
+  }
+
+  function famSummary() {
+    var n = famCards.filter(function (c) { return c.f.sev === 'WARN'; }).length;
+    return '<span><b>' + famCards.length + '</b> famil' + (famCards.length === 1 ? 'y' : 'ies') + '</span>' +
+      '<span>' + (n ? '<b>' + n + '</b> filling member' + (n === 1 ? '' : 's') + ' over the ceiling' : 'every filling member fits') + '</span>';
+  }
+
   /* ---------- assemble ---------- */
 
   var sections = FAMILIES.map(function (fam) {
@@ -1067,7 +1182,8 @@
     '<span class="tools"><button class="tbtn" id="themeBtn" type="button">Theme</button><button class="tbtn" type="button" onclick="window.print()">Print</button></span></p>');
   html.push('<nav class="nav"><a href="#overview">Overview</a>' + present.map(function (s) {
     return '<a class="' + SEV_CLASS[s.sev] + '" href="#' + s.fam.id + '">' + esc(s.fam.title) + '<span class="n">' + s.ms.length + '</span></a>';
-  }).join('') + (memCards.length ? '<a href="#memory">Memory<span class="n">' + memCards.length + '</span></a>' : '') + '</nav><main>');
+  }).join('') + (memCards.length ? '<a href="#memory">Memory<span class="n">' + memCards.length + '</span></a>' : '') +
+    (famCards.length ? '<a href="#families">Families<span class="n">' + famCards.length + '</span></a>' : '') + '</nav><main>');
 
   (D.errors || []).forEach(function (e) {
     html.push('<div class="banner">Data block “' + esc(e.block) + '” failed: ' + esc(e.msg) + '</div>');
@@ -1115,12 +1231,19 @@
   if (!listed.length) html.push('<div class="allok">Nothing needs attention</div>');
   listed.forEach(function (a) {
     var m = metricBySeries[key(a.dbid, a.con, a.s)];
-    var href = m ? '#' + m.id : '#overview';
-    html.push('<a class="arow ' + SEV_CLASS[a.sev] + '" href="' + href + '">' + pill(a.sev) + '<span class="m">' + esc(m ? m.fam.title : a.kind) + '</span>' +
+    var fc = !m && a.kind === 'TBSPC_FAMILY' ? FAM_BY[key(a.dbid, a.con, a.s)] : null;
+    var href = m ? '#' + m.id : fc ? '#' + fc.id : '#overview';
+    html.push('<a class="arow ' + SEV_CLASS[a.sev] + '" href="' + href + '">' + pill(a.sev) + '<span class="m">' + esc(m ? m.fam.title : fc ? 'Tablespace family' : a.kind) + '</span>' +
       '<span class="s">' + esc(m ? m.name : a.s) + ' <span>' + esc(m ? m.ctr : conLabel(a.dbid, a.con)) + '</span></span>' +
       '<span class="f">' + alertFact(a, m) + '</span><span class="d">' + alertWhen(a) + '</span></a>');
   });
-  html.push('</div></section>');
+  html.push('</div>');
+  if (M.noisy > 0) {
+    html.push('<p class="noisy">' + M.noisy + ' anomaly series ' + (M.noisy === 1 ? 'alerts' : 'alert') + ' often' +
+      (M.noisyDays ? ' in the last ' + M.noisyDays + ' days' : '') +
+      '. Run doctor.sql: section 12 lists them with the knob change that quiets each.</p>');
+  }
+  html.push('</section>');
   html.push('<div class="key"><span><i class="k-hist"></i>history</span><span><i class="k-fc"></i>forecast</span><span><i class="k-bd"></i>95% band</span>' +
     '<span><i class="k-lim"></i>limit</span><span><i class="k-thr"></i>warning line</span><span><i class="k-un"></i>unusual day, last ' + ANOM_DAYS + ' d</span>' +
     '<span><i class="k-old"></i>older unusual day</span><span><i class="k-es"></i>ESM +30 d</span><span><span class="stamp">→ 3 Nov</span> reaches the line</span></div>');
@@ -1139,6 +1262,10 @@
   if (memCards.length) {
     html.push('<section id="memory" class="wide"><div class="sh"><h2>Memory</h2><div class="sum">' + memSummary() + '</div></div>' +
       '<div class="cards">' + memCards.map(memCardHtml).join('') + '</div></section>');
+  }
+  if (famCards.length) {
+    html.push('<section id="families" class="wide"><div class="sh"><h2>Tablespace families</h2><div class="sum">' + famSummary() + '</div></div>' +
+      '<div class="cards">' + famCards.map(famCardHtml).join('') + '</div></section>');
   }
   html.push('</div></main><footer class="foot"><span>' + esc(M.db) + '</span><span>schema ' + esc(M.schema) + '</span><span>suite ' + esc(K.suiteVersion || '') + '</span>' +
     '<span>' + esc(M.run || '') + '</span><span>read-only</span><span>' + esc(M.file || '') + '</span></footer></div>');

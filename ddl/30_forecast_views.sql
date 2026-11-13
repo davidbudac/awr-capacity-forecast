@@ -13,7 +13,8 @@
 --                          range (days_to_full_lo/hi, M9.1), recent-vs-full
 --                          acceleration ratio, and a quality grade. The
 --                          training window may be restarted after a purge
---                          (M9.3: train_start / reset_day).
+--                          (M9.3: train_start / reset_day) and where growth
+--                          stopped or began (restart_reason / restart_day).
 --   CAPF_CPU_TREND      -- per CPU metric (host busy% avg/p95/peak-window,
 --                          DB CPU sec, DB CPU % of cores avg/p95): slope, R^2,
 --                          projections (+95% bands), days_to_saturation
@@ -106,23 +107,38 @@
 -- cliff in every cycle. The M9.3 reset below restarts at the most recent one
 -- only, so the post-purge leg reads as fast growth that can never fill, and
 -- days_to_full falls through dtf_warn late in every cycle. So the cliffs of
--- the full train_days window are counted with the M9.3 rule. With cycle_n >=
--- cyclic_min_cliffs no reset applies and quality = CYCLIC (after
--- INSUFFICIENT_HISTORY, before FLAT). The row is judged on its peaks:
+-- the full train_days window are counted with the M9.3 rule, as purge events
+-- (next block). With cycle_n >= cyclic_min_cliffs no reset applies and
+-- quality = CYCLIC (after INSUFFICIENT_HISTORY, before FLAT). The row is
+-- judged on its peaks:
 --
---     cycle_days       = MEDIAN(spacing between consecutive cliffs)
+--     cycle_days       = MEDIAN(days from one purge event's first cliff day
+--                        to the next one's)
 --     cycle_peak_bytes = MAX(used_bytes) in the window, cycle_peak_pct of limit
 --     peak_slope_bpd   = REGR_SLOPE through the per-cycle maxima (the maximum
---                        of each segment that ends at a cliff), when there are
+--                        of each segment that ends at an event), when there are
 --                        at least 3 of them, else NULL
 --     days_to_full     = days until the peak line, anchored at the last
 --                        cycle maximum, reaches limit_bytes, when
 --                        peak_slope_bpd > 0, else NULL
 --
 -- days_to_full_lo/hi and accel_ratio are NULL for CYCLIC rows. cycle_n is
--- the cliff count on every row (0 = none), the other cycle_* columns are
+-- the event count on every row (0 = none), the other cycle_* columns are
 -- NULL unless quality = CYCLIC. cyclic_min_cliffs = 0 turns the grade off.
 -- The count does not depend on reset_on_shrink.
+--
+-- ---------------------------------------------------------------------
+-- Purge events (knob `cliff_merge_days`, default 1)
+-- ---------------------------------------------------------------------
+-- A purge that runs past midnight, or a delete followed by a shrink the next
+-- day, leaves cliff days side by side. Counted one by one they are two
+-- cliffs: CYCLIC, no reset, no full date. So cliff days at most
+-- cliff_merge_days days apart are ONE purge event (1 = adjacent days). An
+-- event begins on a cliff day whose previous cliff day is further back than
+-- that. cycle_n counts events, cycle_days is measured from the first cliff
+-- day of one event to the first of the next, and the M9.3 reset day is the
+-- LAST cliff day of the newest event: only then is used_bytes the post-purge
+-- level. cliff_merge_days = 0 makes every cliff day its own event.
 --
 -- ---------------------------------------------------------------------
 -- M9.3 -- change-point reset (knobs `reset_on_shrink`, `shrink_mad_k`)
@@ -131,7 +147,7 @@
 -- in it, and a line fitted across the cliff is a fiction: it under-states the
 -- slope and over-states the headroom. When `reset_on_shrink = 1` (default) the
 -- training window RESTARTS at the most recent day whose day-over-day delta is
--- a large NEGATIVE step:
+-- a large NEGATIVE step (the last cliff day of the newest purge event):
 --
 --     delta < -GREATEST(shrink_mad_k * MAD_sigma(deltas), abs_floor_bytes)
 --
@@ -148,6 +164,50 @@
 -- than min_train_days rows survive the reset, quality becomes
 -- INSUFFICIENT_HISTORY -- that is the honest answer: we genuinely do not yet
 -- know the post-purge growth rate.
+--
+-- ---------------------------------------------------------------------
+-- STOP / START -- growth that stopped or began (knobs `quiet_days` 14,
+-- `quiet_ratio` 2, `quiet_chance` 0.01, `growth_floor` 0.001)
+-- ---------------------------------------------------------------------
+-- One line through the whole window is wrong when the tablespace grew in
+-- only a part of it: a month's tablespace that filled and then stopped keeps
+-- a slope and a full date it will never reach, and one that began to fill
+-- late reads far too slow. The rule is standalone/tbspc_capacity.sql's,
+-- applied to the window that is left after the M9.3 reset:
+--
+--   growth day  a new high: used_bytes above every earlier day of the
+--               window by more than growth_floor x the window's rise
+--   pause       a run of days without one
+--   STOP        the fit restarts on the day after the last growth day, when
+--               the pause that runs up to the newest day is long
+--   START       it restarts on the last day before the first growth day,
+--               when the pause before it is long and min_train_days days
+--               are left (span + trail + 2 >= min_train_days)
+--
+-- Long = all three of: quiet_days days or more. quiet_ratio x the longest
+-- other pause or more (STOP: the pauses between two growth days. START:
+-- those and the pause up to the newest day). And unlikely by chance: g
+-- growth days, the first and the last s days apart, make a pause of q days
+-- as likely as (s / (s + q)) ^ g for STOP and (s / (s + q)) ^ (g - 1) for
+-- START, which must be below quiet_chance. So a tablespace that grows in
+-- rare steps or in monthly bursts keeps its whole window while two of its
+-- growth days are in it. One growth day is a load, not a rate (s = 0): STOP
+-- fires after quiet_days quiet days, START never. STOP wins over START.
+--
+-- A stopped tablespace that stays flat has slope 0: quality FLAT, no
+-- days_to_full, no TBSPC_FULL. Its window is the quiet days, so with the
+-- shipped knobs (quiet_days = min_train_days = 14) it never falls under
+-- min_train_days. A quiet_days below min_train_days grades it
+-- INSUFFICIENT_HISTORY until min_train_days quiet days have passed.
+--
+-- restart_reason says why the window is shorter than the last train_days
+-- days: PURGE (the M9.3 reset alone), STOP, START, NULL (it is not).
+-- restart_day is the first day fitted then (= train_start). reset_day stays
+-- the purge reset day, also when STOP / START cut the window further. Not
+-- for CYCLIC rows, and not while a cliff is in the window that did not reset
+-- it (reset_on_shrink = 0): after a purge the regrowth sets no new high.
+-- A rate that changes without a pause (fast to slow) is still averaged.
+-- quiet_days = 0 = no STOP / START.
 --
 -- quality grades (checked in priority order):
 --   INSUFFICIENT_HISTORY  train_n < min_train_days
@@ -254,27 +314,44 @@ WITH d AS (
                           AND m.tablespace_name = t.tablespace_name
         CROSS  JOIN cap_cfg cfg
      ),
+     -- The cliff days, each with the days since the previous cliff day.
      cl AS (
         SELECT dbid, con_dbid, tablespace_name, day_dt,
                day_dt - LAG(day_dt) OVER (PARTITION BY dbid, con_dbid, tablespace_name
-                                          ORDER BY day_dt) AS gap_days
+                                          ORDER BY day_dt) AS prev_days
         FROM   twc
         WHERE  is_cliff = 1
      ),
+     -- Purge events (header, "Purge events"): is_ev = 1 on the first cliff
+     -- day of each event, gap_days = the days since the previous event began.
+     ce AS (
+        SELECT e.dbid, e.con_dbid, e.tablespace_name, e.day_dt, e.is_ev,
+               CASE WHEN e.is_ev = 1
+                    THEN e.day_dt - LAG(CASE WHEN e.is_ev = 1 THEN e.day_dt END IGNORE NULLS)
+                                        OVER (PARTITION BY e.dbid, e.con_dbid, e.tablespace_name
+                                              ORDER BY e.day_dt)
+               END AS gap_days
+        FROM  (SELECT c.*,
+                      CASE WHEN c.prev_days IS NULL OR c.prev_days > cfg.cliff_merge_days
+                           THEN 1 ELSE 0 END AS is_ev
+               FROM   cl c CROSS JOIN cap_cfg cfg) e
+     ),
      -- One row per tablespace with at least one cliff in the window.
+     -- last_cliff is the last cliff DAY, so the last day of the newest event.
      cyc AS (
         SELECT c.dbid, c.con_dbid, c.tablespace_name,
-               COUNT(*)           AS cycle_n,
+               SUM(c.is_ev)       AS cycle_n,
                MEDIAN(c.gap_days) AS cycle_days,
                MAX(c.day_dt)      AS last_cliff,
                CASE WHEN MAX(cfg.cyclic_min_cliffs) >= 2
-                     AND COUNT(*) >= MAX(cfg.cyclic_min_cliffs)
+                     AND SUM(c.is_ev) >= MAX(cfg.cyclic_min_cliffs)
                     THEN 1 ELSE 0 END AS is_cyclic
-        FROM   cl c CROSS JOIN cap_cfg cfg
+        FROM   ce c CROSS JOIN cap_cfg cfg
         GROUP  BY c.dbid, c.con_dbid, c.tablespace_name
      ),
-     -- M9.3: the MOST RECENT cliff restarts the window (a series purged once
-     -- is fit from the purge). A CYCLIC series is not reset.
+     -- M9.3: the last cliff day of the MOST RECENT event restarts the window
+     -- (a series purged once is fit from the purge). A CYCLIC series is not
+     -- reset.
      rst AS (
         SELECT y.dbid, y.con_dbid, y.tablespace_name,
                y.last_cliff AS reset_day
@@ -282,14 +359,88 @@ WITH d AS (
         WHERE  cfg.reset_on_shrink = 1
           AND  y.is_cyclic = 0
      ),
-     -- w = the EFFECTIVE training window: tw, restarted at reset_day when one
-     -- was found. Everything downstream (OLS fit, Theil-Sen, DRIFT, recent
-     -- fit) uses w, so the reset applies once and consistently.
-     w AS (
-        SELECT t.* FROM tw t
+     -- ---- growth that stopped or began (header, "STOP / START") ----
+     -- cw = tw from the purge reset on (all of tw without one), numbered.
+     -- is_grow = a growth day. no_regime = the window holds cliffs that did
+     -- not reset it (CYCLIC, or reset_on_shrink = 0): a regrowth under the
+     -- old peak has no new high, so such a window is not judged.
+     cw AS (
+        SELECT t.*,
+               ROW_NUMBER() OVER (PARTITION BY t.dbid, t.con_dbid, t.tablespace_name
+                                  ORDER BY t.day_dt)                           AS rn,
+               COUNT(*)     OVER (PARTITION BY t.dbid, t.con_dbid, t.tablespace_name) AS rn_max,
+               CASE WHEN t.used_bytes - MAX(t.used_bytes) OVER (PARTITION BY t.dbid, t.con_dbid, t.tablespace_name
+                                                                ORDER BY t.day_dt
+                                                                ROWS BETWEEN UNBOUNDED PRECEDING
+                                                                         AND 1 PRECEDING)
+                         > cfg.growth_floor
+                           * (MAX(t.used_bytes) OVER (PARTITION BY t.dbid, t.con_dbid, t.tablespace_name)
+                            - MIN(t.used_bytes) OVER (PARTITION BY t.dbid, t.con_dbid, t.tablespace_name))
+                    THEN 1 ELSE 0 END                                          AS is_grow,
+               CASE WHEN y.cycle_n > 0 AND r.reset_day IS NULL
+                    THEN 1 ELSE 0 END                                          AS no_regime
+        FROM   tw t
         LEFT   JOIN rst r ON r.dbid = t.dbid AND r.con_dbid = t.con_dbid
                          AND r.tablespace_name = t.tablespace_name
+        LEFT   JOIN cyc y ON y.dbid = t.dbid AND y.con_dbid = t.con_dbid
+                         AND y.tablespace_name = t.tablespace_name
+        CROSS  JOIN cap_cfg cfg
         WHERE  r.reset_day IS NULL OR t.day_dt >= r.reset_day
+     ),
+     -- The growth days, each with the pause before it.
+     gd AS (
+        SELECT dbid, con_dbid, tablespace_name, rn, rn_max,
+               rn - LAG(rn) OVER (PARTITION BY dbid, con_dbid, tablespace_name
+                                  ORDER BY rn) - 1 AS gap
+        FROM   cw
+        WHERE  is_grow = 1 AND no_regime = 0
+     ),
+     -- g growth days that span span days. lead / trail = the pause before
+     -- the first and after the last, gap_max = the longest one between.
+     act AS (
+        SELECT dbid, con_dbid, tablespace_name,
+               COUNT(*)              AS g,
+               MIN(rn)               AS rn_first,
+               MAX(rn)               AS rn_last,
+               MAX(rn) - MIN(rn)     AS span,
+               MIN(rn) - 2           AS lead,
+               MAX(rn_max) - MAX(rn) AS trail,
+               NVL(MAX(gap), 0)      AS gap_max
+        FROM   gd
+        GROUP  BY dbid, con_dbid, tablespace_name
+     ),
+     -- Where growth stopped (the fit starts after the last growth day) or
+     -- began (it starts on the day before the first). STOP wins. The chance
+     -- of the pause: exponent g for STOP (one growth day: span 0, chance 0),
+     -- g - 1 for START (one growth day: chance 1, never).
+     regime AS (
+        SELECT a.dbid, a.con_dbid, a.tablespace_name,
+               CASE WHEN a.is_stop = 1 THEN 'STOP'        ELSE 'START'        END AS cut,
+               CASE WHEN a.is_stop = 1 THEN a.rn_last + 1 ELSE a.rn_first - 1 END AS rn_from
+        FROM  (SELECT a.*,
+                      CASE WHEN a.trail >= cfg.quiet_days
+                            AND a.trail >= cfg.quiet_ratio * a.gap_max
+                            AND POWER(a.span / NULLIF(a.span + a.trail, 0), a.g) < cfg.quiet_chance
+                           THEN 1 ELSE 0 END AS is_stop,
+                      CASE WHEN a.lead >= cfg.quiet_days
+                            AND a.lead >= cfg.quiet_ratio * GREATEST(a.gap_max, a.trail)
+                            AND POWER(a.span / NULLIF(a.span + a.lead, 0), a.g - 1) < cfg.quiet_chance
+                            AND a.span + a.trail + 2 >= cfg.min_train_days
+                           THEN 1 ELSE 0 END AS is_start
+               FROM   act a
+               CROSS  JOIN cap_cfg cfg
+               WHERE  cfg.quiet_days > 0) a
+        WHERE  a.is_stop = 1 OR a.is_start = 1
+     ),
+     -- w = the EFFECTIVE training window: cw (tw, restarted at reset_day when
+     -- one was found), restarted again where growth stopped or began.
+     -- Everything downstream (OLS fit, Theil-Sen, DRIFT, recent fit) uses w,
+     -- so the restarts apply once and consistently.
+     w AS (
+        SELECT c.* FROM cw c
+        LEFT   JOIN regime g ON g.dbid = c.dbid AND g.con_dbid = c.con_dbid
+                            AND g.tablespace_name = c.tablespace_name
+        WHERE  c.rn >= NVL(g.rn_from, 1)
      ),
      -- DRIFT input: the day-over-day rate inside w (gap-normalised, so an AWR
      -- gap of k days spreads its step over k days). The first day of w has no
@@ -417,6 +568,10 @@ WITH d AS (
                t.ts_slope,
                t.ts_icept,
                r.reset_day,
+               -- Why the window is shorter than tw, and its first day then.
+               NVL(g.cut, CASE WHEN r.reset_day IS NOT NULL THEN 'PURGE' END) AS restart_reason,
+               CASE WHEN g.cut IS NOT NULL OR r.reset_day IS NOT NULL
+                    THEN b.train_start END                                    AS restart_day,
                NVL(y.cycle_n, 0)   AS cycle_n,
                y.cycle_days,
                NVL(y.is_cyclic, 0) AS is_cyclic,
@@ -431,6 +586,8 @@ WITH d AS (
                            AND r.tablespace_name = b.tablespace_name
         LEFT   JOIN cyc y   ON y.dbid = b.dbid AND y.con_dbid = b.con_dbid
                            AND y.tablespace_name = b.tablespace_name
+        LEFT   JOIN regime g ON g.dbid = b.dbid AND g.con_dbid = b.con_dbid
+                            AND g.tablespace_name = b.tablespace_name
         LEFT   JOIN dband x ON x.dbid = b.dbid AND x.con_dbid = b.con_dbid
                            AND x.tablespace_name = b.tablespace_name
         CROSS  JOIN cap_cfg cfg
@@ -461,14 +618,17 @@ WITH d AS (
         FROM   pick p
      ),
      -- ---- CYCLIC peaks ----
-     -- seg_no numbers the segments of tw: each cliff day starts a new one.
-     -- Segments 0 .. cycle_n - 1 end at a cliff, so their maximum is a cycle
-     -- peak. Segment cycle_n is the cycle in progress and is left out.
+     -- seg_no numbers the segments of tw: the first cliff day of each purge
+     -- event starts a new one. Segments 0 .. cycle_n - 1 end at an event, so
+     -- their maximum is a cycle peak. Segment cycle_n is the cycle in
+     -- progress and is left out.
      seg AS (
         SELECT t.dbid, t.con_dbid, t.tablespace_name, t.day_n, t.used_bytes,
-               SUM(t.is_cliff) OVER (PARTITION BY t.dbid, t.con_dbid, t.tablespace_name
-                                     ORDER BY t.day_dt ROWS UNBOUNDED PRECEDING) AS seg_no
+               SUM(NVL(e.is_ev, 0)) OVER (PARTITION BY t.dbid, t.con_dbid, t.tablespace_name
+                                          ORDER BY t.day_dt ROWS UNBOUNDED PRECEDING) AS seg_no
         FROM   twc t
+        LEFT   JOIN ce e ON e.dbid = t.dbid AND e.con_dbid = t.con_dbid
+                        AND e.tablespace_name = t.tablespace_name AND e.day_dt = t.day_dt
      ),
      pkc AS (
         SELECT s.dbid, s.con_dbid, s.tablespace_name, s.seg_no,
@@ -645,7 +805,8 @@ SELECT f.dbid,
        -- by ~0 and reports an absurd 500x "acceleration", so the ratio is NULL
        -- instead. slope = 0 (FLAT) was already NULL and still is. A CYCLIC
        -- window has no single growth rate to compare against.
-       CASE WHEN f.is_cyclic = 0 AND ABS(f.use_slope) >= cfg.accel_slope_floor_bpd
+       CASE WHEN f.is_cyclic = 0 AND f.use_slope <> 0
+             AND ABS(f.use_slope) >= cfg.accel_slope_floor_bpd
             THEN f.recent_use / f.use_slope
        END                                                AS accel_ratio,
        CASE WHEN f.n  < cfg.min_train_days THEN 'INSUFFICIENT_HISTORY'
@@ -694,7 +855,11 @@ SELECT f.dbid,
        c.ovr_dtf_warn,
        c.ovr_dtf_crit,
        c.ovr_nearfull_warn_pct,
-       c.ovr_nearfull_crit_pct
+       c.ovr_nearfull_crit_pct,
+       -- Why the fit window is shorter than the last train_days days (PURGE /
+       -- STOP / START, NULL = it is not) and the first day fitted then.
+       f.restart_reason,
+       f.restart_day
 FROM   fin f
 JOIN   cur  c ON c.dbid = f.dbid AND c.con_dbid = f.con_dbid
              AND c.tablespace_name = f.tablespace_name

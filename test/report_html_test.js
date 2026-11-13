@@ -53,17 +53,29 @@ const families = [
   ['sessions', f => f.s === 'SESSIONS'], ['processes', f => f.s === 'PROCESSES'],
   ['pga', f => f.s === 'PGA_ALLOC_GB'],
   ['redo', f => f.s === 'REDO_GB_DAY'], ['undo', f => /^UNDO_PEAK:/.test(f.s)],
-  ['temp', f => /^TEMP_PEAK:/.test(f.s)], ['asm', f => /^ASM_DG:/.test(f.s)]
+  ['temp', f => /^TEMP_PEAK:/.test(f.s)], ['asm', f => /^ASM_DG:/.test(f.s)],
+  ['iops', f => f.s === 'IOPS'], ['io-mbps', f => f.s === 'IO_MBPS']
 ];
-let metrics = 0;
-for (const [id, match] of families) {
-  const n = d.fits.filter(match).length;
-  metrics += n;
-  check(html.includes('<section id="' + id + '"') === n > 0, 'section ' + id + ' present exactly when it has series (' + n + ')');
+// Each family has its section exactly when it has series, every metric
+// section the page renders is a family of this list (a family of the
+// renderer that the list lacks made the card count come out short), and
+// each fit of a family has one card or row.
+function checkCards(h, fits, what) {
+  let metrics = 0;
+  for (const [id, match] of families) {
+    const n = fits.filter(match).length;
+    metrics += n;
+    check(h.includes('<section id="' + id + '"') === n > 0, what + 'section ' + id + ' present exactly when it has series (' + n + ')');
+  }
+  const known = new Set(families.map(x => x[0]).concat(['overview', 'memory']));
+  const extra = [...h.matchAll(/<section id="([^"]+)"/g)].map(m => m[1]).filter(id => !known.has(id));
+  check(extra.length === 0, what + 'every section is a family of this test (not: ' + extra.join(', ') + ')');
+  const shown = (h.match(/<article class="card (?!mem)/g) || []).length + (h.match(/<div class="row" id=/g) || []).length;
+  check(shown === metrics, what + 'one card or row per metric: ' + shown + ' of ' + metrics);
+  check((h.match(/<svg /g) || []).length >= metrics, what + 'every metric has a chart');
+  return metrics;
 }
-const shown = (html.match(/<article class="card (?!mem)/g) || []).length + (html.match(/<div class="row" id=/g) || []).length;
-check(shown === metrics, 'one card or row per metric: ' + shown + ' of ' + metrics);
-check((html.match(/<svg /g) || []).length >= metrics, 'every metric has a chart');
+const metrics = checkCards(html, d.fits, '');
 check(/^[\x00-\x7f]*$/.test(page), 'page is ASCII only');
 
 // The memory section: one card per (dbid, instance), one row per verdict,
@@ -166,6 +178,191 @@ try {
   render(JSON.stringify({ meta: d.meta, errors: [{ block: 'fits', msg: 'ORA-00942' }] }));
 } catch (e) {
   check(false, 'render with only meta throws: ' + e.message);
+}
+
+// Tablespace families (ddl/32): the page's own data has them only when its
+// source holds a family, so two are built here on the page's first database:
+// one over its ceiling with its TBSPC_FAMILY alert, one quiet without a
+// filling member. A section exactly when there is a family, a card per
+// family, a row per member, the alert linked to its card.
+try {
+  const fam = (f, o) => Object.assign({
+    dbid: root.dbid, con: root.con, f, per: 'MONTH', src: 'AUTO', nd: 2, nf: 1, ne: 1, used: 3.1, gpp: 1.45,
+    next: 1.549, nextHi: 1.574, ts: 'Y', fm: f.replace('#', '202611'), fu: 0.519, lim: 1.563, exp: 1.554,
+    expHi: 1.568, pe: '2026-12-03', dl: 20, fits: 'N', sev: 'WARN', act: 'Y',
+    hl: 'Family ' + f + ': ' + f.replace('#', '202611') + ' may reach 1.57 GiB by 2026-12-03 (expected 1.55 GiB), ceiling 1.56 GiB. Next member: 1.55 GiB (cautious 1.57 GiB)'
+  }, o);
+  const member = (f, seq, t, st, o) => Object.assign({
+    dbid: root.dbid, con: root.con, f, t, seq, st, used: 1.2, lim: 50, pct: 2.4, fin: null, ff: null, ft: null, fd: null, rate: null
+  }, o);
+  const families = [
+    fam('SALES_#', {}),
+    fam('ARCH_#', { per: 'YEAR', nf: 0, ne: 0, fm: null, fu: null, lim: null, exp: null, expHi: null, pe: null, dl: null, fits: null, sev: 'OK', act: 'N', ts: 'N', hl: 'Family ARCH_#: no member is filling. Next member: 0.54 GiB (cautious 0.59 GiB)' })
+  ];
+  const famMembers = [
+    member('SALES_#', 1, 'SALES_202609', 'DONE', { fin: 1.173, ff: '2026-09-04', ft: '2026-10-03', fd: 30 }),
+    member('SALES_#', 2, 'SALES_202610', 'DONE', { fin: 1.363 }),
+    member('SALES_#', 3, 'SALES_202611', 'FILLING', { used: 0.519, lim: 1.563, pct: 33.2, ff: '2026-11-04', rate: 0.0518 }),
+    member('SALES_#', 4, 'SALES_202612', 'EMPTY', { used: 0.001 }),
+    member('ARCH_#', 1, 'ARCH_2024', 'DONE', { fin: 0.586 }),
+    member('ARCH_#', 2, 'ARCH_2025', 'DONE', { fin: 0.488 })
+  ];
+  const alert = { sev: 'WARN', kind: 'TBSPC_FAMILY', dbid: root.dbid, con: root.con, s: 'SALES_#', day: '2026-11-13', v: 1.568, thr: 1.563, u: 'GIB', msg: families[0].hl };
+  const fd = Object.assign({}, d, { families, famMembers, alerts: (d.alerts || []).concat([alert]) });
+  const fh = render(JSON.stringify(fd));
+  for (const bad of ['undefined', 'NaN', '>null<', 'Infinity']) {
+    check(!fh.includes(bad), 'family fixture render has no "' + bad + '"');
+  }
+  check(!html.includes('<section id="families"') === !(d.families || []).length, 'page data: family section present exactly when it has families');
+  check(fh.includes('<section id="families"') && /<a href="#families">Families<span class="n">2<\/span><\/a>/.test(fh), 'family fixture: section and nav link');
+  check(count(fh, /<article class="fam card/g) === 2, 'family fixture: one card per family');
+  check(count(fh, /<article class="fam card warn"/g) === 1, 'family fixture: the family over its ceiling is marked');
+  check(count(between(fh, '<section id="families"', '</section>'), /<tr class="(done|filling|empty)">/g) === famMembers.length, 'family fixture: one row per member');
+  check(fh.includes('<td>SALES_202611</td><td>filling</td>') && fh.includes('since 4 Nov, 53 MiB/d'), 'family fixture: the filling member with its start and rate');
+  check(fh.includes('30 days to 3 Oct'), 'family fixture: a finished member with its fill days');
+  check(/<a class="arow warn" href="#family-0">[\s\S]*?Tablespace family[\s\S]*?may reach <b>1\.57 GiB<\/b>, ceiling 1\.56 GiB/.test(fh), 'family fixture: the alert links to its family card');
+  check(count(fh, /<article class="card (?!mem)/g) === count(html, /<article class="card (?!mem)/g), 'family fixture: the metric cards are unchanged');
+  const none = render(JSON.stringify(Object.assign({}, fd, { families: [], famMembers })));
+  check(!none.includes('<section id="families"') && !none.includes('href="#families"'), 'family fixture: no family, no section and no nav link');
+} catch (e) {
+  check(false, 'render with the family fixture throws: ' + e.message);
+}
+
+// The I/O rate series (IOPS, IO_MBPS): no limit, like redo. The page's own
+// data has them only when its source collected the I/O counters, so two are
+// built here from the redo series: a section each, the unit on the card, no
+// "soonest" countdown. A point row starts with its day offset, and a series
+// may lack days (the fixture's restart day), so the built values count back
+// from the last row's offset, not from the row count, and one day is left
+// out here so the docs demo has such a gap too.
+try {
+  const redoFit = d.fits.filter(f => f.s === 'REDO_GB_DAY')[0];
+  const redoPts = d.points.filter(p => p.s === 'REDO_GB_DAY' && p.dbid === redoFit.dbid && p.con === redoFit.con)[0];
+  const lastDay = redoPts.d[redoPts.d.length - 1][0];
+  const days = redoPts.d.filter((r, i) => i !== redoPts.d.length - 3);
+  const io = [['IOPS', 'io_per_sec', 3090, 9.5, 'OK'], ['IO_MBPS', 'mb_per_sec', 48.5, 0, 'FLAT']];
+  const withIo = Object.assign({}, d, {
+    fits: d.fits.filter(f => f.s !== 'IOPS' && f.s !== 'IO_MBPS').concat(io.map(x => Object.assign({}, redoFit, { s: x[0], u: x[1], v: x[2], slope: x[3], q: x[4] }))),
+    points: d.points.filter(p => p.s !== 'IOPS' && p.s !== 'IO_MBPS').concat(io.map(x => Object.assign({}, redoPts, { s: x[0], d: days.map(r => [r[0], x[2] + x[3] * (r[0] - lastDay), null, 0, 0]) })))
+  });
+  const h = render(JSON.stringify(withIo));
+  check(!h.includes('undefined') && !h.includes('NaN'), 'render with IOPS / IO_MBPS is clean');
+  checkCards(h, withIo.fits, 'with IOPS / IO_MBPS: ');
+  const sec = id => between(h, '<section id="' + id + '"', '</section>');
+  check(sec('iops').includes('I/O requests') && sec('iops').includes('3,090 IO/s') && sec('iops').includes('Busy-hour p95'), 'section iops shows the latest p95 in IO/s');
+  check(sec('io-mbps').includes('I/O throughput') && sec('io-mbps').includes('48.5 MB/s'), 'section io-mbps shows the latest p95 in MB/s');
+  check(!sec('iops').includes('soonest') && !sec('io-mbps').includes('soonest'), 'the I/O sections have no countdown');
+  check(sec('redo').includes('today'), 'the redo headline still reads "today"');
+} catch (e) {
+  check(false, 'render with IOPS / IO_MBPS throws: ' + e.message);
+}
+
+// An anomaly alert reads in the unit its series is scored in: IO/s and MB/s
+// for the I/O series (alert units IO_PER_SEC / MB_PER_SEC), GiB for a PGA
+// level and GiB/d for redo, which share the alert unit GIB and are told
+// apart by the series' own anomaly rows. Without such a row GIB reads GiB/d.
+try {
+  const redoFit = d.fits.filter(f => f.s === 'REDO_GB_DAY')[0];
+  const day = d.meta.lastDay;
+  const mk = (s, u) => Object.assign({}, redoFit, { s: s, u: u, v: 100, slope: 0, q: 'FLAT' });
+  const al = (s, u, v, thr) => ({ sev: 'WARN', kind: 'SERIES_ANOM', dbid: redoFit.dbid, con: redoFit.con, s: s, day: day, v: v, thr: thr, u: u, mode: 'TRAILING', first: day, n: 1, maxz: 9.9, msg: s + ' message' });
+  const an = (s, u) => ({ k: 'SERIES', dbid: redoFit.dbid, con: redoFit.con, s: s, ts: day + 'T00:00', ak: 'SERIES_LEVEL', f: 'HIGH', v: 1, e: 1, thr: 1, z: 9.9, shift: null, u: u, sev: 'WARN', mode: 'TRAILING', grain: 'DAY', nh: 28, al: 'Y', raw: 1, pctE: 1 });
+  const own = s => x => x.s !== s;
+  const units = Object.assign({}, d, {
+    fits: d.fits.filter(f => f.s !== 'IOPS' && f.s !== 'IO_MBPS').concat([mk('IOPS', 'io_per_sec'), mk('IO_MBPS', 'mb_per_sec')]),
+    alerts: d.alerts.filter(a => !/^(IOPS|IO_MBPS|PGA_ALLOC_GB|REDO_GB_DAY)$/.test(a.s)).concat([
+      al('IOPS', 'IO_PER_SEC', 12514, 3000), al('IO_MBPS', 'MB_PER_SEC', 143.5, 58.5),
+      al('PGA_ALLOC_GB', 'GIB', 12.5, 11.25), al('REDO_GB_DAY', 'GIB', 61.5, 56.25)]),
+    anomalies: d.anomalies.filter(own('PGA_ALLOC_GB')).filter(own('REDO_GB_DAY')).concat([an('PGA_ALLOC_GB', 'gib'), an('REDO_GB_DAY', 'gib_per_day')])
+  });
+  const h = render(JSON.stringify(units));
+  check(!h.includes('undefined') && !h.includes('NaN'), 'anomaly units: render is clean');
+  check(h.includes('unusual <b>12,514 IO/s</b>, normal \u2264 3,000 IO/s'), 'anomaly units: an IOPS alert reads in IO/s');
+  check(h.includes('unusual <b>144 MB/s</b>, normal \u2264 58.5 MB/s'), 'anomaly units: an IO_MBPS alert reads in MB/s');
+  check(h.includes('unusual <b>12.5 GiB</b>, normal \u2264 11.3 GiB \u00b7'), 'anomaly units: a PGA level alert reads in GiB, not GiB/d');
+  check(h.includes('unusual <b>61.5 GiB/d</b>, normal \u2264 56.3 GiB/d'), 'anomaly units: a redo alert reads in GiB/d');
+  const bare = render(JSON.stringify(Object.assign({}, units, { anomalies: [] })));
+  check(bare.includes('unusual <b>12.5 GiB/d</b>') && bare.includes('unusual <b>12,514 IO/s</b>'), 'anomaly units: without anomaly rows the alert unit decides (GIB reads GiB/d)');
+} catch (e) {
+  check(false, 'render with anomaly alerts of every unit throws: ' + e.message);
+}
+
+// The noisy line (meta.noisy, CAPR_ANOM_VOLUME rows with noisy = Y): one
+// line under the alert list, none at 0 or without the field. Advice: the
+// alert tally does not move.
+try {
+  const withNoisy = n => render(JSON.stringify(Object.assign({}, d, { meta: Object.assign({}, d.meta, { noisy: n, noisyDays: 14 }) })));
+  const two = withNoisy(2), one = withNoisy(1);
+  check(count(two, /<p class="noisy">/g) === 1 && two.includes('2 anomaly series alert often in the last 14 days. Run doctor.sql: section 12'), 'noisy 2: one line with the count and the window');
+  check(one.includes('1 anomaly series alerts often in the last 14 days.'), 'noisy 1: singular verb');
+  check(!withNoisy(0).includes('class="noisy"') && !withNoisy(null).includes('class="noisy"'), 'noisy 0 or absent: no line');
+  check(d.meta.noisy > 0 || !html.includes('class="noisy"'), 'the page shows the line only with a count');
+  check(between(two, '<div class="tally">', '<h3>') === between(html, '<div class="tally">', '<h3>'), 'noisy: the alert tally is unchanged');
+} catch (e) {
+  check(false, 'render with a noisy count throws: ' + e.message);
+}
+
+// The forecast track record (block "track", CAPR_FIT_TRACK): one line on
+// every card whose series has a row, a tag on the card only for BIASED and
+// WIDE, the band at the factor only when the factor widens it. Advice, like
+// the memory verdicts: the alert tally does not move. The page's own data
+// may carry no block.
+try {
+  const cards = h => count(h, /<article class="card (?!mem)/g);
+  check((d.track || []).length > 0 || !html.includes('<p class="trk'), 'no track block: no track line');
+  const withTrack = (rel, f) => render(JSON.stringify(Object.assign({}, d, {
+    track: d.fits.map(x => ({ k: x.k, dbid: x.dbid, con: x.con, s: x.s, n: 12, err: 3.2, bias: 1.1, nb: 12, hits: 10,
+      f: f, lo: f ? 1 : null, hi: f ? 2 : null, rel: rel, txt: 'TRACK-' + rel + ' <b>' }))
+  })));
+  const wide = withTrack('WIDE', 1.4), biased = withTrack('BIASED', 1), good = withTrack('GOOD', 1), unk = withTrack('UNKNOWN', null);
+  const n = cards(html);
+  for (const [h, what] of [[wide, 'WIDE'], [biased, 'BIASED'], [good, 'GOOD'], [unk, 'UNKNOWN']]) {
+    check(!h.includes('undefined') && !h.includes('NaN') && !h.includes('>null<'), 'track ' + what + ': render is clean');
+    check(cards(h) === n && count(h, /<p class="trk/g) === n, 'track ' + what + ': one line per card (' + n + ')');
+    check(h.includes('TRACK-' + what + ' &lt;b&gt;') && !h.includes('TRACK-' + what + ' <b>'), 'track ' + what + ': the sentence is escaped');
+    check(between(h, '<div class="tally">', '<h3>') === between(html, '<div class="tally">', '<h3>'), 'track ' + what + ': the alert tally is unchanged');
+  }
+  check(n > 0 && count(wide, /<p class="trk off">/g) === n && count(wide, /<span class="tag rel">band too narrow<\/span>/g) === n, 'track WIDE: marked line and tag on every card');
+  check(count(wide, /<span class="cal">/g) === n, 'track WIDE: the band at the factor is shown');
+  const flat = render(JSON.stringify(Object.assign({}, d, {
+    track: d.fits.map(x => ({ k: x.k, dbid: x.dbid, con: x.con, s: x.s, n: 12, err: 3.2, bias: 1.1, nb: 12, hits: 10, f: 1.4, lo: 5, hi: 5, rel: 'WIDE', txt: 'flat' }))
+  })));
+  check(!flat.includes('<span class="cal">'), 'track WIDE on a band of width 0 today: no band at the factor');
+  check(count(biased, /<p class="trk off">/g) === n && count(biased, /<span class="tag rel">forecasts biased<\/span>/g) === n && !biased.includes('<span class="cal">'), 'track BIASED: marked line and tag, no band at factor 1');
+  check(count(good, /<p class="trk">/g) === n && !good.includes('class="tag rel"') && !good.includes('<span class="cal">'), 'track GOOD: a plain line, no tag');
+  check(count(unk, /<p class="trk unk">/g) === n && !unk.includes('class="tag rel"') && !unk.includes('<span class="cal">'), 'track UNKNOWN: a muted line, no tag');
+} catch (e) {
+  check(false, 'render with a track block throws: ' + e.message);
+}
+
+// The shared disk (CAPR_DISK, block "disks") and the tablespace fact of
+// block "shared" (CAPR_TBSPC_SHARED): the demo page has neither, so they
+// are built here. A disk with
+// free space reads as one sentence, one without says how to supply it, and a
+// tablespace the disk stops before its own limit gets the fact.
+try {
+  const ts = d.fits.filter(f => f.k === 'TBSPC' && f.dtf != null)[0];
+  const disks = [
+    { dbid: ts.dbid, con: ts.dbid, db: 'ECOMPRD', disk: '/u02', src: 'OVERRIDE', asOf: d.meta.lastDay, free: 1.38, alloc: 3.2,
+      dtf: 50, dtfW: 41, fullDay: d.meta.lastDay, nTs: 4, nGrow: 3, grow: 36, top: 'C 16.0, A 10.0, B 10.0', sev: 'WARN', gate: null },
+    { dbid: ts.dbid + 1, con: ts.dbid + 1, db: 'OTHER', disk: 'DATAFILES', src: 'NONE', asOf: null, free: null, alloc: 9,
+      dtf: null, dtfW: null, fullDay: null, nTs: 2, nGrow: 0, grow: 0, top: null, sev: 'OK', gate: null }
+  ];
+  const withDisk = Object.assign({}, d, {
+    disks,
+    shared: [{ dbid: ts.dbid, con: ts.con, s: ts.s, disk: '/u02', dtfSh: Math.max(0, ts.dtf - 5), dtfShW: 1, limSh: 12.34, by: 'DISK' }]
+  });
+  const h = render(JSON.stringify(withDisk));
+  check(!h.includes('undefined') && !h.includes('NaN') && !h.includes('>null<'), 'render with a disks block is clean');
+  check(h.includes('<h3>Shared disk</h3>') && h.includes('<b>1.4 GiB</b> free (set by the operator'), 'the shared disk reads its free space and source');
+  check(h.includes('<b class="warn">') && h.includes('worst case') && h.includes('3 growing tablespaces take 36.0 MiB a day: C 16.0, A 10.0, B 10.0 MiB/day'), 'the shared disk reads its fill day and growers');
+  check(h.includes('free space not known. Set it in CAP_DISK_OVERRIDE'), 'a disk without free space says how to supply it');
+  check(h.includes('On the shared disk') && h.includes('stuck at 12.3 GiB, disk /u02'), 'a tablespace the disk stops first shows the shared-disk fact');
+  check(!html.includes('<h3>Shared disk</h3>') || (d.disks || []).length > 0, 'no shared-disk heading without a disks block');
+  const noBy = render(JSON.stringify(Object.assign({}, withDisk, { shared: [Object.assign({}, withDisk.shared[0], { by: 'LIMIT' })] })));
+  check(!noBy.includes('On the shared disk'), 'a tablespace stopped by its own limit shows no shared-disk fact');
+} catch (e) {
+  check(false, 'render with a disks block throws: ' + e.message);
 }
 
 if (failures) process.exit(1);
