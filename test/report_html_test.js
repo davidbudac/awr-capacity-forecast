@@ -67,7 +67,9 @@ function checkCards(h, fits, what) {
     metrics += n;
     check(h.includes('<section id="' + id + '"') === n > 0, what + 'section ' + id + ' present exactly when it has series (' + n + ')');
   }
-  const known = new Set(families.map(x => x[0]).concat(['overview', 'memory']));
+  // 'families' (tablespace families) is no metric family: it has its own
+  // checks below, and the docs demo has one since its TAX_DOCS_# chapter.
+  const known = new Set(families.map(x => x[0]).concat(['overview', 'memory', 'families']));
   const extra = [...h.matchAll(/<section id="([^"]+)"/g)].map(m => m[1]).filter(id => !known.has(id));
   check(extra.length === 0, what + 'every section is a family of this test (not: ' + extra.join(', ') + ')');
   const shown = (h.match(/<article class="card (?!mem)/g) || []).length + (h.match(/<div class="row" id=/g) || []).length;
@@ -181,7 +183,8 @@ try {
 }
 
 // Tablespace families (ddl/32): the page's own data has them only when its
-// source holds a family, so two are built here on the page's first database:
+// source holds a family (the docs demo has one), so two are built here on
+// the page's first database, in place of the page's own:
 // one over its ceiling with its TBSPC_FAMILY alert, one quiet without a
 // filling member. A section exactly when there is a family, a card per
 // family, a row per member, the alert linked to its card.
@@ -336,8 +339,9 @@ try {
 }
 
 // The shared disk (CAPR_DISK, block "disks") and the tablespace fact of
-// block "shared" (CAPR_TBSPC_SHARED): the demo page has neither, so they
-// are built here. A disk with
+// block "shared" (CAPR_TBSPC_SHARED): a page need not have them (the docs
+// demo has one LIVE disk), so they are built here, in place of the page's
+// own. A disk with
 // free space reads as one sentence, one without says how to supply it, and a
 // tablespace the disk stops before its own limit gets the fact.
 try {
