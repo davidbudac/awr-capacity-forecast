@@ -1624,7 +1624,7 @@ EXEC DBMS_MONITOR.CLIENT_ID_TRACE_ENABLE('CAP_NIGHTLY_JOB')</pre>
             <tr>
               <td><span class="inline">awrcap/metrics</span><br><span class="small">ORDS GET</span></td>
               <td class="def">none</td>
-              <td class="def">A PL/SQL handler in <span class="inline">grafana/ords/awrcap_module.sql</span>: Prometheus text format (<code>text/plain; version=0.0.4</code>) with <code>awrcap_alert</code> (CAPR_ALERTS), <code>awrcap_days_to_full</code> and <code>awrcap_pct_used</code> (CAPR_FIT), <code>awrcap_data_through_days</code> (CAPR_FRESHNESS) and <code>awrcap_up</code>. Labels, a <code>scrape_config</code> and the security note are in <span class="inline">grafana/API.md</span>.</td>
+              <td class="def">A PL/SQL handler in <span class="inline">grafana/ords/awrcap_module.sql</span>: Prometheus text format (<code>text/plain; version=0.0.4</code>) with <code>awrcap_alert</code> (CAPR_ALERTS), <code>awrcap_days_to_full</code> and <code>awrcap_pct_used</code> (CAPR_FIT), <code>awrcap_data_through_days</code> (CAPR_FRESHNESS) and <code>awrcap_up</code>. It answers 401 without a bearer token, like every handler of the module. Labels, a <code>scrape_config</code> with OAuth2 client credentials and the access rules are in <span class="inline">grafana/API.md</span>.</td>
             </tr>
           </tbody>
         </table>

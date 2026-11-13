@@ -146,7 +146,8 @@ Report arguments: `[top_n] [anomaly_days] [show_esm] [dbid] [con_dbid] [LIVE|SNA
 and takes about a second at any fleet size.
 
 Optional dashboards read the same views: [Kibana](elk/README.md),
-[Grafana over ORDS](grafana/README.md), [Oracle APEX](apex/README.md)
+[Grafana over ORDS](grafana/README.md) (the ORDS module needs an OAuth2
+bearer token), [Oracle APEX](apex/README.md)
 ([screenshots](https://davidbudac.github.io/awr-capacity-forecast/usage.html#kibana)).
 For Oracle Enterprise Manager, [oem/](oem/README.md) raises the alerts as
 incidents through a metric extension and registers targets from the EM

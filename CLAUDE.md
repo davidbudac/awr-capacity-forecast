@@ -326,10 +326,17 @@ CAPR_ views; `export.sh` runs it ON THE DB HOST into Filebeat's `generated/`
 dir, `filebeat/awrcap.yml` + `logstash/oracle_capacity.conf` carry it into the
 ES index `awrcap-capacity` (mapping = `elk/elasticsearch/index-template.json`,
 `dynamic: strict`, so add a field there FIRST and re-run `elk/setup.sh`).
-`elk/kibana/build_*.py` generate the three dashboards (edit the builder, never
+`elk/kibana/build_*.py` generate the four dashboards (edit the builder, never
 the `.ndjson`); `setup.sh` applies the template and imports them. Nothing on
 the DB host talks to Elasticsearch directly. `elk/setup.sh` requires
-`ES_PASSWORD` and `KIBANA_PASSWORD` (no default).
+`ES_PASSWORD` and `KIBANA_PASSWORD` (no default). Every record carries
+`cap.target_name`: each SELECT of the export drives from alias `t` and ends
+its FROM with the define `tgt` (the dbid's target from `CAPR_CONTAINER`),
+which the shared `ident` define names. The memory records (`mem_verdict`,
+`mem_evidence`, `mem_component`, `cap.kind` MEM, fields under `cap.mem.*`)
+come from the CAPR_MEM_ views; verdicts and evidence are stamped with the
+export day, like fits. Kibana 9.4 answers the settings call of `setup.sh`
+only with the header `x-elastic-internal-origin`.
 See `elk/README.md`.
 `LAB.md` is the workstation runbook (Tailscale URLs, start order, VM facts)
 for the visual paths; read it before touching the lab.
@@ -339,8 +346,22 @@ for the visual paths; read it before touching the lab.
 in ddl/45, `CAPR_FORECAST_POINTS` and `CAPR_ALERTS` in ddl/55, plus a GET
 `metrics` handler in Prometheus text format; contract `grafana/API.md`; the
 ELK export selects from the same views, so change the view, not the
-consumers) and
-`grafana/build_*.py` generate the provisioned Grafana boards. ORDS install
+consumers), `CAPR_TARGETS` and the four CAPR_MEM_ views (`mem_*` handlers),
+and `grafana/build_*.py` generate the four provisioned Grafana boards. A
+handler with a dbid drives from alias `t` and ends its FROM with `c_tgt`,
+which gives it `target_name` and the `target=` filter.
+**The module is protected** (U15): the ORDS privilege `awrcap.read` covers
+it and requires the ORDS role `awrcap_reader`, so every handler, `metrics`
+too, answers 401 without a bearer token. `grafana/ords/awrcap_client.sql`
+creates the OAuth2 client (client credentials) and prints its id and secret
+once; they live only in the gitignored `grafana/.env`
+(`ORDS_CLIENT_ID` / `ORDS_CLIENT_SECRET`), which the compose file hands to
+the Infinity data source. `install.sh` `ORDS=Y` always publishes protected;
+`PUBLIC` is the third argument of a hand run of the module script.
+`ORDS_SECURITY.REGISTER_CLIENT` registers no secret unless it is given
+`ords_types.oauth_client_secret()` (verified ORDS 26.3). As SYS,
+`SELECT ords.<function>` raises ORA-06598: read the ORDS dictionary views
+instead. ORDS install
 state and passwords under `grafana/` are gitignored. The compose file
 requires `GF_ADMIN_PASSWORD` (from `grafana/.env`). No tracked file holds a
 login literal (the repository is public): a placeholder, a variable or a

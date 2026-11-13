@@ -93,8 +93,12 @@ The maintainer chose not to plan these yet; they remain open findings.
   `.github/workflows/check.yml` run it, and it includes `test/docs_lint.sh`.
   The lints now read tracked files only, so a file under `reports/` no
   longer fails them.
-- **The ORDS module is public and reads live views per request**, and
-  `install.sh` `ORDS=Y` publishes it (`grafana/ords/awrcap_module.sql:15`).
+- **The ORDS module reads live views per request.** The other half of this
+  finding is closed (2026-11-13, improve program unit U15): the module is
+  protected by the ORDS privilege `awrcap.read` (OAuth2 client credentials,
+  `grafana/ords/awrcap_client.sql`), `install.sh` `ORDS=Y` publishes it
+  protected, and `PUBLIC` is an explicit argument of a hand run. The memory
+  handlers (`mem_verdicts`, `mem_evidence`) are the slowest live reads.
 - **`cap_results.purge` is never scheduled; the alert spool file is written
   in place; a re-install does not quiesce running jobs.**
 - **HTML page robustness**: unguarded `JSON.parse`, hour 24 not drawn, hover
@@ -117,8 +121,9 @@ The maintainer chose not to plan these yet; they remain open findings.
   tablespace forecast. Done (2026-11-12), on by default (`quiet_days` 14, 0 =
   off): `restart_reason` / `restart_day` on `CAPF_TBSPC_FORECAST` and
   `CAPR_FIT`. The dashboards (ELK, Grafana, APEX) do not show them yet.
-- `target_name` and the memory verdicts in the ELK, ORDS / Grafana and APEX
-  paths (none of them reads either today).
+- `target_name` and the memory verdicts in the APEX path. The ELK and ORDS /
+  Grafana paths carry both since 2026-11-13 (U15), with the `IOPS` /
+  `IO_MBPS` series.
 - A persisted memory verdict history (`CAPR_MEM_VERDICT_S` is already filled
   on every refresh; `CAP_FIT_HIST` is the pattern).
 

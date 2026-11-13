@@ -494,7 +494,8 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
       </div>
 
       <p>For HTTP or Prometheus, the ORDS module in <span class="inline">grafana/</span> publishes the
-        same views and a <code>metrics</code> endpoint (<a href="#grafana">Grafana</a>).</p>
+        same views and a <code>metrics</code> endpoint (<a href="#grafana">Grafana</a>). Both need a
+        bearer token.</p>
 
       <p>For Oracle Enterprise Manager, <span class="inline">oem/</span> holds the level 3 query as a
         metric extension, with numeric severity and a row for a stopped refresh
@@ -652,7 +653,7 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         <span class="eyebrow">Integrate · optional</span>
         <h2>Kibana dashboards (ELK)</h2>
         <p><span class="inline">elk/</span> exports the report analytics into one Elasticsearch index
-          and installs three Lens dashboards. Optional; outside <span class="inline">install.sql</span>.</p>
+          and installs four Lens dashboards. Optional; outside <span class="inline">install.sql</span>.</p>
       </div>
 
       <p>A script on the database host writes NDJSON, Filebeat tails it, Logstash indexes it. Nothing
@@ -752,15 +753,21 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
             <tr><td><span class="k">fit</span></td><td class="def">container × series × export day: slope, R², quality, days to full/limit/saturation, severity</td><td class="def">the days-to-full and trend tables, colour-coded</td></tr>
             <tr><td><span class="k">anomaly</span></td><td class="def">flagged event: growth outlier, CPU or DB CPU outlier, series outlier (one per baseline mode), or a CPU level shift, with a one-line explanation</td><td class="def">the fleet anomaly board and per-board anomaly tables</td></tr>
             <tr><td><span class="k">alert</span></td><td class="def"><span class="inline">CAPR_ALERTS</span> row × export day</td><td class="def">a compact alerts table on every board</td></tr>
+            <tr><td><span class="k">mem_verdict</span></td><td class="def">database × instance × memory area × export day (<span class="inline">CAPR_MEM_VERDICT</span>): grade, reason, current and suggested size, headline</td><td class="def">the verdict table of the memory board</td></tr>
+            <tr><td><span class="k">mem_evidence</span></td><td class="def">database × instance × area × signal × export day (<span class="inline">CAPR_MEM_EVIDENCE</span>)</td><td class="def">the evidence table of the memory board</td></tr>
+            <tr><td><span class="k">mem_component</span></td><td class="def">database × instance × SGA component × day of the evidence window (<span class="inline">CAPR_MEM_COMP_POINTS</span>)</td><td class="def">the stacked component chart of the memory board</td></tr>
           </tbody>
         </table>
       </div>
 
       <p>Dashboards: <b>Tablespaces</b> (days to full, observed + forecast + band, daily growth,
         growth anomalies), <b>CPU and workload series</b> (host CPU against the saturation line, DB CPU
-        level shifts, sessions / processes / DB size / redo against their limits) and
-        <b>Fleet anomalies</b> (anomalies only, across every database, newest first; drills into the
-        other two).</p>
+        level shifts, sessions / processes / DB size / redo against their limits, I/O requests and
+        throughput), <b>Fleet anomalies</b> (anomalies only, across every database, newest first;
+        drills into the first two) and <b>Memory sizing</b> (one verdict per instance and memory area
+        with its evidence and the SGA components per day; verdicts never raise an alert). Every
+        document carries <code>cap.target_name</code>, the suite's name of the database, and every
+        board has a Target control and a Target column.</p>
 
       <figure class="figure">
         <img src="assets/kibana-fleet-anomalies.png" alt="The fleet anomalies dashboard: anomaly counts per day by kind, a database-by-day heatmap, and the newest anomalies with their explanations" loading="lazy">
@@ -788,8 +795,9 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
       <div class="section-head" id="grafana">
         <span class="eyebrow">Integrate · optional</span>
         <h2>Grafana dashboards (ORDS, no Elastic)</h2>
-        <p>ORDS (Oracle REST Data Services) publishes seven read-only views as JSON; Grafana's Infinity
-          data source queries them live. Nothing is copied.</p>
+        <p>ORDS (Oracle REST Data Services) publishes twelve read-only views as JSON; Grafana's Infinity
+          data source queries them live. Nothing is copied. The module is protected: every endpoint
+          needs a bearer token.</p>
       </div>
 
       <div class="tablewrap">
@@ -797,20 +805,26 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
           <caption>The <span class="inline">awrcap</span> ORDS module, one GET endpoint per row</caption>
           <thead><tr><th scope="col">Endpoint</th><th scope="col">Backing view</th><th scope="col">Serves</th></tr></thead>
           <tbody>
-            <tr><td><span class="k">containers</span></td><td class="def"><span class="inline">CAPR_CONTAINER</span></td><td class="def">the database variable</td></tr>
+            <tr><td><span class="k">containers</span></td><td class="def"><span class="inline">CAPR_CONTAINER</span></td><td class="def">the target and database variables</td></tr>
+            <tr><td><span class="k">targets</span></td><td class="def"><span class="inline">CAPR_TARGETS</span></td><td class="def">one row per target and DBID: feed, freshness, collect state</td></tr>
             <tr><td><span class="k">series</span></td><td class="def"><span class="inline">CAPR_SERIES_POINTS</span></td><td class="def">observed daily points with the <span class="inline">CAPA_</span> flag joined on (<code>anomaly = 1</code>)</td></tr>
             <tr><td><span class="k">forecast</span></td><td class="def"><span class="inline">CAPR_FORECAST_POINTS</span></td><td class="def">REGR anchors and the ESM point (furthest step, at most +30), with bands, dated past today</td></tr>
             <tr><td><span class="k">fit</span></td><td class="def"><span class="inline">CAPR_FIT</span></td><td class="def">the current fit per series: days to full / limit / saturation, R², quality, severity</td></tr>
             <tr><td><span class="k">anomalies</span></td><td class="def"><span class="inline">CAPR_ANOMALIES</span></td><td class="def">one row per flagged event (point and baseline mode) with its one-line explanation</td></tr>
             <tr><td><span class="k">hourly</span></td><td class="def"><span class="inline">CAPR_HOURLY_POINTS</span></td><td class="def">host busy% and DB CPU% per hour with the hour-of-week verdict (default: the last 14 days)</td></tr>
             <tr><td><span class="k">alerts</span></td><td class="def"><span class="inline">CAPR_ALERTS</span></td><td class="def">the pollable alert feed</td></tr>
+            <tr><td><span class="k">mem_verdicts</span></td><td class="def"><span class="inline">CAPR_MEM_VERDICT</span></td><td class="def">one memory sizing verdict per instance and area: grade, reason, current and suggested size, headline</td></tr>
+            <tr><td><span class="k">mem_evidence</span></td><td class="def"><span class="inline">CAPR_MEM_EVIDENCE</span></td><td class="def">the signals behind each verdict, one sentence each</td></tr>
+            <tr><td><span class="k">mem_components</span></td><td class="def"><span class="inline">CAPR_MEM_COMPONENTS</span></td><td class="def">the SGA components now, with their window range and resize counts</td></tr>
+            <tr><td><span class="k">mem_points</span></td><td class="def"><span class="inline">CAPR_MEM_COMP_POINTS</span></td><td class="def">the SGA component sizes per day of the evidence window</td></tr>
           </tbody>
         </table>
       </div>
 
-      <p>The ELK export reads the same views. The three boards mirror the Kibana ones; anomalies are
+      <p>The ELK export reads the same views. The four boards mirror the Kibana ones; anomalies are
         red annotation markers (message on hover), red points on the observed line, and a shaded span
-        for a DB CPU level shift.</p>
+        for a DB CPU level shift. Every row carries <code>target_name</code>; the boards have a Target
+        variable that narrows the Database variable, and a Target column in their tables.</p>
 
       <figure class="figure">
         <img src="assets/grafana-tablespaces.png" alt="The Grafana tablespaces dashboard: days-to-full table, used space with dashed forecasts and red anomaly markers, daily growth, anomaly and alert tables" loading="lazy">
@@ -821,9 +835,13 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
           <span class="term__title">shell</span><span class="term__tag in">install</span></div>
 <pre><span class="c-cmt"># 1. ORDS against the database (lab recipe: grafana/ords/README.md)</span>
-<span class="c-cmt"># 2. publish the module, as the schema owner (or a DBA with ORDS_ADMIN)</span>
+<span class="c-cmt"># 2. publish the module, as the schema owner (or a DBA with ORDS_ADMIN). It is protected:</span>
+<span class="c-cmt">#    every endpoint answers 401 without a bearer token</span>
 <span class="c-prompt">SQL&gt;</span> @grafana/ords/awrcap_module.sql
-<span class="c-cmt"># 3. Grafana with the Infinity plugin, data source and dashboards provisioned</span>
+<span class="c-cmt"># 3. create Grafana's OAuth2 client. The script prints ORDS_CLIENT_ID and ORDS_CLIENT_SECRET once:</span>
+<span class="c-cmt">#    send them to the gitignored grafana/.env, not to the screen</span>
+<span class="c-prompt">$</span> (umask 077; sqlplus -S -L / @grafana/ords/awrcap_client.sql | grep '^ORDS_CLIENT_' &gt;&gt; grafana/.env)
+<span class="c-cmt"># 4. Grafana with the Infinity plugin, data source and dashboards provisioned</span>
 <span class="c-cmt">#    (set GF_ADMIN_PASSWORD in grafana/.env first: the admin password, no default)</span>
 <span class="c-prompt">$</span> docker compose -f grafana/docker-compose.yml up -d     <span class="c-cmt"># http://&lt;host&gt;:3001</span></pre>
       </div>
@@ -835,6 +853,15 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         already in Elastic, use <a href="#kibana">ELK</a>. Contract, limits and security notes:
         <a href="https://github.com/davidbudac/awr-capacity-forecast/blob/main/grafana/README.md">grafana/README.md</a>.</p>
       </div>
+
+      <p><strong>Access.</strong> The ORDS privilege <code>awrcap.read</code> covers the module and
+        requires the ORDS role <code>awrcap_reader</code>. A consumer is an OAuth2 client
+        (client credentials) that holds the role: Grafana's data source and a Prometheus scraper each
+        exchange their client id and secret for a bearer token at
+        <span class="inline">/ords/&lt;alias&gt;/oauth/token</span>.
+        <span class="inline">@grafana/ords/awrcap_module.sql &lt;schema&gt; - PUBLIC</span> publishes the
+        module without the privilege, for a closed lab only. Over plain HTTP the token travels
+        unencrypted: put ORDS behind TLS outside a lab.</p>
 
       <!-- ===================== APEX ===================== -->
       <div class="section-head" id="apex">
