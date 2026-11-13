@@ -6606,6 +6606,371 @@ BEGIN
             fail('segment-growth block raised ' || SQLERRM);
     END;
 
+    -- =================================================================
+    -- Tablespace families (ddl/32): FIXM_# (monthly, the alert), FIXY_#
+    -- (yearly, quiet) and the FIXP pair that forms none. Closed forms in
+    -- test/fixture_install.sql, header FAMILIES and its FAM_ meta block.
+    -- =================================================================
+    DECLARE
+        mib     CONSTANT NUMBER := 1048576;
+        gib     CONSTANT NUMBER := 1073741824;
+        d_last  DATE := meta_d('LAST_DAY');
+        d_base  DATE := meta_d('BASE_DAY');
+        v_fy    VARCHAR2(30);
+        v_txt   VARCHAR2(4000);
+        v_txt2  VARCHAR2(4000);
+        v_d     DATE;
+        v_d2    DATE;
+        v_a     NUMBER;
+        v_b     NUMBER;
+        v_c     NUMBER;
+        v_e     NUMBER;
+        v_f     NUMBER;
+        v_raised BOOLEAN;
+        -- One family's row of CAPF_TBSPC_FAMILY.
+        r       capf_tbspc_family%ROWTYPE;
+        PROCEDURE fam(p_name VARCHAR2) IS
+        BEGIN
+            SELECT * INTO r FROM capf_tbspc_family WHERE dbid = v_dbid AND family_name = p_name;
+        END;
+        FUNCTION n_fam RETURN NUMBER IS x NUMBER;
+        BEGIN SELECT COUNT(*) INTO x FROM capf_tbspc_family WHERE dbid = v_dbid; RETURN x; END;
+        FUNCTION states(p_name VARCHAR2) RETURN VARCHAR2 IS x VARCHAR2(4000);
+        BEGIN
+            SELECT LISTAGG(tablespace_name || ':' || state, ' ') WITHIN GROUP (ORDER BY member_seq)
+              INTO x FROM capf_tbspc_family_member WHERE dbid = v_dbid AND family_name = p_name;
+            RETURN x;
+        END;
+    BEGIN
+        DBMS_OUTPUT.PUT_LINE('=== Tablespace families (ddl/32): FIXM_# / FIXY_# / the FIXP pair ===');
+        SELECT sval INTO v_fy FROM cap_fixture_meta WHERE mkey = 'FAM_Y_FILLING';
+
+        -- ---- membership ----
+        SELECT COUNT(*), COUNT(DISTINCT family_name) INTO v_n, v_num
+          FROM capd_tbspc_family WHERE dbid = v_dbid;
+        chk_int('families: member rows (6 FIXM_ + 3 FIXY_)', v_n, 9);
+        chk_int('families: two families', v_num, 2);
+        SELECT COUNT(*) INTO v_n FROM capd_tbspc_family
+          WHERE tablespace_name LIKE 'FIXP%' OR tablespace_name LIKE 'FIX!_%' ESCAPE '!';
+        chk_int('families: the FIXP pair (2 < family_min_members) and the FIX_ names form none', v_n, 0);
+        SELECT COUNT(*), MIN(period) || '/' || MAX(period), MIN(source) || '/' || MAX(source), MIN(n_members)
+          INTO v_n, v_str, v_str2, v_num
+          FROM capd_tbspc_family WHERE dbid = v_dbid AND family_name = 'FIXM_#';
+        chk_int('FIXM_# members', v_n, 6);
+        chk_str('FIXM_# period (YYYYMM token)', v_str, 'MONTH/MONTH');
+        chk_str('FIXM_# source', v_str2, 'AUTO/AUTO');
+        chk_int('FIXM_# n_members on every row', v_num, 6);
+        SELECT period_start, period_end, period_days INTO v_d, v_d2, v_num
+          FROM capd_tbspc_family WHERE tablespace_name = 'FIXM_202311';
+        chk_true('FIXM_202311 period = November 2023', v_d = DATE '2023-11-01' AND v_d2 = DATE '2023-11-30');
+        chk_int ('FIXM_202311 period_days', v_num, 30);
+        SELECT period, period_start, period_end, period_days INTO v_str, v_d, v_d2, v_num
+          FROM capd_tbspc_family WHERE tablespace_name = 'FIXY_2024';
+        chk_str ('FIXY_2024 period (YYYY token)', v_str, 'YEAR');
+        chk_true('FIXY_2024 period = the year 2024', v_d = DATE '2024-01-01' AND v_d2 = DATE '2024-12-31');
+        chk_int ('FIXY_2024 period_days (leap year)', v_num, 366);
+        SELECT COUNT(*) INTO v_n FROM capd_tbspc_family WHERE con_dbid <> v_dbid;
+        chk_int('families: a container without a family has no row', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM capd_tbspc_family_daily
+          WHERE dbid = v_dbid AND family_name = 'FIXM_#' AND day_dt = d_last;
+        chk_int('CAPD_TBSPC_FAMILY_DAILY one row per family and day', v_n, 1);
+        SELECT used_bytes, n_members INTO v_a, v_num FROM capd_tbspc_family_daily
+          WHERE dbid = v_dbid AND family_name = 'FIXM_#' AND day_dt = d_base + 49;
+        chk_int('FIXM_# total on day 49 = 811 + 1036 + 4 x 1 MiB (nothing filled yet)', v_a, (811 + 1036 + 4) * mib);
+        chk_int('FIXM_# daily n_members', v_num, 6);
+
+        -- ---- members: order, state, final size, fill window ----
+        chk_str('FIXM_# members in period order with their states', states('FIXM_#'),
+                'FIXM_202307:DONE FIXM_202308:DONE FIXM_202309:DONE FIXM_202310:DONE FIXM_202311:FILLING FIXM_202312:EMPTY');
+        chk_str('FIXY_# members in period order with their states', states('FIXY_#'),
+                'FIXY_2023:DONE FIXY_2024:DONE ' || v_fy || ':FILLING');
+        SELECT final_bytes, grow_days, fill_from, fill_days INTO v_a, v_num, v_d, v_num2
+          FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202307';
+        chk_int ('FIXM_202307 final_bytes = 811 MiB (flat, never grew in the window)', v_a, 811 * mib);
+        chk_true('FIXM_202307 no growth day, no fill window', v_num = 0 AND v_d IS NULL AND v_num2 IS NULL);
+        SELECT final_bytes INTO v_a FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202308';
+        chk_int ('FIXM_202308 final_bytes = 1036 MiB', v_a, 1036 * mib);
+        SELECT final_bytes, grow_days, fill_from, fill_to, fill_days, restart_reason
+          INTO v_a, v_num, v_d, v_d2, v_num2, v_str
+          FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202309';
+        chk_int ('FIXM_202309 final_bytes = 1 + 30 x 40 = 1201 MiB', v_a, 1201 * mib);
+        chk_int ('FIXM_202309 final_bytes = FAM_M_FINAL3', v_a, meta_n('FAM_M_FINAL3'));
+        chk_int ('FIXM_202309 grow_days', v_num, 30);
+        chk_true('FIXM_202309 fill window days 50 .. 79', v_d = d_base + 50 AND v_d2 = d_base + 79);
+        chk_int ('FIXM_202309 fill_days', v_num2, 30);
+        chk_str ('FIXM_202309 the fit says STOP (41 quiet days)', v_str, 'STOP');
+        SELECT final_bytes, fill_from, fill_to, fill_days, NVL(restart_reason, '-')
+          INTO v_a, v_d, v_d2, v_num2, v_str
+          FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202310';
+        chk_int ('FIXM_202310 final_bytes = 1 + 31 x 45 = 1396 MiB', v_a, 1396 * mib);
+        chk_true('FIXM_202310 fill window days 80 .. 110', v_d = d_base + 80 AND v_d2 = d_base + 110);
+        chk_int ('FIXM_202310 fill_days', v_num2, 31);
+        chk_true('FIXM_202310 is DONE because its successor grows: 10 quiet days, the fit says no STOP (got '
+                 || v_str || ')', v_str <> 'STOP');
+        SELECT cur_used, limit_bytes, fill_from, fill_rate_bpd, quality, NVL(restart_reason, '-'), final_bytes
+          INTO v_a, v_b, v_d, v_c, v_str, v_str2, v_e
+          FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202311';
+        chk_int  ('FIXM_202311 cur_used = 1 + 10 x 53 = 531 MiB', v_a, 531 * mib);
+        chk_int  ('FIXM_202311 limit_bytes = 1600 MiB', v_b, 1600 * mib);
+        chk_true ('FIXM_202311 fill_from = day 111', v_d = d_base + 111);
+        chk_close('FIXM_202311 fill_rate_bpd = 53 MiB/day (since the day before its first growth day)', v_c, 53 * mib, 1e-12);
+        chk_str  ('FIXM_202311 own fit: 80 flat days and 10 on the ramp', v_str, 'LOW_CONFIDENCE');
+        chk_str  ('FIXM_202311 own fit not restarted (11 days are under min_train_days)', v_str2, '-');
+        chk_true ('FIXM_202311 no final size while filling', v_e IS NULL);
+        SELECT final_bytes, fill_rate_bpd, cur_used INTO v_a, v_b, v_c
+          FROM capf_tbspc_family_member WHERE tablespace_name = 'FIXM_202312';
+        chk_true('FIXM_202312 EMPTY: no final size, no rate, 1 MiB used', v_a IS NULL AND v_b IS NULL AND v_c = mib);
+        SELECT fill_from, fill_rate_bpd, quality INTO v_d, v_a, v_str
+          FROM capf_tbspc_family_member WHERE tablespace_name = v_fy;
+        chk_true ('FIXY filling member grew into the window: no fill_from', v_d IS NULL);
+        chk_close('FIXY filling member fill_rate_bpd = the fit slope, 8 MiB/day', v_a, meta_n('FAM_Y_RATE'), 1e-9);
+        chk_str  ('FIXY filling member fit', v_str, 'OK');
+
+        -- ---- FIXM_#: next member, the filling member against its ceiling ----
+        fam('FIXM_#');
+        chk_str  ('FIXM_# members by state', r.n_members || '/' || r.n_done || '/' || r.n_filling || '/' || r.n_empty, '6/4/1/1');
+        chk_str  ('FIXM_# period / source', r.period || ' ' || r.source, 'MONTH AUTO');
+        chk_int  ('FIXM_# used_bytes = 811 + 1036 + 1201 + 1396 + 531 + 1 = 4976 MiB', r.used_bytes, 4976 * mib);
+        chk_int  ('FIXM_# used_bytes = FAM_M_USED', r.used_bytes, meta_n('FAM_M_USED'));
+        chk_int  ('FIXM_# max_limit_bytes = 50 GiB', r.max_limit_bytes, 50 * gib);
+        chk_close('FIXM_# slope_bpd = OLS of the daily total', r.slope_bpd, meta_n('FAM_M_SLOPE'), 1e-9);
+        chk_int  ('FIXM_# train_n', r.train_n, 90);
+        chk_int  ('FIXM_# period_days (the filling member''s November)', r.period_days, 30);
+        chk_close('FIXM_# growth_per_period_bytes = 30 x slope', r.growth_per_period_bytes, 30 * meta_n('FAM_M_SLOPE'), 1e-9);
+        chk_int  ('FIXM_# recent_n (4 DONE of family_recent_members 6)', r.recent_n, 4);
+        chk_close('FIXM_# trend_bpm = 192 MiB a member', r.trend_bpm, 192 * mib, 1e-9);
+        chk_close('FIXM_# trend_bpm = FAM_M_TREND', r.trend_bpm, meta_n('FAM_M_TREND'), 1e-9);
+        chk_str  ('FIXM_# trend_sig', r.trend_sig, 'Y');
+        chk_close('FIXM_# next_member_bytes = median(1579, 1612, 1585, 1588) = 1586.5 MiB', r.next_member_bytes, 1586.5 * mib, 1e-9);
+        chk_close('FIXM_# next_member_hi_bytes = 1612 MiB', r.next_member_hi_bytes, 1612 * mib, 1e-9);
+        chk_close('FIXM_# next_member_bytes = FAM_M_NEXT', r.next_member_bytes, meta_n('FAM_M_NEXT'), 1e-9);
+        chk_str  ('FIXM_# next_over_limit (1586.5 MiB under 50 GiB)', r.next_over_limit, 'N');
+        chk_str  ('FIXM_# filling_member', r.filling_member, 'FIXM_202311');
+        chk_int  ('FIXM_# filling_used_bytes', r.filling_used_bytes, 531 * mib);
+        chk_int  ('FIXM_# filling_limit_bytes', r.filling_limit_bytes, 1600 * mib);
+        chk_true ('FIXM_# filling_from = day 111', r.filling_from = d_base + 111);
+        chk_true ('FIXM_# period_end_day = day 111 + 30 - 1 = day 140', r.period_end_day = d_base + 140
+                                                                   AND r.period_end_day = meta_d('FAM_M_PERIOD_END'));
+        chk_int  ('FIXM_# days_left', r.days_left, 20);
+        chk_close('FIXM_# expected_final_bytes = 531 + 20 x 53 = 1591 MiB (own rate beats 1586.5 / 30)',
+                  r.expected_final_bytes, 1591 * mib, 1e-9);
+        chk_close('FIXM_# expected_final_hi_bytes = 531 + 20 x 1612 / 30 MiB (the cautious family rate)',
+                  r.expected_final_hi_bytes, (531 + 20 * 1612 / 30) * mib, 1e-9);
+        chk_close('FIXM_# expected_final_hi_bytes = FAM_M_EXP_HI', r.expected_final_hi_bytes, meta_n('FAM_M_EXP_HI'), 1e-9);
+        chk_true ('FIXM_# expected under the ceiling, cautious value over it',
+                  r.expected_final_bytes < r.filling_limit_bytes AND r.expected_final_hi_bytes > r.filling_limit_bytes);
+        chk_str  ('FIXM_# fits', r.fits, 'N');
+
+        -- ---- FIXY_#: quiet, calendar period end, no trend ----
+        fam('FIXY_#');
+        chk_str  ('FIXY_# members by state', r.n_members || '/' || r.n_done || '/' || r.n_filling || '/' || r.n_empty, '3/2/1/0');
+        chk_str  ('FIXY_# period', r.period, 'YEAR');
+        chk_int  ('FIXY_# used_bytes', r.used_bytes, meta_n('FAM_Y_USED'));
+        chk_int  ('FIXY_# recent_n', r.recent_n, 2);
+        chk_str  ('FIXY_# trend_sig (two members carry no trend)', r.trend_sig, 'N');
+        chk_close('FIXY_# next_member_bytes = median(600, 500) = 550 MiB', r.next_member_bytes, 550 * mib, 1e-9);
+        chk_close('FIXY_# next_member_hi_bytes = 600 MiB', r.next_member_hi_bytes, 600 * mib, 1e-9);
+        chk_str  ('FIXY_# filling_member', r.filling_member, v_fy);
+        chk_true ('FIXY_# no filling_from', r.filling_from IS NULL);
+        chk_true ('FIXY_# period_end_day = 31 December of the load year', r.period_end_day = meta_d('FAM_Y_PERIOD_END'));
+        chk_int  ('FIXY_# days_left', r.days_left, meta_n('FAM_Y_PERIOD_END'));
+        chk_int  ('FIXY_# period_days', r.period_days, meta_n('FAM_Y_PERIOD_DAYS'));
+        chk_close('FIXY_# slope_bpd = 8 MiB/day (two flat members and one line)', r.slope_bpd, 8 * mib, 1e-9);
+        chk_close('FIXY_# expected_final_bytes = 1060 MiB + 8 MiB x days_left', r.expected_final_bytes, meta_n('FAM_Y_EXP'), 1e-9);
+        chk_close('FIXY_# expected_final_hi_bytes the same (8 MiB/day beats 600 MiB a year)',
+                  r.expected_final_hi_bytes, meta_n('FAM_Y_EXP'), 1e-9);
+        chk_str  ('FIXY_# fits', r.fits, 'Y');
+        chk_int  ('CAPF_TBSPC_FAMILY one row per family', n_fam, 2);
+
+        -- ---- report views ----
+        SELECT COUNT(*), COUNT(CASE WHEN db_pdb = 'FIXCDB' THEN 1 END) INTO v_n, v_num FROM capr_tbspc_family;
+        chk_int('CAPR_TBSPC_FAMILY rows', v_n, 2);
+        chk_int('CAPR_TBSPC_FAMILY db_pdb', v_num, 2);
+        SELECT sev, actionable, rank_family, headline, next_member_gb, expected_final_hi_gb, filling_limit_gb
+          INTO v_str, v_c1, v_num, v_txt, v_a, v_b, v_c
+          FROM capr_tbspc_family WHERE family_name = 'FIXM_#';
+        chk_str  ('CAPR_TBSPC_FAMILY FIXM_# sev', v_str, 'WARN');
+        chk_str  ('CAPR_TBSPC_FAMILY FIXM_# actionable', v_c1, 'Y');
+        chk_int  ('CAPR_TBSPC_FAMILY FIXM_# rank_family (WARN first)', v_num, 1);
+        chk_close('CAPR_TBSPC_FAMILY FIXM_# next_member_gb = 1586.5 / 1024', v_a, 1586.5 / 1024, 1e-9);
+        chk_close('CAPR_TBSPC_FAMILY FIXM_# filling_limit_gb = 1600 / 1024', v_c, 1600 / 1024, 1e-9);
+        v_txt2 := 'Family FIXM_#: FIXM_202311 may reach 1.57 GiB by ' || TO_CHAR(d_last + 20, 'YYYY-MM-DD')
+                  || ' (expected 1.55 GiB), ceiling 1.56 GiB. Next member: 1.55 GiB (cautious 1.57 GiB)';
+        chk_true('CAPR_TBSPC_FAMILY FIXM_# headline (got ' || v_txt || ')', v_txt = v_txt2);
+        SELECT sev, actionable, headline INTO v_str, v_c1, v_txt FROM capr_tbspc_family WHERE family_name = 'FIXY_#';
+        chk_str ('CAPR_TBSPC_FAMILY FIXY_# sev / actionable', v_str || ' ' || v_c1, 'OK N');
+        chk_true('CAPR_TBSPC_FAMILY FIXY_# headline (got ' || v_txt || ')',
+                 v_txt LIKE 'Family FIXY!_#: ' || v_fy || ' stays under its ceiling, at most % GiB by '
+                            || TO_CHAR(meta_d('FAM_Y_PERIOD_END'), 'YYYY-MM-DD')
+                            || ' (expected % GiB), ceiling 50.00 GiB. Next member: 0.54 GiB (cautious 0.59 GiB)' ESCAPE '!');
+        SELECT COUNT(*), COUNT(CASE WHEN state = 'DONE' THEN final_gb END) INTO v_n, v_num FROM capr_tbspc_family_members;
+        chk_int('CAPR_TBSPC_FAMILY_MEMBERS rows', v_n, 9);
+        chk_int('CAPR_TBSPC_FAMILY_MEMBERS final_gb on the six DONE members', v_num, 6);
+        SELECT final_gb, used_gb, limit_gb INTO v_a, v_b, v_c FROM capr_tbspc_family_members
+          WHERE tablespace_name = 'FIXM_202308';
+        chk_close('CAPR_TBSPC_FAMILY_MEMBERS FIXM_202308 final_gb', v_a, 1036 / 1024, 1e-9);
+        chk_true ('CAPR_TBSPC_FAMILY_MEMBERS FIXM_202308 used_gb = final_gb, limit 50 GiB', v_b = v_a AND v_c = 50);
+
+        -- ---- the alert ----
+        snap_alerts;
+        SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE kind = 'TBSPC_FAMILY';
+        chk_int('TBSPC_FAMILY alerts (FIXM_# only)', v_n, 1);
+        SELECT severity, series_key, value, threshold, alarm_threshold, state_key, day_dt, message, db_pdb
+          INTO v_str, v_str2, v_a, v_b, v_c, v_txt, v_d, v_msg, v_txt2
+          FROM cap_fixture_alerts_snap WHERE kind = 'TBSPC_FAMILY';
+        chk_str  ('TBSPC_FAMILY severity', v_str, 'WARN');
+        chk_str  ('TBSPC_FAMILY series_key = the family', v_str2, 'FIXM_#');
+        chk_close('TBSPC_FAMILY value = expected_final_hi in GiB', v_a, meta_n('FAM_M_EXP_HI') / gib, 1e-9);
+        chk_close('TBSPC_FAMILY threshold = the ceiling in GiB', v_b, 1600 / 1024, 1e-9);
+        chk_close('TBSPC_FAMILY alarm_threshold = the ceiling in GiB', v_c, 1600 / 1024, 1e-9);
+        chk_str  ('TBSPC_FAMILY state_key (family, not member: the next member continues it)', v_txt,
+                  'TBSPC_FAMILY|' || v_dbid || '|' || v_dbid || '|FIXM_#|-');
+        chk_true ('TBSPC_FAMILY day_dt = the last day', v_d = d_last);
+        chk_true ('TBSPC_FAMILY message names family, member, expected size, ceiling and the next member (got '
+                  || v_msg || ')',
+                  v_msg = 'Family FIXM_#: FIXM_202311 may reach 1.57 GiB by ' || TO_CHAR(d_last + 20, 'YYYY-MM-DD')
+                          || ' (expected 1.55 GiB), ceiling 1.56 GiB. Next member: 1.55 GiB (cautious 1.57 GiB)');
+        chk_str  ('TBSPC_FAMILY db_pdb', v_txt2, 'FIXCDB');
+        SELECT unit, direction, is_current INTO v_str, v_str2, v_c1
+          FROM cap_fixture_alerts_snap WHERE kind = 'TBSPC_FAMILY';
+        chk_str  ('TBSPC_FAMILY unit / direction / is_current', v_str || ' ' || v_str2 || ' ' || v_c1, 'GIB GE Y');
+        SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap
+          WHERE kind <> 'TBSPC_FAMILY'
+            AND (series_key LIKE 'FIXM%' OR series_key LIKE 'FIXY%' OR series_key LIKE 'FIXP%');
+        chk_int('the family tablespaces raise no other alert (no TBSPC_FULL, NEARFULL or ANOM)', v_n, 0);
+        SELECT COUNT(*) INTO v_n FROM capa_anom
+          WHERE dbid = v_dbid AND kind = 'TBSPC' AND anomaly_flag IS NOT NULL
+            AND (series LIKE 'FIXM%' OR series LIKE 'FIXY%' OR series LIKE 'FIXP%');
+        chk_int('the family tablespaces flag no anomaly (every step under the 100 MiB floor)', v_n, 0);
+
+        -- ---- knobs ----
+        SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+          WHERE knob IN ('family_auto', 'family_min_members', 'family_recent_members') AND status = 'OK';
+        chk_int('CAP_CFG_CHECK: the three family knobs OK', v_n, 3);
+        SAVEPOINT u10_family;
+        BEGIN
+            -- family_recent_members 2: the two newest finals, no trend, and
+            -- the member's own 53 MiB/day beats 1396 / 30: it fits.
+            knob('family_recent_members', 2);
+            fam('FIXM_#');
+            chk_int  ('recent 2: recent_n', r.recent_n, 2);
+            chk_str  ('recent 2: trend_sig', r.trend_sig, 'N');
+            chk_close('recent 2: next_member_bytes = median(1201, 1396) = 1298.5 MiB', r.next_member_bytes, 1298.5 * mib, 1e-9);
+            chk_close('recent 2: next_member_bytes = FAM_M_NEXT_R2', r.next_member_bytes, meta_n('FAM_M_NEXT_R2'), 1e-9);
+            chk_close('recent 2: next_member_hi_bytes = 1396 MiB', r.next_member_hi_bytes, 1396 * mib, 1e-9);
+            chk_close('recent 2: expected_final_hi_bytes = 1591 MiB (own rate both ways)', r.expected_final_hi_bytes, 1591 * mib, 1e-9);
+            chk_str  ('recent 2: fits', r.fits, 'Y');
+            SELECT COUNT(*) INTO v_n FROM capr_alerts WHERE kind = 'TBSPC_FAMILY';
+            chk_int  ('recent 2: no TBSPC_FAMILY alert', v_n, 0);
+            knob('family_recent_members', 0);
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'family_recent_members';
+            chk_str  ('CAP_CFG_CHECK family_recent_members = 0', v_str, 'BAD');
+            knob('family_recent_members', 6);
+
+            -- family_min_members: 7 dissolves both families, 2 lets the
+            -- FIXP pair form one (quarter tokens, no growth: both DONE).
+            knob('family_min_members', 7);
+            chk_int('min members 7: no family', n_fam, 0);
+            SELECT COUNT(*) INTO v_n FROM capr_tbspc_family;
+            chk_int('min members 7: CAPR_TBSPC_FAMILY empty', v_n, 0);
+            SELECT COUNT(*) INTO v_n FROM capr_tbspc_family_members;
+            chk_int('min members 7: CAPR_TBSPC_FAMILY_MEMBERS empty', v_n, 0);
+            knob('family_min_members', 2);
+            chk_int('min members 2: three families', n_fam, 3);
+            fam('FIXP_#');
+            chk_str  ('min members 2: FIXP_# period', r.period, 'QUARTER');
+            chk_str  ('min members 2: FIXP_# states', states('FIXP_#'), 'FIXP_2024Q1:DONE FIXP_2024Q2:DONE');
+            chk_close('min members 2: FIXP_# next_member_bytes = 300 MiB', r.next_member_bytes, 300 * mib, 1e-9);
+            chk_true ('min members 2: FIXP_# no filling member, no verdict', r.filling_member IS NULL AND r.fits IS NULL
+                                                                           AND r.expected_final_bytes IS NULL);
+            chk_int  ('min members 2: FIXP_# period_days (the newest member''s quarter, Q2 2024)', r.period_days, 91);
+            SELECT period_start, period_end INTO v_d, v_d2 FROM capd_tbspc_family WHERE tablespace_name = 'FIXP_2024Q2';
+            chk_true ('min members 2: FIXP_2024Q2 = April .. June 2024', v_d = DATE '2024-04-01' AND v_d2 = DATE '2024-06-30');
+            SELECT headline INTO v_txt FROM capr_tbspc_family WHERE family_name = 'FIXP_#';
+            chk_true ('min members 2: FIXP_# headline (got ' || v_txt || ')',
+                      v_txt = 'Family FIXP_#: no member is filling. Next member: 0.29 GiB (cautious 0.29 GiB)');
+            knob('family_min_members', 1);
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'family_min_members';
+            chk_str  ('CAP_CFG_CHECK family_min_members = 1', v_str, 'BAD');
+            knob('family_min_members', 3);
+
+            -- family_auto 0: no operator row, no family.
+            knob('family_auto', 0);
+            chk_int('family_auto 0: no family without CAP_TBSPC_FAMILY rows', n_fam, 0);
+            knob('family_auto', 2);
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'family_auto';
+            chk_str('CAP_CFG_CHECK family_auto = 2', v_str, 'BAD');
+            knob('family_auto', 1);
+
+            -- ---- CAP_TBSPC_FAMILY rows ----
+            -- Exclude the oldest member: three finals 1036 / 1201 / 1396,
+            -- 180 MiB a member (significant), each carried to 1576 / 1561 /
+            -- 1576 MiB: median and maximum 1576.
+            INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+            VALUES (0, 0, '^FIXM_202307$', NULL, 'Y');
+            fam('FIXM_#');
+            chk_str  ('exclude row: members by state', r.n_members || '/' || r.n_done || '/' || r.n_filling || '/' || r.n_empty, '5/3/1/1');
+            chk_close('exclude row: trend_bpm = 180 MiB a member', r.trend_bpm, 180 * mib, 1e-9);
+            chk_str  ('exclude row: trend_sig', r.trend_sig, 'Y');
+            chk_close('exclude row: next_member_bytes = 1576 MiB', r.next_member_bytes, 1576 * mib, 1e-9);
+            chk_close('exclude row: next_member_hi_bytes = 1576 MiB', r.next_member_hi_bytes, 1576 * mib, 1e-9);
+            chk_str  ('exclude row: fits (53 MiB/day beats 1576 / 30)', r.fits, 'Y');
+            chk_int  ('exclude row: used_bytes without the member', r.used_bytes, (4976 - 811) * mib);
+            -- A more specific row (real dbid) wins and puts it back.
+            INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+            VALUES (v_dbid, 0, '^FIXM_202307$', 'FIXM_#', 'N');
+            fam('FIXM_#');
+            chk_int  ('most specific row wins: six members again', r.n_members, 6);
+            chk_str  ('most specific row wins: the family has an operator member', r.source, 'OPERATOR');
+            chk_close('most specific row wins: next_member_bytes 1586.5 MiB again', r.next_member_bytes, 1586.5 * mib, 1e-9);
+            SELECT source INTO v_str FROM capd_tbspc_family WHERE tablespace_name = 'FIXM_202307';
+            chk_str  ('most specific row wins: member source', v_str, 'OPERATOR');
+            -- Rename a family. Its period tokens still order it.
+            INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+            VALUES (0, 0, '^FIXY_', 'FIX yearly', 'N');
+            chk_str  ('rename row: members and states under the new name', states('FIX yearly'),
+                      'FIXY_2023:DONE FIXY_2024:DONE ' || v_fy || ':FILLING');
+            SELECT COUNT(*) INTO v_n FROM capf_tbspc_family WHERE family_name = 'FIXY_#';
+            chk_int  ('rename row: the automatic name is gone', v_n, 0);
+            -- A family the period token does not give: two members, no minimum.
+            INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+            VALUES (0, 0, '^FIXP_2024Q[12]$', 'FIXP quarters', 'N');
+            fam('FIXP quarters');
+            chk_str  ('operator family: two members, under family_min_members', r.n_members || ' ' || r.source, '2 OPERATOR');
+            chk_int  ('operator rows: three families', n_fam, 3);
+            -- family_auto 0 keeps the operator members only.
+            knob('family_auto', 0);
+            chk_int  ('family_auto 0: the three families of the operator rows', n_fam, 3);
+            fam('FIXM_#');
+            chk_int  ('family_auto 0: FIXM_# is its one operator member', r.n_members, 1);
+            knob('family_auto', 1);
+            -- An unusable row never reaches the views.
+            v_raised := FALSE;
+            BEGIN
+                INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+                VALUES (0, 0, '^FIXM_(', 'BROKEN', 'N');
+            EXCEPTION
+                WHEN OTHERS THEN v_raised := TRUE;
+            END;
+            chk_true('CAP_TBSPC_FAMILY rejects an invalid regular expression', v_raised);
+            v_raised := FALSE;
+            BEGIN
+                INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, exclude_flag)
+                VALUES (0, 0, '^FIXM_2', NULL, 'N');
+            EXCEPTION
+                WHEN OTHERS THEN v_raised := TRUE;
+            END;
+            chk_true('CAP_TBSPC_FAMILY rejects a row without family_name that excludes nothing', v_raised);
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u10_family; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT u10_family;
+        chk_int('families: two again after the rollback', n_fam, 2);
+    EXCEPTION
+        WHEN OTHERS THEN
+            fail('tablespace family block raised ' || SQLERRM);
+    END;
+
     DBMS_OUTPUT.PUT_LINE('----------------------------------------');
     DBMS_OUTPUT.PUT_LINE('RESULT: ' || g_pass || ' passed, ' || g_fail || ' failed');
     IF g_fail > 0 THEN

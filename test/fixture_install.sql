@@ -131,6 +131,33 @@
 --                  ADVISOR_ONLY, SGA_TOTAL OK / SIZED_RIGHT, SGA_BALANCE OK /
 --                  STABLE. See the "M26 -- memory sizing sources" block.
 --
+--   FAMILIES     : tablespace families (ddl/32), all in the root container.
+--                  FIXM_# (monthly, six members, 1 MiB when empty):
+--                  FIXM_202307 flat 811 MiB and FIXM_202308 flat 1036 MiB
+--                  (DONE, no growth in the window). FIXM_202309 fills 40
+--                  MiB/day on days 50..79 to 1201 MiB (30 fill days),
+--                  FIXM_202310 45 MiB/day on days 80..110 to 1396 MiB (31):
+--                  DONE because its successor grows, 10 quiet days only.
+--                  FIXM_202311 FILLING, 53 MiB/day from day 111, 531 MiB of
+--                  a 1600 MiB maxsize, period end day 140 (20 days left).
+--                  FIXM_202312 EMPTY. The four finals rise 192 MiB a member
+--                  (significant): next member 1586.5 MiB, cautious 1612 MiB.
+--                  Expected final 1591 MiB (its own 53 MiB/day beats 1586.5 /
+--                  30), cautious 1605.67 MiB (1612 / 30 a day): over the
+--                  ceiling, the one TBSPC_FAMILY alert. Its own fit is
+--                  LOW_CONFIDENCE (80 flat days, 10 on the ramp), so no
+--                  TBSPC_FULL.
+--                  FIXY_# (yearly, quiet): FIXY_2023 flat 600 MiB, FIXY_2024
+--                  flat 500 MiB, FIXY_<the load year> 100 MiB + 8 MiB/day
+--                  over the whole spine (it grew into the window, so its
+--                  period ends on 31 December and its rate is the fit's
+--                  slope). Next member 550 MiB (median of two, no trend),
+--                  cautious 600 MiB, 50 GiB maxsize: fits.
+--                  FIXP_2024Q1 / FIXP_2024Q2 (flat 300 MiB): two look-alikes,
+--                  under family_min_members, no family.
+--                  Every step is under 100 MiB a day: no anomaly, and
+--                  DB_SIZE_GB flags nothing new.
+--
 -- Run this BEFORE @install.sql with deploy_mode=fixture (the seam views need the
 -- tables to exist), then run test/run_test.sql.
 --
@@ -311,6 +338,25 @@ DECLARE
     -- 50 GiB as a literal NUMBER: 50*1024*1024*1024 as integer-literal
     -- arithmetic overflows PLS_INTEGER (>2^31) before the NUMBER assignment.
     c_50g    CONSTANT NUMBER := 53687091200;
+    -- Tablespace families (header, FAMILIES), sizes in 8 KiB blocks.
+    c_mib    CONSTANT NUMBER      := 128;         -- 1 MiB
+    c_fm1    CONSTANT NUMBER      := 811 * 128;   -- FIXM_202307, flat
+    c_fm2    CONSTANT NUMBER      := 1036 * 128;  -- FIXM_202308, flat
+    c_fm3r   CONSTANT NUMBER      := 40 * 128;    -- FIXM_202309, per day
+    c_fm3a   CONSTANT PLS_INTEGER := 50;          --   first growth day
+    c_fm3n   CONSTANT PLS_INTEGER := 30;          --   growth days
+    c_fm4r   CONSTANT NUMBER      := 45 * 128;    -- FIXM_202310
+    c_fm4a   CONSTANT PLS_INTEGER := 80;
+    c_fm4n   CONSTANT PLS_INTEGER := 31;
+    c_fm5r   CONSTANT NUMBER      := 53 * 128;    -- FIXM_202311, filling
+    c_fm5a   CONSTANT PLS_INTEGER := 111;
+    c_fm5mx  CONSTANT NUMBER      := 1600 * 128;  --   its maxsize
+    c_fy1    CONSTANT NUMBER      := 600 * 128;   -- FIXY_2023, flat
+    c_fy2    CONSTANT NUMBER      := 500 * 128;   -- FIXY_2024, flat
+    c_fy3b   CONSTANT NUMBER      := 100 * 128;   -- FIXY_<load year>: base
+    c_fy3r   CONSTANT NUMBER      := 8 * 128;     --   per day
+    c_fp     CONSTANT NUMBER      := 300 * 128;   -- FIXP_2024Q1 / Q2, flat
+    v_fyname VARCHAR2(30) := 'FIXY_' || TO_CHAR(SYSDATE, 'YYYY');
     v_base   DATE := TRUNC(SYSDATE) - c_nd;
     v_start1 TIMESTAMP := CAST(v_base - 5 AS TIMESTAMP);
     v_start2 TIMESTAMP := CAST(v_base + c_restart AS TIMESTAMP);
@@ -441,6 +487,14 @@ DECLARE
     FUNCTION p2_spr(p_i PLS_INTEGER) RETURN NUMBER IS
     BEGIN RETURN CASE WHEN dow(p_i) >= 5 THEN 10 ELSE 25 END; END;
 
+    -- Used blocks of a FIXM_ member that fills p_rate blocks a day on the
+    -- p_n days from p_first on (p_n NULL: still filling), 1 MiB when empty.
+    FUNCTION fam_used(p_i PLS_INTEGER, p_first PLS_INTEGER, p_n PLS_INTEGER, p_rate NUMBER)
+        RETURN NUMBER IS
+    BEGIN
+        RETURN c_mib + p_rate * LEAST(GREATEST(p_i - p_first + 1, 0), NVL(p_n, 100000));
+    END;
+
     PROCEDURE osstat(p_snap NUMBER, p_name VARCHAR2, p_val NUMBER) IS
     BEGIN
         INSERT INTO cap_fixture_osstat
@@ -537,6 +591,21 @@ BEGIN
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 21, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 22, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 23, c_bs);
+    -- Tablespace families (ids 40..50).
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 40, 'FIXM_202307', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 41, 'FIXM_202308', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 42, 'FIXM_202309', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 43, 'FIXM_202310', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 44, 'FIXM_202311', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 45, 'FIXM_202312', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 46, 'FIXY_2023',   'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 47, 'FIXY_2024',   'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 48, v_fyname,      'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 49, 'FIXP_2024Q1', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 50, 'FIXP_2024Q2', 'PERMANENT', c_bs);
+    FOR t IN 40 .. 50 LOOP
+        INSERT INTO cap_fixture_datafile VALUES (c_dbid, c_con, t, c_bs);
+    END LOOP;
 
     -- Container naming (M7.2): the row every fixture series resolves through
     -- (con_dbid = dbid -> label is the db_name alone), plus one synthetic PDB
@@ -699,6 +768,28 @@ BEGIN
             INSERT INTO cap_fixture_tbspc_usage
             VALUES (c_dbid, c_con, 2001 + 2 * i, 13, v_used, v_max50g, v_used);
         END IF;
+
+        -- ---- tablespace families (header, FAMILIES) ----
+        -- FIXM_#: only the filling member has a small maxsize. The others
+        -- autoextend to 50 GiB, so FIXM_202310's line (it stopped 10 days
+        -- ago, not yet a STOP) is years from its ceiling.
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 40, c_fm1, v_max50g, c_fm1);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 41, c_fm2, v_max50g, c_fm2);
+        v_used := fam_used(i, c_fm3a, c_fm3n, c_fm3r);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 42, v_used, v_max50g, v_used);
+        v_used := fam_used(i, c_fm4a, c_fm4n, c_fm4r);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 43, v_used, v_max50g, v_used);
+        v_used := fam_used(i, c_fm5a, NULL, c_fm5r);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 44, v_used, c_fm5mx, v_used);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 45, c_mib, v_max50g, c_mib);
+        -- FIXY_#.
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 46, c_fy1, v_max50g, c_fy1);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 47, c_fy2, v_max50g, c_fy2);
+        v_used := c_fy3b + c_fy3r * i;
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 48, v_used, v_max50g, v_used);
+        -- The look-alike pair.
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 49, c_fp, v_max50g, c_fp);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 50, c_fp, v_max50g, c_fp);
 
         -- ---- CPU counters (cumulative centiseconds), reset at restart ----
         -- Each 12 h interval contributes half a day of CPU time (c_tot_cs/2).
@@ -1467,6 +1558,94 @@ BEGIN
         END LOOP;
         bt('TS', med);
     END;
+    -- ---- tablespace family expectations (ddl/32), from the construction ----
+    -- Sizes in bytes. FIXM_#: the four DONE finals f(1..4), their trend
+    -- across the members and the sizes carried to member 5, all written out.
+    DECLARE
+        TYPE num_t IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
+        f     num_t;
+        adj   num_t;
+        k     CONSTANT PLS_INTEGER := 4;
+        mb    CONSTANT NUMBER := 1048576;
+        sx NUMBER := 0; sy NUMBER := 0; sxx NUMBER := 0; sxy NUMBER := 0; syy NUMBER := 0;
+        bxx NUMBER; bxy NUMBER; byy NUMBER; b NUMBER; ci NUMBER;
+        nxt NUMBER; nxt_hi NUMBER; cur NUMBER; rate NUMBER; left_d NUMBER; pdays NUMBER;
+        n NUMBER := 0; tx NUMBER := 0; ty NUMBER := 0; txx NUMBER := 0; txy NUMBER := 0; y NUMBER;
+        tmp NUMBER;
+        yend DATE := TRUNC(ADD_MONTHS(TRUNC(SYSDATE, 'YYYY'), 12)) - 1;
+    BEGIN
+        f(1) := c_fm1 * c_bs;
+        f(2) := c_fm2 * c_bs;
+        f(3) := fam_used(c_nd, c_fm3a, c_fm3n, c_fm3r) * c_bs;                -- 1201 MiB
+        f(4) := fam_used(c_nd, c_fm4a, c_fm4n, c_fm4r) * c_bs;                -- 1396 MiB
+        FOR i IN 1 .. k LOOP
+            sx := sx + i; sy := sy + f(i); sxx := sxx + i * i; sxy := sxy + i * f(i); syy := syy + f(i) * f(i);
+        END LOOP;
+        bxx := sxx - sx * sx / k; bxy := sxy - sx * sy / k; byy := syy - sy * sy / k;
+        b   := bxy / bxx;                                                    -- 192 MiB a member
+        ci  := (1.96 + 2.4 / (k - 2)) * SQRT((byy - bxy * bxy / bxx) / (k - 2)) / SQRT(bxx);
+        IF ABS(b) <= ci THEN
+            RAISE_APPLICATION_ERROR(-20001, 'fixture: the FIXM_ trend must be significant');
+        END IF;
+        FOR i IN 1 .. k LOOP adj(i) := f(i) + b * (k + 1 - i); END LOOP;     -- 1579 1612 1585 1588 MiB
+        -- Median and maximum of the four carried sizes, sorted by hand.
+        FOR i IN 1 .. k - 1 LOOP
+            FOR j IN i + 1 .. k LOOP
+                IF adj(j) < adj(i) THEN tmp := adj(i); adj(i) := adj(j); adj(j) := tmp; END IF;
+            END LOOP;
+        END LOOP;
+        nxt    := (adj(2) + adj(3)) / 2;                                     -- 1586.5 MiB
+        nxt_hi := adj(4);                                                    -- 1612 MiB
+        cur    := fam_used(c_nd, c_fm5a, NULL, c_fm5r) * c_bs;               -- 531 MiB
+        rate   := c_fm5r * c_bs;                                             -- 53 MiB/day
+        pdays  := 30;                                                        -- November 2023
+        left_d := c_fm5a + pdays - 1 - c_nd;                                 -- 20
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_TREND',   b);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_NEXT',    nxt);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_NEXT_HI', nxt_hi);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_FINAL3',  f(3));
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_FINAL4',  f(4));
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_CUR',     cur);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_LIMIT',   c_fm5mx * c_bs);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_RATE',    rate);
+        INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('FAM_M_FILL_FROM', v_base + c_fm5a, c_fm5a);
+        INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('FAM_M_PERIOD_END', v_base + c_fm5a + pdays - 1, left_d);
+        -- The member's own rate beats next / period, the cautious family
+        -- rate beats the member's: one number from each branch.
+        IF NOT (rate > nxt / pdays AND nxt_hi / pdays > rate) THEN
+            RAISE_APPLICATION_ERROR(-20001, 'fixture: FIXM_202311 must sit between the two family rates');
+        END IF;
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_EXP',    cur + rate * left_d);            -- 1591 MiB
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_EXP_HI', cur + nxt_hi / pdays * left_d);  -- 1605.67 MiB
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_USED',
+            f(1) + f(2) + f(3) + f(4) + cur + c_mib * c_bs);                                               -- 4976 MiB
+        -- family_recent_members = 2: the median and maximum of the two
+        -- newest finals, no trend. The member's own rate wins both ways.
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_NEXT_R2',    (f(3) + f(4)) / 2);           -- 1298.5 MiB
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_NEXT_HI_R2', f(4));
+        -- The total's OLS slope over the window, i = c_nd - 89 .. c_nd.
+        FOR i IN c_nd - 89 .. c_nd LOOP
+            y := c_bs * (c_fm1 + c_fm2 + fam_used(i, c_fm3a, c_fm3n, c_fm3r) + fam_used(i, c_fm4a, c_fm4n, c_fm4r)
+                         + fam_used(i, c_fm5a, NULL, c_fm5r) + c_mib);
+            n := n + 1; tx := tx + i; ty := ty + y; txx := txx + i * i; txy := txy + i * y;
+        END LOOP;
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_SLOPE',
+            (txy - tx * ty / n) / (txx - tx * tx / n));
+        -- FIXY_#: two flat finals, the load year's member on its fit slope
+        -- to 31 December.
+        cur := (c_fy3b + c_fy3r * c_nd) * c_bs;                                                            -- 1060 MiB
+        INSERT INTO cap_fixture_meta (mkey, sval) VALUES ('FAM_Y_FILLING', v_fyname);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_NEXT',    (c_fy1 + c_fy2) / 2 * c_bs);     -- 550 MiB
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_NEXT_HI', c_fy1 * c_bs);                   -- 600 MiB
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_CUR',     cur);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_RATE',    c_fy3r * c_bs);                  -- 8 MiB/day
+        INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('FAM_Y_PERIOD_END', yend, yend - (v_base + c_nd));
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_EXP',
+            cur + c_fy3r * c_bs * (yend - (v_base + c_nd)));
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_PERIOD_DAYS', yend - TRUNC(SYSDATE, 'YYYY') + 1);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_USED', (c_fy1 + c_fy2) * c_bs + cur);
+    END;
+
     COMMIT;
 
     DBMS_OUTPUT.PUT_LINE('Fixtures loaded: base=' || TO_CHAR(v_base,'YYYY-MM-DD')
@@ -2291,6 +2470,17 @@ INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FILLING_OVR_DTF_CRIT', 25);
 INSERT INTO cap_fixture_meta (mkey, nval)
 SELECT 'DROPPED_DTF', FLOOR((53687091200 - nval) / 10485760)
 FROM   cap_fixture_meta WHERE mkey = 'DROPPED_CUR';
+
+-- CAP_TBSPC_FAMILY (ddl/05) is operator data like the override table and
+-- survives a re-install. The fixture ships no row: run_test.sql adds its own
+-- and rolls them back. Clear rows an aborted run left. ORA-00942: the suite
+-- was never installed here.
+BEGIN
+    EXECUTE IMMEDIATE q'[DELETE FROM cap_tbspc_family WHERE name_regex LIKE '%FIX%']';
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;
+END;
+/
 
 COMMIT;
 
