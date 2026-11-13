@@ -40,6 +40,8 @@
 --   CAPR_MEM_COMPONENTS / CAPR_MEM_COMP_POINTS -- the memory sizing verdicts
 --                     of ddl/42 for the reports (M26.4), at the end of this
 --                     file.
+--   CAPR_TBSPC_FAMILY / CAPR_TBSPC_FAMILY_MEMBERS -- the tablespace families
+--                     of ddl/32 for the reports, at the end of this file.
 -- CAPR_ALERTS (the pollable alert surface) and CAPR_FORECAST_POINTS live in
 -- ddl/55_report_views_ml.sql: CAPR_ALERTS' MODEL_HEALTH kind reads the
 -- Tier 2 health views ddl/50 creates after this file.
@@ -1763,3 +1765,113 @@ FROM  ( SELECT k.dbid, k.instance_number, k.component, k.snap_id, k.end_time, k.
         WHERE  k.in_win = 'Y' ) p
 WHERE  p.win_max > 0
 GROUP  BY p.dbid, p.instance_number, p.component, TRUNC(p.end_time);
+
+-- ====================================================================
+-- Tablespace families (ddl/32) for the reports. Sizes in GiB (2^30 bytes),
+-- not rounded: the drivers format them.
+-- ====================================================================
+
+-- --------------------------------------------------------------------
+-- CAPR_TBSPC_FAMILY -- one row per family: CAPF_TBSPC_FAMILY with the
+-- container label, GiB sizes and the alert verdict.
+--   sev          WARN when fits = 'N' (the TBSPC_FAMILY alert of CAPR_ALERTS
+--                is this row), else OK.
+--   actionable   Y when sev = WARN or next_over_limit = 'Y': the families
+--                the briefing lists.
+--   headline     one sentence: the filling member against its ceiling when
+--                there is one, then the next member's size.
+--   rank_family  per database: WARN first, then by family name.
+-- A database without a family has no row.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_tbspc_family AS
+SELECT f.dbid,
+       f.con_dbid,
+       NVL(c.db_pdb, TO_CHAR(f.con_dbid))            AS db_pdb,
+       f.family_name,
+       f.source,
+       f.period,
+       f.n_members,
+       f.n_done,
+       f.n_filling,
+       f.n_empty,
+       f.last_day,
+       f.used_bytes / 1073741824                     AS used_gb,
+       f.max_limit_bytes / 1073741824                AS max_limit_gb,
+       f.slope_bpd / 1073741824                      AS slope_gb_day,
+       f.period_days,
+       f.growth_per_period_bytes / 1073741824        AS growth_per_period_gb,
+       f.recent_n,
+       f.trend_sig,
+       f.trend_bpm / 1073741824                      AS trend_gb,
+       f.next_member_bytes / 1073741824              AS next_member_gb,
+       f.next_member_hi_bytes / 1073741824           AS next_member_hi_gb,
+       f.next_over_limit,
+       f.filling_member,
+       f.filling_used_bytes / 1073741824             AS filling_used_gb,
+       f.filling_limit_bytes / 1073741824            AS filling_limit_gb,
+       f.filling_pct_used,
+       f.filling_from,
+       f.fill_rate_bpd / 1073741824                  AS fill_rate_gb_day,
+       f.period_end_day,
+       f.days_left,
+       f.expected_final_bytes / 1073741824           AS expected_final_gb,
+       f.expected_final_hi_bytes / 1073741824        AS expected_final_hi_gb,
+       f.fits,
+       CASE WHEN f.fits = 'N' THEN 'WARN' ELSE 'OK' END AS sev,
+       CASE WHEN f.fits = 'N' OR f.next_over_limit = 'Y' THEN 'Y' ELSE 'N' END AS actionable,
+       'Family ' || f.family_name || ': '
+         || CASE WHEN f.fits IS NOT NULL
+                 THEN f.filling_member
+                      || CASE f.fits WHEN 'N' THEN ' may reach ' ELSE ' stays under its ceiling, at most ' END
+                      || TO_CHAR(f.expected_final_hi_bytes / 1073741824, 'FM999999990.00') || ' GiB by '
+                      || TO_CHAR(f.period_end_day, 'YYYY-MM-DD') || ' (expected '
+                      || TO_CHAR(f.expected_final_bytes / 1073741824, 'FM999999990.00') || ' GiB), ceiling '
+                      || TO_CHAR(f.filling_limit_bytes / 1073741824, 'FM999999990.00') || ' GiB. '
+                 WHEN f.filling_member IS NOT NULL
+                 THEN f.filling_member || ' is filling, its period end is not known. '
+                 ELSE 'no member is filling. ' END
+         || CASE WHEN f.next_member_bytes IS NOT NULL
+                 THEN 'Next member: ' || TO_CHAR(f.next_member_bytes / 1073741824, 'FM999999990.00')
+                      || ' GiB (cautious ' || TO_CHAR(f.next_member_hi_bytes / 1073741824, 'FM999999990.00')
+                      || ' GiB)'
+                      || CASE WHEN f.next_over_limit = 'Y'
+                              THEN ', above the largest ceiling of '
+                                   || TO_CHAR(f.max_limit_bytes / 1073741824, 'FM999999990.00') || ' GiB' END
+                 ELSE 'Next member: no finished member to size it by' END    AS headline,
+       ROW_NUMBER() OVER (PARTITION BY f.dbid
+                          ORDER BY CASE WHEN f.fits = 'N' THEN 0 ELSE 1 END,
+                                   f.con_dbid, f.family_name)                AS rank_family
+FROM   capf_tbspc_family f
+LEFT   JOIN capr_container c
+  ON   c.dbid = f.dbid AND c.con_dbid = f.con_dbid;
+
+-- --------------------------------------------------------------------
+-- CAPR_TBSPC_FAMILY_MEMBERS -- one row per member: CAPF_TBSPC_FAMILY_MEMBER
+-- with the container label and GiB sizes. Order a family by member_seq.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_tbspc_family_members AS
+SELECT m.dbid,
+       m.con_dbid,
+       NVL(c.db_pdb, TO_CHAR(m.con_dbid))            AS db_pdb,
+       m.family_name,
+       m.tablespace_name,
+       m.member_seq,
+       m.state,
+       m.source,
+       m.period,
+       m.period_start,
+       m.period_end,
+       m.last_day,
+       m.cur_used / 1073741824                       AS used_gb,
+       m.limit_bytes / 1073741824                    AS limit_gb,
+       m.pct_used,
+       m.final_bytes / 1073741824                    AS final_gb,
+       m.fill_from,
+       m.fill_to,
+       m.fill_days,
+       m.fill_rate_bpd / 1073741824                  AS fill_rate_gb_day,
+       m.quality,
+       m.restart_reason
+FROM   capf_tbspc_family_member m
+LEFT   JOIN capr_container c
+  ON   c.dbid = m.dbid AND c.con_dbid = m.con_dbid;

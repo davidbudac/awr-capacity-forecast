@@ -377,6 +377,11 @@ LEFT   JOIN capr_container c
 --                DBCPU_HOT        a container's DB_CPU_P95, same rule
 --                SERIES_LIMIT     days_to_limit <= dtf_warn on an OK fit
 --                SERIES_NEARLIMIT pct_of_limit >= nearfull_warn_pct
+--              TBSPC_FAMILY (ddl/32) the filling member of a tablespace
+--              family: its cautious expected final size
+--              (CAPF_TBSPC_FAMILY.expected_final_hi_bytes) is above its
+--              ceiling, WARN. One row per family (series_key = the family
+--              name), value and threshold in GiB.
 --              Every forecast kind needs is_current = 'Y'; per-tablespace
 --              thresholds come from CAP_TBSPC_OVERRIDE.
 --              CPU_SHIFT (M10.3) a flagged sustained level shift, UP = WARN,
@@ -457,6 +462,27 @@ WITH alerts AS (
                CAST(NULL AS NUMBER) AS max_z
         FROM   capr_severity s
         WHERE  s.sev <> 'OK'
+        UNION ALL
+        -- ---- TBSPC_FAMILY (ddl/32): the member of a tablespace family that
+        -- fills now will not fit under its ceiling by the end of its period.
+        -- series_key is the family, so next period's member continues the
+        -- same alert. Members are current tablespaces by construction.
+        SELECT 'WARN',
+               'TBSPC_FAMILY',
+               y.dbid, y.con_dbid,
+               y.family_name,
+               y.last_day,
+               y.expected_final_hi_gb,
+               y.filling_limit_gb,
+               'GIB',
+               y.headline,
+               NULL,
+               'GE',
+               y.filling_limit_gb,
+               'Y',
+               NULL, NULL, NULL
+        FROM   capr_tbspc_family y
+        WHERE  y.sev = 'WARN'
         UNION ALL
         -- ---- CPU_SHIFT: a sustained step in a CPU series (M10.3). Not a
         -- forecast and not an outlier -- the level the machine runs at TODAY

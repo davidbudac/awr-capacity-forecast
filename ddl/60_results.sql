@@ -925,7 +925,9 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
             'CAPR_ANOM_VOLUME',
             'CAPR_FORECAST_POINTS', 'CAPR_HOURLY_POINTS', 'CAPR_SEGMENT_GROWTH',
             'CAPR_MEM_VERDICT', 'CAPR_MEM_EVIDENCE', 'CAPR_MEM_COMPONENTS',
-            'CAPR_MEM_COMP_POINTS');
+            'CAPR_MEM_COMP_POINTS',
+            -- tablespace families (ddl/32)
+            'CAPR_TBSPC_FAMILY', 'CAPR_TBSPC_FAMILY_MEMBERS');
     END snap_views;
 
     PROCEDURE build_snap_tables IS
