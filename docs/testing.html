@@ -113,7 +113,7 @@
           </thead>
           <tbody>
             <tr><td class="def"><code>CREATE SESSION</code></td><td>connecting</td></tr>
-            <tr><td class="def"><code>CREATE TABLE</code></td><td>the twenty-four <span class="inline">CAP_FIXTURE_*</span> tables, plus the seven persisted tables (<span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span> / <span class="inline">CAP_FIT_HIST</span> / <span class="inline">CAP_ALERT_STATE</span> / <span class="inline">CAP_ALERT_EVENT</span>), the SNAPSHOT cache tables <span class="inline">&lt;view&gt;_S</span> (<span class="inline">cap_results.build_snap_tables</span>, re-created by every install) and the temporary <span class="inline">CAP_ML_INPUT</span></td></tr>
+            <tr><td class="def"><code>CREATE TABLE</code></td><td>the twenty-five <span class="inline">CAP_FIXTURE_*</span> tables, plus the eight persisted tables (<span class="inline">CAP_CONFIG</span>, <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_DISK_OVERRIDE</span>, <span class="inline">CAP_ML_MODEL</span> and the results layer <span class="inline">CAP_RUN</span> / <span class="inline">CAP_FIT_HIST</span> / <span class="inline">CAP_ALERT_STATE</span> / <span class="inline">CAP_ALERT_EVENT</span>), the SNAPSHOT cache tables <span class="inline">&lt;view&gt;_S</span> (<span class="inline">cap_results.build_snap_tables</span>, re-created by every install) and the temporary <span class="inline">CAP_ML_INPUT</span></td></tr>
             <tr><td class="def"><code>CREATE VIEW</code></td><td>every <span class="inline">CAPV_/CAPD_/CAPF_/CAPA_/CAPM_/CAPR_</span> view</td></tr>
             <tr><td class="def"><code>CREATE PROCEDURE</code></td><td>the <span class="inline">cap_forecast_ml</span> and <span class="inline">cap_results</span> packages</td></tr>
             <tr><td class="def"><code>CREATE TYPE</code></td><td>the pipelined forecast row type used by <span class="inline">get_forecast</span></td></tr>
@@ -568,7 +568,7 @@
         headline sentence, the evidence order and the component rows.</p>
       </div>
 
-      <h3>The twenty-four fixture tables</h3>
+      <h3>The twenty-five fixture tables</h3>
       <div class="tablewrap">
         <table>
           <thead>
@@ -596,6 +596,7 @@
             <tr><td class="def"><code>CAP_FIXTURE_LIBRARYCACHE</code></td><td><code>DBA_HIST_LIBRARYCACHE</code> (M26): two namespaces, 400 reloads per 100000 pins (0.4%)</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_ROWCACHE</code></td><td><code>DBA_HIST_ROWCACHE_SUMMARY</code> (M26): two parameters, 1000 misses per 50000 gets (2%)</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_SYSTEM_EVENT</code></td><td><code>DBA_HIST_SYSTEM_EVENT</code> (M26): temporary segment direct path I/O at 1% of DB time, shared pool waits at 0.04%, <code>free buffer waits</code> with no row until day 100 (0.02%), and <code>buffer busy waits</code>, which no signal reads</td></tr>
+            <tr><td class="def"><code>CAP_FIXTURE_TBSPC_LIVE</code></td><td><code>CDB_TABLESPACE_USAGE_METRICS</code> as the collector copies it (<code>CAPV_TBSPC_LIVE</code>): the live ceilings on the last day. <code>FIX_LINEAR</code> capped at allocated + 40 GiB and <code>FIX_SPIKE</code> at + 45 GiB, so the shared disk has 40 GiB free and no <code>DISK_FULL</code>. <code>FIX_OVERRIDE</code> capped under its override limit, <code>FIX_FILLING</code> not capped.</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_SEG_STAT</code></td><td><code>DBA_HIST_SEG_STAT</code> + <code>DBA_HIST_SEG_STAT_OBJ</code>, pre-joined: three segments in <code>FIX_FILLING</code></td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_CONTAINER</code></td><td><code>DBA_HIST_PDB_INSTANCE</code> (M7.2): <code>FIXCDB</code>/<code>CDB$ROOT</code>, <code>FIXCDB</code>/<code>FIXPDB1</code>, <code>FIXCDB</code>/<code>FIXPDB2</code>; covers both <code>db_pdb</code> label branches</td></tr>
             <tr><td class="def"><code>CAP_FIXTURE_META</code></td><td>nothing in AWR; the expectations (below)</td></tr>
@@ -777,7 +778,7 @@ sqlplus captest/&lt;password&gt;@localhost:1521/pdb1.world</pre>
           <div class="step__rail"><div class="step__n">3</div><div class="step__line"></div></div>
           <div class="step__body">
             <h4>Load the fixtures</h4>
-            <p>Creates and fills the twenty-four <span class="inline">CAP_FIXTURE_*</span> tables
+            <p>Creates and fills the twenty-five <span class="inline">CAP_FIXTURE_*</span> tables
               (<a href="#fixture">above</a>) and seeds the <span class="inline">CAP_TBSPC_OVERRIDE</span>
               rows. Values are dated relative to today; expected answers go to
               <span class="inline">CAP_FIXTURE_META</span>.</p>
@@ -1350,7 +1351,7 @@ CAP_OWNER=CAPM5 CAP_READER=C##AWRM25 ./quickstart.sh        <span class="c-cmt">
             <div class="term">
               <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
                 <span class="term__title">output</span><span class="term__tag out">expect</span></div>
-<pre>  [PASS] grants           SELECT on all 28 DBA_HIST_* views
+<pre>  [PASS] grants           SELECT on all 29 views (DBA_HIST_* and the live tablespace view)
   [PASS] container data   ALL: the reader sees every container's AWR rows
   [PASS] pack access      DIAGNOSTIC+TUNING
 ...

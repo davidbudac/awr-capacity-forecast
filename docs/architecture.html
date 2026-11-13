@@ -435,6 +435,13 @@
           Tier 2 needs about 120 days, which is why a database measuring itself also copies.</li>
         <li><b>Optional sources.</b> Eleven memory sources may be missing from an older reader's
           grants. Collect skips those with one warning and copies the rest.</li>
+        <li><b>One live source.</b> <span class="inline">CDB_TABLESPACE_USAGE_METRICS</span> is not
+          AWR and has no snapshot. Its copy, <span class="inline">CAP_H_TBSPC_LIVE</span>, is
+          replaced whole per target at each collect and stamped with the collect time
+          (manifest kind <code>L</code>, optional). It feeds the shared-disk forecast
+          (<span class="inline">ddl/33</span>); the operator table
+          <span class="inline">CAP_DISK_OVERRIDE</span> supplies the free space where no
+          tablespace is capped by storage.</li>
         <li><b>RAC.</b> The newest snapshot is held back while fewer instances have finished it
           than the one before. RAC itself is untested.</li>
       </ul>

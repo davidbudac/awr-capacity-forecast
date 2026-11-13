@@ -1348,6 +1348,25 @@ tables. (Fixed later: the stubs are opaque, see M27.)
       `report/notify.sh --include-acked`. By default the events of an
       acknowledged alert are skipped and the position moves past them.
 
+## M29 — Shared-disk forecast in the suite (done)
+
+- [x] **M29.1 A live source.** `CDB_TABLESPACE_USAGE_METRICS` joins the copy
+      manifest as kind `L`: no snap_id, replaced whole per target at each
+      collect (`cap_repo.collect_live`), stamped `collected_at`, optional.
+      Copy `CAP_H_TBSPC_LIVE`, seam view `CAPV_TBSPC_LIVE`, fixture twin
+      `CAP_FIXTURE_TBSPC_LIVE`. One more grant in `target/prepare.sql`.
+- [x] **M29.2 `ddl/33_shared_disk.sql`.** `CAPF_TBSPC_SHARED` and
+      `CAPF_DISK`: the standalone query's shared-disk simulation with the
+      suite's slope and worst-case rate. Free space from the new operator
+      table `CAP_DISK_OVERRIDE`, else from the live ceilings, else unknown.
+- [x] **M29.3 Surfacing.** `dtf_shared`, `dtf_shared_worst`,
+      `limit_shared_gb`, `disk_name` on `CAPR_FIT` and
+      `CAPR_TBSPC_DAYS_TO_FULL`; `CAPR_DISK`; the `DISK_FULL` alert; text
+      section 1 (columns and block 1c), the HTML report, the briefing, the
+      CSV. Not done: mapping datafiles to devices or ASM disk groups (one
+      disk per database), the dashboards (ELK, Grafana, APEX), the demo
+      fixture, `suite_version`.
+
 ## v2 (unchanged)
 
 - [ ] Memory follow-ups to M26: grading AMM instances, verdicts for the

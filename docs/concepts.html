@@ -638,6 +638,38 @@
 <text class="tc" x="312" y="165">reset_day = train_start</text>
 <text class="ts" x="40" y="186">delta &lt; −GREATEST(shrink_mad_k · MAD_σ, abs_floor_bytes)</text>
 </svg>
+<h3 id="shared-disk">The shared disk</h3>
+      <p>A tablespace that could still grow by its own limit is stuck once the disk behind its
+        datafiles is full. <span class="inline">CAPF_TBSPC_SHARED</span> (ddl/33) forecasts all
+        tablespaces of a database together, on the assumption that every datafile sits on one
+        filesystem or disk group that gets no more storage. It is the simulation of
+        <span class="inline">standalone/tbspc_capacity.sql</span>, fed with the suite's fit:</p>
+      <ul>
+        <li>Each tablespace grows at its <span class="inline">slope_bpd</span>. CYCLIC, flat,
+          stopped and shrinking ones count as not growing.</li>
+        <li>Growth first fills the free space inside the datafiles, then takes from the disk,
+          until the tablespace reaches its own limit.</li>
+        <li>The disk is full on the day those takes add up to its free space
+          (<span class="inline">disk_dtf</span>). From then on a tablespace is stuck the first time
+          it has to extend: <code>dtf_shared = LEAST(own limit day, GREATEST(disk day, day its
+          files are full))</code>, and <span class="inline">limit_shared_bytes</span> is its size
+          then.</li>
+        <li><span class="inline">dtf_shared_worst</span> and <span class="inline">disk_dtf_worst</span>
+          repeat it with every tablespace at the rate behind
+          <span class="inline">days_to_full_lo</span> at once: the cautious edge, not a 95% bound
+          for the disk.</li>
+      </ul>
+      <p>The free space is the operator's (<span class="inline">CAP_DISK_OVERRIDE</span>), else
+        derived from the live tablespace ceilings (<span class="inline">CAPV_TBSPC_LIVE</span>,
+        the target's <code>CDB_TABLESPACE_USAGE_METRICS</code> at the last collect, not used when
+        older than <span class="inline">stale_days</span>), else not known. A fresh live ceiling
+        under <span class="inline">limit_bytes</span> is also the tablespace's own limit here
+        (<span class="inline">limit_live = 'Y'</span>). <span class="inline">days_to_full</span> and
+        <span class="inline">TBSPC_FULL</span> keep their rule. <span class="inline">DISK_FULL</span>
+        fires on <span class="inline">disk_dtf</span> against <span class="inline">dtf_warn</span> /
+        <span class="inline">dtf_crit</span>, once per database and disk, when at least one growing
+        tablespace has an OK fit.</p>
+
 <h3 id="cyclic">Cyclic tablespaces</h3>
       <p>With rolling retention a tablespace climbs, is purged, and climbs again. When the training
         window holds <span class="inline">cyclic_min_cliffs</span> (2) or more cliffs, the series is
@@ -1069,6 +1101,7 @@ expected_final_hi = cur_used + GREATEST(own rate, next_member_hi / period_days) 
         <span class="inline">(dbid, con_dbid)</span> plus the <code>db_pdb</code> label from
         <span class="inline">CAPR_CONTAINER</span>, metric value against threshold, and a message.
         Kinds: <code>TBSPC_FULL</code>, <code>TBSPC_NEARFULL</code>, <code>TBSPC_ANOM</code>,
+        <code>DISK_FULL</code>,
         <code>CPU_SAT</code>, <code>DBCPU_SAT</code>, <code>CPU_HOT</code>, <code>DBCPU_HOT</code>,
         <code>CPU_ANOM</code>, <code>DBCPU_ANOM</code>, <code>CPU_SHIFT</code>,
         <code>SERIES_LIMIT</code>, <code>SERIES_NEARLIMIT</code>, <code>SERIES_ANOM</code>,

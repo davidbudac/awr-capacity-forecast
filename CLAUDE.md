@@ -11,7 +11,8 @@ for making changes safely.
   (and its OML models): the operator tables `CAP_CONFIG` / `CAP_TBSPC_OVERRIDE`
   / `CAP_TBSPC_FAMILY`, the Tier 2 registry `CAP_ML_MODEL` (written by `cap_forecast_ml`) and the
   results layer `CAP_RUN` / `CAP_FIT_HIST` / `CAP_ALERT_STATE` /
-  `CAP_ALERT_EVENT` (written only by `cap_results`). The reports and every
+  `CAP_ALERT_EVENT` (written only by `cap_results`). `CAP_DISK_OVERRIDE`
+  (the shared disk's free space) is an operator table too. The reports and every
   `CAPV/CAPD/CAPF/CAPA/CAPM/CAPR` view only SELECT. In repository mode
   `cap_repo` writes `CAP_TARGET` / `CAP_TARGET_DBID` / `CAP_COLLECT_LOG` and
   the `CAP_H_*` copies, and runs only SELECTs on a target (plus one
@@ -31,12 +32,17 @@ for making changes safely.
   limit is `LEAST(AWR limit, live CDB_TABLESPACE_USAGE_METRICS ceiling)`
   (`LIM LIVE`), and `dtf_worst` / `add_gb_90` use the wider of the OLS and
   DRIFT error models around the OLS slope (the median rate is 0 for most
-  real tablespaces, so the slope is never DRIFT's). A third: `dtf_shared`
+  real tablespaces, so the slope is never DRIFT's). `dtf_shared`
   / `dtf_shared_worst` / `limit_shared_gb` / `disk_dtf` forecast every tablespace against one shared disk (free
   space derived from the `LIVE` caps or `prm.disk_free_gb`: the view's
   ceiling is `LEAST(sum of maxbytes, allocated + device free)` per tablespace
   at any file count, verified 19.27), and STATUS
-  uses `dtf_shared`. Shared with the suite (ddl/30, same rule, knobs of the
+  uses `dtf_shared`. That simulation is no longer a departure: the suite
+  runs it in ddl/33 ("Shared disk" below) with its own slope and worst-case
+  rate, so mirror a change to it in both. Still standalone only: the live
+  ceiling inside `limit_gb` / `dtf` (the suite keeps `limit_bytes` and has
+  `limit_own_bytes` beside it), and STATUS from `dtf_shared` (the suite's
+  TBSPC_FULL judges `days_to_full`, DISK_FULL the disk). Shared with the suite (ddl/30, same rule, knobs of the
   same names in `CAP_CONFIG` / `prm`): cliff days at most `cliff_merge_days`
   (1) apart are one purge event, the reset day its last cliff day; and the
   fit window also restarts where growth stopped or began (`RESTART` STOP /
@@ -93,7 +99,7 @@ for making changes safely.
   install (bump it in the MERGE and in its `CAP_CFG_CHECK` rule together).
   `CAP_CFG_CHECK` reports each knob OK / MISSING / BAD with a reason.
 - **Persisted tables survive a re-install:** `CAP_CONFIG`,
-  `CAP_TBSPC_OVERRIDE` and `CAP_TBSPC_FAMILY` (ddl/05), `CAP_ML_MODEL` (ddl/50), `CAP_RUN`,
+  `CAP_TBSPC_OVERRIDE`, `CAP_TBSPC_FAMILY` and `CAP_DISK_OVERRIDE` (ddl/05), `CAP_ML_MODEL` (ddl/50), `CAP_RUN`,
   `CAP_FIT_HIST`, `CAP_ALERT_STATE`, `CAP_ALERT_EVENT` (ddl/60), and in
   repository mode `CAP_TARGET`, `CAP_TARGET_DBID`, `CAP_COLLECT_LOG`
   (repository/cap_repo.sql) and the `CAP_H_*` copies (ddl/13), which cannot
@@ -171,14 +177,15 @@ for making changes safely.
 ## Layout / load order
 
 `install.sql` includes, in order: `ddl/00_drop` → `05_config` (CAP_CONFIG,
-CAP_CFG, CAP_CFG_CHECK, CAP_SCOPE, CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY) → the seam (`13`/`12` for
-`deploy_mode` repository / fixture: twenty-four CAPV_* views + CAPV_CONTRACT;
+CAP_CFG, CAP_CFG_CHECK, CAP_SCOPE, CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY, CAP_DISK_OVERRIDE) → the seam (`13`/`12` for
+`deploy_mode` repository / fixture: twenty-five CAPV_* views + CAPV_CONTRACT;
 `13`, generated from `repository/seam.sql`, also creates the copies and pulls
 `repository/cap_repo.sql`; the retired `local` aborts before any DDL and
 names the upgrade path, M25) → `20_daily` →
 `25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `32_tbspc_family`
 (CAPD_TBSPC_FAMILY, CAPD_TBSPC_FAMILY_DAILY, CAPF_TBSPC_FAMILY_MEMBER,
-CAPF_TBSPC_FAMILY, see "Tablespace families" below) → `35_series_forecast`
+CAPF_TBSPC_FAMILY, see "Tablespace families" below) → `33_shared_disk`
+(CAPF_TBSPC_SHARED, CAPF_DISK: "Shared disk" below) → `35_series_forecast`
 (CAPF_SERIES_FORECAST) → `40_anomaly` → `42_memory_views` (M26 verdicts, see
 "Memory verdicts" below) → `45_report_views` (CAPR_CONTAINER,
 CAPR_ANOMALIES, CAPR_ANOM_VOLUME, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
@@ -331,7 +338,7 @@ ROWNUM < 1`, never `WHERE 1 = 0`): merged into its reader, a stub's
 constants made `NULLIF(<outer-joined stub column>, 0)` raise ORA-00932 at
 parse (19.27; CAPD_SERIES_DAILY's PGA_ALLOC_GB branch over the PGASTAT and
 PARAMETER stubs). `test/dbmint_stub_install.sh <SCHEMA>` installs over all
-fourteen stubs and checks that nothing is INVALID. `docs/demo/` holds the reports generated from it (identity
+fifteen stubs and checks that nothing is INVALID. `docs/demo/` holds the reports generated from it (identity
 strings genericised: database ECOMPRD, host db-prod-01.example.com, schema
 CAPMON) for the docs site. Regenerate it in a throwaway schema (not CAPDEMO,
 which feeds the lab dashboards): demo_fixture (it drops every CAP_FIXTURE_*
@@ -818,6 +825,44 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   period end, fit slope) and the pair `FIXP_2024Q1` / `Q2` (no family).
   Every step is under 100 MiB a day, so no anomaly and no other alert moves.
 
+## Shared disk (U09, ddl/33)
+
+- **Layers.** `CAPV_TBSPC_LIVE` (seam; fixture twin
+  `CAP_FIXTURE_TBSPC_LIVE`, a stub without it) → `CAPF_TBSPC_SHARED` (every
+  `CAPF_TBSPC_FORECAST` column, then the shared columns: read it instead of
+  joining the two, the fit then runs once) → `CAPF_DISK` (per dbid and
+  disk) → `CAPR_DISK` (ddl/45, snapshot registry, owner of the DISK_FULL
+  severity and message) → the `DISK_FULL` branch of `CAPR_ALERTS`.
+  `CAPR_FIT` and `CAPR_TBSPC_DAYS_TO_FULL` read `CAPF_TBSPC_SHARED` and
+  carry `dtf_shared`, `dtf_shared_worst`, `limit_shared_gb`, `disk_name`
+  last.
+- **One disk per database.** All tablespaces of a dbid (every container)
+  share it. Datafiles are not mapped to devices or ASM disk groups
+  (`DBA_HIST_DATAFILE.filename` is not copied). The disk is named by the
+  `CAP_DISK_OVERRIDE` row, else `DATAFILES`.
+- **Free space:** `OVERRIDE` (`CAP_DISK_OVERRIDE.free_gb`, the dbid's row
+  before the dbid 0 one; NULL only names the disk), else `LIVE`
+  (`MIN(live ceiling - allocated)` over the current tablespaces whose fresh
+  ceiling is under an `AUTOEXTEND` limit; a ceiling under an `OVERRIDE` or
+  `ALLOCATED` limit says nothing about the disk), else `NONE`. Fresh =
+  `TRUNC(collected_at) >= newest_day - stale_days`.
+- **Rates.** E = `slope_bpd` when > 0 and the window is not CYCLIC
+  (`cycle_peak_bytes IS NULL`), at any quality. W = `GREATEST(E, ci_slope +
+  slope_ci_bpd)`, `ci_slope` = the OLS slope (DRIFT: the drift), the rate
+  behind `days_to_full_lo`. Only `is_current = 'Y'` rows take part; the
+  shared columns of the others are NULL.
+- **DISK_FULL** judges `disk_dtf` (expected case) against `dtf_warn` /
+  `dtf_crit` and needs one growing tablespace at quality OK (`gated_by`
+  `NO OK FIT`). `series_key` `DISK:<disk_name>`, `con_dbid = dbid`, so a
+  PDB-scoped report shows no disk. TBSPC_FULL's rule is unchanged.
+- **Fixture:** FIX_LINEAR capped at allocated + 40 GiB, FIX_SPIKE at + 45
+  GiB: `LIVE`, 40 GiB free, no alert. FIX_OVERRIDE's ceiling (1562.5 MiB)
+  is under its 2 GiB override: `dtf_own` 26, not a disk figure.
+  run_test.sql builds a closed-form disk in a savepoint (every tablespace
+  but four excluded, 105 MiB of room inside FIX_LINEAR's files, the free
+  space set in `CAP_DISK_OVERRIDE`): the disk day lands on x.5, and the
+  growers' `limit_shared_bytes - alloc_bytes` add up to the free space.
+
 ## Memory verdicts (M26, ddl/42)
 
 - **Layers, bottom up:** `CAPM_SNAP` (window, startup, previous snapshot of
@@ -1034,7 +1079,7 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
 
 - **Every install is a repository (M25).** A target gets only
   `target/prepare.sql` (a read-only common user, direct SELECT on the
-  twenty-eight views, nothing else) and the repository runs the suite with
+  twenty-eight AWR views and `CDB_TABLESPACE_USAGE_METRICS`, nothing else) and the repository runs the suite with
   `deploy_mode=repository` over `CAP_H_*` copies that `cap_repo.collect`
   pulls over one DB link per target. Standalone is the same install with the
   repository as its own target over a loopback link (target/self.sql +
@@ -1060,6 +1105,22 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
   edit either; change the manifest or seam.sql and rerun it. `--check` (also
   run by the dbmint scripts) fails on a stale generated file or when
   seam.sql or target/prepare.sql name other views than the manifest.
+- **The live source (kind L).** `CDB_TABLESPACE_USAGE_METRICS` is the one
+  copied view that is not AWR: no snap_id, no history. Manifest kind `L`
+  (`remote`, `pull`, always optional): `cap_repo.collect_live` runs once per
+  target after its DBIDs, deletes the target's rows of `CAP_H_TBSPC_LIVE`
+  and inserts the view's rows under the DBID of the target's newest
+  snapshot, stamped `collected_at` (SYSDATE of the repository: in a
+  distributed statement SYSDATE is the local one), in one transaction. The
+  view has `con_id` only: the pull joins `DBA_HIST_TABLESPACE` on the target
+  for `con_dbid` (its `con_id` is the container's id, verified 19.27), so no
+  function has to run remotely. A PDB whose con_id changed since AWR first
+  saw it gets no row. seam.sql reads the copy under its own name
+  (`cap_h_tbspc_live`), `build.py --check` proves that, and both
+  target/prepare.sql and target/check.sql list the view. Outside
+  `test/repo_copy_check.sql` (a live view cannot be pinned to a snapshot)
+  and `CAPV_CONTRACT`. `CAP_REPO_SOURCE.remote_view` names the view read on
+  the target for every source.
 - **Optional sources (M26).** `Source(optional=True)` (`CAP_REPO_SOURCE.optional
   = 'Y'`: `PGASTAT`, copied with every name, and the ten memory sizing
   sources) is a view a target's reader may lack: `probe` / `ping` warn instead of failing, and `collect`

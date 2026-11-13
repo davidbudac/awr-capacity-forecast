@@ -18,6 +18,7 @@ The samples are real output from a fictional database with 150 days of test AWR 
 | Question | Output |
 |----------|--------|
 | When does a tablespace fill? | Size at +30 / 90 / 180 / 365 days with 95% bands, `days_to_full` with worst/best case, GiB to add and the date to add them by |
+| When is the disk behind the datafiles full? | Every tablespace forecast against the one disk they share: `dtf_shared`, the size each reaches, `disk_dtf` and a `DISK_FULL` alert |
 | How much CPU headroom is left? | Host busy% (average, p95, peak window) and DB CPU per container, days to saturation, level shifts, hosts already hot |
 | One tablespace per month: will this one fit, how big must the next be? | Tablespaces named by period form a family: each member's state and final size, the size the next member needs, and the filling member's expected size against its ceiling |
 | Which fixed limits are close? | `processes`, `sessions`, PGA allocated against `pga_aggregate_limit`, redo GiB/day against the FRA, DB size, ASM disk groups, TEMP / UNDO peaks; I/O requests and MB per second as a trend with no limit |
@@ -218,7 +219,9 @@ SELECT * FROM cap_cfg_check WHERE status <> 'OK';
 A re-install keeps your values. `CAP_TBSPC_OVERRIDE` sets a tablespace's real
 ceiling (when autoextend `maxsize` exceeds the storage), excludes one, or
 gives it its own thresholds. `CAP_TBSPC_FAMILY` names tablespaces that belong
-to a family when their names do not say so. All knobs:
+to a family when their names do not say so. `CAP_DISK_OVERRIDE` sets the free
+space of the disk the datafiles share, for the shared-disk forecast
+(`dtf_shared`, the `DISK_FULL` alert) when the suite cannot derive it. All knobs:
 [Reference → Configuration](https://davidbudac.github.io/awr-capacity-forecast/reference.html#config).
 
 ## Testing

@@ -143,6 +143,11 @@ The maintainer chose not to plan these yet; they remain open findings.
   `TBSPC_FAMILY`. Open: `TBSPC_FULL` still fires for a filling member whose
   family says it fits; no mirror in the standalone queries; the dashboards
   do not read the family views.
+- Port the standalone shared-disk forecast (`dtf_shared`, `disk_dtf`) into
+  the suite. Done (2026-11-13): `ddl/33_shared_disk.sql`, the live source
+  `CAPV_TBSPC_LIVE`, the operator table `CAP_DISK_OVERRIDE` and the
+  `DISK_FULL` alert (PLAN.md M29). One disk per database: datafiles are not
+  mapped to devices or disk groups.
 - `target_name` and the memory verdicts in the dashboards. Done 2026-11-13:
   the ELK and ORDS / Grafana paths carry both (U15), with the `IOPS` /
   `IO_MBPS` series. APEX (U17): target filter and column, a Targets page

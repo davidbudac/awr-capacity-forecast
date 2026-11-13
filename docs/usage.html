@@ -589,6 +589,7 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
             <tr><td><span class="k">TBSPC_FULL</span></td><td class="def"><span class="pill crit">CRIT</span> ≤ <span class="inline">dtf_crit</span>, else <span class="pill warn">WARN</span></td><td class="def"><span class="inline">CAPF_TBSPC_FORECAST</span>: quality OK <em>and</em> <code>days_to_full ≤ dtf_warn</code> (or a CYCLIC tablespace's peak line inside it; not when the ceiling is already below usage, which <code>TBSPC_NEARFULL</code> pages).</td></tr>
             <tr><td><span class="k">TBSPC_NEARFULL</span></td><td class="def"><span class="pill crit">CRIT</span> ≥ <span class="inline">nearfull_crit_pct</span>, else <span class="pill warn">WARN</span></td><td class="def"><code>pct_used ≥ nearfull_warn_pct</code> now, <b>at any fit quality</b>.</td></tr>
             <tr><td><span class="k">TBSPC_FAMILY</span></td><td class="def"><span class="pill warn">WARN</span></td><td class="def">The filling member of a <a href="concepts.html#families">tablespace family</a> may end its period above its ceiling (<span class="inline">CAPF_TBSPC_FAMILY.fits = 'N'</span>). One alert per family, value and threshold in GiB. The message names the member, the expected size, the ceiling and the size the next member needs.</td></tr>
+            <tr><td><span class="k">DISK_FULL</span></td><td class="def"><span class="pill crit">CRIT</span> ≤ <span class="inline">dtf_crit</span>, else <span class="pill warn">WARN</span></td><td class="def"><span class="inline">CAPR_DISK</span>: the disk a database's datafiles share is full within <code>disk_dtf ≤ dtf_warn</code> days at the fitted rates, and at least one growing tablespace has an OK fit. One row per database and disk, <code>series_key</code> <code>DISK:&lt;name&gt;</code>. The message names the free space, the date and the three fastest growing tablespaces.</td></tr>
             <tr><td><span class="k">CPU_SAT</span></td><td class="def"><span class="pill crit">CRIT</span> ≤ <span class="inline">dtf_crit</span>, else <span class="pill warn">WARN</span></td><td class="def"><span class="inline">CAPF_CPU_TREND</span> on <code>BUSY_P95</code> (<code>BUSY_PCT</code> when <span class="inline">cpu_sat_on_p95</span> is 0): quality OK and <code>days_to_sat ≤ dtf_warn</code>.</td></tr>
             <tr><td><span class="k">DBCPU_SAT</span></td><td class="def"><span class="pill crit">CRIT</span> ≤ <span class="inline">dtf_crit</span>, else <span class="pill warn">WARN</span></td><td class="def">Same rule on <code>DB_CPU_PCT</code>, per container.</td></tr>
             <tr><td><span class="k">CPU_HOT</span></td><td class="def"><span class="pill warn">WARN</span> (no CRIT line)</td><td class="def"><code>hot_now = 'Y'</code> on <code>BUSY_P95</code>: the median of the recent daily p95 is at or above <span class="inline">cpu_sat_pct</span>, at any fit quality.</td></tr>
@@ -1286,9 +1287,40 @@ COMMIT;</pre>
       <p>Applied once, in <span class="inline">CAPD_TBSPC_DAILY</span>; every layer above honours it
         with no re-install. Rows survive <span class="inline">@install.sql</span>; only
         <span class="inline">@uninstall.sql</span> removes them. It first spools the override rows, the
-        <a href="#families">family rows</a> and the changed knobs to
+        <a href="#families">family rows</a>, the <a href="#disk">disk rows</a> and the changed knobs to
         <span class="inline">reports/cap_config_replay_&lt;schema&gt;_&lt;ts&gt;.sql</span>, to run after
         the next install.</p>
+
+      <h3 id="disk">The shared disk: CAP_DISK_OVERRIDE</h3>
+      <p>Each tablespace is forecast alone against its own limit
+        (<span class="inline">days_to_full</span>) and, in
+        <span class="inline">CAPF_TBSPC_SHARED</span>, together with every other tablespace of the
+        database against the one disk they share: <span class="inline">dtf_shared</span> is the day
+        the tablespace is stuck, <span class="inline">limit_shared_gb</span> its size on that day,
+        and <span class="inline">CAPR_DISK</span> has one row per database with the free space and
+        <span class="inline">disk_dtf</span>, the day the disk is full. Report section 1 prints both
+        (columns <code>SHARED</code>, <code>BY</code>, <code>SHARED_GIB</code> and block 1c).</p>
+      <p>The free space comes from the live tablespace ceilings the collector copies
+        (<span class="inline">disk_source = LIVE</span>): where Oracle caps an autoextend tablespace
+        by storage, the ceiling minus the allocated size is the free space. When no tablespace is
+        capped, or the reader lacks the grant, it is not known (<span class="inline">NONE</span>)
+        and <span class="inline">dtf_shared</span> equals the days to the tablespace's own limit.
+        Supply or correct it with the <code>df</code> or <code>lsdg</code> figure:</p>
+      <div class="term in">
+        <div class="term__bar"><span class="term__title">SQL*Plus · suite owner</span></div>
+<pre><span class="c-prompt">SQL&gt;</span> MERGE INTO cap_disk_override o
+  2  USING (SELECT 1214129087 AS dbid, '/u02' AS disk_name FROM dual) s
+  3  ON (o.dbid = s.dbid AND o.disk_name = s.disk_name)
+  4  WHEN MATCHED THEN UPDATE SET o.free_gb = 180, o.set_at = SYSDATE
+  5  WHEN NOT MATCHED THEN INSERT (dbid, disk_name, free_gb, note)
+  6       VALUES (s.dbid, s.disk_name, 180, 'df -h /u02');
+<span class="c-prompt">SQL&gt;</span> COMMIT;</pre>
+      </div>
+      <p><code>dbid = 0</code> applies to every database without a row of its own. A row with
+        <code>free_gb</code> NULL only names the disk. The suite does not age the figure:
+        <span class="inline">set_at</span> is shown as <span class="inline">disk_as_of</span>. Limits:
+        one disk per database (datafiles are not mapped to filesystems or ASM disk groups), UNDO,
+        TEMP, redo and other files on the disk count as constant, and no storage is added.</p>
 
       <!-- ===================== FAMILIES ===================== -->
       <div class="section-head" id="families">
