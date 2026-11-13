@@ -19,7 +19,7 @@ milestone history.
 | [004](004-report-windows-per-database.md) | HTML report and briefing anchor windows and dates per database | P2 | M | — | TODO |
 | [005](005-passwords-out-of-sql-text-and-argv.md) | Generated reader password stays in its bind; no password on argv | P2 | M | — | TODO |
 | [006](006-memory-views-skip-old-startups.md) | Memory views skip startups that ended before the window (exact) | P2 | S-M | — | DONE (unit U02, 2026-11-13; harness CAPW1 1907 passed, 0 failed; every memory view identical before and after on the fixture and the demo fixture; demo fixture, shared VM: `test/mem_timing.sql` 279 / 329 s before, 118 / 99 s after; documentation updated too) |
-| [007](007-advisor-gain-over-whole-interval-dbtime.md) | Advisor gain divided by the DB time of its whole interval | P2 | S-M | 006 | TODO |
+| [007](007-advisor-gain-over-whole-interval-dbtime.md) | Advisor gain divided by the DB time of its whole interval | P2 | S-M | 006 | DONE (unit U08, 2026-11-13; harness CAPW1 2099 passed, 0 failed, with the unit's other change, `CAPM_VERDICT` reading `CAPM_AREA` once; the gap assertions are closed forms, and a probe on the old join read 0.4573 percent where they expect 0.4500; a second assertion pins the window-edge fallback; demo fixture, shared VM, plan 006 against 007: `capm_advice` 1.5 s and 1.5 s, `capm_area` 4.5 s and 3.1 s, `capm_verdict` 16.6 s and 15.0 s; every memory view identical on both fixtures; step 1's count on real AWR not taken, CAPX2 was off limits) |
 | [008](008-refresh-parse-cost.md) | Slim `CAPR_COVERAGE`; measured decision on a no-CBQT hint in refresh | P2 | S + M | — | TODO |
 | [009](009-repository-purge-test.md) | Automated test and lever for `cap_repo.purge` | P3 | M | — | TODO |
 

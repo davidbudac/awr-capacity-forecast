@@ -1349,6 +1349,16 @@ The views, bottom up:
   loss. An interval with no size at or below it does not count, and a
   candidate must count in every interval of the reference. The gain never
   falls with size, by construction, and `run_test.sql` asserts it.
+- **An interval's DB time is the whole interval's.** An interval of the
+  reference size runs from its previous present row to the snapshot, so it
+  spans several snapshots where the advisor skipped the size. Its gain is
+  divided by the DB time of every snapshot in it: a running total per
+  instance, differenced between the interval's two snapshots, which are
+  always in one startup. The first version took the DB time of the last
+  snapshot only and overstated the gain of such an interval (fixture: 0.4573
+  percent in place of 0.4500 with one snapshot missing in 60). An interval
+  that starts before the window, or on a snapshot without DB time, keeps the
+  DB time of its last snapshot.
 - **Reference size (26.3).** Gains and losses are measured against the
   current (factor 1) size when its own increments cover
   `mem_min_uptime_hours`. A pool that has just been resized has a new
@@ -1418,12 +1428,31 @@ The views, bottom up:
   and `CAPM_SGA_BALANCE` read. The four views are in the snapshot registry.
   The briefing lists only the verdicts that advise a change and counts the
   areas that could not be judged.
-- **Cost.** Measured at 26.4 on the test CDB's AWR (35 days of 15-minute
-  snapshots): `SELECT * FROM capm_verdict` takes about 8 s and 150 MB of
-  PGA, most of it `CAPM_AREA` evaluated twice (under the evidence and for
-  the facts). The cost follows the length of the history, not the window:
-  on the demo story (150 days, hourly) the verdict view takes 28 s and the
-  evidence view 16 s. A SNAPSHOT report reads the stored rows.
+- **Cost.** The cost follows the snapshots of every startup that reaches
+  the window, not `mem_window_days`: an increment pairs with its key's
+  previous row, wherever that is in the startup. Startups that ended before
+  the window are skipped. On the demo story (150 days, hourly, restarted 95
+  days back: 265,155 increments, 83,685 of them in the window) `SELECT
+  COUNT(*) FROM capm_verdict` takes about 6 s once parsed and 200 MB of PGA,
+  the evidence view about 5 s (shared test VM, rough). It took about 11.5 s
+  while the verdict evaluated `CAPM_AREA` twice, for the facts and again
+  under the evidence. `CAPM_VERDICT` now reads it once and counts the
+  ADVISOR signals from its `gain_dir` / `shrink_dir` / `overalloc_dir`,
+  and reads `CAPM_EVIDENCE` with `kind <> 'ADVISOR'`, a filter that takes
+  the advisor branch out of that view's plan (19.27). A SNAPSHOT report
+  reads the stored rows. `docs/reference.html#fleet-size` has the table.
+  On the test CDB's own AWR (35 days of 15-minute snapshots) the verdict
+  view took about 8 s and 150 MB at 26.4, before these cuts. That figure
+  was not taken again.
+- **Why the window is not the read set.** Reading the window plus one
+  snapshot before it is not exact: a key that skips snapshots (an advisor
+  size off the list, `over allocation count` in the fixture) pairs with a
+  row further back, and a zero-filled key without that row would count its
+  whole cumulative value as an increment. The exact form keeps each key's
+  last row before the window. It gave the same window increments on both
+  fixtures (0.9 s against 1.3 to 2.6 s for `CAPM_DELTA` on the demo story),
+  but the view would then hold window increments only, and its rows before
+  the window are asserted today. Not built.
 
 ## Layer 5 — Tier 2 OML ESM
 

@@ -753,6 +753,21 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   because no increment crosses a restart and every reader keeps `in_win =
   'Y'` rows. A new reader of the two views must keep that filter. It saves
   nothing for an instance up for the whole history.
+- **The window is not the read set (U08, not built).** "Window plus one
+  snapshot before" is not exact: a key that skips snapshots (an advisor size,
+  the fixture's `over allocation count`) pairs with a row further back, and
+  a zero-filled key without it would count its cumulative value. Exact is
+  each key's last row before the window (pre-window rows collapsed by GROUP
+  BY before the LAG): same window increments on both fixtures, 0.9 s against
+  1.3 to 2.6 s for `CAPM_DELTA` on the demo story, but the view would hold
+  window increments only, and three assertions read its earlier rows.
+- **An advisor interval's DB time is the whole interval's (plan 007).**
+  `CAPM_ADVICE.dbc` is a running total of DB time per instance; `pair` takes
+  `cum(snap_id) - cum(prev_snap_id)`, both in one startup. An interval that
+  starts before the window, or on a snapshot without DB time, keeps the DB
+  time of its last snapshot. The fixture's advisor lists have no gap, so
+  run_test.sql deletes one snapshot's cache advisor rows (0.4573 percent
+  with the old join, 0.4500 exact).
 - **Advisor facts (verified 19.27):** the SGA, cache and shared pool
   advisors list MB, the PGA advisor bytes. The lists are ragged: the shared
   pool list moves with the pool, low sizes come and go, some lists stop
@@ -800,9 +815,21 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   parameter), else OK / STABLE.
 - **Only the CAPR_MEM_ report views read a CAPM_ view, and nothing reads
   those** (run_test.sql asserts both from ALL_DEPENDENCIES): no alert, no
-  series. Cost on the real 30-day AWR: `SELECT * FROM capm_verdict` about
-  8 s, 150 MB PGA, most of it `CAPM_AREA` evaluated twice (under the
-  evidence and for the facts).
+  series.
+- **`CAPM_VERDICT` reads `CAPM_AREA` once (U08).** CTE `ar` gives the facts
+  and the ADVISOR signals, counted from `gain_dir` / `shrink_dir` /
+  `overalloc_dir` (NULL = no row; `CAPM_EVIDENCE` writes its ADVISOR rows
+  from the same three columns, so a new advisor signal is a direction column
+  there). The other kinds come from `capm_evidence WHERE kind <> 'ADVISOR'`:
+  that filter prunes the advisor branch of the view (19.27 plan), and it
+  holds only while `ar` in `CAPM_EVIDENCE` has one reader (window_end comes
+  from `inst`, not from `ar`). `CAPM_ADVICE.dl` names its metrics in a
+  conjunct of its own so the filter reaches `CAPM_DELTA`'s sources. Fixture
+  plan: the verdict sorts 6411 + 2278 increment rows, before 8328 + 8328 +
+  2278. Demo story (150 days hourly, 95-day startup, 265155 increments,
+  83685 in the window), shared VM, parsed: `capm_verdict` 5.9 s (11.5 s
+  before), `capr_mem_verdict` 6.1 s (17.5 s), `capr_mem_evidence` 5 s
+  (unchanged), peak PGA 150 to 200 MB. `test/mem_timing.sql` repeats it.
 - **Memory in the reports (M26.4, ddl/45).** `CAPR_MEM_AREA` names and
   orders the six areas. `CAPR_MEM_VERDICT` adds `reason_text`,
   `actionable`, the size texts and `headline` (one sentence per row of the
