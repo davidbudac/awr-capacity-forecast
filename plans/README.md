@@ -18,7 +18,7 @@ milestone history.
 | [003](003-esm-top-n-per-database.md) | ESM trains the top N of each database and retires unselected models | P2 | M | — | DONE (2026-11-13; branch `t3/implement-u03-brief`, not merged; harness CAPW3 `--ml`: 1900 passed, 0 failed and 132 passed, 0 failed, exit 0; the per-database split has no fixture assertion, one database: `test/lint_dbid_windows.sh` guards it) |
 | [004](004-report-windows-per-database.md) | HTML report and briefing anchor windows and dates per database | P2 | M | — | TODO |
 | [005](005-passwords-out-of-sql-text-and-argv.md) | Generated reader password stays in its bind; no password on argv | P2 | M | — | TODO |
-| [006](006-memory-views-skip-old-startups.md) | Memory views skip startups that ended before the window (exact) | P2 | S-M | — | TODO |
+| [006](006-memory-views-skip-old-startups.md) | Memory views skip startups that ended before the window (exact) | P2 | S-M | — | DONE (unit U02, 2026-11-13; harness CAPW1 1907 passed, 0 failed; every memory view identical before and after on the fixture and the demo fixture; demo fixture, shared VM: `test/mem_timing.sql` 279 / 329 s before, 118 / 99 s after; documentation updated too) |
 | [007](007-advisor-gain-over-whole-interval-dbtime.md) | Advisor gain divided by the DB time of its whole interval | P2 | S-M | 006 | TODO |
 | [008](008-refresh-parse-cost.md) | Slim `CAPR_COVERAGE`; measured decision on a no-CBQT hint in refresh | P2 | S + M | — | TODO |
 | [009](009-repository-purge-test.md) | Automated test and lever for `cap_repo.purge` | P3 | M | — | TODO |
