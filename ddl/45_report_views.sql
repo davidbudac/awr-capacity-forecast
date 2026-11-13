@@ -747,7 +747,11 @@ FROM   gated g;
 -- peak in GiB and the peak slope in MiB/day like cur_gb / slope_mb. And the
 -- sizing ask: need_gib_30 / _90 / _180 (GiB to add so the worst case stays
 -- under the ceiling through +h) and add_by_day (the worst-case fill date).
--- Last: restart_reason / restart_day, as on CAPF_TBSPC_FORECAST.
+-- Then restart_reason / restart_day, as on CAPF_TBSPC_FORECAST.
+-- Last (U09), from CAPF_TBSPC_SHARED: dtf_shared / dtf_shared_worst (days
+-- until the tablespace is stuck on the disk it shares), limit_shared_gb
+-- (its size then), limit_own_gb with limit_live = 'Y' when the live ceiling
+-- is under limit_gb, stopped_by (DISK / LIMIT) and disk_name.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_tbspc_days_to_full AS
 SELECT f.dbid,
@@ -795,8 +799,16 @@ SELECT f.dbid,
        s.eff_nearfull_warn_pct,
        s.eff_nearfull_crit_pct,
        f.restart_reason,
-       f.restart_day
-FROM   capf_tbspc_forecast f
+       f.restart_day,
+       -- U09: the shared-disk columns of CAPF_TBSPC_SHARED (ddl/33).
+       f.dtf_shared,
+       f.dtf_shared_worst,
+       f.limit_shared_bytes / 1024 / 1024 / 1024 AS limit_shared_gb,
+       f.limit_own_bytes    / 1024 / 1024 / 1024 AS limit_own_gb,
+       f.limit_live,
+       f.stopped_by,
+       f.disk_name
+FROM   capf_tbspc_shared f
 LEFT   JOIN (SELECT dbid, con_dbid, series_key,
                     MAX(CASE WHEN kind = 'TBSPC_FULL'     THEN sev            END) AS sev_dtf,
                     MAX(CASE WHEN kind = 'TBSPC_NEARFULL' THEN sev            END) AS sev_nearfull,
@@ -1407,6 +1419,9 @@ GROUP  BY dbid, con_dbid;
 -- CPU and SERIES. Then restart_reason (PURGE / STOP / START: why the TBSPC
 -- fit window is shorter than train_days) and restart_day (its first day),
 -- NULL for CPU and SERIES and for a window that was not restarted.
+-- Then (U09) the TBSPC shared-disk columns of CAPF_TBSPC_SHARED (ddl/33):
+-- dtf_shared, dtf_shared_worst, limit_shared_gb (GiB) and disk_name, NULL
+-- for CPU and SERIES.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_fit AS
 SELECT f.dbid,
@@ -1446,7 +1461,11 @@ SELECT f.dbid,
        f.need_gib_180,
        f.add_by_day,
        f.restart_reason,
-       f.restart_day
+       f.restart_day,
+       f.dtf_shared,
+       f.dtf_shared_worst,
+       f.limit_shared_gb,
+       f.disk_name
 FROM  (
         SELECT t.dbid, t.con_dbid, 'TBSPC' AS kind, t.tablespace_name AS series,
                'bytes' AS unit, t.slope_method AS method,
@@ -1462,8 +1481,11 @@ FROM  (
                CAST(NULL AS NUMBER)                               AS slope_sig,
                CAST(NULL AS NUMBER)                               AS hot_now,
                t.need_gib_30, t.need_gib_90, t.need_gib_180, t.add_by_day,
-               t.restart_reason, t.restart_day
-        FROM   capf_tbspc_forecast t
+               t.restart_reason, t.restart_day,
+               t.dtf_shared, t.dtf_shared_worst,
+               t.limit_shared_bytes / 1073741824                  AS limit_shared_gb,
+               t.disk_name
+        FROM   capf_tbspc_shared t
         UNION ALL
         SELECT t.dbid, t.con_dbid, 'CPU', t.metric,
                CASE t.metric WHEN 'DB_CPU_SEC' THEN 'sec' ELSE 'pct' END, t.slope_method,
@@ -1480,7 +1502,8 @@ FROM  (
                CASE t.slope_sig WHEN 'Y' THEN 1 ELSE 0 END,
                CASE t.hot_now WHEN 'Y' THEN 1 WHEN 'N' THEN 0 END,
                NULL, NULL, NULL, CAST(NULL AS DATE),
-               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE)
+               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE),
+               NULL, NULL, NULL, CAST(NULL AS VARCHAR2(30))
         FROM   capf_cpu_trend t
         CROSS  JOIN cap_cfg cfg
         UNION ALL
@@ -1494,7 +1517,8 @@ FROM  (
                CASE t.is_current WHEN 'Y' THEN 1 ELSE 0 END, NULL,
                NULL, NULL, NULL, NULL, NULL, NULL,
                NULL, NULL, NULL, CAST(NULL AS DATE),
-               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE)
+               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE),
+               NULL, NULL, NULL, CAST(NULL AS VARCHAR2(30))
         FROM   capf_series_forecast t
       ) f
 LEFT   JOIN (SELECT fit_kind, dbid, con_dbid, series_key, MIN(sev_rank) AS sev_rank
@@ -1875,3 +1899,77 @@ SELECT m.dbid,
 FROM   capf_tbspc_family_member m
 LEFT   JOIN capr_container c
   ON   c.dbid = m.dbid AND c.con_dbid = m.con_dbid;
+
+-- ====================================================================
+-- U09 BEGIN -- CAPR_DISK: the shared disk of each database (CAPF_DISK,
+-- ddl/33) for the reports, and the single home of the DISK_FULL severity.
+-- One row per database and disk, filed under the database itself
+-- (con_dbid = dbid), so a report scoped to a PDB shows none.
+--   db               the CAPR_CONTAINER label of the database
+--   series_key       'DISK:' || disk_name, the DISK_FULL alert's key
+--   grow_mb, grow_worst_mb   what the growing tablespaces take, MiB a day
+--   warn_threshold, crit_threshold   the dtf_warn / dtf_crit knobs
+--   raw_sev          CRIT / WARN / OK from disk_dtf against them
+--   gated_by         NO OK FIT: disk_dtf is inside the window but no growing
+--                    tablespace has fit quality OK (TBSPC_FULL needs OK too)
+--   sev, sev_rank    raw_sev, or OK / 3 when gated
+--   message          the DISK_FULL message, NULL when sev = OK
+-- CAPR_ALERTS (ddl/55) raises the rows whose sev is not OK.
+-- ====================================================================
+CREATE OR REPLACE VIEW capr_disk AS
+WITH j AS (
+        SELECT d.*,
+               cfg.dtf_warn AS warn_threshold,
+               cfg.dtf_crit AS crit_threshold,
+               CASE WHEN d.disk_dtf <= cfg.dtf_crit THEN 'CRIT'
+                    WHEN d.disk_dtf <= cfg.dtf_warn THEN 'WARN'
+                    ELSE 'OK' END AS raw_sev
+        FROM   capf_disk d
+        CROSS  JOIN cap_cfg cfg
+     ),
+     g AS (
+        SELECT j.*,
+               CASE WHEN j.raw_sev <> 'OK' AND j.n_growing_ok = 0 THEN 'NO OK FIT' END AS gated_by
+        FROM   j
+     )
+SELECT g.dbid,
+       g.dbid                                         AS con_dbid,
+       NVL(c.db_pdb, TO_CHAR(g.dbid))                 AS db,
+       g.disk_name,
+       'DISK:' || g.disk_name                         AS series_key,
+       g.disk_source,
+       g.disk_as_of,
+       g.disk_free_gb,
+       g.alloc_gb,
+       g.disk_dtf,
+       g.disk_dtf_worst,
+       g.disk_full_day,
+       g.newest_day,
+       g.n_tbspc,
+       g.n_growing,
+       g.n_growing_ok,
+       g.grow_bpd       / 1048576                     AS grow_mb,
+       g.grow_worst_bpd / 1048576                     AS grow_worst_mb,
+       g.top_growers,
+       g.warn_threshold,
+       g.crit_threshold,
+       g.raw_sev,
+       CASE WHEN g.gated_by IS NULL THEN g.raw_sev ELSE 'OK' END               AS sev,
+       CASE WHEN g.gated_by IS NULL THEN DECODE(g.raw_sev, 'CRIT', 1, 'WARN', 2, 3)
+            ELSE 3 END                                                         AS sev_rank,
+       g.gated_by,
+       CASE WHEN g.gated_by IS NULL AND g.raw_sev <> 'OK' THEN
+            'Disk ' || g.disk_name || ' forecast full in '
+            || TO_CHAR(g.disk_dtf, 'FM9999990') || ' days, on '
+            || TO_CHAR(g.disk_full_day, 'YYYY-MM-DD') || ' ('
+            || TO_CHAR(g.disk_free_gb, 'FM99999990.00') || ' GiB free, '
+            || TO_CHAR(g.n_growing, 'FM99990') || ' growing tablespaces take '
+            || TO_CHAR(g.grow_bpd / 1048576, 'FM99999990.0') || ' MiB/day'
+            || CASE WHEN g.disk_dtf_worst IS NOT NULL
+                    THEN ', worst case ' || TO_CHAR(g.disk_dtf_worst, 'FM9999990') || ' days' END
+            || '). Fastest growing: ' || g.top_growers || ' MiB/day'
+       END                                                                     AS message
+FROM   g
+LEFT   JOIN capr_container c
+  ON   c.dbid = g.dbid AND c.con_dbid = g.dbid;
+-- U09 END

@@ -647,3 +647,44 @@ COMMENT ON COLUMN cap_tbspc_family.name_regex   IS 'Regular expression (REGEXP_L
 COMMENT ON COLUMN cap_tbspc_family.family_name  IS 'Family the matching tablespaces belong to. NULL only on an exclude row.';
 COMMENT ON COLUMN cap_tbspc_family.exclude_flag IS 'Y = the matching tablespaces belong to no family. N (default) = they belong to family_name.';
 COMMENT ON COLUMN cap_tbspc_family.note         IS 'Free-text reason.';
+
+-- =====================================================================
+-- U09 BEGIN -- CAP_DISK_OVERRIDE: the free space of the disk the datafiles share.
+-- =====================================================================
+-- Operator data like CAP_TBSPC_OVERRIDE: ddl/00_drop.sql leaves it alone, a
+-- re-install preserves it, uninstall.sql spools its rows to the replay file
+-- and drops it.
+--
+-- The shared-disk forecast (ddl/33) needs the free space on the filesystem
+-- or disk group behind the datafiles. Oracle has no general view for it.
+-- The suite derives it from the live tablespace ceilings where one is capped
+-- by storage (CAPV_TBSPC_LIVE). A row here supplies or corrects the figure
+-- (the df / lsdg value) and names the disk in the reports and in the
+-- DISK_FULL alert. free_gb NULL only names the disk.
+--
+-- One disk per database: dbid = 0 means any database, and a row with the
+-- real dbid wins over it. Of several rows for one dbid the first disk_name
+-- in sort order is used.
+DECLARE
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE TABLE cap_disk_override (
+        dbid        NUMBER        DEFAULT 0             NOT NULL,
+        disk_name   VARCHAR2(30)  DEFAULT ''DATAFILES'' NOT NULL,
+        free_gb     NUMBER,
+        set_at      DATE          DEFAULT SYSDATE       NOT NULL,
+        note        VARCHAR2(200),
+        CONSTRAINT cap_disk_override_pk PRIMARY KEY (dbid, disk_name),
+        CONSTRAINT cap_disk_override_ck CHECK (free_gb >= 0)
+    )';
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+COMMENT ON TABLE  cap_disk_override           IS 'U09: free space of the disk the datafiles of a database share, set by the operator. Read by CAPF_TBSPC_SHARED; dbid = 0 means "any".';
+COMMENT ON COLUMN cap_disk_override.dbid      IS 'DBID this row applies to, or 0 = any database.';
+COMMENT ON COLUMN cap_disk_override.disk_name IS 'Name of the disk in the reports and in the DISK_FULL alert key, e.g. /u02 or +DATA.';
+COMMENT ON COLUMN cap_disk_override.free_gb   IS 'Free space on the disk now, GiB (the df / lsdg figure). NULL = keep the figure derived from the live tablespace ceilings.';
+COMMENT ON COLUMN cap_disk_override.set_at    IS 'When free_gb was measured. Shown as disk_as_of; the suite does not age it.';
+COMMENT ON COLUMN cap_disk_override.note      IS 'Free-text reason.';
+-- U09 END

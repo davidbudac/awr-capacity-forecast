@@ -389,6 +389,11 @@ LEFT   JOIN capr_container c
 --              the forecast kinds it needs is_current = 'Y': a shift whose
 --              series stopped (stale_days behind its dbid's newest day, e.g. a
 --              dropped PDB) is no alert, so it leaves every poller too.
+--              DISK_FULL    (U09) the disk a database's datafiles share is
+--              forecast full within dtf_warn / dtf_crit days (CAPR_DISK,
+--              from CAPF_DISK in ddl/33): WARN / CRIT on disk_dtf, the
+--              expected case. It needs one growing tablespace at fit
+--              quality OK. series_key 'DISK:<disk_name>', con_dbid = dbid.
 --              DATA_STALE   the dbid's newest AWR snapshot is stale_hours or
 --              more old (CAPR_FRESHNESS, the one SYSDATE test), WARN. A dbid
 --              data_stale_max_days or more old is retired: no alert, it shows
@@ -484,6 +489,26 @@ WITH alerts AS (
         FROM   capr_tbspc_family y
         WHERE  y.sev = 'WARN'
         UNION ALL
+        -- ---- U09 BEGIN -- DISK_FULL: the disk the datafiles share fills
+        -- inside the dtf window (CAPR_DISK owns severity and message).
+        SELECT k.sev,
+               'DISK_FULL',
+               k.dbid, k.con_dbid,
+               k.series_key,
+               k.newest_day,
+               k.disk_dtf,
+               CASE WHEN k.sev = 'CRIT' THEN k.crit_threshold ELSE k.warn_threshold END,
+               'DAYS',
+               k.message,
+               NULL,
+               'LE',
+               k.warn_threshold,
+               'Y',
+               NULL, NULL, NULL
+        FROM   capr_disk k
+        WHERE  k.sev <> 'OK'
+        UNION ALL
+        -- ---- U09 END
         -- ---- CPU_SHIFT: a sustained step in a CPU series (M10.3). Not a
         -- forecast and not an outlier -- the level the machine runs at TODAY
         -- differs from the level it ran at a month ago, which is a capacity

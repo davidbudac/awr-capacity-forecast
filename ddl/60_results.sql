@@ -927,7 +927,8 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
             'CAPR_MEM_VERDICT', 'CAPR_MEM_EVIDENCE', 'CAPR_MEM_COMPONENTS',
             'CAPR_MEM_COMP_POINTS',
             -- tablespace families (ddl/32)
-            'CAPR_TBSPC_FAMILY', 'CAPR_TBSPC_FAMILY_MEMBERS');
+            'CAPR_TBSPC_FAMILY', 'CAPR_TBSPC_FAMILY_MEMBERS',
+            'CAPR_DISK');
     END snap_views;
 
     PROCEDURE build_snap_tables IS

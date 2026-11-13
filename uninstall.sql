@@ -18,9 +18,9 @@
 -- Before it drops anything it writes the operator's config to a replay file,
 -- reports/cap_config_replay_<schema>_<YYYYMMDD_HH24MISS>.sql (path printed):
 -- one UPDATE per CAP_CONFIG knob whose value differs from its default
--- (suite_version aside) and one MERGE per CAP_TBSPC_OVERRIDE and
--- CAP_TBSPC_FAMILY row. Run it in the new owner after the new install.sql,
--- which has seeded every knob by then. A knob the new release no longer has
+-- (suite_version aside) and one MERGE per CAP_TBSPC_OVERRIDE,
+-- CAP_TBSPC_FAMILY and CAP_DISK_OVERRIDE row. Run it in the new owner after
+-- the new install.sql, which has seeded every knob by then. A knob the new release no longer has
 -- updates no row and is named. With no such knob and no operator row it
 -- writes no file.
 --
@@ -31,7 +31,7 @@ SET SERVEROUTPUT ON SIZE UNLIMITED FORMAT WRAPPED
 SET FEEDBACK OFF
 WHENEVER SQLERROR EXIT FAILURE ROLLBACK
 
-PROMPT -- writing the config replay file (knobs off their default, tablespace overrides, family rows) ...
+PROMPT -- writing the config replay file (knobs off their default, tablespace overrides, family rows, disk overrides) ...
 VARIABLE cap_replay      CLOB
 VARIABLE cap_replay_n    NUMBER
 VARIABLE cap_replay_file VARCHAR2(200)
@@ -81,8 +81,8 @@ BEGIN
     put('-- ' || :cap_replay_file);
     put('-- Written by uninstall.sql from schema ' || v_owner || ' at '
         || TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS') || ': its CAP_CONFIG knobs');
-    put('-- off their default and its CAP_TBSPC_OVERRIDE / CAP_TBSPC_FAMILY rows. Run it in');
-    put('-- the new owner');
+    put('-- off their default and its CAP_TBSPC_OVERRIDE / CAP_TBSPC_FAMILY /');
+    put('-- CAP_DISK_OVERRIDE rows. Run it in the new owner');
     put('-- after install.sql:');
     put('--   SQL> @' || :cap_replay_file);
     put('SET APPINFO OFF');
@@ -131,10 +131,11 @@ BEGIN
     END;
     v_n := v_knobs;
 
-    -- The operator tables, one MERGE per row: the tablespace overrides and
-    -- the tablespace family rows (ddl/05).
+    -- The operator tables, one MERGE per row: the tablespace overrides, the
+    -- tablespace family rows and the shared disk's free space (ddl/05).
     FOR t IN (SELECT 'CAP_TBSPC_OVERRIDE' AS tab FROM dual
-              UNION ALL SELECT 'CAP_TBSPC_FAMILY' FROM dual) LOOP
+              UNION ALL SELECT 'CAP_TBSPC_FAMILY' FROM dual
+              UNION ALL SELECT 'CAP_DISK_OVERRIDE' FROM dual) LOOP
         v_sel := NULL; v_cols := NULL; v_vals := NULL; v_on := NULL; v_set := NULL; v_pk := NULL;
         FOR c IN (SELECT c.column_name, c.data_type,
                          (SELECT COUNT(*)
@@ -184,7 +185,7 @@ BEGIN
         END IF;
     END LOOP;
     put('COMMIT;');
-    put('PROMPT -- config replayed (' || (v_n - v_knobs) || ' operator row(s): tablespace overrides, family rows).');
+    put('PROMPT -- config replayed (' || (v_n - v_knobs) || ' operator row(s): tablespace overrides, family rows, disk overrides).');
     put('WHENEVER SQLERROR CONTINUE');
     put('SET FEEDBACK ON');
     :cap_replay_n := v_n;
@@ -205,7 +206,7 @@ SELECT CASE WHEN :cap_replay_n > 0 THEN 'ON' ELSE 'OFF' END AS cap_r_spool_termo
        CASE WHEN :cap_replay_n > 0
             THEN '-- config replay file: ' || :cap_replay_file || ' (' || :cap_replay_n
                  || ' statement(s)), run it in the new owner after install.sql'
-            ELSE '-- no config replay file: no knob off its default, no tablespace override, no family row' END AS cap_r_note
+            ELSE '-- no config replay file: no knob off its default, no tablespace override, family or disk row' END AS cap_r_note
 FROM   dual;
 COLUMN cap_r_spool_termout  CLEAR
 COLUMN cap_r_mkdir CLEAR
@@ -323,6 +324,7 @@ BEGIN
     drop_it('DROP TABLE cap_ml_input',             -942);
     drop_it('DROP TABLE cap_tbspc_override PURGE', -942);
     drop_it('DROP TABLE cap_tbspc_family PURGE',   -942);
+    drop_it('DROP TABLE cap_disk_override PURGE',  -942);
     drop_it('DROP TABLE cap_config PURGE',         -942);
     drop_it('DROP TYPE cap_esm_tab',               -4043);
     drop_it('DROP TYPE cap_esm_row',               -4043);

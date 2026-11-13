@@ -67,6 +67,11 @@ DECLARE
         'CAPR_MEM_EVIDENCE',
         'CAPR_MEM_VERDICT',
         'CAPR_MEM_AREA',
+        -- U09: the shared-disk views (ddl/33, CAPR_DISK in ddl/45).
+        'CAPR_DISK',
+        'CAPF_DISK',
+        'CAPF_TBSPC_SHARED',
+        'CAPV_TBSPC_LIVE',
         'CAPM_VERDICT',
         'CAPM_EVIDENCE',
         'CAPM_SGA_BALANCE',
@@ -155,7 +160,7 @@ BEGIN
     END LOOP;
 
     -- NOTE: the PERSISTED tables are deliberately NOT dropped here: CAP_CONFIG,
-    -- CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY, CAP_ML_MODEL and the results layer's CAP_RUN,
+    -- CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY, CAP_DISK_OVERRIDE, CAP_ML_MODEL and the results layer's CAP_RUN,
     -- CAP_FIT_HIST, CAP_ALERT_STATE, CAP_ALERT_EVENT. A re-install must preserve
     -- operator config overrides, the hand-set tablespace limits / exclusions
     -- (M9.5), the trained-model registry and the run history, alert state and

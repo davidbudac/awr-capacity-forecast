@@ -133,6 +133,9 @@ EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/30_forecast_views')
 PROMPT -- [32] tablespace families (CAPD_TBSPC_FAMILY, CAPF_TBSPC_FAMILY_MEMBER, CAPF_TBSPC_FAMILY) ...
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/32_tbspc_family')
 @@ddl/32_tbspc_family.sql
+PROMPT -- [33] shared disk (CAPF_TBSPC_SHARED, CAPF_DISK) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/33_shared_disk')
+@@ddl/33_shared_disk.sql
 PROMPT -- [35] fixed-ceiling series forecast (CAPF_SERIES_FORECAST) ...
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/35_series_forecast')
 @@ddl/35_series_forecast.sql
