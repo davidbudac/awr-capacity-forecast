@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Generate dashboards/10-tablespaces.ndjson (AWR Capacity - Tablespaces)."""
 from lens_lib import (
-    AMBER, DASH_TBSPC, GREEN, GREY, KQL_LATEST, PAST, RED, DashboardBuilder,
+    AMBER, DASH_TBSPC, GREEN, GREY, KQL_LATEST, PAST, RED, TARGET, DashboardBuilder,
     add_alerts_table, alarm_when_nonzero, add_nav_panel, cell_colors, col_avg, col_count,
     col_date_histogram, col_last_value, col_max, col_min, col_palette_steps,
-    col_sum, col_terms, col_unique_count, fmt_bytes, fmt_number,
+    col_sum, col_target, col_terms, col_unique_count, fmt_bytes, fmt_number,
     metric_state, palette, table_state, xy_data_layer, xy_multi_state, xy_ref_layer,
 )
 
@@ -19,7 +19,7 @@ b = DashboardBuilder(
     "Tablespace usage from AWR: observed daily, forecast to a year out, "
     "days to full, and the growth days the anomaly layer flagged.")
 add_nav_panel(b)
-b.add_controls(["cap.db", "cap.series"])
+b.add_controls([TARGET, "cap.db", "cap.series"])
 
 b.add_markdown("header", 0, 0, 24, 8, (
     "**Tablespaces: when do they fill up?** Lines left of today are observed "
@@ -61,11 +61,12 @@ def c(panel, name):
 
 # Days-to-full table: latest fit per (db, tablespace).
 p = "dtf"
-db, ser = c(p, "db"), c(p, "series")
+tgt, db, ser = c(p, "target"), c(p, "db"), c(p, "series")
 pct, used, lim, slope = c(p, "pct"), c(p, "used"), c(p, "limit"), c(p, "slope")
 dtf, lo, hi = c(p, "dtf"), c(p, "dtf-lo"), c(p, "dtf-hi")
 r2, qual, sev = c(p, "r2"), c(p, "quality"), c(p, "sev")
 cols = {
+    tgt: col_target(),
     db: col_terms("cap.db", "Database", None, size=200),
     ser: col_terms("cap.series", "Tablespace", None, size=500),
     sev: col_last_value("cap.sev", "Sev", data_type="string"),
@@ -79,11 +80,11 @@ cols = {
     r2: col_last_value("cap.r2", "R²", fmt=fmt_number(2)),
     qual: col_last_value("cap.quality", "Fit quality", data_type="string"),
 }
-order = [db, ser, sev, pct, used, lim, slope, dtf, lo, hi, r2, qual]
+order = [tgt, db, ser, sev, pct, used, lim, slope, dtf, lo, hi, r2, qual]
 b.add_lens("dtf-table", "Days to full (latest fit per tablespace, soonest first)",
            0, 8, 48, 12, "lnsDatatable",
            table_state(order, dtf, direction="asc", page_size=10, overrides={
-               db: {"width": 190}, ser: {"width": 190},
+               tgt: {"width": 130}, db: {"width": 190}, ser: {"width": 190},
                pct: cell_colors(col_palette_steps(90, 97)),
                dtf: cell_colors(col_palette_steps(30, 90, (RED, AMBER, GREEN))),
            }),

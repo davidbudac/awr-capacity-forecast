@@ -76,7 +76,10 @@ import() {
   echo "imported $(basename "$file")"
 }
 
+# Kibana 9.4 serves the settings route to internal callers only (400 "not
+# available with the current configuration" without the origin header).
 out="$(curl -sS -u "$KIBANA_USER:$KIBANA_PASSWORD" -H 'kbn-xsrf: true' \
+  -H 'x-elastic-internal-origin: kibana' \
   -H 'Content-Type: application/json' -X POST "$KIBANA_URL/api/kibana/settings" \
   --data-binary '{"changes":{"dateFormat:tz":"UTC"}}')"
 if ! grep -q '"dateFormat:tz":{[^}]*"userValue":"UTC"' <<<"$out"; then
@@ -91,6 +94,6 @@ for f in "$here"/dashboards/*.ndjson; do
 done
 
 for id in awrcap-dashboard-tablespaces awrcap-dashboard-cpu-series \
-          awrcap-dashboard-fleet-anomalies; do
+          awrcap-dashboard-fleet-anomalies awrcap-dashboard-memory; do
   echo "$KIBANA_URL/app/dashboards#/view/$id"
 done

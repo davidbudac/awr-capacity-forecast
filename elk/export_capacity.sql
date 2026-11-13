@@ -1,6 +1,6 @@
 --
 -- elk/export_capacity.sql -- the suite's analytics as NDJSON, one document
--- per line, for elk/ship.sh to bulk-load into the awrcap-capacity index.
+-- per line, for elk/export.sh to hand to Filebeat (index awrcap-capacity).
 -- The document shape is elk/elasticsearch/index-template.json (dynamic:
 -- strict), so every key emitted here must exist there.
 --
@@ -10,7 +10,7 @@
 -- cap_source defaults to <db_name>/<con_name>:<current_schema>.
 --
 -- Read-only: SELECTs only. Every document carries "id" (MD5 of its natural
--- key), which ship.sh moves into _id so re-exports overwrite in place.
+-- key), which Filebeat moves into _id so re-exports overwrite in place.
 --
 SET APPINFO OFF
 SET APPINFO "AWRCAP/elk/export_capacity.sql"
@@ -45,11 +45,16 @@ END;
 /
 
 -- Every SELECT drives from alias t, a CAPR_* view carrying the container
--- labels (db, db_name, con_name) next to dbid/con_dbid.
+-- labels (db, db_name, con_name) next to dbid/con_dbid, and ends in the
+-- join tgt (alias tg), which names the dbid's target.
 -- Timestamps: every day and hour below is the DB wall clock labelled Z (a
 -- label, not a UTC conversion; Kibana runs with dateFormat:tz = UTC, set by
 -- elk/setup.sh). Only exported_at is a true UTC instant.
-DEFINE ident = "'db' VALUE t.db, 'db_name' VALUE t.db_name, 'con_name' VALUE t.con_name, 'dbid' VALUE t.dbid, 'con_dbid' VALUE t.con_dbid, 'source' VALUE :cap_source, 'exported_at' VALUE :exported_at"
+-- target_name is the suite's name of the dbid (one target per dbid): every
+-- FROM ends in the join tgt, and ident names it, so a record type gets the
+-- column by ending its FROM with the same word.
+DEFINE ident = "'db' VALUE t.db, 'db_name' VALUE t.db_name, 'con_name' VALUE t.con_name, 'target_name' VALUE tg.target_name, 'dbid' VALUE t.dbid, 'con_dbid' VALUE t.con_dbid, 'source' VALUE :cap_source, 'exported_at' VALUE :exported_at"
+DEFINE tgt = "LEFT JOIN (SELECT dbid AS tg_dbid, MAX(target_name) AS target_name FROM capr_container GROUP BY dbid) tg ON tg.tg_dbid = t.dbid"
 
 -- The four record types below are straight projections of the CAPR_* point
 -- views (ddl/45, ddl/55), which grafana/ords serves too; the logic lives
@@ -103,7 +108,8 @@ SELECT JSON_OBJECT(
                  ABSENT ON NULL) END FORMAT JSON
              ABSENT ON NULL)
          ABSENT ON NULL RETURNING CLOB)
-FROM   capr_series_points t;
+FROM   capr_series_points t
+&tgt;
 
 -- forecast: CAPR_FORECAST_POINTS (REGR anchors + the ESM point). The ESM
 -- point's horizon_days shrinks as its model ages, so its id hashes the 30-day
@@ -127,7 +133,8 @@ SELECT JSON_OBJECT(
              'quality'      VALUE t.quality
              ABSENT ON NULL)
          ABSENT ON NULL RETURNING CLOB)
-FROM   capr_forecast_points t;
+FROM   capr_forecast_points t
+&tgt;
 
 -- fit: CAPR_FIT, one per series per export day, so days-to-full charts
 -- over time
@@ -160,7 +167,8 @@ SELECT JSON_OBJECT(
                  ABSENT ON NULL) END FORMAT JSON
              ABSENT ON NULL)
          ABSENT ON NULL RETURNING CLOB)
-FROM   capr_fit t;
+FROM   capr_fit t
+&tgt;
 
 -- anomaly: CAPR_ANOMALIES, one per (event, baseline mode). doc_key keys on
 -- kind, series, mode and the event hour; a level shift keys on obs_day (the
@@ -197,7 +205,8 @@ SELECT JSON_OBJECT(
                  ABSENT ON NULL) END FORMAT JSON
              ABSENT ON NULL)
          ABSENT ON NULL RETURNING CLOB)
-FROM   capr_anomalies t;
+FROM   capr_anomalies t
+&tgt;
 
 -- ===================================================================
 -- alert: the pollable CAPR_ALERTS feed, snapshotted per export day; one
@@ -226,6 +235,111 @@ SELECT JSON_OBJECT(
          ABSENT ON NULL RETURNING CLOB)
 FROM  (SELECT a.*, NVL(c.db_pdb, TO_CHAR(a.con_dbid)) AS db, c.db_name, c.con_name
        FROM   capr_alerts a
-       LEFT   JOIN capr_container c ON c.dbid = a.dbid AND c.con_dbid = a.con_dbid) t;
+       LEFT   JOIN capr_container c ON c.dbid = a.dbid AND c.con_dbid = a.con_dbid) t
+&tgt;
 
-UNDEFINE ident
+-- ===================================================================
+-- Memory sizing (M26.4 report views). Instance level: con_dbid = dbid, so
+-- db is the root container's label. cap.kind = MEM. Verdicts and evidence
+-- are stamped with the export day, like fit: a re-export the same day
+-- replaces them and the verdict history stays in the index. Report content
+-- only: nothing here is an alert.
+-- ===================================================================
+-- mem_verdict: CAPR_MEM_VERDICT, one per (dbid, instance, area, export day)
+SELECT JSON_OBJECT(
+         'id' VALUE LOWER(RAWTOHEX(STANDARD_HASH('memv|' || t.dbid || '|' || t.instance_number
+                    || '|' || t.area || '|' || :export_day, 'MD5'))),
+         '@timestamp' VALUE :export_day || 'T00:00:00Z',
+         'cap' VALUE JSON_OBJECT(
+             'record' VALUE 'mem_verdict', 'kind' VALUE 'MEM', 'series' VALUE t.area,
+             &ident,
+             'mem' VALUE JSON_OBJECT(
+                 'instance_number'  VALUE t.instance_number,
+                 'area'             VALUE t.area,
+                 'area_label'       VALUE t.area_label,
+                 'area_rank'        VALUE t.area_rank,
+                 'mem_mode'         VALUE t.mem_mode,
+                 'grade'            VALUE t.grade,
+                 'reason'           VALUE t.reason,
+                 'reason_text'      VALUE t.reason_text,
+                 'actionable'       VALUE CASE t.actionable WHEN 'Y' THEN 'true' WHEN 'N' THEN 'false' END FORMAT JSON,
+                 'current_bytes'    VALUE t.current_bytes,
+                 'suggested_bytes'  VALUE t.suggested_bytes,
+                 'current_size'     VALUE t.current_size,
+                 'suggested_size'   VALUE t.suggested_size,
+                 'change_pct'       VALUE t.change_pct,
+                 'suggested_param'  VALUE t.suggested_param,
+                 'exceeds_host_ram' VALUE CASE t.exceeds_host_ram WHEN 'Y' THEN 'true' WHEN 'N' THEN 'false' END FORMAT JSON,
+                 'exceeds_sga'      VALUE CASE t.exceeds_sga WHEN 'Y' THEN 'true' WHEN 'N' THEN 'false' END FORMAT JSON,
+                 'n_evidence'       VALUE t.n_evidence,
+                 'n_pressure'       VALUE t.n_pressure,
+                 'n_days'           VALUE t.n_days,
+                 'window_start'     VALUE TO_CHAR(t.window_start, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                 'window_end'       VALUE TO_CHAR(t.window_end, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                 'headline'         VALUE t.headline
+                 ABSENT ON NULL)
+             ABSENT ON NULL)
+         ABSENT ON NULL RETURNING CLOB)
+FROM  (SELECT v.*, v.db_pdb AS db, c.db_name, c.con_name
+       FROM   capr_mem_verdict v
+       LEFT   JOIN capr_container c ON c.dbid = v.dbid AND c.con_dbid = v.con_dbid) t
+&tgt;
+
+-- mem_evidence: CAPR_MEM_EVIDENCE, one per (dbid, instance, area, signal,
+-- export day). The measurement uses the shared value / unit / threshold.
+SELECT JSON_OBJECT(
+         'id' VALUE LOWER(RAWTOHEX(STANDARD_HASH('meme|' || t.dbid || '|' || t.instance_number
+                    || '|' || t.area || '|' || t.kind || '|' || t.signal || '|' || :export_day, 'MD5'))),
+         '@timestamp' VALUE :export_day || 'T00:00:00Z',
+         'cap' VALUE JSON_OBJECT(
+             'record' VALUE 'mem_evidence', 'kind' VALUE 'MEM', 'series' VALUE t.area,
+             &ident,
+             'unit'      VALUE t.unit,
+             'value'     VALUE t.value,
+             'threshold' VALUE t.threshold,
+             'mem' VALUE JSON_OBJECT(
+                 'instance_number' VALUE t.instance_number,
+                 'area'            VALUE t.area,
+                 'area_label'      VALUE t.area_label,
+                 'area_rank'       VALUE t.area_rank,
+                 'evidence_kind'   VALUE t.kind,
+                 'signal'          VALUE t.signal,
+                 'direction'       VALUE t.direction,
+                 'observed_at'     VALUE TO_CHAR(t.observed_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                 'evidence_text'   VALUE t.evidence_text
+                 ABSENT ON NULL)
+             ABSENT ON NULL)
+         ABSENT ON NULL RETURNING CLOB)
+FROM  (SELECT e.*, e.db_pdb AS db, c.db_name, c.con_name
+       FROM   capr_mem_evidence e
+       LEFT   JOIN capr_container c ON c.dbid = e.dbid AND c.con_dbid = e.con_dbid) t
+&tgt;
+
+-- mem_component: CAPR_MEM_COMP_POINTS, one per (dbid, instance, SGA
+-- component, day) of the evidence window. value = the size at the day's
+-- last snapshot, in bytes.
+SELECT JSON_OBJECT(
+         'id' VALUE LOWER(RAWTOHEX(STANDARD_HASH('memc|' || t.dbid || '|' || t.instance_number
+                    || '|' || t.component || '|' || TO_CHAR(t.ts, 'YYYY-MM-DD'), 'MD5'))),
+         '@timestamp' VALUE TO_CHAR(t.ts, 'YYYY-MM-DD') || 'T00:00:00Z',
+         'cap' VALUE JSON_OBJECT(
+             'record' VALUE 'mem_component', 'kind' VALUE 'MEM', 'series' VALUE t.component,
+             &ident,
+             'unit'  VALUE 'bytes',
+             'value' VALUE t.bytes,
+             'mem' VALUE JSON_OBJECT(
+                 'instance_number' VALUE t.instance_number,
+                 'component'       VALUE t.component,
+                 'bytes'           VALUE t.bytes,
+                 'min_bytes'       VALUE t.min_bytes,
+                 'max_bytes'       VALUE t.max_bytes,
+                 'ops'             VALUE t.ops
+                 ABSENT ON NULL)
+             ABSENT ON NULL)
+         ABSENT ON NULL RETURNING CLOB)
+FROM  (SELECT p.*, NVL(c.db_pdb, TO_CHAR(p.dbid)) AS db, c.db_name, c.con_name
+       FROM   capr_mem_comp_points p
+       LEFT   JOIN capr_container c ON c.dbid = p.dbid AND c.con_dbid = p.con_dbid) t
+&tgt;
+
+UNDEFINE ident tgt

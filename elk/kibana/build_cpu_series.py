@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generate dashboards/20-cpu-series.ndjson (AWR Capacity - CPU and workload series)."""
 from lens_lib import (
-    AMBER, DASH_CPU, GREEN, PAST, RED, DashboardBuilder, add_alerts_table,
+    AMBER, DASH_CPU, GREEN, PAST, RED, TARGET, DashboardBuilder, add_alerts_table,
     add_nav_panel, cell_colors, col_avg, col_date_histogram, col_last_value,
-    col_max, col_palette_steps, col_static, col_terms, fmt_number,
+    col_max, col_palette_steps, col_static, col_target, col_terms, fmt_number,
     table_state, xy_annotation_layer, xy_data_layer, xy_multi_state, xy_ref_layer,
 )
 
@@ -23,10 +23,10 @@ PCT = fmt_number(1, suffix=" %")
 b = DashboardBuilder(
     "awrcap-cpu-series", DASH_CPU, "AWR Capacity - CPU and workload series",
     "Host CPU against the 80 % saturation line, DB CPU per container with "
-    "level shifts, and sessions / processes / size / redo against their "
-    "limits, each with its forecast.")
+    "level shifts, and sessions / processes / size / redo / I/O against "
+    "their limits, each with its forecast.")
 add_nav_panel(b)
-b.add_controls(["cap.db", "cap.series"])
+b.add_controls([TARGET, "cap.db", "cap.series"])
 
 b.add_markdown("header", 0, 0, 48, 4, (
     "**CPU and workload: how close to the ceiling, and since when?** Solid "
@@ -114,11 +114,12 @@ b.add_lens("dbcpu-xy", "DB CPU % of host per container (red = level shift or ano
 
 def trend_table(p, title, y, h, kind, value_label, value_fmt, dtf_label,
                 with_limit):
-    db, ser = c(p, "db"), c(p, "series")
+    tgt, db, ser = c(p, "target"), c(p, "db"), c(p, "series")
     sev, cur, lim, pct = c(p, "sev"), c(p, "value"), c(p, "limit"), c(p, "pct")
     slope, r2, qual = c(p, "slope"), c(p, "r2"), c(p, "quality")
     dtf, lo, hi = c(p, "dtf"), c(p, "dtf-lo"), c(p, "dtf-hi")
     cols = {
+        tgt: col_target(),
         db: col_terms("cap.db", "Database", None, size=200),
         ser: col_terms("cap.series", "Series", None, size=50),
         sev: col_last_value("cap.sev", "Sev", data_type="string"),
@@ -131,7 +132,7 @@ def trend_table(p, title, y, h, kind, value_label, value_fmt, dtf_label,
         r2: col_last_value("cap.r2", "R²", fmt=fmt_number(2)),
         qual: col_last_value("cap.quality", "Fit quality", data_type="string"),
     }
-    order = [db, ser, sev, cur]
+    order = [tgt, db, ser, sev, cur]
     overrides = {dtf: cell_colors(col_palette_steps(30, 90, (RED, AMBER, GREEN)))}
     if with_limit:
         cols[lim] = col_last_value("cap.limit", "Limit", fmt=fmt_number(0))
@@ -139,7 +140,8 @@ def trend_table(p, title, y, h, kind, value_label, value_fmt, dtf_label,
         order += [lim, pct]
         overrides[pct] = cell_colors(col_palette_steps(90, 97))
     order += [slope, dtf, lo, hi, r2, qual]
-    overrides.update({db: {"width": 190}, ser: {"width": 150}})
+    overrides.update({tgt: {"width": 130}, db: {"width": 190},
+                      ser: {"width": 150}})
     b.add_lens(f"{p}-table", title, 0, y, 48, h, "lnsDatatable",
                table_state(order, dtf, direction="asc", page_size=8,
                            overrides=overrides),
@@ -182,11 +184,17 @@ workload_xy("sessions", "Sessions vs limit, with forecast", 0, 30, "SESSIONS", C
 workload_xy("processes", "Processes vs limit, with forecast", 24, 30, "PROCESSES", COUNT)
 workload_xy("dbsize", "Database size (GB), with forecast", 0, 43, "DB_SIZE_GB", GB)
 workload_xy("redo", "Redo per day (GB), with forecast", 24, 43, "REDO_GB_DAY", GB)
+# I/O (M27): the day's p95 of the per-snapshot rates. No limit, so no limit
+# line and no days-to-limit.
+workload_xy("iops", "I/O requests per second (daily p95), with forecast",
+            0, 56, "IOPS", fmt_number(0, suffix=" /s"))
+workload_xy("iombps", "I/O throughput MB per second (daily p95), with forecast",
+            24, 56, "IO_MBPS", fmt_number(1, suffix=" MB/s"))
 
 trend_table("seriestrend", "Workload series (latest fit, soonest limit first)",
-            56, 13, "SERIES", "Current", fmt_number(1), "Days to limit", True)
+            69, 13, "SERIES", "Current", fmt_number(1), "Days to limit", True)
 add_alerts_table(
-    b, "alerts", "CPU and series alerts (latest export)", 0, 69, 48, 12,
+    b, "alerts", "CPU and series alerts (latest export)", 0, 82, 48, 12,
     "cap.alert_kind:(CPU_SAT or DBCPU_SAT or CPU_ANOM or DBCPU_ANOM or "
     "CPU_SHIFT or SERIES_LIMIT or SERIES_NEARLIMIT or SERIES_ANOM)")
 

@@ -1,12 +1,15 @@
 {
   "_meta": {
-    "description": "awrcap-capacity: one plain index (not a data stream) holding every record the AWR capacity suite exports for Kibana. Plain so that deterministic _ids can be re-indexed (overwritten) on every export run; volume is tiny (days x series). host.name and labels.* are stamped by Filebeat on the DB host; everything else comes from elk/export_capacity.sql. Timestamps: every day and hour is the database's wall clock labelled Z (a label, not a UTC conversion); set Kibana dateFormat:tz to UTC (elk/setup.sh does) so they display as the DB clock. cap.exported_at alone is a true UTC instant.",
+    "description": "awrcap-capacity: one plain index (not a data stream) holding every record the AWR capacity suite exports for Kibana. Plain so that deterministic _ids can be re-indexed (overwritten) on every export run; volume is tiny (days x series). host.name and labels.* are stamped by Filebeat on the DB host; everything else comes from elk/export_capacity.sql. cap.target_name is the suite's target name of the dbid (CAPR_CONTAINER.target_name), on every record. Timestamps: every day and hour is the database's wall clock labelled Z (a label, not a UTC conversion); set Kibana dateFormat:tz to UTC (elk/setup.sh does) so they display as the DB clock. cap.exported_at alone is a true UTC instant.",
     "records": {
       "observation": "one per (container, series, day): the observed daily value, with cap.anomaly=true when any baseline mode flagged that day (cap.anomaly_modes lists them; cap.hours_flagged counts the HOUR_OF_WEEK hours flagged that day). @timestamp = the day.",
-      "forecast": "one per (container, series, method, horizon): REGR anchors at 0/30/90/180(/365) and the ESM +30 point, each with its band. @timestamp = last observed day + horizon. Overwritten on each run; stale target days are deleted by ship.sh.",
+      "forecast": "one per (container, series, method, horizon): REGR anchors at 0/30/90/180(/365) and the ESM +30 point, each with its band. @timestamp = last observed day + horizon. Overwritten on each run.",
       "fit": "one per (container, series, export day): slope, r2, quality, days-to-full/limit/saturation with bounds, severity. @timestamp = export day, so days_to_full can itself be charted over time.",
       "anomaly": "one per flagged event and baseline mode: tablespace growth, host CPU, DB CPU, workload series level/growth outlier (cap.baseline_mode TRAILING / SAME_DOW / HOUR_OF_WEEK, cap.grain DAY / HOUR), or a DB CPU level shift (no baseline_mode). The id keys on kind, series, mode and hour. @timestamp = the event day or hour (shift: first day of the recent window); cap.obs_day = the day (shift: last day of the window).",
-      "alert": "one per CAPR_ALERTS row per export day (anomaly kinds: one per series, day and baseline mode). @timestamp = export day; cap.obs_day = the day the alert refers to."
+      "alert": "one per CAPR_ALERTS row per export day (anomaly kinds: one per series, day and baseline mode). @timestamp = export day; cap.obs_day = the day the alert refers to.",
+      "mem_verdict": "one per (database, instance, memory area, export day): CAPR_MEM_VERDICT. cap.kind = MEM, cap.series = the area; grade, reason, sizes and the headline sentence under cap.mem. @timestamp = export day, so the verdict history charts over time. Never an alert.",
+      "mem_evidence": "one per (database, instance, area, signal, export day): CAPR_MEM_EVIDENCE, the signals behind a verdict. cap.value / cap.unit / cap.threshold hold the measurement; kind, signal, direction and the sentence are under cap.mem. @timestamp = export day.",
+      "mem_component": "one per (database, instance, SGA component, day) of the evidence window: CAPR_MEM_COMP_POINTS. cap.series = the component; cap.mem.bytes is the size at the day's last snapshot. @timestamp = the day."
     },
     "managed_by": "awr-capacity-forecast/elk"
   },
@@ -45,6 +48,9 @@
               "type": "keyword"
             },
             "con_name": {
+              "type": "keyword"
+            },
+            "target_name": {
               "type": "keyword"
             },
             "dbid": {
@@ -235,6 +241,127 @@
                 },
                 "db_cpu_per_core": {
                   "type": "double"
+                }
+              }
+            },
+            "mem": {
+              "properties": {
+                "instance_number": {
+                  "type": "integer"
+                },
+                "area": {
+                  "type": "keyword"
+                },
+                "area_label": {
+                  "type": "keyword"
+                },
+                "area_rank": {
+                  "type": "integer"
+                },
+                "mem_mode": {
+                  "type": "keyword"
+                },
+                "grade": {
+                  "type": "keyword"
+                },
+                "reason": {
+                  "type": "keyword"
+                },
+                "reason_text": {
+                  "type": "text",
+                  "fields": {
+                    "keyword": {
+                      "type": "keyword",
+                      "ignore_above": 1024
+                    }
+                  }
+                },
+                "actionable": {
+                  "type": "boolean"
+                },
+                "current_bytes": {
+                  "type": "double"
+                },
+                "suggested_bytes": {
+                  "type": "double"
+                },
+                "current_size": {
+                  "type": "keyword"
+                },
+                "suggested_size": {
+                  "type": "keyword"
+                },
+                "change_pct": {
+                  "type": "double"
+                },
+                "suggested_param": {
+                  "type": "keyword"
+                },
+                "exceeds_host_ram": {
+                  "type": "boolean"
+                },
+                "exceeds_sga": {
+                  "type": "boolean"
+                },
+                "n_evidence": {
+                  "type": "integer"
+                },
+                "n_pressure": {
+                  "type": "integer"
+                },
+                "n_days": {
+                  "type": "integer"
+                },
+                "window_start": {
+                  "type": "date"
+                },
+                "window_end": {
+                  "type": "date"
+                },
+                "headline": {
+                  "type": "text",
+                  "fields": {
+                    "keyword": {
+                      "type": "keyword",
+                      "ignore_above": 1024
+                    }
+                  }
+                },
+                "evidence_kind": {
+                  "type": "keyword"
+                },
+                "signal": {
+                  "type": "keyword"
+                },
+                "direction": {
+                  "type": "keyword"
+                },
+                "observed_at": {
+                  "type": "date"
+                },
+                "evidence_text": {
+                  "type": "text",
+                  "fields": {
+                    "keyword": {
+                      "type": "keyword",
+                      "ignore_above": 1024
+                    }
+                  }
+                },
+                "component": {
+                  "type": "keyword"
+                },
+                "bytes": {
+                  "type": "double"
+                },
+                "min_bytes": {
+                  "type": "double"
+                },
+                "max_bytes": {
+                  "type": "double"
+                },
+                "ops": {
+                  "type": "integer"
                 }
               }
             }
