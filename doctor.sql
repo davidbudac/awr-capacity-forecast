@@ -891,7 +891,12 @@ BEGIN
                              || ' If the reader lacks the grant, re-run target/prepare.sql there');
                     END IF;
                 EXCEPTION
-                    WHEN OTHERS THEN emit('WARN', 'disk ' || v_tag, 'cannot read CAP_H_TBSPC_LIVE: ' || err);
+                    -- ORA-00942: an install from before the live source, about
+                    -- to be upgraded. Nothing to say yet.
+                    WHEN OTHERS THEN
+                        IF SQLCODE <> -942 THEN
+                            emit('WARN', 'disk ' || v_tag, 'cannot read CAP_H_TBSPC_LIVE: ' || err);
+                        END IF;
                 END;
 
                 BEGIN
