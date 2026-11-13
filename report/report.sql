@@ -2,8 +2,9 @@
 -- report/report.sql -- read-only text capacity report.
 -- =====================================================================
 -- Spools a plain-text capacity + anomaly report from the CAPF_/CAPA_ views,
--- the instance memory sizing verdicts (section 8) and the forecast track
--- record of the stored refresh runs (section 9), to
+-- the instance memory sizing verdicts (section 8), the forecast track
+-- record of the stored refresh runs (section 9) and the tablespace families
+-- (section 10, only when the scope holds one), to
 -- reports/cap_report_<db>_<ts>.txt. READ-ONLY: only SELECTs (the CAPF_ESM
 -- views call a pipelined function, which writes nothing). Creates/modifies no
 -- database object.
@@ -252,12 +253,12 @@ SELECT CASE WHEN UPPER('&show_esm') = 'N'
        END AS esm_file
 FROM   dual;
 
--- Section 9 dispatch: the tablespace family section only when the scope
+-- Section 10 dispatch: the tablespace family section only when the scope
 -- holds a family. The DEFINE keeps a failing lookup from prompting.
-DEFINE fam_file = 'report/sections/09_family_skip.sql'
+DEFINE fam_file = 'report/sections/10_family_skip.sql'
 COLUMN fam_file NEW_VALUE fam_file NOPRINT
-SELECT CASE WHEN COUNT(*) > 0 THEN 'report/sections/09_tbspc_family.sql'
-            ELSE 'report/sections/09_family_skip.sql'
+SELECT CASE WHEN COUNT(*) > 0 THEN 'report/sections/10_tbspc_family.sql'
+            ELSE 'report/sections/10_family_skip.sql'
        END AS fam_file
 FROM   capr_tbspc_family&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)

@@ -174,7 +174,7 @@ every new number (see `test/run_test.sql`).
       member's `expected_final_bytes` / `_hi_bytes` at the end of its period
       against its ceiling. One alert kind, `TBSPC_FAMILY` (WARN, keyed on the
       family). `CAPR_TBSPC_FAMILY` / `CAPR_TBSPC_FAMILY_MEMBERS` (snapshot
-      registry), text section 9, an HTML section, briefing lines and two CSV
+      registry), text section 10, an HTML section, briefing lines and two CSV
       files. Fixture `FIXM_#` / `FIXY_#` / the `FIXP` pair. Not built: holding
       back `TBSPC_FULL` for a filling member that fits, purges inside a
       member's window, the standalone mirror, the dashboards.

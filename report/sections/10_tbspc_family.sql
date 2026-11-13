@@ -1,12 +1,12 @@
 --
--- 09_tbspc_family.sql -- tablespace families (ddl/32).
+-- 10_tbspc_family.sql -- tablespace families (ddl/32).
 -- FORMAT ONLY (M8.2 convention): every number, label and state comes from
--- CAPR_TBSPC_FAMILY (9) and CAPR_TBSPC_FAMILY_MEMBERS (9b). report.sql
--- includes this file only when the scope holds a family (09_family_skip.sql
+-- CAPR_TBSPC_FAMILY (10) and CAPR_TBSPC_FAMILY_MEMBERS (10b). report.sql
+-- includes this file only when the scope holds a family (10_family_skip.sql
 -- otherwise, which prints nothing).
 --
 PROMPT
-PROMPT == 9. TABLESPACE FAMILIES (one tablespace per period, judged as a group) ==
+PROMPT == 10. TABLESPACE FAMILIES (one tablespace per period, judged as a group) ==
 PROMPT    A family is the tablespaces of one container whose names differ only in a period token
 PROMPT    (SALES_202601, SALES_202602 .. = SALES_#), or the members CAP_TBSPC_FAMILY names.
 PROMPT    MEMBERS = D done / F filling / E empty. NEXT GIB: the size the next member needs, from the
@@ -54,7 +54,7 @@ WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
 ORDER  BY dbid, rank_family;
 
 PROMPT
-PROMPT == 9b. FAMILY MEMBERS (oldest period first) ==
+PROMPT == 10b. FAMILY MEMBERS (oldest period first) ==
 PROMPT     STATE: FILLING = the newest member that grows. DONE = an older one, or growth stopped.
 PROMPT     EMPTY = created ahead, no growth yet. FINAL GIB: a DONE member's largest size in the fit
 PROMPT     window. FILL DAYS / FROM / TO: its growth days, where the window shows the beginning.
