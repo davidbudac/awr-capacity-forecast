@@ -982,6 +982,80 @@
         can't extend). Rows survive <span class="inline">@install.sql</span>; only
         <span class="inline">@uninstall.sql</span> removes them.</p>
 
+      <!-- ===================== FAMILIES ===================== -->
+      <div class="section-head" id="families">
+        <h2>Tablespace families</h2>
+        <p>One tablespace per month, quarter or year, judged as a group.</p>
+      </div>
+      <p>A database that keeps one tablespace per period fills each member during its period and then
+        leaves it alone. A straight line per tablespace says little there: the member that fills now
+        gets a full date past the end of its period, and nothing says how big the next one has to be.
+        <span class="inline">ddl/32_tbspc_family.sql</span> groups such tablespaces into a
+        <b>family</b> and answers both questions.</p>
+      <h3>Membership</h3>
+      <p>With <span class="inline">family_auto</span> = 1 the suite reads the first period token in a
+        tablespace name. The family name is the name with the token replaced by <code>#</code>:
+        <code>SALES_202601</code> and <code>SALES_202602</code> are members of <code>SALES_#</code>.
+        Tablespaces of one container with the same family name form a family when at least
+        <span class="inline">family_min_members</span> (3) of them exist. Only a current tablespace
+        counts (inside <span class="inline">stale_days</span>): a dropped member leaves the family.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Token</th><th>Period</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td><code>YYYYMM</code>, <code>YYYY_MM</code></td><td class="def">month</td><td class="def"><code>SALES_202601</code>, <code>SALES_2026_01</code></td></tr>
+            <tr><td><code>YYYYQn</code>, <code>YYYY_Qn</code></td><td class="def">quarter</td><td class="def"><code>FACT_2026Q1</code></td></tr>
+            <tr><td><code>MONYY</code>, <code>MONYYYY</code>, <code>MON_YY</code>, <code>MON_YYYY</code></td><td class="def">month (<code>JAN</code> to <code>DEC</code>, <code>YY</code> read as 20YY)</td><td class="def"><code>LOG_JAN26</code>, <code>LOG_JAN_2026</code></td></tr>
+            <tr><td><code>YYYYMON</code>, <code>YYYY_MON</code></td><td class="def">month</td><td class="def"><code>LOG_2026JAN</code></td></tr>
+            <tr><td><code>YYYY</code></td><td class="def">year</td><td class="def"><code>ARCH_2026</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The rules are tried in that order. <code>YYYY</code> is 1900 to 2099. A numeric token must not
+        touch another digit and a month name must not touch another letter, so
+        <code>DATA_20260115</code> (a day) carries no token. <code>YYMM</code> and <code>MMYYYY</code>
+        are not read: four or six digits that do not start with 19 or 20 are ambiguous. For those, and
+        for families whose names carry no period at all, add rows to
+        <span class="inline">CAP_TBSPC_FAMILY</span>: a regular expression on the tablespace name with
+        the family it belongs to, or with <code>exclude_flag = 'Y'</code> to keep a tablespace out.
+        The most specific matching row decides alone (a real <code>dbid</code> first, then a real
+        <code>con_dbid</code>, then the expression that sorts first), and a family with an operator
+        member needs no minimum. <a href="usage.html#families">Usage</a> has the statements.</p>
+      <h3>Members</h3>
+      <p>A family is ordered by the period its tokens name. Growth is the fit's notion
+        (<a href="#quality">STOP / START</a>): a growth day is a new high of the member's last
+        <span class="inline">train_days</span> days.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><span class="k">FILLING</span></td><td class="def">The newest member with a growth day in the window, unless its fit says growth stopped (<code>restart_reason = 'STOP'</code>). At most one per family.</td></tr>
+            <tr><td><span class="k">DONE</span></td><td class="def">Every member before it, as soon as the successor grows, and the newest grown member once its growth stopped. <code>final_bytes</code> is its largest used size in the window, also when it was compressed afterwards.</td></tr>
+            <tr><td><span class="k">EMPTY</span></td><td class="def">A member after the newest grown one: created ahead, no growth yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>The two answers</h3>
+      <p><b>How big the next member has to be.</b> <span class="inline">next_member_bytes</span> is the
+        median of the final sizes of the newest <span class="inline">family_recent_members</span> (6)
+        DONE members, <span class="inline">next_member_hi_bytes</span> their maximum, the cautious
+        value. When the finals rise or fall from member to member and that trend is significant
+        (three members or more, slope outside its 95% interval), each final is first carried along
+        the trend to the next member's position. A falling trend never lowers the cautious value.</p>
+      <p><b>Whether the filling member fits.</b> Its period is as long as the calendar period of its
+        token and is counted from its first growth day, so a family whose members fill a month late
+        is still right. A member that grew into the window (a yearly one) ends with its calendar
+        period. For the days left it grows at its own rate, the average since it began, and never
+        slower than the DONE members filled on average:</p>
+<pre>expected_final    = cur_used + GREATEST(own rate, next_member    / period_days) x days_left
+expected_final_hi = cur_used + GREATEST(own rate, next_member_hi / period_days) x days_left</pre>
+      <p>When <span class="inline">expected_final_hi_bytes</span> is above the member's ceiling the
+        family raises one alert, <code>TBSPC_FAMILY</code> (WARN). Its key is the family, so next
+        month's member continues the same alert. The family alert speaks from the first growth day,
+        when the member's own fit still reads <code>LOW_CONFIDENCE</code>. Not covered: a
+        <code>TBSPC_FULL</code> of the filling member is not held back when the family says it fits,
+        and a purge inside a member's window is not treated.</p>
+
       <!-- ===================== INTEGRATION ===================== -->
       <div class="section-head" id="integration">
         <h2>The integration layer</h2>
@@ -1148,6 +1222,7 @@
           <tbody>
             <tr><td><span class="kt">CAP_CONFIG</span></td><td>Tuning knobs (name/value), MERGE-seeded</td><td><span class="pill ok">yes</span>: the MERGE inserts missing keys and never overwrites <code>cfg_value</code> (except <code>suite_version</code>)</td></tr>
             <tr><td><span class="kt">CAP_TBSPC_OVERRIDE</span></td><td>Operator tablespace ceilings, exclusions and alert thresholds</td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves it</td></tr>
+            <tr><td><span class="kt">CAP_TBSPC_FAMILY</span></td><td>Operator rows for <a href="#families">tablespace families</a>: add a member, rename a family, exclude a tablespace</td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves it</td></tr>
             <tr><td><span class="kt">CAP_ML_MODEL</span></td><td>Tier 2 model registry (type, selection, holdout scores, status)</td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves it</td></tr>
             <tr><td><span class="kt">CAP_RUN</span> · <span class="kt">CAP_FIT_HIST</span> · <span class="kt">CAP_ALERT_STATE</span> · <span class="kt">CAP_ALERT_EVENT</span></td><td>Results layer: refresh runs, fits per run, one state per alert (with acks) and its change events. Written only by <code>cap_results</code></td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves them</td></tr>
             <tr><td><span class="kt">CAP_TARGET</span> · <span class="kt">CAP_TARGET_DBID</span> · <span class="kt">CAP_COLLECT_LOG</span> · <span class="kt">CAP_H_*</span></td><td>Repository: registered targets, their DBIDs, the collect log and the copies of each target's AWR (kept <code>repo_retention_days</code>, 400). Written only by <code>cap_repo</code></td><td><span class="pill ok">yes</span>: <code>00_drop</code> leaves them; copies cannot be re-pulled once the target's AWR has aged out</td></tr>

@@ -321,6 +321,15 @@
             <tr><td class="def">32</td><td><code>FIX_STARTED</code></td>
                 <td>flat at 1&nbsp;GiB until day&nbsp;95, then 16&nbsp;MiB/day</td>
                 <td><code>restart_reason = START</code>, <code>restart_day</code> = day&nbsp;95, <code>train_n = 26</code>, exactly 16&nbsp;MiB/day, OK, <code>days_to_full = 200</code>. With <code>quiet_days = 0</code>: 3.1&nbsp;MiB/day, <code>LOW_CONFIDENCE</code></td></tr>
+            <tr><td class="def">40&ndash;45</td><td><code>FIXM_202307</code> .. <code>FIXM_202312</code></td>
+                <td>a monthly <a href="concepts.html#families">tablespace family</a>: two flat members (811 and 1036&nbsp;MiB), one filled 40&nbsp;MiB/day on days&nbsp;50&ndash;79 (1201&nbsp;MiB), one 45&nbsp;MiB/day on days&nbsp;80&ndash;110 (1396&nbsp;MiB), <code>FIXM_202311</code> filling 53&nbsp;MiB/day from day&nbsp;111 (531 of 1600&nbsp;MiB), <code>FIXM_202312</code> empty</td>
+                <td>family <code>FIXM_#</code>: four DONE, one FILLING, one EMPTY. The finals rise 192&nbsp;MiB a member: <code>next_member_bytes</code> 1586.5&nbsp;MiB, cautious 1612&nbsp;MiB. 20 days left: expected final 1591&nbsp;MiB (its own rate), cautious 1605.67&nbsp;MiB (the family rate), over the ceiling: the one <code>TBSPC_FAMILY</code> WARN. Its own fit is <code>LOW_CONFIDENCE</code>, so no <code>TBSPC_FULL</code></td></tr>
+            <tr><td class="def">46&ndash;48</td><td><code>FIXY_2023</code>, <code>FIXY_2024</code>, <code>FIXY_&lt;load year&gt;</code></td>
+                <td>a yearly family: two flat members (600 and 500&nbsp;MiB) and one that grows 8&nbsp;MiB/day over the whole spine</td>
+                <td>family <code>FIXY_#</code>: the filling member grew into the window, so its period ends on 31&nbsp;December and its rate is the fit's slope. Next member 550&nbsp;MiB, no trend. Fits, no alert</td></tr>
+            <tr><td class="def">49&ndash;50</td><td><code>FIXP_2024Q1</code>, <code>FIXP_2024Q2</code></td>
+                <td>two flat look-alikes, 300&nbsp;MiB each</td>
+                <td>under <code>family_min_members</code>: no family. With the knob at 2, or a <code>CAP_TBSPC_FAMILY</code> row, a quarterly family of two</td></tr>
           </tbody>
         </table>
       </div>

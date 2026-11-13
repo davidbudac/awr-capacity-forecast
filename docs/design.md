@@ -22,7 +22,7 @@ topic.
 - **Idempotent, non-destructive re-install.** The persisted tables are
   created only if absent (the config seed MERGE adds missing keys), and
   `00_drop` deliberately does *not* drop them: operator tables
-  (`CAP_CONFIG`, `CAP_TBSPC_OVERRIDE`) and derived ones (`CAP_ML_MODEL`, and
+  (`CAP_CONFIG`, `CAP_TBSPC_OVERRIDE`, `CAP_TBSPC_FAMILY`) and derived ones (`CAP_ML_MODEL`, and
   the results layer's `CAP_RUN`, `CAP_FIT_HIST`, `CAP_ALERT_STATE`,
   `CAP_ALERT_EVENT`) all survive `@install.sql`. Operator tables are state
   nobody can recompute; derived tables are a cache the live views never
@@ -869,6 +869,50 @@ Ordinary least squares via `REGR_*` over `day_n = day_dt − DATE '2020-01-01'`
     series have `NEARFULL` / `NEARLIMIT` for this). `CPU_HOT` / `DBCPU_HOT`
     page on it at any fit quality (Layer 6).
 
+## Layer 3c: tablespace families (ddl/32)
+
+A database with one tablespace per month fills each member during its month
+and then leaves it alone. The per-tablespace line of Layer 3 is the wrong
+model for both questions such a layout raises: whether the member that fills
+now fits under its ceiling, and how big the next one has to be. `ddl/32`
+answers them from the group. Its header holds every formula. The decisions:
+
+- **A separate file that reads the fit.** `CAPF_TBSPC_FORECAST` is not
+  changed. The family views take from it the `STOP` verdict, the slope, the
+  current size and the ceiling, and compute their own growth days over the
+  same window with the same rule.
+- **Membership by name, corrected by the operator.** The period token in the
+  name (the `pat` rows of `CAPD_TBSPC_FAMILY`) forms families without any
+  setup. Tokens that are ambiguous (`YYMM`, `MMYYYY`) are not read.
+  `CAP_TBSPC_FAMILY` rows add, rename or exclude by regular expression. A
+  check constraint evaluates the expression at `INSERT`: an invalid one in a
+  view would raise in every report and in `cap_results.refresh`.
+- **Only current tablespaces are members.** A dropped member may have been
+  emptied before the drop, so its last size says nothing about what it
+  needed.
+- **A member is DONE when its successor grows.** Waiting for the fit's
+  `STOP` (`quiet_days`, 14) would leave last month's member "growing" for
+  two weeks of every month.
+- **The final size is the window's maximum**, not the current size: a member
+  that is compressed after its period still needed its peak.
+- **The period is counted from the first growth day** and is as long as the
+  token's calendar period. A family that loads October's data in November is
+  then still right. A member that grew into the window has no first growth
+  day, so its period ends with the calendar.
+- **The filling member never grows slower than the family did.** Early in a
+  period its own rate rests on a few days. `expected_final_bytes` uses the
+  larger of its own rate and the next member's size per period day, and the
+  cautious value uses the cautious size. The alert is judged on the cautious
+  value, so it can speak on the first growth day, while the member's own fit
+  is still `LOW_CONFIDENCE` and raises no `TBSPC_FULL`.
+- **One alert per family, keyed on the family name.** Next period's member
+  continues the same `state_key`, with its acknowledgement.
+- **Not built.** `TBSPC_FULL` is not held back for a filling member whose
+  family says it fits (the line of a member that fills 60% of its ceiling
+  each period crosses the ceiling inside `dtf_crit` mid-period). A purge
+  inside a member's window is not treated. The standalone queries have no
+  family logic.
+
 ## Layer 2b / 3b — fixed-ceiling series (M11)
 
 More series share one property with tablespaces: a value approaching a
@@ -1677,7 +1721,9 @@ M8.2, for the bundled reports themselves:
   `threshold` (+ `unit`), a ready-to-page `message`, `baseline_mode` (anomaly
   kinds only), `alert_key` and, appended, `state_key`, `direction`,
   `alarm_threshold` and `is_current`. The kinds: the eight forecast kinds
-  above (every non-OK `CAPR_SEVERITY` row), `CPU_SHIFT` (UP = WARN, DOWN =
+  above (every non-OK `CAPR_SEVERITY` row), `TBSPC_FAMILY` (Layer 3c: one
+  WARN per tablespace family whose filling member may end its period above
+  its ceiling, keyed on the family name), `CPU_SHIFT` (UP = WARN, DOWN =
   INFO), `DATA_STALE` (one WARN per dbid from `CAPR_FRESHNESS`, except a
   dbid `data_stale_max_days` (14) or more old: that one is retired, an
   imported or decommissioned DBID, and shows in `CAPR_COVERAGE` instead of

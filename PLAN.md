@@ -158,6 +158,26 @@ every new number (see `test/run_test.sql`).
       `restart_reason` / `restart_day` on `CAPF_TBSPC_FORECAST`, `CAPR_FIT`,
       `CAPR_TBSPC_FORECAST`, `CAPR_TBSPC_DAYS_TO_FULL` and `CAP_FIT_HIST`, shown
       in the text, HTML, briefing and CSV reports. Not in the dashboards yet.
+- [x] **M9.7 Tablespace families (2026-11).** Done: `ddl/32_tbspc_family.sql`,
+      loaded after ddl/30 and reading it. Tablespaces of one container whose
+      names differ only in a period token (YYYYMM, YYYY_MM, YYYYQn, MONYY,
+      MONYYYY, YYYYMON, YYYY) form a family (`SALES_#`), from
+      `family_min_members` (3) members on. Knob `family_auto` (1, 0 = operator
+      rows only). `CAP_TBSPC_FAMILY` (persisted like the override table:
+      `name_regex`, `family_name`, `exclude_flag`, dbid / con_dbid wildcards,
+      most specific row wins) adds, renames or excludes. Views
+      `CAPD_TBSPC_FAMILY` (membership), `CAPD_TBSPC_FAMILY_DAILY` (total per
+      day), `CAPF_TBSPC_FAMILY_MEMBER` (state FILLING / DONE / EMPTY, final
+      size, fill days) and `CAPF_TBSPC_FAMILY`: `next_member_bytes` /
+      `_hi_bytes` (median / maximum of the newest `family_recent_members`, 6,
+      DONE finals, carried along a significant trend) and the filling
+      member's `expected_final_bytes` / `_hi_bytes` at the end of its period
+      against its ceiling. One alert kind, `TBSPC_FAMILY` (WARN, keyed on the
+      family). `CAPR_TBSPC_FAMILY` / `CAPR_TBSPC_FAMILY_MEMBERS` (snapshot
+      registry), text section 9, an HTML section, briefing lines and two CSV
+      files. Fixture `FIXM_#` / `FIXY_#` / the `FIXP` pair. Not built: holding
+      back `TBSPC_FULL` for a filling member that fits, purges inside a
+      member's window, the standalone mirror, the dashboards.
 - [x] **M9.5 Tablespace limit overrides / exclusions.** Done:
       `CAP_TBSPC_OVERRIDE (dbid, con_dbid, tablespace_name, limit_bytes,
       exclude_flag, note)` — the THIRD persisted table (created idempotently in

@@ -8,8 +8,8 @@ for making changes safely.
 ## Golden rules
 
 - **Read-only against AWR.** The suite writes only to `CAP_*` tables it owns
-  (and its OML models): the operator tables `CAP_CONFIG` / `CAP_TBSPC_OVERRIDE`,
-  the Tier 2 registry `CAP_ML_MODEL` (written by `cap_forecast_ml`) and the
+  (and its OML models): the operator tables `CAP_CONFIG` / `CAP_TBSPC_OVERRIDE`
+  / `CAP_TBSPC_FAMILY`, the Tier 2 registry `CAP_ML_MODEL` (written by `cap_forecast_ml`) and the
   results layer `CAP_RUN` / `CAP_FIT_HIST` / `CAP_ALERT_STATE` /
   `CAP_ALERT_EVENT` (written only by `cap_results`). The reports and every
   `CAPV/CAPD/CAPF/CAPA/CAPM/CAPR` view only SELECT. In repository mode
@@ -92,22 +92,24 @@ for making changes safely.
   cfg_default`. The one exception is `suite_version`, overwritten by every
   install (bump it in the MERGE and in its `CAP_CFG_CHECK` rule together).
   `CAP_CFG_CHECK` reports each knob OK / MISSING / BAD with a reason.
-- **Persisted tables survive a re-install:** `CAP_CONFIG` and
-  `CAP_TBSPC_OVERRIDE` (ddl/05), `CAP_ML_MODEL` (ddl/50), `CAP_RUN`,
+- **Persisted tables survive a re-install:** `CAP_CONFIG`,
+  `CAP_TBSPC_OVERRIDE` and `CAP_TBSPC_FAMILY` (ddl/05), `CAP_ML_MODEL` (ddl/50), `CAP_RUN`,
   `CAP_FIT_HIST`, `CAP_ALERT_STATE`, `CAP_ALERT_EVENT` (ddl/60), and in
   repository mode `CAP_TARGET`, `CAP_TARGET_DBID`, `CAP_COLLECT_LOG`
   (repository/cap_repo.sql) and the `CAP_H_*` copies (ddl/13), which cannot
   be re-pulled once a target's AWR has aged out. Each is created
   idempotently, NOT dropped by `ddl/00_drop.sql`, dropped only by
   `uninstall.sql` (which first spools the knobs off their default and the
-  override rows to `reports/cap_config_replay_<schema>_<ts>.sql`, to run in
+  override and family rows to `reports/cap_config_replay_<schema>_<ts>.sql`, to run in
   the new owner after the next install, M25.6, then drops the links
   `add_target` made, through a throwaway definer's-rights procedure: only
   the owner can drop them). `CAP_TBSPC_OVERRIDE` holds operator-set tablespace
   ceilings, exclusions and per-tablespace `dtf_warn` / `dtf_crit` /
   `nearfull_warn_pct` / `nearfull_crit_pct` (NULL = the knob), applied once in
   `CAPD_TBSPC_DAILY`; `dbid`/`con_dbid` `0` are wildcards and the most
-  specific matching row wins.
+  specific matching row wins. `CAP_TBSPC_FAMILY` holds the operator rows of
+  the tablespace families (same wildcards, a `name_regex` instead of a
+  name), applied once in `CAPD_TBSPC_FAMILY`.
 - **SNAPSHOT reads stored tables (M24.13).** `cap_results.snap_views`
   (ddl/60) is the one list of the views the report drivers read; each is
   kept as table `<view>_S` (`snap_run_id`, then the view's columns).
@@ -169,22 +171,25 @@ for making changes safely.
 ## Layout / load order
 
 `install.sql` includes, in order: `ddl/00_drop` → `05_config` (CAP_CONFIG,
-CAP_CFG, CAP_CFG_CHECK, CAP_SCOPE, CAP_TBSPC_OVERRIDE) → the seam (`13`/`12` for
+CAP_CFG, CAP_CFG_CHECK, CAP_SCOPE, CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY) → the seam (`13`/`12` for
 `deploy_mode` repository / fixture: twenty-four CAPV_* views + CAPV_CONTRACT;
 `13`, generated from `repository/seam.sql`, also creates the copies and pulls
 `repository/cap_repo.sql`; the retired `local` aborts before any DDL and
 names the upgrade path, M25) → `20_daily` →
-`25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `35_series_forecast`
+`25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `32_tbspc_family`
+(CAPD_TBSPC_FAMILY, CAPD_TBSPC_FAMILY_DAILY, CAPF_TBSPC_FAMILY_MEMBER,
+CAPF_TBSPC_FAMILY, see "Tablespace families" below) → `35_series_forecast`
 (CAPF_SERIES_FORECAST) → `40_anomaly` → `42_memory_views` (M26 verdicts, see
 "Memory verdicts" below) → `45_report_views` (CAPR_CONTAINER,
 CAPR_ANOMALIES, CAPR_ANOM_VOLUME, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
 CAPR_SEGMENT_GROWTH, the point feeds CAPR_SERIES_POINTS / CAPR_HOURLY_POINTS,
-CAPR_FIT, and the memory report views CAPR_MEM_AREA / CAPR_MEM_VERDICT /
-CAPR_MEM_EVIDENCE / CAPR_MEM_COMPONENTS / CAPR_MEM_COMP_POINTS, M26.4) → `50_ml` (CAP_ML_MODEL, the temporary CAP_ML_INPUT, pulls `ml/cap_forecast_ml.pks/.pkb`, the
+CAPR_FIT, the memory report views CAPR_MEM_AREA / CAPR_MEM_VERDICT /
+CAPR_MEM_EVIDENCE / CAPR_MEM_COMPONENTS / CAPR_MEM_COMP_POINTS, M26.4, and
+the family report views CAPR_TBSPC_FAMILY / CAPR_TBSPC_FAMILY_MEMBERS) → `50_ml` (CAP_ML_MODEL, the temporary CAP_ML_INPUT, pulls `ml/cap_forecast_ml.pks/.pkb`, the
 ESM views, CAPF_COMPARE, CAPF_BACKTEST, CAPF_ESM_HEALTH[_SUMMARY]) →
 `55_report_views_ml` (the Tier-2-dependent CAPR_* section views,
 CAPR_FORECAST_POINTS and CAPR_ALERTS, which reads the Tier 2 health views for
-MODEL_HEALTH, and CAPR_ALERT_VOLUME over it) → `60_results` (the results tables, package CAP_RESULTS and the
+MODEL_HEALTH and CAPR_TBSPC_FAMILY for TBSPC_FAMILY, and CAPR_ALERT_VOLUME over it) → `60_results` (the results tables, package CAP_RESULTS and the
 CAPR_ALERTS_LATEST / CAPR_ALERT_EVENTS / CAPR_RUNS / CAPR_COVERAGE /
 CAPR_FIT_HISTORY / CAPR_WEEKLY_DIGEST / CAPR_FORECAST_ACCURACY /
 CAPR_FIT_TRACK views), and
@@ -765,6 +770,53 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   fixture-owned type. But a collection METHOD (`v.COUNT`) inside a SQL
   statement is ORA-00984 ("column not allowed here"); assign it to a local
   variable first.
+
+## Tablespace families (ddl/32)
+
+- **What.** Tablespaces of one container that belong together (one per
+  month, quarter, year) are a family. `CAPD_TBSPC_FAMILY` (membership) →
+  `CAPD_TBSPC_FAMILY_DAILY` (total per day) → `CAPF_TBSPC_FAMILY_MEMBER`
+  (state, final size, fill window) → `CAPF_TBSPC_FAMILY` (next member size,
+  the filling member against its ceiling) → `CAPR_TBSPC_FAMILY` /
+  `CAPR_TBSPC_FAMILY_MEMBERS` (ddl/45, both in the snapshot registry). ddl/32
+  reads `CAPF_TBSPC_FORECAST` and does not change ddl/30.
+- **Membership.** Automatic (`family_auto` 1): the first period token in the
+  name, rules as rows of `pat` in `CAPD_TBSPC_FAMILY` (YYYYMM / YYYY_MM,
+  YYYYQn, MONYY / MONYYYY, YYYYMON, YYYY, in that order. YYYY is 19xx / 20xx.
+  A numeric token must not touch a digit, a month name not a letter. YYMM and
+  MMYYYY are not read). Family name = the name with the token replaced by
+  `#`. At least `family_min_members` (3) current members (`stale_days`: a
+  dropped tablespace leaves the family). `CAP_TBSPC_FAMILY` rows (regular
+  expression, most specific row wins, then the `name_regex` that sorts
+  first) add, rename or exclude. A family with an operator member needs no
+  minimum. A check constraint evaluates the expression, so an invalid one
+  never reaches the views (it would raise in every report).
+- **States.** `member_seq` = period order (token), then first growth day.
+  FILLING = the newest member with a growth day (ddl/30's notion, over
+  `train_days`) unless its fit says STOP. DONE = every member before it
+  (as soon as the successor grows, not after `quiet_days`), or growth
+  stopped. EMPTY = after the newest grown one. `final_bytes` = the window's
+  largest used size.
+- **Numbers.** `next_member_bytes` / `_hi_bytes` = median / maximum of the
+  newest `family_recent_members` (6) DONE finals, each carried to the next
+  position along the trend across members when it is significant (k >= 3,
+  the M9.1 t). The filling member's period ends `period_days` (the token's
+  calendar length) after its first growth day, or on the calendar period end
+  when it grew into the window. `expected_final_bytes` = `cur_used +
+  GREATEST(own rate, next / period_days) x days_left`, `_hi` with the
+  cautious size. `fits = 'N'` (cautious value above the ceiling) is the one
+  alert, `TBSPC_FAMILY` WARN, `series_key` = the family name so the next
+  member continues the same `state_key`.
+- **Not built.** TBSPC_FULL of a filling member is not held back when the
+  family says it fits. Purges inside a member's window are not treated. No
+  mirror in the standalone queries. Dashboards do not read the views.
+- **Fixture.** `FIXM_#` (six monthly members: two flat DONE, two filled in
+  the window, FIXM_202311 FILLING 53 MiB/day with 20 days left against 1600
+  MiB, FIXM_202312 EMPTY: next 1586.5 MiB, cautious 1612, expected 1591,
+  cautious 1605.67, the one TBSPC_FAMILY alert), `FIXY_#` (yearly, quiet,
+  the member named after the load year grows into the window: calendar
+  period end, fit slope) and the pair `FIXP_2024Q1` / `Q2` (no family).
+  Every step is under 100 MiB a day, so no anomaly and no other alert moves.
 
 ## Memory verdicts (M26, ddl/42)
 

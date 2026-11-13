@@ -676,7 +676,7 @@
 <rect class="paper" x="332" y="40" width="136" height="56" rx="6"/>
 <rect class="n" x="332" y="40" width="136" height="56" rx="6"/>
 <text class="nm" x="400" y="66" text-anchor="middle">Forecasts</text>
-<text class="sub" x="400" y="80" text-anchor="middle">CAPF_ · ddl/30, 35, 50</text>
+<text class="sub" x="400" y="80" text-anchor="middle">CAPF_ · ddl/30, 32, 35, 50</text>
 <rect class="paper" x="332" y="120" width="136" height="56" rx="6"/>
 <rect class="n" x="332" y="120" width="136" height="56" rx="6"/>
 <text class="nm" x="400" y="146" text-anchor="middle">Anomalies</text>
@@ -716,8 +716,8 @@
           <thead><tr><th>Prefix</th><th>Files</th><th>Grain</th><th>Holds</th></tr></thead>
           <tbody>
             <tr><td><span class="k">CAPV_</span></td><td class="def"><span class="inline">ddl/13</span> or <span class="inline">ddl/12</span></td><td class="def">snapshot</td><td class="def">AWR columns under stable names, every row keyed <code>(dbid, con_dbid)</code></td></tr>
-            <tr><td><span class="k">CAPD_</span></td><td class="def"><span class="inline">ddl/20</span>, <span class="inline">25</span></td><td class="def">day; CPU also interval and hour</td><td class="def">Daily tablespace usage, CPU and DB time, and <span class="inline">CAPD_SERIES_DAILY</span>, one shape for every fixed-ceiling series. Tablespace overrides are applied here, once</td></tr>
-            <tr><td><span class="k">CAPF_</span></td><td class="def"><span class="inline">ddl/30</span>, <span class="inline">35</span>, <span class="inline">50</span></td><td class="def">series</td><td class="def">One fit per series: slope, bands, days to full, to saturation or to limit, quality grade. Tier 2 forecast, comparison and backtest</td></tr>
+            <tr><td><span class="k">CAPD_</span></td><td class="def"><span class="inline">ddl/20</span>, <span class="inline">25</span>, <span class="inline">32</span></td><td class="def">day; CPU also interval and hour</td><td class="def">Daily tablespace usage, CPU and DB time, and <span class="inline">CAPD_SERIES_DAILY</span>, one shape for every fixed-ceiling series. Tablespace overrides are applied here, once. <span class="inline">ddl/32</span>: which tablespaces form a family, and the family's total per day</td></tr>
+            <tr><td><span class="k">CAPF_</span></td><td class="def"><span class="inline">ddl/30</span>, <span class="inline">32</span>, <span class="inline">35</span>, <span class="inline">50</span></td><td class="def">series; family and member</td><td class="def">One fit per series: slope, bands, days to full, to saturation or to limit, quality grade. Tier 2 forecast, comparison and backtest. <span class="inline">ddl/32</span>: the tablespace families, each member's state and the size the next member needs</td></tr>
             <tr><td><span class="k">CAPA_</span></td><td class="def"><span class="inline">ddl/40</span></td><td class="def">observation and baseline mode</td><td class="def">Robust anomaly scores, the CPU level shift</td></tr>
             <tr><td><span class="k">CAPM_</span></td><td class="def"><span class="inline">ddl/42</span></td><td class="def">instance and memory area</td><td class="def">Memory sizing verdicts with their evidence</td></tr>
             <tr><td><span class="k">CAPR_</span></td><td class="def"><span class="inline">ddl/45</span>, <span class="inline">55</span>, <span class="inline">60</span></td><td class="def">display row</td><td class="def">Labelled sections for the reports, the point feeds, the alert list, and the views over the results tables</td></tr>
@@ -793,7 +793,11 @@
         <code>MISSING</code> line in <span class="inline">CAP_CFG_CHECK</span>, not as a silently
         different threshold. Per-tablespace ceilings and thresholds live in
         <span class="inline">CAP_TBSPC_OVERRIDE</span>
-        (<a href="usage.html#override">CAP_TBSPC_OVERRIDE</a>). All knobs:
+        (<a href="usage.html#override">CAP_TBSPC_OVERRIDE</a>). A second operator table,
+        <span class="inline">CAP_TBSPC_FAMILY</span>, names tablespaces that belong to a
+        family when their names do not say so
+        (<a href="usage.html#families">CAP_TBSPC_FAMILY</a>). Both are created by
+        <span class="inline">ddl/05</span>, read by one view each and kept across a re-install. All knobs:
         <a href="reference.html#knobs">Configuration knobs</a>.</p>
 
       <!-- ===================== FORECAST ===================== -->
@@ -829,7 +833,7 @@
 <rect class="paper" x="168" y="44" width="112" height="56" rx="6"/>
 <rect class="n" x="168" y="44" width="112" height="56" rx="6"/>
 <text class="nm" x="224" y="70" text-anchor="middle">Tier 1 fit</text>
-<text class="sub" x="224" y="84" text-anchor="middle">SQL · ddl/30, 35</text>
+<text class="sub" x="224" y="84" text-anchor="middle">SQL · ddl/30, 32, 35</text>
 <rect class="paper" x="168" y="220" width="112" height="56" rx="6"/>
 <rect class="n" x="168" y="220" width="112" height="56" rx="6"/>
 <text class="nm" x="224" y="246" text-anchor="middle">Trainer</text>
@@ -876,9 +880,17 @@
           with the fleet. A failed build keeps the previous model.</li>
         <li><b>Compare</b> lines both up per series; the backtest scores each on held-out days.
           ESM stops at 30 days on 19c, so long horizons are always Tier 1.</li>
+        <li><b>Tablespace families</b> (<span class="inline">ddl/32</span>) sit beside the Tier 1
+          fit and read it. Tablespaces named by period (one per month, quarter or year), or
+          named in the operator table <span class="inline">CAP_TBSPC_FAMILY</span>, form a
+          family: <span class="inline">CAPD_TBSPC_FAMILY</span> holds the membership,
+          <span class="inline">CAPF_TBSPC_FAMILY_MEMBER</span> each member's state and final
+          size, <span class="inline">CAPF_TBSPC_FAMILY</span> the size the next member needs and
+          whether the one that fills now will fit. The fit file is not changed.</li>
       </ul>
       <p>The methods: <a href="concepts.html#quality">Forecast quality</a>,
-        <a href="concepts.html#engines">Two engines</a>.</p>
+        <a href="concepts.html#engines">Two engines</a>,
+        <a href="concepts.html#families">Tablespace families</a>.</p>
 
       <div class="section-head" id="anomalies">
         <span class="eyebrow">Level 6 · Analytics</span>
@@ -1055,7 +1067,7 @@
 <div class="dd-scroll">
 <svg class="dd" viewBox="0 0 760 364" role="img" aria-labelledby="dd-arch-alerts-title dd-arch-alerts-desc">
 <title id="dd-arch-alerts-title">Where alerts come from and where they go</title>
-<desc id="dd-arch-alerts-desc">Five sources feed the fifteen alert kinds of CAPR_ALERTS: the forecast views, the anomaly feed, CPU level shifts, Tier 2 model health and data freshness; cap_results.refresh merges the rows into the alert state and logs each change as an event, and monitoring polls the view or the state.</desc>
+<desc id="dd-arch-alerts-desc">Five sources feed the sixteen alert kinds of CAPR_ALERTS: the forecast views, the anomaly feed, CPU level shifts, Tier 2 model health and data freshness; cap_results.refresh merges the rows into the alert state and logs each change as an event, and monitoring polls the view or the state.</desc>
 <defs><marker id="dd-arch-alerts-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker>
 </defs>
 <rect class="paper" width="760" height="364"/>
@@ -1076,7 +1088,7 @@
 <rect class="paper" x="12" y="40" width="216" height="40" rx="6"/>
 <rect class="n" x="12" y="40" width="216" height="40" rx="6"/>
 <text class="nm" x="120" y="58" text-anchor="middle">Forecast views</text>
-<text class="sub" x="120" y="72" text-anchor="middle">8 kinds: TBSPC_FULL, CPU_SAT, …</text>
+<text class="sub" x="120" y="72" text-anchor="middle">9 kinds: TBSPC_FULL, CPU_SAT, …</text>
 <rect class="paper" x="12" y="96" width="216" height="40" rx="6"/>
 <rect class="n" x="12" y="96" width="216" height="40" rx="6"/>
 <text class="nm" x="120" y="114" text-anchor="middle">Anomaly feed</text>
@@ -1235,7 +1247,7 @@
         <table>
           <thead><tr><th>Writer</th><th>Tables</th><th>When</th></tr></thead>
           <tbody>
-            <tr><td><b>Operator</b></td><td class="def"><span class="inline">CAP_CONFIG</span> (<code>cfg_value</code>), <span class="inline">CAP_TBSPC_OVERRIDE</span></td><td class="def">By hand</td></tr>
+            <tr><td><b>Operator</b></td><td class="def"><span class="inline">CAP_CONFIG</span> (<code>cfg_value</code>), <span class="inline">CAP_TBSPC_OVERRIDE</span>, <span class="inline">CAP_TBSPC_FAMILY</span></td><td class="def">By hand</td></tr>
             <tr><td><span class="inline">cap_repo</span></td><td class="def"><span class="inline">CAP_TARGET</span>, <span class="inline">CAP_TARGET_DBID</span>, <span class="inline">CAP_COLLECT_LOG</span>, the <span class="inline">CAP_H_*</span> copies</td><td class="def"><code>add_target</code>, the hourly <code>collect</code>, the nightly <code>purge</code></td></tr>
             <tr><td><span class="inline">cap_forecast_ml</span></td><td class="def"><span class="inline">CAP_ML_MODEL</span>, the OML models, <span class="inline">CAP_ML_INPUT</span> (temporary)</td><td class="def">The nightly retrain, or <code>train_all</code> by hand</td></tr>
             <tr><td><span class="inline">cap_results</span></td><td class="def"><span class="inline">CAP_RUN</span>, <span class="inline">CAP_FIT_HIST</span>, <span class="inline">CAP_ALERT_STATE</span>, <span class="inline">CAP_ALERT_EVENT</span>, the <code>_S</code> cache</td><td class="def">The nightly <code>refresh</code>; <code>ack</code> and <code>unack</code></td></tr>

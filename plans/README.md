@@ -137,6 +137,12 @@ The maintainer chose not to plan these yet; they remain open findings.
   tablespace forecast. Done (2026-11-12), on by default (`quiet_days` 14, 0 =
   off): `restart_reason` / `restart_day` on `CAPF_TBSPC_FORECAST` and
   `CAPR_FIT`. The dashboards (ELK, Grafana, APEX) do not show them yet.
+- Tablespace families (one tablespace per month, quarter or year judged as a
+  group). Done (2026-11-13, improve program unit U10, PLAN.md M9.7):
+  `ddl/32_tbspc_family.sql`, operator table `CAP_TBSPC_FAMILY`, alert kind
+  `TBSPC_FAMILY`. Open: `TBSPC_FULL` still fires for a filling member whose
+  family says it fits; no mirror in the standalone queries; the dashboards
+  do not read the family views.
 - `target_name` and the memory verdicts in the dashboards. Done 2026-11-13:
   the ELK and ORDS / Grafana paths carry both (U15), with the `IOPS` /
   `IO_MBPS` series. APEX (U17): target filter and column, a Targets page

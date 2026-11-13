@@ -19,6 +19,7 @@ The samples are real output from a fictional database with 150 days of test AWR 
 |----------|--------|
 | When does a tablespace fill? | Size at +30 / 90 / 180 / 365 days with 95% bands, `days_to_full` with worst/best case, GiB to add and the date to add them by |
 | How much CPU headroom is left? | Host busy% (average, p95, peak window) and DB CPU per container, days to saturation, level shifts, hosts already hot |
+| One tablespace per month: will this one fit, how big must the next be? | Tablespaces named by period form a family: each member's state and final size, the size the next member needs, and the filling member's expected size against its ceiling |
 | Which fixed limits are close? | `processes`, `sessions`, PGA allocated against `pga_aggregate_limit`, redo GiB/day against the FRA, DB size, ASM disk groups, TEMP / UNDO peaks; I/O requests and MB per second as a trend with no limit |
 | Is instance memory sized well? | A grade per area (SGA, buffer cache, shared pool, PGA target and limit) from Oracle's advisors and observed symptoms, with the evidence and a suggested size |
 | Is today unusual? | Median + MAD flags against three baselines: last 28 days, same weekday, same weekday and hour (CPU) |
@@ -38,8 +39,9 @@ threshold and robust z, and the `drill_*` scripts print the fit arithmetic.
 - **Tier 1**: SQL linear fit (least squares, or Theil-Sen / drift on demand),
   anchored at today's value. A tablespace fit restarts after a purge and
   where growth stopped or began, so a tablespace that filled and then
-  stopped gets no full date. **Tier 2** (optional): OML exponential
-  smoothing as a second opinion, at most +30 days on 19c.
+  stopped gets no full date. Tablespaces named by period (`SALES_202601`,
+  `SALES_202602`) are also judged as a family. **Tier 2** (optional): OML
+  exponential smoothing as a second opinion, at most +30 days on 19c.
 - Thresholds live in the `CAP_CONFIG` table, never in the SQL.
 
 The whole system, measured databases on the left and consumers on the right:
@@ -215,7 +217,8 @@ SELECT * FROM cap_cfg_check WHERE status <> 'OK';
 
 A re-install keeps your values. `CAP_TBSPC_OVERRIDE` sets a tablespace's real
 ceiling (when autoextend `maxsize` exceeds the storage), excludes one, or
-gives it its own thresholds. All knobs:
+gives it its own thresholds. `CAP_TBSPC_FAMILY` names tablespaces that belong
+to a family when their names do not say so. All knobs:
 [Reference → Configuration](https://davidbudac.github.io/awr-capacity-forecast/reference.html#config).
 
 ## Testing

@@ -116,8 +116,9 @@
       <h3>CSV and cron</h3>
       <p><span class="inline">@report/report_csv.sql [dbid] [con_dbid] [source]</span> writes one CSV per CAPR
         section view (alerts, days to full, forecast, anomalies, CPU trend and shifts, series, fit,
-        the four memory views: verdicts, evidence, components and component points, and the forecast
-        track record <span class="inline">capr_fit_track</span>) into
+        the four memory views: verdicts, evidence, components and component points, the forecast
+        track record <span class="inline">capr_fit_track</span>, and the two
+        tablespace family views: families and members) into
         <span class="inline">reports/cap_csv_&lt;target&gt;_&lt;ts&gt;/</span>: every column and row in
         scope, a header line, every value quoted.
         <span class="inline">report/run_report.sh [connect] [--html] [--brief] [--csv] [--scope D[:C]] [--target NAME]
@@ -272,6 +273,10 @@
             <tr>
               <td class="num">9</td><td><b>Forecast track record</b><br><span class="small"><span class="inline">CAPR_FIT_TRACK</span></span></td>
               <td class="def">How the earlier forecasts fared. Every refresh run stores each fit with its +30 projection and 95% band; a stored forecast is checked against the value stored <span class="inline">accuracy_horizon_days</span> (30) later, over the last <span class="inline">accuracy_window_days</span> (180). <b>9a</b> lists the series with a checked forecast, least reliable first: <code>N</code> forecasts checked, <code>ERR%</code> the median error as a percent of the actual value, <code>BIAS%</code> the median signed error (+ = it grew faster than forecast), <code>IN_BAND</code> how many actual values fell inside the band issued then, <code>FACTOR</code> what that band's half-width had to be multiplied by to hold <span class="inline">calib_quantile_pct</span> (90) percent of the errors, never below 1, and <code>CAL_LO</code> / <code>CAL_HI</code> today's +30 band at that factor. <code>RELIABILITY</code>: <code>BIASED</code> (bias beyond <span class="inline">calib_bias_pct</span>, 10), <code>WIDE</code> (factor above <span class="inline">calib_wide_factor</span>, 1.5), <code>GOOD</code>, or <code>UNKNOWN</code> below <span class="inline">calib_min_forecasts</span> (8) checked forecasts. <b>9b</b> counts the grades per database. The section reads the stored runs, so it says the same under LIVE and SNAPSHOT and is empty until about a month of nightly refresh runs exists. Limits: a purge or a level change stays in the record until its forecasts leave the window; a <code>CYCLIC</code> fit is not checked (it is judged on its peaks); the calibrated band is shown beside the statistical one and replaces nothing; no alert, <code>days_to_full</code> range or need figure uses it; the track record does not choose the slope method; at an <span class="inline">accuracy_horizon_days</span> other than 30 the band test still uses the +30 band.</td>
+            </tr>
+            <tr>
+              <td class="num">10</td><td><b>Tablespace families</b><br><span class="small"><span class="inline">CAPR_TBSPC_FAMILY</span> · <span class="inline">CAPR_TBSPC_FAMILY_MEMBERS</span></span></td>
+              <td class="def">Printed only when the scope holds a <a href="concepts.html#families">tablespace family</a> (one tablespace per month, quarter or year). One row per family: members done / filling / empty, the total used size and its growth per period, <code>NEXT GIB</code> (the size the next member needs) with its <code>CAUTIOUS</code> value, and for the member that fills now its <code>EXPECTED</code> size at the end of its period, the <code>AT MOST</code> value and its <code>CEILING</code>. <code>SEV</code> = WARN when <code>AT MOST</code> is above the ceiling (alert <code>TBSPC_FAMILY</code>). <b>10b</b>: the members, oldest period first, with state, final size and fill days.</td>
             </tr>
           </tbody>
         </table>
@@ -583,6 +588,7 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
           <tbody>
             <tr><td><span class="k">TBSPC_FULL</span></td><td class="def"><span class="pill crit">CRIT</span> ≤ <span class="inline">dtf_crit</span>, else <span class="pill warn">WARN</span></td><td class="def"><span class="inline">CAPF_TBSPC_FORECAST</span>: quality OK <em>and</em> <code>days_to_full ≤ dtf_warn</code> (or a CYCLIC tablespace's peak line inside it; not when the ceiling is already below usage, which <code>TBSPC_NEARFULL</code> pages).</td></tr>
             <tr><td><span class="k">TBSPC_NEARFULL</span></td><td class="def"><span class="pill crit">CRIT</span> ≥ <span class="inline">nearfull_crit_pct</span>, else <span class="pill warn">WARN</span></td><td class="def"><code>pct_used ≥ nearfull_warn_pct</code> now, <b>at any fit quality</b>.</td></tr>
+            <tr><td><span class="k">TBSPC_FAMILY</span></td><td class="def"><span class="pill warn">WARN</span></td><td class="def">The filling member of a <a href="concepts.html#families">tablespace family</a> may end its period above its ceiling (<span class="inline">CAPF_TBSPC_FAMILY.fits = 'N'</span>). One alert per family, value and threshold in GiB. The message names the member, the expected size, the ceiling and the size the next member needs.</td></tr>
             <tr><td><span class="k">CPU_SAT</span></td><td class="def"><span class="pill crit">CRIT</span> ≤ <span class="inline">dtf_crit</span>, else <span class="pill warn">WARN</span></td><td class="def"><span class="inline">CAPF_CPU_TREND</span> on <code>BUSY_P95</code> (<code>BUSY_PCT</code> when <span class="inline">cpu_sat_on_p95</span> is 0): quality OK and <code>days_to_sat ≤ dtf_warn</code>.</td></tr>
             <tr><td><span class="k">DBCPU_SAT</span></td><td class="def"><span class="pill crit">CRIT</span> ≤ <span class="inline">dtf_crit</span>, else <span class="pill warn">WARN</span></td><td class="def">Same rule on <code>DB_CPU_PCT</code>, per container.</td></tr>
             <tr><td><span class="k">CPU_HOT</span></td><td class="def"><span class="pill warn">WARN</span> (no CRIT line)</td><td class="def"><code>hot_now = 'Y'</code> on <code>BUSY_P95</code>: the median of the recent daily p95 is at or above <span class="inline">cpu_sat_pct</span>, at any fit quality.</td></tr>
@@ -1279,10 +1285,57 @@ COMMIT;</pre>
       </div>
       <p>Applied once, in <span class="inline">CAPD_TBSPC_DAILY</span>; every layer above honours it
         with no re-install. Rows survive <span class="inline">@install.sql</span>; only
-        <span class="inline">@uninstall.sql</span> removes them. It first spools the override rows and
-        the changed knobs to
+        <span class="inline">@uninstall.sql</span> removes them. It first spools the override rows, the
+        <a href="#families">family rows</a> and the changed knobs to
         <span class="inline">reports/cap_config_replay_&lt;schema&gt;_&lt;ts&gt;.sql</span>, to run after
         the next install.</p>
+
+      <!-- ===================== FAMILIES ===================== -->
+      <div class="section-head" id="families">
+        <span class="eyebrow">Tune · tablespace families</span>
+        <h2>CAP_TBSPC_FAMILY</h2>
+        <p>Tablespaces named by period form a <a href="concepts.html#families">family</a> on their own.
+          Rows here cover the rest: add a member, rename a family, keep a tablespace out.</p>
+      </div>
+
+      <div class="term in">
+        <div class="term__bar"><span class="term__dots"><i></i><i></i><i></i></span>
+          <span class="term__title">SQL*Plus</span><span class="term__tag in">example</span></div>
+<pre><span class="c-cmt">-- what the suite found on its own</span>
+SELECT family_name, n_done, n_filling, n_empty, next_member_gb, filling_member,
+       expected_final_hi_gb, filling_limit_gb, sev
+FROM   capr_tbspc_family;
+
+<span class="c-cmt">-- names without a readable period: say which tablespaces belong together</span>
+INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, family_name, note)
+VALUES (0, 0, '^ARCH_P[0-9]+$', 'ARCH partitions', 'numbered, one per month');
+
+<span class="c-cmt">-- a tablespace that only looks like a member</span>
+INSERT INTO cap_tbspc_family (dbid, con_dbid, name_regex, exclude_flag, note)
+VALUES (0, 0, '^SALES_2019$', 'Y', 'the old schema, not a period member');
+COMMIT;</pre>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Field</th><th>Behaviour</th></tr></thead>
+          <tbody>
+            <tr><td><span class="k">name_regex</span></td><td class="def">A regular expression (<code>REGEXP_LIKE</code>) on the tablespace name. Anchor it with <code>^</code> and <code>$</code>: an unanchored one matches anywhere in the name. An invalid expression is rejected by the <code>INSERT</code>.</td></tr>
+            <tr><td><span class="k">dbid</span> · <span class="k">con_dbid</span></td><td class="def"><code>0</code> is a wildcard, as in <span class="inline">CAP_TBSPC_OVERRIDE</span>.</td></tr>
+            <tr><td><span class="k">most specific wins</span></td><td class="def">When several rows match one tablespace: a real <span class="inline">dbid</span> first, then a real <span class="inline">con_dbid</span>, then the expression that sorts first. That row decides alone.</td></tr>
+            <tr><td><span class="k">family_name</span></td><td class="def">The family the matching tablespaces belong to. It may be the automatic name (<code>SALES_#</code>) to add a member, or a new name to rename a family. A family with an operator member needs no <span class="inline">family_min_members</span>.</td></tr>
+            <tr><td><span class="k">exclude_flag</span></td><td class="def"><code>'Y'</code> keeps the matching tablespaces out of every family. Their own forecast and alerts stay. Default <code>'N'</code>.</td></tr>
+            <tr><td><span class="k">note</span></td><td class="def">Free text.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Members are ordered by the period token in their names. Names without one are ordered by the
+        day their growth began, and such a family cannot show <code>EMPTY</code> members.
+        <span class="inline">family_auto</span> = 0 turns the automatic families off and leaves the
+        rows of this table. Applied once, in <span class="inline">CAPD_TBSPC_FAMILY</span>, with no
+        re-install. Rows survive <span class="inline">@install.sql</span>;
+        <span class="inline">@uninstall.sql</span> spools them to the replay file with the override
+        rows.</p>
 
       <!-- ===================== TIER 2 ===================== -->
       <div class="section-head" id="tier2">
