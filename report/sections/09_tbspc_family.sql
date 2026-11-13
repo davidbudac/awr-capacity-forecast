@@ -20,7 +20,7 @@ PROMPT    TBSPC_FAMILY). GIB/PERIOD: growth of the whole family per period, a st
 COLUMN db_pdb          FORMAT A20      HEADING 'DB/PDB'
 COLUMN family_name     FORMAT A22      HEADING 'FAMILY'
 COLUMN period          FORMAT A7       HEADING 'PERIOD'
-COLUMN members         FORMAT A12      HEADING 'MEMBERS'
+COLUMN members         FORMAT A17      HEADING 'MEMBERS'
 COLUMN used_gb         FORMAT 99990.00 HEADING 'USED GIB'
 COLUMN growth_gb       FORMAT 9990.00  HEADING 'GIB/PERIOD'
 COLUMN next_gb         FORMAT 99990.00 HEADING 'NEXT GIB'
