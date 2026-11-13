@@ -13,6 +13,7 @@
 --   SQL> @report/alert_events.sql 2026111201030012300002    -- after that event
 --   SQL> @report/alert_events.sql - 48 CRIT                 -- the last 48 hours, CRIT only
 --   SQL> @report/alert_events.sql - - - NEW,RESOLVED CDB1   -- two transitions, one target
+--   SQL> @report/alert_events.sql - - - - - - Y             -- acknowledged alerts too
 -- Arguments, each optional, '-' skips one, UNDEFINEd at the end:
 --   1 after_event_id  only events with a higher event_id. Without it: only
 --                     events of the last since_hours.
@@ -23,6 +24,10 @@
 --   4 transitions     comma list, no blanks (default NEW,ESCALATED,REOPENED)
 --   5 dbid | target   one database (report/scope.sql; unknown name = ORA-20003)
 --   6 con_dbid        one container
+--   7 include_acked   Y: also the events of alerts that are acknowledged now
+--                     (CAPR_ALERT_EVENTS.acked, cap_results.ack). Default N:
+--                     they are skipped, and the position moves past them, so
+--                     a later unack does not bring them back.
 --
 -- Output, three kinds of line, fields separated by one TAB:
 --   AWRCAP_EVENTS_BEGIN  position  schema-on-database  generated-at
@@ -66,7 +71,8 @@ COLUMN 3 NEW_VALUE 3 NOPRINT
 COLUMN 4 NEW_VALUE 4 NOPRINT
 COLUMN 5 NEW_VALUE 5 NOPRINT
 COLUMN 6 NEW_VALUE 6 NOPRINT
-SELECT NULL AS "1", NULL AS "2", NULL AS "3", NULL AS "4", NULL AS "5", NULL AS "6"
+COLUMN 7 NEW_VALUE 7 NOPRINT
+SELECT NULL AS "1", NULL AS "2", NULL AS "3", NULL AS "4", NULL AS "5", NULL AS "6", NULL AS "7"
 FROM   dual WHERE 1 = 0;
 
 -- Anything that is not a valid value reads as the default.
@@ -74,6 +80,7 @@ COLUMN ev_after NEW_VALUE cap_ev_after NOPRINT
 COLUMN ev_since NEW_VALUE cap_ev_since NOPRINT
 COLUMN ev_sev   NEW_VALUE cap_ev_sev   NOPRINT
 COLUMN ev_trans NEW_VALUE cap_ev_trans NOPRINT
+COLUMN ev_acked NEW_VALUE cap_ev_acked NOPRINT
 COLUMN cap_a1   NEW_VALUE cap_arg_db   NOPRINT
 COLUMN cap_a2   NEW_VALUE cap_arg_con  NOPRINT
 SELECT NVL(REGEXP_SUBSTR(TRIM('&1'), '^[0-9]{1,30}$'), 'NULL')              AS ev_after,
@@ -81,6 +88,7 @@ SELECT NVL(REGEXP_SUBSTR(TRIM('&1'), '^[0-9]{1,30}$'), 'NULL')              AS e
        CASE UPPER(TRIM('&3')) WHEN 'CRIT' THEN '1' WHEN 'INFO' THEN '3' ELSE '2' END AS ev_sev,
        NVL(REGEXP_SUBSTR(UPPER(TRIM('&4')), '^[A-Z]+(,[A-Z]+)*$'),
            'NEW,ESCALATED,REOPENED')                                        AS ev_trans,
+       CASE UPPER(TRIM('&7')) WHEN 'Y' THEN 'Y' ELSE 'N' END                AS ev_acked,
        NVL(TRIM('&5'), '-')                                                 AS cap_a1,
        NVL(TRIM('&6'), '-')                                                 AS cap_a2
 FROM   dual;
@@ -91,10 +99,12 @@ COLUMN 3 CLEAR
 COLUMN 4 CLEAR
 COLUMN 5 CLEAR
 COLUMN 6 CLEAR
+COLUMN 7 CLEAR
 COLUMN ev_after CLEAR
 COLUMN ev_since CLEAR
 COLUMN ev_sev   CLEAR
 COLUMN ev_trans CLEAR
+COLUMN ev_acked CLEAR
 COLUMN cap_a1   CLEAR
 COLUMN cap_a2   CLEAR
 
@@ -136,6 +146,7 @@ BEGIN
                 AND  INSTR(',&cap_ev_trans,', ',' || e.event || ',') > 0
                 AND  LEAST(DECODE(e.severity, 'CRIT', 1, 'WARN', 2, 3),
                            DECODE(e.prev_severity, 'CRIT', 1, 'WARN', 2, 3)) <= &cap_ev_sev
+                AND  ('&cap_ev_acked' = 'Y' OR e.acked = 'N')
                 AND  (&cap_sdbid IS NULL OR e.dbid = &cap_sdbid)
                 AND  (&cap_scon  IS NULL OR e.con_dbid = &cap_scon)
               ORDER  BY 6, DECODE(e.event, 'RESOLVED', 1, 0),
@@ -166,5 +177,5 @@ SET SERVEROUTPUT OFF
 -- The scope report/scope.sql set would otherwise outlive this script.
 EXEC DBMS_APPLICATION_INFO.SET_CLIENT_INFO(NULL)
 
-UNDEFINE 1 2 3 4 5 6
-UNDEFINE cap_ev_after cap_ev_since cap_ev_sev cap_ev_trans
+UNDEFINE 1 2 3 4 5 6 7
+UNDEFINE cap_ev_after cap_ev_since cap_ev_sev cap_ev_trans cap_ev_acked

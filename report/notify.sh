@@ -14,7 +14,8 @@
 # Usage:
 #   report/notify.sh [connect] [--mail-to ADDR[,ADDR]] [--webhook URL] [--webhook-file FILE]
 #                    [--webhook-format generic|slack] [--min-severity INFO|WARN|CRIT]
-#                    [--transitions LIST] [--include-resolved] [--scope dbid[:con_dbid]]
+#                    [--transitions LIST] [--include-resolved] [--include-acked]
+#                    [--scope dbid[:con_dbid]]
 #                    [--target NAME] [--since-hours N] [--state-file FILE] [--dry-run]
 #                    [--container PDB] [--schema OWNER]
 #     connect             sqlplus connect string, default "/ as sysdba" (quote it)
@@ -32,6 +33,11 @@
 #     --transitions LIST  comma list of NEW, ESCALATED, DEESCALATED, RESOLVED,
 #                         REOPENED (default NEW,ESCALATED,REOPENED)
 #     --include-resolved  add RESOLVED to the transitions
+#     --include-acked     also send the events of alerts that are acknowledged
+#                         now (cap_results.ack). Default: skipped, and the
+#                         position moves past them, so a later unack does not
+#                         send them. An escalation or a reopen clears the ack,
+#                         so those events always go out.
 #     --scope D[:C]       only dbid D (and con_dbid C); C alone: --scope -:C
 #     --target NAME       only target NAME (as run_report.sh; unknown = failure)
 #     --since-hours N     without a state file (the first run): only events of
@@ -83,6 +89,7 @@ hook_fmt="generic"
 min_sev="WARN"
 trans="NEW,ESCALATED,REOPENED"
 with_resolved=0
+with_acked="N"
 sdbid="-"
 scon="-"
 target=""
@@ -108,6 +115,7 @@ while [ $# -gt 0 ]; do
         --min-severity)     shift; min_sev="${1:-}" ;;
         --transitions)      shift; trans="${1:-}" ;;
         --include-resolved) with_resolved=1 ;;
+        --include-acked)    with_acked="Y" ;;
         --scope)            shift
                             a="${1:-}"
                             sdbid="${a%%:*}"
@@ -245,7 +253,7 @@ pre=""
 sqlplus -S -L "$conn" > "$log" 2>&1 <<SQL
 WHENEVER OSERROR EXIT 9
 WHENEVER SQLERROR EXIT FAILURE
-${pre}@report/alert_events.sql $after $since $min_sev $trans $sdbid $scon
+${pre}@report/alert_events.sql $after $since $min_sev $trans $sdbid $scon $with_acked
 EXIT
 SQL
 st=$?

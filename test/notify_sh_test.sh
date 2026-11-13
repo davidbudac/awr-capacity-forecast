@@ -150,6 +150,9 @@ run events --dry-run --include-resolved --scope 42:43 --container PDB1 --schema 
 want_call "--include-resolved, --scope D:C" "@report/alert_events.sql - 24 WARN NEW,ESCALATED,REOPENED,RESOLVED 42 43"
 want_call "--container" "ALTER SESSION SET CONTAINER = PDB1;"
 want_call "--schema" "ALTER SESSION SET CURRENT_SCHEMA = CAPMON;"
+want_call "acknowledged alerts are skipped by default (argument 7 N)" "@report/alert_events.sql - 24 WARN NEW,ESCALATED,REOPENED,RESOLVED 42 43 N"
+run events --dry-run --include-acked --target cdb1
+want_call "--include-acked (argument 7 Y)" "@report/alert_events.sql - 24 WARN NEW,ESCALATED,REOPENED cdb1 - Y"
 
 # ---- dry run: the message, nothing sent, nothing saved ----
 RUN_ENV=("AWRCAP_WEBHOOK_URL=$SECRET")
