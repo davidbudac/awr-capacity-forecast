@@ -124,7 +124,7 @@ USING (
     UNION ALL SELECT 'cpu_quality_gate',        1,        'CAPF_CPU_TREND quality gate: 1 = OK when |slope| > slope CI (slope significance), 0 = legacy R2 >= r2_gate.' FROM dual
     UNION ALL SELECT 'cpu_deseason',            1,        'CAPF_CPU_TREND: 1 = subtract the weekday / weekend mean (and add back the window mean) before the fit, 0 = fit the raw daily values.' FROM dual
     UNION ALL SELECT 'stale_days',              3,        'A CAPF_* series whose last_day is more than this many days before the newest day of its daily source (same dbid) reads is_current = N: dropped tablespace, retired DBID, stopped collection.' FROM dual
-    UNION ALL SELECT 'suite_version',          26.4,     'Suite release that built these objects (latest PLAN.md milestone). Set by every install; not a tuning knob.' FROM dual
+    UNION ALL SELECT 'suite_version',          27.0,     'Suite release that built these objects (27.0 carries PLAN.md M9.7 and M27 onward). Set by every install; not a tuning knob.' FROM dual
     UNION ALL SELECT 'cpu_min_mad_pct_hour',    5,        'M15: cpu_min_mad_pct for HOUR-grain CPU (HOUR_OF_WEEK): hourly values are noisier than daily averages.' FROM dual
     UNION ALL SELECT 'hour_gap_ratio',        1.5,        'M15: an interval <= 0 h or longer than LEAST(cpu_gap_hours, this x the instance''s median interval) is a gap at HOUR grain.' FROM dual
     UNION ALL SELECT 'series_floor_count',     10,        'M15: anomaly threshold floor for COUNT series (PROCESSES/SESSIONS), in sessions/processes.' FROM dual
@@ -500,8 +500,8 @@ WITH u AS (
                         THEN 'must be a whole number >= 2'
                    WHEN u.knob = 'family_recent_members' AND (u.value <> TRUNC(u.value) OR u.value < 1)
                         THEN 'must be a whole number >= 1'
-                   WHEN u.knob = 'suite_version'       AND u.value < 26.4
-                        THEN 'older than this release (26.4): re-run install.sql'
+                   WHEN u.knob = 'suite_version'       AND u.value < 27.0
+                        THEN 'older than this release (27.0): re-run install.sql'
                END AS reason
         FROM   u
         CROSS  JOIN (SELECT g.*,
