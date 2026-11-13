@@ -638,16 +638,16 @@
 
       <figure class="dd-fig">
         <div class="dd-scroll">
-<svg class="dd" viewBox="0 0 760 324" role="img" aria-labelledby="dd-harness-title dd-harness-desc">
+<svg class="dd" viewBox="0 0 760 338" role="img" aria-labelledby="dd-harness-title dd-harness-desc">
 <title id="dd-harness-title">What test/dbmint_harness.sh runs</title>
-<desc id="dd-harness-desc">The harness runs test/check.sh, the checks that need no database, on the workstation and stops with exit 4 if one fails, rsyncs the checkout to dbmint (exit 3 on failure), then runs the fixture load, the fixture-mode install, the Tier 1 self-check and, with --ml, the Tier 2 self-check as SYSDBA with CURRENT_SCHEMA set in PDB1, each in its own SQL*Plus session that stops the run on a non-zero exit, and finally prints the RESULT, FAIL and ORA- lines of its log.</desc>
+<desc id="dd-harness-desc">The harness runs test/check.sh, the checks that need no database, on the workstation and stops with exit 4 if one fails, rsyncs the checkout to dbmint (exit 3 on failure), then starts a detached run there: the fixture load, the fixture-mode install, the Tier 1 self-check and, with --ml, the Tier 2 self-check as SYSDBA with CURRENT_SCHEMA set in PDB1, each in its own SQL*Plus session that stops the run on a non-zero exit. The run keeps its script, log, state and lock in ~/awr_cap_&lt;schema&gt;.harness/ on dbmint. The workstation follows that log and finally prints its RESULT, FAIL and ORA- lines.</desc>
 <defs><marker id="dd-harness-mk" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="mk" points="0 0, 8 3, 0 6"/></marker></defs>
-<rect class="paper" width="760" height="324"/>
+<rect class="paper" width="760" height="338"/>
 <!-- zones -->
 <rect class="zone" x="12" y="12" width="736" height="100" rx="8"/>
 <rect class="paper" x="20" y="8" width="80" height="10"/>
 <text class="eb" x="24" y="15">WORKSTATION</text>
-<rect class="zone" x="12" y="140" width="736" height="136" rx="8"/>
+<rect class="zone" x="12" y="140" width="736" height="150" rx="8"/>
 <rect class="paper" x="120" y="136" width="236" height="10"/>
 <text class="eb" x="124" y="143">DBMINT · PDB1 · SYSDBA + CURRENT_SCHEMA</text>
 <!-- connectors -->
@@ -708,20 +708,21 @@
 <text class="sub" x="658" y="216" text-anchor="middle">train_all + run_test_ml</text>
 <text class="sub" x="658" y="228" text-anchor="middle">only with --ml</text>
 <text class="lgt" x="28" y="260">Each step is one SQL*Plus session (WHENEVER SQLERROR EXIT FAILURE); a non-zero exit stops the run with that status.</text>
+<text class="lgt" x="28" y="274">The run is detached (run.sh, harness.log, state, lock in ~/awr_cap_&lt;schema&gt;.harness/); the workstation follows its log.</text>
 <!-- legend -->
-<line class="rule" x1="12" y1="292" x2="748" y2="292"/>
-<text class="lg" x="12" y="314">LEGEND</text>
-<rect class="n-focal" x="84" y="305" width="16" height="12" rx="3"/>
-<text class="lgt" x="108" y="315">the test run</text>
-<rect class="n" x="208" y="305" width="16" height="12" rx="3"/>
-<text class="lgt" x="232" y="315">always runs</text>
-<rect class="n-opt" x="320" y="305" width="16" height="12" rx="3"/>
-<text class="lgt" x="344" y="315">a flag skips or adds it</text>
-<text class="eb" x="480" y="314">EXIT n</text>
-<text class="lgt" x="524" y="315">harness exit status when that step fails</text>
+<line class="rule" x1="12" y1="306" x2="748" y2="306"/>
+<text class="lg" x="12" y="328">LEGEND</text>
+<rect class="n-focal" x="84" y="319" width="16" height="12" rx="3"/>
+<text class="lgt" x="108" y="329">the test run</text>
+<rect class="n" x="208" y="319" width="16" height="12" rx="3"/>
+<text class="lgt" x="232" y="329">always runs</text>
+<rect class="n-opt" x="320" y="319" width="16" height="12" rx="3"/>
+<text class="lgt" x="344" y="329">a flag skips or adds it</text>
+<text class="eb" x="480" y="328">EXIT n</text>
+<text class="lgt" x="524" y="329">harness exit status when that step fails</text>
 </svg>
         </div>
-        <figcaption>Steps 1 to 6 below in one script, <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>. The local checks are <span class="inline">test/check.sh</span>: the generated-file checks, the lints, the docs lint and the offline tests. After a passing run <span class="inline">--parity</span> then runs <span class="inline">test/snapshot_parity.sh</span>. Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>.</figcaption>
+        <figcaption>Steps 1 to 6 below in one script, <span class="inline">test/dbmint_harness.sh &lt;SCHEMA&gt; [--ml] [--no-fixture] [--pga] [--parity] [--sql FILE]</span>, as a detached run on dbmint that <span class="inline">--attach</span> takes up again. The local checks are <span class="inline">test/check.sh</span>: the generated-file checks, the lints, the docs lint and the offline tests. After a passing run <span class="inline">--parity</span> then runs <span class="inline">test/snapshot_parity.sh</span>. Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>.</figcaption>
       </figure>
 
       <div class="steps">
@@ -971,11 +972,36 @@ All fixture assertions passed.</pre>
               <span class="inline">CURRENT_SCHEMA</span> set in PDB1, and echoes the RESULT, FAIL and ORA- lines.
               Log: <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>. One schema per
               concurrent run: two runs reinstalling one schema fail with ORA-04063 or ORA-00942.
+              The lever refuses a start (exit 3) while the schema has a run.
               <span class="inline">--pga</span> ends every step with <span class="inline">test/pga_probe.sql</span>,
               which logs that session's peak PGA and largest work areas (see
               <a href="reference.html#memory">Memory (PGA)</a>).
               <span class="inline">--sql test/mem_timing.sql</span> times one read of each memory verdict
               view, to compare before and after a change to <span class="inline">ddl/42_memory_views.sql</span>.</p>
+              <p><strong>The run is detached.</strong> The steps run on dbmint under
+              <span class="inline">setsid</span> and <span class="inline">nohup</span>, from
+              <span class="inline">~/awr_cap_&lt;schema&gt;.harness/run.sh</span>. Beside it are
+              <span class="inline">harness.log</span>, <span class="inline">state</span> (pid, start time,
+              git SHA, step list, then exit status and end time) and <span class="inline">lock</span>, which
+              the run and its SQL*Plus sessions hold. The workstation only follows the log into
+              <span class="inline">/tmp/dbmint_harness_&lt;SCHEMA&gt;.log</span>. When the lever is killed or
+              the connection drops, the run finishes on dbmint.
+              <span class="inline">--attach</span> starts nothing: it follows the schema's run to its end,
+              or prints the result of the last finished one, and exits with that run's status (5 when
+              there is none). <span class="inline">--status</span> prints one line: running since,
+              finished with exit N, or none. The state keeps the last run only. With
+              <span class="inline">--parity</span> the parity run is the last step of the detached run.</p>
+              <p><strong>Partial runs and queueing.</strong>
+              <span class="inline">--ml-only</span> takes the schema as it is: no fixture load, no install,
+              no <span class="inline">run_test.sql</span>, only <span class="inline">cap_forecast_ml.train_all</span>
+              and <span class="inline">run_test_ml.sql</span>. <span class="inline">--sql-only</span> runs
+              only the <span class="inline">--sql FILE</span> scripts.
+              <span class="inline">--wait-slot [N]</span> waits before the start while N (default 2) or
+              more SQL*Plus processes or harness runs are active on dbmint, polling every 15 seconds.
+              The fixture is anchored to its load day, so <span class="inline">run_test.sql</span> fails
+              date assertions when a run crosses the VM's midnight, or when a partial run uses a fixture
+              loaded the day before. The lever prints a warning when the VM clock is within 100 minutes
+              of midnight.</p>
               <p><strong>Throwaway schema by hand.</strong> Create a user with the privileges above (no
               password needed if only SYSDBA uses it), then in one SQL*Plus session as SYSDBA:
               <span class="inline">ALTER SESSION SET CONTAINER = PDB1;</span>

@@ -913,6 +913,19 @@ AWR lives in `CDB\$ROOT`; the suite reads it over a link from a PDB owner.
   [--pga] [--parity] [--sql FILE]` lints, rsyncs to `~/awr_cap_<schema>/` and runs the steps as
   SYSDBA + `CURRENT_SCHEMA` in PDB1; log `/tmp/dbmint_harness_<SCHEMA>.log`.
   `--pga` ends each step with `test/pga_probe.sql` (the session's peak PGA).
+  The run is detached: the steps run on the VM from
+  `~/awr_cap_<schema>.harness/run.sh` (setsid + nohup; `harness.log`,
+  `state` and a flock `lock` beside it, a sibling of the tree because the
+  levers rsync `--delete` into it) and the lever only follows the log, so a
+  killed lever or a dropped connection loses nothing. `--attach` follows the
+  schema's run or prints its last result with that exit status (never starts
+  one), `--status` prints one line, and a start while the lock is held is
+  refused (exit 3). `--ml-only` runs `train_all` + run_test_ml.sql on the
+  schema as it is, `--sql-only` only the `--sql` files, `--wait-slot [N]`
+  waits while N (default 2) or more SQL*Plus processes or harness runs are
+  active on the VM. It warns within 100 minutes of the VM's midnight
+  (run_test.sql fails date assertions across it). From an agent's shell,
+  start it in the background and `--attach` after a cut-off.
   `CAPX1`..`CAPX3` and `CAPW1`..`CAPW3` in PDB1 are throwaway schemas for
   parallel runs (one schema per concurrent run; ask before dropping them);
   `CAPDEMO` feeds the lab dashboards and `CAPTEST` is the shared default.
