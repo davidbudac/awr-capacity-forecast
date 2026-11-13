@@ -11,9 +11,10 @@
 # error or when NAME selects nothing. Runs from any directory. Needs bash,
 # git, python3 and node (test/report_html_test.sh).
 #
-# The checks: the two generated-file checks (repository/build.py --check,
-# report/html/build.py --check), every test/lint_*.sh (found by name, so a
-# new lint joins by existing), test/docs_lint.sh and the offline tests
+# The checks: the generated-file checks (repository/build.py --check,
+# report/html/build.py --check, apex/build.py --check), the structure check
+# of the APEX export (apex/test/export_check.py), every test/lint_*.sh (found
+# by name, so a new lint joins by existing), test/docs_lint.sh and the offline tests
 # test/run_report_sh_test.sh, test/report_html_test.sh,
 # test/notify_sh_test.sh and test/oem_test.sh. The tests are a list, not
 # test/*_test.sh: a test of that name may need a database, and one picked up
@@ -34,7 +35,8 @@ while [ $# -gt 0 ]; do
   esac; shift
 done
 
-CHECKS=("repository/build.py --check" "report/html/build.py --check")
+CHECKS=("repository/build.py --check" "report/html/build.py --check"
+        "apex/build.py --check" "apex/test/export_check.py")
 for f in test/lint_*.sh; do [ -f "$f" ] && CHECKS+=("$f"); done
 OFFLINE_TESTS=(test/run_report_sh_test.sh test/report_html_test.sh
                test/notify_sh_test.sh test/oem_test.sh)

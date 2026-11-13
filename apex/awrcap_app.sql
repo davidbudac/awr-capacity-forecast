@@ -97,6 +97,15 @@ wwv_flow_imp_shared.create_list_item(
 wwv_flow_imp_shared.create_list_item(
  p_id=>wwv_flow_imp.id(110000000000005)
 ,p_list_item_display_sequence=>20
+,p_list_item_link_text=>'Targets'
+,p_static_id=>'targets'
+,p_list_item_link_target=>'f?p=&APP_ID.:5:&APP_SESSION.::&DEBUG.:::'
+,p_list_item_icon=>'fa-server'
+,p_list_item_current_type=>'TARGET_PAGE'
+);
+wwv_flow_imp_shared.create_list_item(
+ p_id=>wwv_flow_imp.id(110000000000006)
+,p_list_item_display_sequence=>30
 ,p_list_item_link_text=>'Tablespaces'
 ,p_static_id=>'tablespaces'
 ,p_list_item_link_target=>'f?p=&APP_ID.:2:&APP_SESSION.::&DEBUG.:::'
@@ -104,8 +113,8 @@ wwv_flow_imp_shared.create_list_item(
 ,p_list_item_current_type=>'TARGET_PAGE'
 );
 wwv_flow_imp_shared.create_list_item(
- p_id=>wwv_flow_imp.id(110000000000006)
-,p_list_item_display_sequence=>30
+ p_id=>wwv_flow_imp.id(110000000000007)
+,p_list_item_display_sequence=>40
 ,p_list_item_link_text=>'CPU and workload'
 ,p_static_id=>'cpu-and-workload'
 ,p_list_item_link_target=>'f?p=&APP_ID.:3:&APP_SESSION.::&DEBUG.:::'
@@ -113,8 +122,17 @@ wwv_flow_imp_shared.create_list_item(
 ,p_list_item_current_type=>'TARGET_PAGE'
 );
 wwv_flow_imp_shared.create_list_item(
- p_id=>wwv_flow_imp.id(110000000000007)
-,p_list_item_display_sequence=>40
+ p_id=>wwv_flow_imp.id(110000000000008)
+,p_list_item_display_sequence=>50
+,p_list_item_link_text=>'Memory sizing'
+,p_static_id=>'memory-sizing'
+,p_list_item_link_target=>'f?p=&APP_ID.:6:&APP_SESSION.::&DEBUG.:::'
+,p_list_item_icon=>'fa-microchip'
+,p_list_item_current_type=>'TARGET_PAGE'
+);
+wwv_flow_imp_shared.create_list_item(
+ p_id=>wwv_flow_imp.id(110000000000009)
+,p_list_item_display_sequence=>60
 ,p_list_item_link_text=>'Fleet anomalies'
 ,p_static_id=>'fleet-anomalies'
 ,p_list_item_link_target=>'f?p=&APP_ID.:4:&APP_SESSION.::&DEBUG.:::'
@@ -131,7 +149,7 @@ wwv_flow_imp_shared.create_list(
 ,p_static_id=>'navigation-bar'
 );
 wwv_flow_imp_shared.create_list_item(
- p_id=>wwv_flow_imp.id(110000000000008)
+ p_id=>wwv_flow_imp.id(110000000000010)
 ,p_list_item_display_sequence=>10
 ,p_list_item_link_text=>'Refresh data'
 ,p_static_id=>'refresh-data'
@@ -140,7 +158,7 @@ wwv_flow_imp_shared.create_list_item(
 ,p_list_item_current_type=>'NEVER'
 );
 wwv_flow_imp_shared.create_list_item(
- p_id=>wwv_flow_imp.id(110000000000009)
+ p_id=>wwv_flow_imp.id(110000000000011)
 ,p_list_item_display_sequence=>20
 ,p_list_item_link_text=>'&APP_USER.'
 ,p_static_id=>'app-user'
@@ -150,14 +168,14 @@ wwv_flow_imp_shared.create_list_item(
 ,p_list_item_current_type=>'TARGET_PAGE'
 );
 wwv_flow_imp_shared.create_list_item(
- p_id=>wwv_flow_imp.id(110000000000010)
+ p_id=>wwv_flow_imp.id(110000000000012)
 ,p_list_item_display_sequence=>30
 ,p_list_item_link_text=>'Sign Out'
 ,p_static_id=>'sign-out'
 ,p_list_item_link_target=>'&LOGOUT_URL.'
 ,p_list_item_icon=>'fa-sign-out'
 ,p_list_item_disp_cond_type=>'USER_IS_NOT_PUBLIC_USER'
-,p_parent_list_item_id=>wwv_flow_imp.id(110000000000009)
+,p_parent_list_item_id=>wwv_flow_imp.id(110000000000011)
 ,p_list_item_current_type=>'TARGET_PAGE'
 );
 end;
@@ -165,7 +183,7 @@ end;
 prompt --application/shared_components/logic/application_processes/load_data
 begin
 wwv_flow_imp_shared.create_flow_process(
- p_id=>wwv_flow_imp.id(110000000000011)
+ p_id=>wwv_flow_imp.id(110000000000013)
 ,p_process_sequence=>1
 ,p_process_point=>'BEFORE_HEADER'
 ,p_process_type=>'NATIVE_PLSQL'
@@ -183,73 +201,113 @@ wwv_flow_imp_shared.create_flow_process(
 'begin',
 '  if :REQUEST = ''REFRESH'' then',
 '    if apex_collection.collection_exists(''AWRCAP_CONTAINER'') then apex_collection.delete_collection(''AWRCAP_CONTAINER''); end if;',
+'    if apex_collection.collection_exists(''AWRCAP_TARGETS'') then apex_collection.delete_collection(''AWRCAP_TARGETS''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_SERIES'') then apex_collection.delete_collection(''AWRCAP_SERIES''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_FORECAST'') then apex_collection.delete_collection(''AWRCAP_FORECAST''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_FIT'') then apex_collection.delete_collection(''AWRCAP_FIT''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_ANOMALIES'') then apex_collection.delete_collection(''AWRCAP_ANOMALIES''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_ALERTS'') then apex_collection.delete_collection(''AWRCAP_ALERTS''); end if;',
+'    if apex_collection.collection_exists(''AWRCAP_MEM_VERDICT'') then apex_collection.delete_collection(''AWRCAP_MEM_VERDICT''); end if;',
+'    if apex_collection.collection_exists(''AWRCAP_MEM_EVIDENCE'') then apex_collection.delete_collection(''AWRCAP_MEM_EVIDENCE''); end if;',
+'    if apex_collection.collection_exists(''AWRCAP_MEM_POINTS'') then apex_collection.delete_collection(''AWRCAP_MEM_POINTS''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_META'') then apex_collection.delete_collection(''AWRCAP_META''); end if;',
 '  end if;',
-'  if :APP_PAGE_ID in (1, 2, 3, 4) then',
-'    load(''AWRCAP_CONTAINER'', q''~select dbid, con_dbid, cast(null as number), cast(null as number), cast(null as number), cast(null as date), cast(null as date), cast(null as date), cast(null as date),'
-||' cast(null as date), db_pdb, db_name, con_name from (select * from capr_container)~'');',
+'  if :APP_PAGE_ID in (1, 5, 2, 3, 6, 4) then',
+'    load(''AWRCAP_CONTAINER'', q''~select dbid n001, con_dbid n002, cast(null as number) n003, cast(null as number) n004, cast(null as number) n005, cast(null as date) d001, cast(null as date) d002, cast'
+||'(null as date) d003, cast(null as date) d004, cast(null as date) d005, db_pdb c001, db_name c002, con_name c003, target_name c004 from (select * from capr_container)~'');',
+'  end if;',
+'  if :APP_PAGE_ID in (5) then',
+'    load(''AWRCAP_TARGETS'', q''~select dbid n001, n_containers n002, age_hours n003, n_gaps n004, collected_snap_id n005, newest_snap d001, last_ok_at d002, last_error_at d003, cast(null as date) d004, '
+||'cast(null as date) d005, target_name c001, db_name c002, feed c003, host_name c004, db_link c005, enabled c006, is_stale c007, collect_state c008, last_error c009 from (select * from capr_targets)~'');',
+'  end if;',
+'  if :APP_PAGE_ID in (1, 5, 2, 3, 6, 4) then',
+'    load(''AWRCAP_SERIES'', q''~select value n001, limit_value n002, expected n003, rate_bpd n004, anomaly n005, ts d001, cast(null as date) d002, cast(null as date) d003, cast(null as date) d004, cast(n'
+||'ull as date) d005, db c001, kind c002, series c003, unit c004, anomaly_flag c005, to_char(round(pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c006, to_char(round(gap, 10), ''TM9'', ''NLS_NUMERIC_CHAR'
+||'ACTERS=''''.,'''''') c007, to_char(round(z, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c008, to_char(round(threshold, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c009, to_char(round(delta_bytes, 10), ''T'
+||'M9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c010, to_char(round(busy_p95, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c011, to_char(round(busy_peak_pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c012 fr'
+||'om (select * from capr_series_points)~'');',
+'  end if;',
+'  if :APP_PAGE_ID in (2, 3, 6) then',
+'    load(''AWRCAP_FORECAST'', q''~select value n001, lo n002, hi n003, limit_value n004, horizon_days n005, ts d001, cast(null as date) d002, cast(null as date) d003, cast(null as date) d004, cast(null a'
+||'s date) d005, db c001, kind c002, series c003, unit c004, method c005, quality c006, to_char(round(pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c007 from (select * from capr_forecast_points)~'');',
+'  end if;',
+'  if :APP_PAGE_ID in (1, 5, 2, 3, 6) then',
+'    load(''AWRCAP_FIT'', q''~select value n001, limit_value n002, pct n003, days_to_full n004, sev_rank n005, last_day d001, cast(null as date) d002, cast(null as date) d003, cast(null as date) d004, cas'
+||'t(null as date) d005, db c001, kind c002, series c003, unit c004, method c005, quality c006, sev c007, limit_source c008, to_char(round(slope_per_day, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c009'
+||', to_char(round(r2, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c010, to_char(round(days_to_full_lo, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c011, to_char(round(days_to_full_hi, 10), ''TM9'', ''NLS'
+||'_NUMERIC_CHARACTERS=''''.,'''''') c012, to_char(round(accel, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c013, to_char(round(train_n, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c014 from (select * from '
+||'capr_fit)~'');',
 '  end if;',
 '  if :APP_PAGE_ID in (1, 2, 3, 4) then',
-'    load(''AWRCAP_SERIES'', q''~select value, limit_value, expected, rate_bpd, anomaly, ts, cast(null as date), cast(null as date), cast(null as date), cast(null as date), db, kind, series, unit, anomaly'
-||'_flag, to_char(round(pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char(round(gap, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char(round(z, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), '
-||'to_char(round(threshold, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char(round(delta_bytes, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char(round(busy_p95, 10), ''TM9'', ''NLS_NUMERIC_CHARACT'
-||'ERS=''''.,''''''), to_char(round(busy_peak_pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') from (select * from capr_series_points)~'');',
+'    load(''AWRCAP_ANOMALIES'', q''~select value n001, expected n002, threshold n003, z n004, sev_rank n005, ts d001, obs_day d002, cast(null as date) d003, cast(null as date) d004, cast(null as date) d00'
+||'5, db c001, kind c002, series c003, anomaly_kind c004, anomaly_flag c005, unit c006, sev c007, message c008, to_char(round(shift_pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c009, to_char(round(r'
+||'ate_bpd, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c010 from (select * from capr_anomalies)~'');',
 '  end if;',
-'  if :APP_PAGE_ID in (2, 3) then',
-'    load(''AWRCAP_FORECAST'', q''~select value, lo, hi, limit_value, horizon_days, ts, cast(null as date), cast(null as date), cast(null as date), cast(null as date), db, kind, series, unit, method, qual'
-||'ity, to_char(round(pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') from (select * from capr_forecast_points)~'');',
+'  if :APP_PAGE_ID in (1, 5, 2, 3, 4) then',
+'    load(''AWRCAP_ALERTS'', q''~select sev_rank n001, value n002, threshold n003, cast(null as number) n004, cast(null as number) n005, day_dt d001, cast(null as date) d002, cast(null as date) d003, cast'
+||'(null as date) d004, cast(null as date) d005, severity c001, kind c002, db_pdb c003, series_key c004, unit c005, message c006 from (select * from capr_alerts)~'');',
 '  end if;',
-'  if :APP_PAGE_ID in (1, 2, 3) then',
-'    load(''AWRCAP_FIT'', q''~select value, limit_value, pct, days_to_full, sev_rank, last_day, cast(null as date), cast(null as date), cast(null as date), cast(null as date), db, kind, series, unit, meth'
-||'od, quality, sev, limit_source, to_char(round(slope_per_day, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char(round(r2, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char(round(days_to_full_lo'
-||', 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char(round(days_to_full_hi, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char(round(accel, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char('
-||'round(train_n, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') from (select * from capr_fit)~'');',
+'  if :APP_PAGE_ID in (6) then',
+'    load(''AWRCAP_MEM_VERDICT'', q''~select instance_number n001, area_rank n002, current_bytes n003, suggested_bytes n004, change_pct n005, window_start d001, window_end d002, cast(null as date) d003, c'
+||'ast(null as date) d004, cast(null as date) d005, db_pdb c001, area c002, area_label c003, mem_mode c004, grade c005, reason c006, reason_text c007, actionable c008, current_size c009, suggested_size c'
+||'010, suggested_param c011, exceeds_host_ram c012, exceeds_sga c013, headline c014, to_char(round(n_evidence, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c015, to_char(round(n_pressure, 10), ''TM9'', ''N'
+||'LS_NUMERIC_CHARACTERS=''''.,'''''') c016, to_char(round(n_days, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c017, to_char(round(rank_mem, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c018 from (select * f'
+||'rom capr_mem_verdict)~'');',
 '  end if;',
-'  if :APP_PAGE_ID in (1, 2, 3, 4) then',
-'    load(''AWRCAP_ANOMALIES'', q''~select value, expected, threshold, z, sev_rank, ts, obs_day, cast(null as date), cast(null as date), cast(null as date), db, kind, series, anomaly_kind, anomaly_flag, u'
-||'nit, sev, message, to_char(round(shift_pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char(round(rate_bpd, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') from (select * from capr_anomalies)~'');',
+'  if :APP_PAGE_ID in (6) then',
+'    load(''AWRCAP_MEM_EVIDENCE'', q''~select instance_number n001, area_rank n002, value n003, threshold n004, rank_ev n005, observed_at d001, cast(null as date) d002, cast(null as date) d003, cast(null '
+||'as date) d004, cast(null as date) d005, db_pdb c001, area c002, area_label c003, kind c004, signal c005, direction c006, unit c007, evidence_text c008 from (select * from capr_mem_evidence)~'');',
 '  end if;',
-'  if :APP_PAGE_ID in (1, 2, 3, 4) then',
-'    load(''AWRCAP_ALERTS'', q''~select sev_rank, value, threshold, cast(null as number), cast(null as number), day_dt, cast(null as date), cast(null as date), cast(null as date), cast(null as date), seve'
-||'rity, kind, db_pdb, series_key, unit, message from (select * from capr_alerts)~'');',
+'  if :APP_PAGE_ID in (6) then',
+'    load(''AWRCAP_MEM_POINTS'', q''~select instance_number n001, bytes n002, min_bytes n003, max_bytes n004, ops n005, ts d001, cast(null as date) d002, cast(null as date) d003, cast(null as date) d004, '
+||'cast(null as date) d005, db_pdb c001, component c002 from (select p.instance_number, p.component, p.ts, p.bytes, p.min_bytes, p.max_bytes, p.ops, nvl(c.db_pdb, to_char(p.dbid)) db_pdb from capr_mem_co'
+||'mp_points p left join capr_container c on c.dbid = p.dbid and c.con_dbid = p.con_dbid)~'');',
 '  end if;',
-'  if :APP_PAGE_ID in (1, 2, 3, 4) then',
-'    load(''AWRCAP_META'', q''~select cpu_sat_pct, dtf_warn, dtf_crit, nearfull_warn_pct, nearfull_crit_pct, loaded_at, cast(null as date), cast(null as date), cast(null as date), cast(null as date), to_c'
-||'har(round(series_sat_pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,''''''), to_char(round(anomaly_report_days, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') from (select max(case when cfg_name = ''cpu_sat_p'
-||'ct'' then cfg_value end) cpu_sat_pct, max(case when cfg_name = ''dtf_warn'' then cfg_value end) dtf_warn, max(case when cfg_name = ''dtf_crit'' then cfg_value end) dtf_crit, max(case when cfg_name = ''nearf'
-||'ull_warn_pct'' then cfg_value end) nearfull_warn_pct, max(case when cfg_name = ''nearfull_crit_pct'' then cfg_value end) nearfull_crit_pct, max(case when cfg_name = ''series_sat_pct'' then cfg_value end) s'
-||'eries_sat_pct, max(case when cfg_name = ''anomaly_report_days'' then cfg_value end) anomaly_report_days , sysdate loaded_at from cap_config)~'');',
+'  if :APP_PAGE_ID in (1, 5, 2, 3, 6, 4) then',
+'    load(''AWRCAP_META'', q''~select cpu_sat_pct n001, dtf_warn n002, dtf_crit n003, nearfull_warn_pct n004, nearfull_crit_pct n005, loaded_at d001, cast(null as date) d002, cast(null as date) d003, cast'
+||'(null as date) d004, cast(null as date) d005, to_char(round(series_sat_pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c001, to_char(round(anomaly_report_days, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS='''''
+||'.,'''''') c002 from (select max(case when cfg_name = ''cpu_sat_pct'' then cfg_value end) cpu_sat_pct, max(case when cfg_name = ''dtf_warn'' then cfg_value end) dtf_warn, max(case when cfg_name = ''dtf_crit'' t'
+||'hen cfg_value end) dtf_crit, max(case when cfg_name = ''nearfull_warn_pct'' then cfg_value end) nearfull_warn_pct, max(case when cfg_name = ''nearfull_crit_pct'' then cfg_value end) nearfull_crit_pct, max'
+||'(case when cfg_name = ''series_sat_pct'' then cfg_value end) series_sat_pct, max(case when cfg_name = ''anomaly_report_days'' then cfg_value end) anomaly_report_days , sysdate loaded_at from cap_config)~'''
+||');',
 '  end if;',
-'  if :APP_PAGE_ID in (1, 2, 3, 4) then',
-'    if v(''P0_FROM'') is null or v(''P0_TO'') is null then',
-'      for r in (with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c00'
-||'6, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''999999'
-||'99999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''999999999999'
-||'99999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''999999999'
-||'99999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
-'    select max(s.ts) last_day from c_series s) loop',
-'        if v(''P0_FROM'') is null then apex_util.set_session_state(''P0_FROM'', to_char(r.last_day - 120, ''YYYY-MM-DD'')); end if;',
-'        if v(''P0_TO'') is null then apex_util.set_session_state(''P0_TO'', to_char(r.last_day + 120, ''YYYY-MM-DD'')); end if;',
-'      end loop;',
-'    end if;',
+'  if :APP_PAGE_ID in (1, 5, 2, 3, 6, 4) and (v(''P0_TARGET'') is not null and v(''P0_DB'') is not null) then',
+'    for r in (with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER'')',
+'select max(c.db_pdb) val from c_cont c where c.db_pdb = v(''P0_DB'') and c.target_name = v(''P0_TARGET'')) loop',
+'      apex_util.set_session_state(''P0_DB'', r.val);',
+'    end loop;',
 '  end if;',
-'  if :APP_PAGE_ID in (2) then',
-'    if nvl(v(''P0_TBSPC''), ''-'') <> ''ALL'' then',
-'      for r in (with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 da'
-||'ys_to_full, n005 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERI'
-||'C_CHARACTERS=''''.,'''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMER'
-||'IC_CHARACTERS=''''.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_N'
-||'UMERIC_CHARACTERS=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'    select max(f.db || ''|'' || f.series) keep (dense_rank first order by case when f.db || ''|'' || f.series = v(''P0_TBSPC'') then 0 else 1 end, f.days_to_full nulls last, f.pct desc nulls last) tbspc',
-'    from c_fit f where f.kind = ''TBSPC'' and (v(''P0_DB'') is null or f.db = v(''P0_DB''))) loop',
-'        apex_util.set_session_state(''P0_TBSPC'', r.tbspc);',
-'      end loop;',
-'    end if;',
+'  if :APP_PAGE_ID in (1, 5, 2, 3, 6, 4) and (v(''P0_FROM'') is null) then',
+'    for r in (with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006,'
+||' ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999'
+||'999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999'
+||'999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999'
+||'999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select to_char(max(s.ts) - 120, ''YYYY-MM-DD'') val from c_series s) loop',
+'      apex_util.set_session_state(''P0_FROM'', r.val);',
+'    end loop;',
+'  end if;',
+'  if :APP_PAGE_ID in (1, 5, 2, 3, 6, 4) and (v(''P0_TO'') is null) then',
+'    for r in (with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006,'
+||' ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999'
+||'999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999'
+||'999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999'
+||'999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select to_char(max(s.ts) + 120, ''YYYY-MM-DD'') val from c_series s) loop',
+'      apex_util.set_session_state(''P0_TO'', r.val);',
+'    end loop;',
+'  end if;',
+'  if :APP_PAGE_ID in (2) and (nvl(v(''P0_TBSPC''), ''-'') <> ''ALL'') then',
+'    for r in (with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select max(f.db || ''|'' || f.series) keep (dense_rank first order by case when f.db || ''|'' || f.series = v(''P0_TBSPC'') then 0 else 1 end, f.days_to_full nulls last, f.pct desc nulls last) val',
+'from c_fit f where f.kind = ''TBSPC'' and ((v(''P0_DB'') is null or f.db = v(''P0_DB'')) and (v(''P0_TARGET'') is null or f.db in (select t.db_pdb from c_cont t where t.target_name = v(''P0_TARGET''))))) loop',
+'      apex_util.set_session_state(''P0_TBSPC'', r.val);',
+'    end loop;',
 '  end if;',
 'end;'))
 ,p_process_clob_language=>'PLSQL'
@@ -259,7 +317,7 @@ end;
 prompt --application/shared_components/logic/application_processes/refresh_data
 begin
 wwv_flow_imp_shared.create_flow_process(
- p_id=>wwv_flow_imp.id(110000000000012)
+ p_id=>wwv_flow_imp.id(110000000000014)
 ,p_process_sequence=>1
 ,p_process_point=>'ON_SUBMIT_BEFORE_COMPUTATION'
 ,p_process_type=>'NATIVE_PLSQL'
@@ -268,11 +326,15 @@ wwv_flow_imp_shared.create_flow_process(
 ,p_process_sql_clob=>wwv_flow_string.join(wwv_flow_t_varchar2(
 'begin',
 '  if apex_collection.collection_exists(''AWRCAP_CONTAINER'') then apex_collection.delete_collection(''AWRCAP_CONTAINER''); end if;',
+'  if apex_collection.collection_exists(''AWRCAP_TARGETS'') then apex_collection.delete_collection(''AWRCAP_TARGETS''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_SERIES'') then apex_collection.delete_collection(''AWRCAP_SERIES''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_FORECAST'') then apex_collection.delete_collection(''AWRCAP_FORECAST''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_FIT'') then apex_collection.delete_collection(''AWRCAP_FIT''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_ANOMALIES'') then apex_collection.delete_collection(''AWRCAP_ANOMALIES''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_ALERTS'') then apex_collection.delete_collection(''AWRCAP_ALERTS''); end if;',
+'  if apex_collection.collection_exists(''AWRCAP_MEM_VERDICT'') then apex_collection.delete_collection(''AWRCAP_MEM_VERDICT''); end if;',
+'  if apex_collection.collection_exists(''AWRCAP_MEM_EVIDENCE'') then apex_collection.delete_collection(''AWRCAP_MEM_EVIDENCE''); end if;',
+'  if apex_collection.collection_exists(''AWRCAP_MEM_POINTS'') then apex_collection.delete_collection(''AWRCAP_MEM_POINTS''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_META'') then apex_collection.delete_collection(''AWRCAP_META''); end if;',
 'end;'))
 ,p_process_clob_language=>'PLSQL'
@@ -284,7 +346,7 @@ end;
 prompt --application/shared_components/user_interface/themes
 begin
 wwv_flow_imp_shared.create_theme(
- p_id=>wwv_flow_imp.id(110000000000013)
+ p_id=>wwv_flow_imp.id(110000000000015)
 ,p_theme_id=>42
 ,p_static_id=>'universal-theme'
 ,p_theme_name=>'Universal Theme'
@@ -353,7 +415,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'D'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000014)
+ p_id=>wwv_flow_imp.id(110000000000016)
 ,p_plug_name=>'Filters'
 ,p_static_id=>'filters'
 ,p_region_template_options=>'#DEFAULT#:t-Region--noUI:t-Region--hideHeader js-addHiddenHeadingRoleDesc'
@@ -367,10 +429,10 @@ wwv_flow_imp_page.create_page_plug(
   'expand_shortcuts', 'N',
   'output_as', 'HTML')).to_clob
 ,p_plug_display_condition_type=>'CURRENT_PAGE_IN_CONDITION'
-,p_plug_display_when_condition=>'1,2,3,4'
+,p_plug_display_when_condition=>'1,5,2,3,6,4'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000015)
+ p_id=>wwv_flow_imp.id(110000000000017)
 ,p_name=>'Data'
 ,p_static_id=>'data'
 ,p_template=>4075786578761660127
@@ -382,17 +444,19 @@ wwv_flow_imp_page.create_report_region(
 ,p_source_type=>'NATIVE_SQL_REPORT'
 ,p_query_type=>'SQL'
 ,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''999999999999'
-||'99999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''9999999999999999999999'
-||'9999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D9'
-||'999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''9999999999999999999999999'
-||'9D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES''),',
 'c_meta as (select n001 cpu_sat_pct, n002 dtf_warn, n003 dtf_crit, n004 nearfull_warn_pct, n005 nearfull_crit_pct, to_number(c001, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
 ||''''') series_sat_pct, to_number(c002, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') anomaly_report_days, d001 loaded_at from apex_collections where collection_name = ''AWRCAP_'
 ||'META'')',
-'select (select count(distinct s.db) from c_series s where (:P0_DB is null or s.db = :P0_DB)) DATABASES, (select to_char(max(s.ts), ''YYYY-MM-DD'') from c_series s where (:P0_DB is null or s.db = :P0_DB)'
-||') LATEST, (select to_char(min(l.ts), ''YYYY-MM-DD'') from (select max(s.ts) ts from c_series s where (:P0_DB is null or s.db = :P0_DB) group by s.db) l) STALEST, (select to_char(m.loaded_at, ''HH24:MI'') '
-||'from c_meta m) LOADED',
+'select (select count(distinct s.db) from c_series s where ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) DATA'
+||'BASES, (select to_char(max(s.ts), ''YYYY-MM-DD'') from c_series s where ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TAR'
+||'GET)))) LATEST, (select to_char(min(l.ts), ''YYYY-MM-DD'') from (select max(s.ts) ts from c_series s where ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.db_pdb from c_c'
+||'ont t where t.target_name = :P0_TARGET))) group by s.db) l) STALEST, (select to_char(m.loaded_at, ''HH24:MI'') from c_meta m) LOADED',
 'from dual'))
 ,p_ajax_enabled=>'Y'
 ,p_lazy_loading=>false
@@ -406,10 +470,10 @@ wwv_flow_imp_page.create_report_region(
 ,p_sort_null=>'L'
 ,p_plug_query_strip_html=>'N'
 ,p_display_condition_type=>'CURRENT_PAGE_IN_CONDITION'
-,p_display_when_condition=>'1,2,3,4'
+,p_display_when_condition=>'1,5,2,3,6,4'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000016)
+ p_id=>wwv_flow_imp.id(110000000000018)
 ,p_query_column_id=>1
 ,p_column_alias=>'DATABASES'
 ,p_column_display_sequence=>10
@@ -421,7 +485,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000017)
+ p_id=>wwv_flow_imp.id(110000000000019)
 ,p_query_column_id=>2
 ,p_column_alias=>'LATEST'
 ,p_column_display_sequence=>20
@@ -432,7 +496,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000018)
+ p_id=>wwv_flow_imp.id(110000000000020)
 ,p_query_column_id=>3
 ,p_column_alias=>'STALEST'
 ,p_column_display_sequence=>30
@@ -443,7 +507,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000019)
+ p_id=>wwv_flow_imp.id(110000000000021)
 ,p_query_column_id=>4
 ,p_column_alias=>'LOADED'
 ,p_column_display_sequence=>40
@@ -454,22 +518,47 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000020)
-,p_name=>'P0_DB'
+ p_id=>wwv_flow_imp.id(110000000000022)
+,p_name=>'P0_TARGET'
 ,p_item_sequence=>10
-,p_item_plug_id=>wwv_flow_imp.id(110000000000014)
-,p_prompt=>'Database'
+,p_item_plug_id=>wwv_flow_imp.id(110000000000016)
+,p_prompt=>'Target'
 ,p_field_template=>1612549609962752680
 ,p_item_template_options=>'#DEFAULT#'
 ,p_warn_on_unsaved_changes=>'I'
 ,p_protection_level=>'N'
 ,p_escape_on_http_output=>'Y'
-,p_display_when=>'1,2,3,4'
+,p_display_when=>'1,2,3,6,4'
 ,p_display_when_type=>'CURRENT_PAGE_IN_CONDITION'
 ,p_display_as=>'NATIVE_SELECT_LIST'
 ,p_lov=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER'')',
-'select c.db_pdb d, c.db_pdb r from c_cont c order by c.db_pdb'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER'')',
+'select c.target_name d, c.target_name r from c_cont c where c.target_name is not null group by c.target_name order by 1'))
+,p_lov_display_null=>'YES'
+,p_lov_null_text=>'All targets'
+,p_cHeight=>1
+,p_is_persistent=>'Y'
+,p_attributes=>wwv_flow_t_plugin_attributes(wwv_flow_t_varchar2(
+  'page_action_on_selection', 'NONE')).to_clob
+);
+wwv_flow_imp_page.create_page_item(
+ p_id=>wwv_flow_imp.id(110000000000023)
+,p_name=>'P0_DB'
+,p_item_sequence=>20
+,p_item_plug_id=>wwv_flow_imp.id(110000000000016)
+,p_prompt=>'Database'
+,p_begin_on_new_line=>'N'
+,p_field_template=>1612549609962752680
+,p_item_template_options=>'#DEFAULT#'
+,p_warn_on_unsaved_changes=>'I'
+,p_protection_level=>'N'
+,p_escape_on_http_output=>'Y'
+,p_display_when=>'1,2,3,6,4'
+,p_display_when_type=>'CURRENT_PAGE_IN_CONDITION'
+,p_display_as=>'NATIVE_SELECT_LIST'
+,p_lov=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER'')',
+'select c.db_pdb d, c.db_pdb r from c_cont c where (:P0_TARGET is null or c.target_name = :P0_TARGET) group by c.db_pdb order by 1'))
 ,p_lov_display_null=>'YES'
 ,p_lov_null_text=>'All databases'
 ,p_cHeight=>1
@@ -478,10 +567,10 @@ wwv_flow_imp_page.create_page_item(
   'page_action_on_selection', 'NONE')).to_clob
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000021)
+ p_id=>wwv_flow_imp.id(110000000000024)
 ,p_name=>'P0_TBSPC'
-,p_item_sequence=>20
-,p_item_plug_id=>wwv_flow_imp.id(110000000000014)
+,p_item_sequence=>30
+,p_item_plug_id=>wwv_flow_imp.id(110000000000016)
 ,p_prompt=>'Tablespace'
 ,p_begin_on_new_line=>'N'
 ,p_field_template=>1612549609962752680
@@ -493,12 +582,14 @@ wwv_flow_imp_page.create_page_item(
 ,p_display_when_type=>'CURRENT_PAGE_IN_CONDITION'
 ,p_display_as=>'NATIVE_SELECT_LIST'
 ,p_lov=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select f.series || case when :P0_DB is null then '' ('' || f.db || '')'' end d, f.db || ''|'' || f.series r from c_fit f where f.kind = ''TBSPC'' and (:P0_DB is null or f.db = :P0_DB) order by 1'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select f.series || case when :P0_DB is null then '' ('' || f.db || '')'' end d, f.db || ''|'' || f.series r from c_fit f where f.kind = ''TBSPC'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null'
+||' or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) order by 1'))
 ,p_lov_display_null=>'YES'
 ,p_lov_null_text=>'All tablespaces (observed only)'
 ,p_lov_null_value=>'ALL'
@@ -508,10 +599,10 @@ wwv_flow_imp_page.create_page_item(
   'page_action_on_selection', 'NONE')).to_clob
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000022)
+ p_id=>wwv_flow_imp.id(110000000000025)
 ,p_name=>'P0_FROM'
-,p_item_sequence=>30
-,p_item_plug_id=>wwv_flow_imp.id(110000000000014)
+,p_item_sequence=>40
+,p_item_plug_id=>wwv_flow_imp.id(110000000000016)
 ,p_prompt=>'From'
 ,p_begin_on_new_line=>'N'
 ,p_field_template=>1612549609962752680
@@ -519,7 +610,7 @@ wwv_flow_imp_page.create_page_item(
 ,p_warn_on_unsaved_changes=>'I'
 ,p_protection_level=>'N'
 ,p_escape_on_http_output=>'Y'
-,p_display_when=>'1,2,3,4'
+,p_display_when=>'1,2,3,6,4'
 ,p_display_when_type=>'CURRENT_PAGE_IN_CONDITION'
 ,p_display_as=>'NATIVE_DATE_PICKER_APEX'
 ,p_format_mask=>'YYYY-MM-DD'
@@ -535,10 +626,10 @@ wwv_flow_imp_page.create_page_item(
   'use_defaults', 'Y')).to_clob
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000023)
+ p_id=>wwv_flow_imp.id(110000000000026)
 ,p_name=>'P0_TO'
-,p_item_sequence=>40
-,p_item_plug_id=>wwv_flow_imp.id(110000000000014)
+,p_item_sequence=>50
+,p_item_plug_id=>wwv_flow_imp.id(110000000000016)
 ,p_prompt=>'To'
 ,p_begin_on_new_line=>'N'
 ,p_field_template=>1612549609962752680
@@ -546,7 +637,7 @@ wwv_flow_imp_page.create_page_item(
 ,p_warn_on_unsaved_changes=>'I'
 ,p_protection_level=>'N'
 ,p_escape_on_http_output=>'Y'
-,p_display_when=>'1,2,3,4'
+,p_display_when=>'1,2,3,6,4'
 ,p_display_when_type=>'CURRENT_PAGE_IN_CONDITION'
 ,p_display_as=>'NATIVE_DATE_PICKER_APEX'
 ,p_format_mask=>'YYYY-MM-DD'
@@ -562,10 +653,10 @@ wwv_flow_imp_page.create_page_item(
   'use_defaults', 'Y')).to_clob
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000024)
+ p_id=>wwv_flow_imp.id(110000000000027)
 ,p_name=>'P0_KIND'
-,p_item_sequence=>50
-,p_item_plug_id=>wwv_flow_imp.id(110000000000014)
+,p_item_sequence=>60
+,p_item_plug_id=>wwv_flow_imp.id(110000000000016)
 ,p_prompt=>'Anomaly kind'
 ,p_begin_on_new_line=>'N'
 ,p_field_template=>1612549609962752680
@@ -589,10 +680,10 @@ wwv_flow_imp_page.create_page_item(
   'page_action_on_selection', 'NONE')).to_clob
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000025)
+ p_id=>wwv_flow_imp.id(110000000000028)
 ,p_name=>'P0_SEV'
-,p_item_sequence=>60
-,p_item_plug_id=>wwv_flow_imp.id(110000000000014)
+,p_item_sequence=>70
+,p_item_plug_id=>wwv_flow_imp.id(110000000000016)
 ,p_prompt=>'Severity'
 ,p_begin_on_new_line=>'N'
 ,p_field_template=>1612549609962752680
@@ -616,9 +707,9 @@ wwv_flow_imp_page.create_page_item(
   'page_action_on_selection', 'NONE')).to_clob
 );
 wwv_flow_imp_page.create_page_button(
- p_id=>wwv_flow_imp.id(110000000000026)
-,p_button_sequence=>70
-,p_button_plug_id=>wwv_flow_imp.id(110000000000014)
+ p_id=>wwv_flow_imp.id(110000000000029)
+,p_button_sequence=>80
+,p_button_plug_id=>wwv_flow_imp.id(110000000000016)
 ,p_button_name=>'REFRESH'
 ,p_static_id=>'refresh'
 ,p_button_action=>'SUBMIT'
@@ -631,19 +722,19 @@ wwv_flow_imp_page.create_page_button(
 ,p_grid_new_column=>'Y'
 );
 wwv_flow_imp_page.create_page_da_event(
- p_id=>wwv_flow_imp.id(110000000000027)
+ p_id=>wwv_flow_imp.id(110000000000030)
 ,p_name=>'Filter changed'
 ,p_static_id=>'filter-changed'
 ,p_event_sequence=>10
 ,p_triggering_element_type=>'JQUERY_SELECTOR'
-,p_triggering_element=>'#P0_DB,#P0_TBSPC,#P0_FROM,#P0_TO,#P0_KIND,#P0_SEV'
+,p_triggering_element=>'#P0_TARGET,#P0_DB,#P0_TBSPC,#P0_FROM,#P0_TO,#P0_KIND,#P0_SEV'
 ,p_bind_type=>'bind'
 ,p_execution_type=>'IMMEDIATE'
 ,p_bind_event_type=>'change'
 );
 wwv_flow_imp_page.create_page_da_action(
- p_id=>wwv_flow_imp.id(110000000000028)
-,p_event_id=>wwv_flow_imp.id(110000000000027)
+ p_id=>wwv_flow_imp.id(110000000000031)
+,p_event_id=>wwv_flow_imp.id(110000000000030)
 ,p_event_result=>'TRUE'
 ,p_action_sequence=>10
 ,p_execute_on_page_init=>'N'
@@ -668,7 +759,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'C'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000029)
+ p_id=>wwv_flow_imp.id(110000000000032)
 ,p_name=>'Summary'
 ,p_static_id=>'summary'
 ,p_template=>4075786578761660127
@@ -678,11 +769,12 @@ wwv_flow_imp_page.create_report_region(
 ,p_source_type=>'NATIVE_SQL_REPORT'
 ,p_query_type=>'SQL'
 ,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''999999999999'
-||'99999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''9999999999999999999999'
-||'9999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D9'
-||'999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''9999999999999999999999999'
-||'9D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES''),',
 'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
@@ -696,11 +788,14 @@ wwv_flow_imp_page.create_report_region(
 'c_meta as (select n001 cpu_sat_pct, n002 dtf_warn, n003 dtf_crit, n004 nearfull_warn_pct, n005 nearfull_crit_pct, to_number(c001, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
 ||''''') series_sat_pct, to_number(c002, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') anomaly_report_days, d001 loaded_at from apex_collections where collection_name = ''AWRCAP_'
 ||'META'')',
-'select (select count(*) from c_alert a where a.severity = ''CRIT'' and (:P0_DB is null or a.db_pdb = :P0_DB)) CRIT, (select count(*) from c_alert a where a.severity = ''WARN'' and (:P0_DB is null or a.db_'
-||'pdb = :P0_DB)) WARN, (select count(*) from c_alert a where a.severity = ''INFO'' and (:P0_DB is null or a.db_pdb = :P0_DB)) INFO, (select nvl(to_char(min(f.days_to_full)), ''-'') from c_fit f where f.kind'
-||' = ''TBSPC'' and (:P0_DB is null or f.db = :P0_DB)) DTF, (select count(*) from c_anom a, c_meta m where nvl(a.obs_day, a.ts) > (select max(s.ts) from c_series s) - m.anomaly_report_days and (:P0_DB is n'
-||'ull or a.db = :P0_DB)) ANOM, (select round(sum(s.value), 1) from c_series s where s.kind = ''SERIES'' and s.series = ''DB_SIZE_GB'' and (:P0_DB is null or s.db = :P0_DB) and s.ts = (select max(x.ts) from '
-||'c_series x where x.kind = ''SERIES'' and x.series = ''DB_SIZE_GB'' and x.db = s.db)) DB_GIB',
+'select (select count(*) from c_alert a where a.severity = ''CRIT'' and ((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_cont t where t.target_name = '
+||':P0_TARGET)))) CRIT, (select count(*) from c_alert a where a.severity = ''WARN'' and ((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_cont t where t.'
+||'target_name = :P0_TARGET)))) WARN, (select count(*) from c_alert a where a.severity = ''INFO'' and ((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_c'
+||'ont t where t.target_name = :P0_TARGET)))) INFO, (select nvl(to_char(min(f.days_to_full)), ''-'') from c_fit f where f.kind = ''TBSPC'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.'
+||'db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) DTF, (select count(*) from c_anom a, c_meta m where nvl(a.obs_day, a.ts) > (select max(s.ts) from c_series s) - m.anomaly_repo'
+||'rt_days and ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) ANOM, (select round(sum(s.value), 1) from c_series'
+||' s where s.kind = ''SERIES'' and s.series = ''DB_SIZE_GB'' and ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and '
+||'s.ts = (select max(x.ts) from c_series x where x.kind = ''SERIES'' and x.series = ''DB_SIZE_GB'' and x.db = s.db)) DB_GIB',
 'from dual'))
 ,p_ajax_enabled=>'Y'
 ,p_lazy_loading=>false
@@ -715,7 +810,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000030)
+ p_id=>wwv_flow_imp.id(110000000000033)
 ,p_query_column_id=>1
 ,p_column_alias=>'CRIT'
 ,p_column_display_sequence=>10
@@ -727,7 +822,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000031)
+ p_id=>wwv_flow_imp.id(110000000000034)
 ,p_query_column_id=>2
 ,p_column_alias=>'WARN'
 ,p_column_display_sequence=>20
@@ -739,7 +834,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000032)
+ p_id=>wwv_flow_imp.id(110000000000035)
 ,p_query_column_id=>3
 ,p_column_alias=>'INFO'
 ,p_column_display_sequence=>30
@@ -751,7 +846,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000033)
+ p_id=>wwv_flow_imp.id(110000000000036)
 ,p_query_column_id=>4
 ,p_column_alias=>'DTF'
 ,p_column_display_sequence=>40
@@ -762,7 +857,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000034)
+ p_id=>wwv_flow_imp.id(110000000000037)
 ,p_query_column_id=>5
 ,p_column_alias=>'ANOM'
 ,p_column_display_sequence=>50
@@ -774,7 +869,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000035)
+ p_id=>wwv_flow_imp.id(110000000000038)
 ,p_query_column_id=>6
 ,p_column_alias=>'DB_GIB'
 ,p_column_display_sequence=>60
@@ -786,7 +881,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000036)
+ p_id=>wwv_flow_imp.id(110000000000039)
 ,p_plug_name=>'Current alerts'
 ,p_static_id=>'current-alerts'
 ,p_region_template_options=>'#DEFAULT#'
@@ -796,15 +891,17 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_IR'
 ,p_query_type=>'SQL'
 ,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_alert as (select c001 severity, c002 kind, c003 db_pdb, c004 series_key, c005 unit, c006 message, d001 day_dt, n001 sev_rank, n002 value, n003 threshold from apex_collections where collection_n'
-||'ame = ''AWRCAP_ALERTS'')',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_alert as (select c001 severity, c002 kind, c003 db_pdb, c004 series_key, c005 unit, c006 message, d001 day_dt, n001 sev_rank, n002 value, n003 threshold from apex_collections where collection_name ='
+||' ''AWRCAP_ALERTS'')',
 'select a.severity SEV, case a.severity when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, a.sev_rank SEV_RANK,'
-||' a.kind KIND, a.db_pdb DB, a.series_key SERIES, a.day_dt DAY, round(a.value, 2) VALUE, round(a.threshold, 2) THRESHOLD, a.unit UNIT, a.message MESSAGE',
-'from c_alert a where (:P0_DB is null or a.db_pdb = :P0_DB)'))
+||' a.kind KIND, (select max(t.target_name) from c_cont t where t.db_pdb = a.db_pdb) TARGET, a.db_pdb DB, a.series_key SERIES, a.day_dt DAY, round(a.value, 2) VALUE, round(a.threshold, 2) THRESHOLD, case'
+||' lower(a.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else a.unit end UNIT, a.message MESSAGE',
+'from c_alert a where ((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))'))
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000037)
+ p_id=>wwv_flow_imp.id(110000000000040)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No current alerts in scope.'
 ,p_allow_save_rpt_public=>'Y'
@@ -817,10 +914,10 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000037
+,p_internal_uid=>110000000000040
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000038)
+ p_id=>wwv_flow_imp.id(110000000000041)
 ,p_db_column_name=>'SEV'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
@@ -832,7 +929,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000039)
+ p_id=>wwv_flow_imp.id(110000000000042)
 ,p_db_column_name=>'SEV_CSS'
 ,p_display_order=>20
 ,p_column_identifier=>'B'
@@ -844,7 +941,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000040)
+ p_id=>wwv_flow_imp.id(110000000000043)
 ,p_db_column_name=>'SEV_RANK'
 ,p_display_order=>30
 ,p_column_identifier=>'C'
@@ -856,7 +953,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000041)
+ p_id=>wwv_flow_imp.id(110000000000044)
 ,p_db_column_name=>'KIND'
 ,p_display_order=>40
 ,p_column_identifier=>'D'
@@ -867,10 +964,21 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000042)
-,p_db_column_name=>'DB'
+ p_id=>wwv_flow_imp.id(110000000000045)
+,p_db_column_name=>'TARGET'
 ,p_display_order=>50
 ,p_column_identifier=>'E'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000046)
+,p_db_column_name=>'DB'
+,p_display_order=>60
+,p_column_identifier=>'F'
 ,p_column_label=>'Database'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -878,10 +986,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000043)
+ p_id=>wwv_flow_imp.id(110000000000047)
 ,p_db_column_name=>'SERIES'
-,p_display_order=>60
-,p_column_identifier=>'F'
+,p_display_order=>70
+,p_column_identifier=>'G'
 ,p_column_label=>'Series'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -889,10 +997,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000044)
+ p_id=>wwv_flow_imp.id(110000000000048)
 ,p_db_column_name=>'DAY'
-,p_display_order=>70
-,p_column_identifier=>'G'
+,p_display_order=>80
+,p_column_identifier=>'H'
 ,p_column_label=>'Day'
 ,p_column_type=>'DATE'
 ,p_format_mask=>'YYYY-MM-DD'
@@ -902,10 +1010,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000045)
+ p_id=>wwv_flow_imp.id(110000000000049)
 ,p_db_column_name=>'VALUE'
-,p_display_order=>80
-,p_column_identifier=>'H'
+,p_display_order=>90
+,p_column_identifier=>'I'
 ,p_column_label=>'Value'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -914,10 +1022,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000046)
+ p_id=>wwv_flow_imp.id(110000000000050)
 ,p_db_column_name=>'THRESHOLD'
-,p_display_order=>90
-,p_column_identifier=>'I'
+,p_display_order=>100
+,p_column_identifier=>'J'
 ,p_column_label=>'Threshold'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -926,10 +1034,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000047)
+ p_id=>wwv_flow_imp.id(110000000000051)
 ,p_db_column_name=>'UNIT'
-,p_display_order=>100
-,p_column_identifier=>'J'
+,p_display_order=>110
+,p_column_identifier=>'K'
 ,p_column_label=>'Unit'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -937,10 +1045,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000048)
+ p_id=>wwv_flow_imp.id(110000000000052)
 ,p_db_column_name=>'MESSAGE'
-,p_display_order=>110
-,p_column_identifier=>'K'
+,p_display_order=>120
+,p_column_identifier=>'L'
 ,p_column_label=>'Message'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -948,21 +1056,21 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000049)
+ p_id=>wwv_flow_imp.id(110000000000053)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'current-alerts'
 ,p_status=>'PUBLIC'
 ,p_is_default=>'Y'
 ,p_display_rows=>15
-,p_report_columns=>'SEV:KIND:DB:SERIES:DAY:VALUE:THRESHOLD:UNIT:MESSAGE'
+,p_report_columns=>'SEV:KIND:TARGET:DB:SERIES:DAY:VALUE:THRESHOLD:UNIT:MESSAGE'
 ,p_sort_column_1=>'SEV_RANK'
 ,p_sort_direction_1=>'ASC'
 ,p_sort_column_2=>'DAY'
 ,p_sort_direction_2=>'DESC'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000050)
+ p_id=>wwv_flow_imp.id(110000000000054)
 ,p_name=>'Worst days to full'
 ,p_static_id=>'worst-days-to-full'
 ,p_template=>4075786578761660127
@@ -973,14 +1081,16 @@ wwv_flow_imp_page.create_report_region(
 ,p_source_type=>'NATIVE_SQL_REPORT'
 ,p_query_type=>'SQL'
 ,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select f.db DB, f.series TABLESPACE, apex_page.get_url(p_page => 2, p_items => ''P0_DB,P0_TBSPC'', p_values => f.db || '','' || f.db || ''|'' || f.series) TABLESPACE_URL, f.sev SEV, case f.sev when ''CRIT'' t'
-||'hen ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, round(f.pct, 1) USED_PCT, f.days_to_full DTF',
-'from c_fit f where f.kind = ''TBSPC'' and (:P0_DB is null or f.db = :P0_DB)',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select (select max(t.target_name) from c_cont t where t.db_pdb = f.db) TARGET, f.db DB, f.series TABLESPACE, apex_page.get_url(p_page => 2, p_items => ''P0_DB,P0_TBSPC'', p_values => f.db || '','' || f.db'
+||' || ''|'' || f.series) TABLESPACE_URL, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, '
+||'round(f.pct, 1) USED_PCT, f.days_to_full DTF',
+'from c_fit f where f.kind = ''TBSPC'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))',
 'order by f.days_to_full nulls last, f.pct desc nulls last fetch first 10 rows only'))
 ,p_ajax_enabled=>'Y'
 ,p_lazy_loading=>false
@@ -995,10 +1105,21 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000051)
+ p_id=>wwv_flow_imp.id(110000000000055)
 ,p_query_column_id=>1
-,p_column_alias=>'DB'
+,p_column_alias=>'TARGET'
 ,p_column_display_sequence=>10
+,p_column_heading=>'Target'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000056)
+,p_query_column_id=>2
+,p_column_alias=>'DB'
+,p_column_display_sequence=>20
 ,p_column_heading=>'Database'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -1006,10 +1127,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000052)
-,p_query_column_id=>2
+ p_id=>wwv_flow_imp.id(110000000000057)
+,p_query_column_id=>3
 ,p_column_alias=>'TABLESPACE'
-,p_column_display_sequence=>20
+,p_column_display_sequence=>30
 ,p_column_heading=>'Tablespace'
 ,p_column_html_expression=>'<a href="#TABLESPACE_URL#">#TABLESPACE#</a>'
 ,p_heading_alignment=>'LEFT'
@@ -1018,10 +1139,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000053)
-,p_query_column_id=>3
+ p_id=>wwv_flow_imp.id(110000000000058)
+,p_query_column_id=>4
 ,p_column_alias=>'TABLESPACE_URL'
-,p_column_display_sequence=>30
+,p_column_display_sequence=>40
 ,p_heading_alignment=>'LEFT'
 ,p_hidden_column=>'Y'
 ,p_disable_sort_column=>'Y'
@@ -1029,10 +1150,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000054)
-,p_query_column_id=>4
+ p_id=>wwv_flow_imp.id(110000000000059)
+,p_query_column_id=>5
 ,p_column_alias=>'SEV'
-,p_column_display_sequence=>40
+,p_column_display_sequence=>50
 ,p_column_heading=>'Severity'
 ,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #SEV_CSS#">#SEV#</span>'
 ,p_heading_alignment=>'LEFT'
@@ -1041,10 +1162,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000055)
-,p_query_column_id=>5
+ p_id=>wwv_flow_imp.id(110000000000060)
+,p_query_column_id=>6
 ,p_column_alias=>'SEV_CSS'
-,p_column_display_sequence=>50
+,p_column_display_sequence=>60
 ,p_heading_alignment=>'LEFT'
 ,p_hidden_column=>'Y'
 ,p_disable_sort_column=>'Y'
@@ -1052,10 +1173,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000056)
-,p_query_column_id=>6
+ p_id=>wwv_flow_imp.id(110000000000061)
+,p_query_column_id=>7
 ,p_column_alias=>'USED_PCT'
-,p_column_display_sequence=>60
+,p_column_display_sequence=>70
 ,p_column_heading=>'Used %'
 ,p_column_alignment=>'RIGHT'
 ,p_heading_alignment=>'RIGHT'
@@ -1064,10 +1185,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000057)
-,p_query_column_id=>7
+ p_id=>wwv_flow_imp.id(110000000000062)
+,p_query_column_id=>8
 ,p_column_alias=>'DTF'
-,p_column_display_sequence=>70
+,p_column_display_sequence=>80
 ,p_column_heading=>'Days to full'
 ,p_column_alignment=>'RIGHT'
 ,p_heading_alignment=>'RIGHT'
@@ -1076,7 +1197,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000058)
+ p_id=>wwv_flow_imp.id(110000000000063)
 ,p_plug_name=>'Tablespace used %'
 ,p_static_id=>'tablespace-used'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -1088,8 +1209,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000059)
-,p_region_id=>wwv_flow_imp.id(110000000000058)
+ p_id=>wwv_flow_imp.id(110000000000064)
+,p_region_id=>wwv_flow_imp.id(110000000000063)
 ,p_chart_type=>'bar'
 ,p_height=>'360'
 ,p_animation_on_display=>'none'
@@ -1115,20 +1236,21 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000060)
-,p_chart_id=>wwv_flow_imp.id(110000000000059)
+ p_id=>wwv_flow_imp.id(110000000000065)
+,p_chart_id=>wwv_flow_imp.id(110000000000064)
 ,p_static_id=>'critical'
 ,p_seq=>10
 ,p_name=>'Critical'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select case when :P0_DB is null then f.db || '' '' || f.series else f.series end label, round(f.pct, 1) value from c_fit f where f.kind = ''TBSPC'' and f.sev = ''CRIT'' and (:P0_DB is null or f.db = :P0_DB)'
-||' order by f.pct desc'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select case when :P0_DB is null then f.db || '' '' || f.series else f.series end label, round(f.pct, 1) value from c_fit f where f.kind = ''TBSPC'' and f.sev = ''CRIT'' and ((:P0_DB is null or f.db = :P0_DB'
+||') and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) order by f.pct desc'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'bar'
 ,p_items_value_column_name=>'VALUE'
@@ -1140,20 +1262,21 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000061)
-,p_chart_id=>wwv_flow_imp.id(110000000000059)
+ p_id=>wwv_flow_imp.id(110000000000066)
+,p_chart_id=>wwv_flow_imp.id(110000000000064)
 ,p_static_id=>'warning'
 ,p_seq=>20
 ,p_name=>'Warning'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select case when :P0_DB is null then f.db || '' '' || f.series else f.series end label, round(f.pct, 1) value from c_fit f where f.kind = ''TBSPC'' and f.sev = ''WARN'' and (:P0_DB is null or f.db = :P0_DB)'
-||' order by f.pct desc'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select case when :P0_DB is null then f.db || '' '' || f.series else f.series end label, round(f.pct, 1) value from c_fit f where f.kind = ''TBSPC'' and f.sev = ''WARN'' and ((:P0_DB is null or f.db = :P0_DB'
+||') and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) order by f.pct desc'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'bar'
 ,p_items_value_column_name=>'VALUE'
@@ -1165,20 +1288,21 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000062)
-,p_chart_id=>wwv_flow_imp.id(110000000000059)
+ p_id=>wwv_flow_imp.id(110000000000067)
+,p_chart_id=>wwv_flow_imp.id(110000000000064)
 ,p_static_id=>'ok'
 ,p_seq=>30
 ,p_name=>'OK'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select case when :P0_DB is null then f.db || '' '' || f.series else f.series end label, round(f.pct, 1) value from c_fit f where f.kind = ''TBSPC'' and f.sev not in (''CRIT'', ''WARN'') and (:P0_DB is null or'
-||' f.db = :P0_DB) order by f.pct desc'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select case when :P0_DB is null then f.db || '' '' || f.series else f.series end label, round(f.pct, 1) value from c_fit f where f.kind = ''TBSPC'' and f.sev not in (''CRIT'', ''WARN'') and ((:P0_DB is null o'
+||'r f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) order by f.pct desc'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'bar'
 ,p_items_value_column_name=>'VALUE'
@@ -1190,8 +1314,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000063)
-,p_chart_id=>wwv_flow_imp.id(110000000000059)
+ p_id=>wwv_flow_imp.id(110000000000068)
+,p_chart_id=>wwv_flow_imp.id(110000000000064)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -1205,8 +1329,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000064)
-,p_chart_id=>wwv_flow_imp.id(110000000000059)
+ p_id=>wwv_flow_imp.id(110000000000069)
+,p_chart_id=>wwv_flow_imp.id(110000000000064)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -1222,8 +1346,546 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_branch(
- p_id=>wwv_flow_imp.id(110000000000065)
+ p_id=>wwv_flow_imp.id(110000000000070)
 ,p_branch_action=>'f?p=&APP_ID.:1:&SESSION.::&DEBUG.:::'
+,p_branch_point=>'AFTER_PROCESSING'
+,p_branch_type=>'REDIRECT_URL'
+,p_branch_sequence=>10
+);
+end;
+/
+prompt --application/pages/page_00005
+begin
+wwv_flow_imp_page.create_page(
+ p_id=>5
+,p_name=>'Targets'
+,p_alias=>'TARGETS'
+,p_step_title=>'Targets - AWR Capacity'
+,p_autocomplete_on_off=>'OFF'
+,p_warn_on_unsaved_changes=>'N'
+,p_step_template=>4075783602716660119
+,p_page_template_options=>'#DEFAULT#'
+,p_protection_level=>'C'
+);
+wwv_flow_imp_page.create_report_region(
+ p_id=>wwv_flow_imp.id(110000000000071)
+,p_name=>'Fleet summary'
+,p_static_id=>'fleet-summary'
+,p_template=>4075786578761660127
+,p_display_sequence=>10
+,p_region_template_options=>'#DEFAULT#:t-Region--hideHeader js-addHiddenHeadingRoleDesc'
+,p_component_template_options=>'#DEFAULT#:t-BadgeList--medium:t-BadgeList--dash:t-BadgeList--flex'
+,p_source_type=>'NATIVE_SQL_REPORT'
+,p_query_type=>'SQL'
+,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_tgt as (select c001 target_name, c002 db_name, c003 feed, c004 host_name, c005 db_link, c006 enabled, c007 is_stale, c008 collect_state, c009 last_error, d001 newest_snap, d002 last_ok_at, d003 last'
+||'_error_at, n001 dbid, n002 n_containers, n003 age_hours, n004 n_gaps, n005 collected_snap_id from apex_collections where collection_name = ''AWRCAP_TARGETS''),',
+'c_alert as (select c001 severity, c002 kind, c003 db_pdb, c004 series_key, c005 unit, c006 message, d001 day_dt, n001 sev_rank, n002 value, n003 threshold from apex_collections where collection_name ='
+||' ''AWRCAP_ALERTS'')',
+'select (select count(distinct t.target_name) from c_tgt t) TARGETS, (select count(*) from c_cont c) CONTAINERS, (select count(*) from c_tgt t where t.is_stale = ''Y'') STALE, (select count(*) from c_tgt'
+||' t where t.collect_state in (''FAILING'', ''NEVER'')) FAILING, (select count(*) from c_alert a where a.severity = ''CRIT'') CRIT',
+'from dual'))
+,p_ajax_enabled=>'Y'
+,p_lazy_loading=>false
+,p_query_row_template=>2108071605011515574
+,p_query_num_rows=>1
+,p_query_num_rows_type=>'SHOW_ALL'
+,p_query_no_data_found=>'No rows in the current scope.'
+,p_pagination_display_position=>'BOTTOM_RIGHT'
+,p_csv_output=>'N'
+,p_prn_output=>'N'
+,p_sort_null=>'L'
+,p_plug_query_strip_html=>'N'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000072)
+,p_query_column_id=>1
+,p_column_alias=>'TARGETS'
+,p_column_display_sequence=>10
+,p_column_heading=>'Targets'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000073)
+,p_query_column_id=>2
+,p_column_alias=>'CONTAINERS'
+,p_column_display_sequence=>20
+,p_column_heading=>'Containers'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000074)
+,p_query_column_id=>3
+,p_column_alias=>'STALE'
+,p_column_display_sequence=>30
+,p_column_heading=>'Stale'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000075)
+,p_query_column_id=>4
+,p_column_alias=>'FAILING'
+,p_column_display_sequence=>40
+,p_column_heading=>'Collect failing'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000076)
+,p_query_column_id=>5
+,p_column_alias=>'CRIT'
+,p_column_display_sequence=>50
+,p_column_heading=>'Critical alerts'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_page_plug(
+ p_id=>wwv_flow_imp.id(110000000000077)
+,p_plug_name=>'Targets'
+,p_static_id=>'targets'
+,p_region_template_options=>'#DEFAULT#'
+,p_plug_template=>2103954283454391425
+,p_plug_display_sequence=>20
+,p_plug_item_display_point=>'ABOVE'
+,p_plug_source_type=>'NATIVE_IR'
+,p_query_type=>'SQL'
+,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_tgt as (select c001 target_name, c002 db_name, c003 feed, c004 host_name, c005 db_link, c006 enabled, c007 is_stale, c008 collect_state, c009 last_error, d001 newest_snap, d002 last_ok_at, d003 last'
+||'_error_at, n001 dbid, n002 n_containers, n003 age_hours, n004 n_gaps, n005 collected_snap_id from apex_collections where collection_name = ''AWRCAP_TARGETS''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT''),',
+'c_alert as (select c001 severity, c002 kind, c003 db_pdb, c004 series_key, c005 unit, c006 message, d001 day_dt, n001 sev_rank, n002 value, n003 threshold from apex_collections where collection_name ='
+||' ''AWRCAP_ALERTS'')',
+'select t.target_name TARGET, apex_page.get_url(p_page => 1, p_items => ''P0_TARGET,P0_DB,P0_TBSPC'', p_values => t.target_name || '',,'') TARGET_URL, to_char(t.dbid) DBID, t.db_name DB_NAME, t.host_name H'
+||'OST_NAME, t.feed FEED, t.n_containers CONTAINERS, to_char(t.newest_snap, ''YYYY-MM-DD HH24:MI'') NEWEST_SNAP, round(t.age_hours, 1) AGE_HOURS, case t.is_stale when ''Y'' then ''STALE'' when ''N'' then ''FRESH'''
+||' end FRESHNESS, case t.is_stale when ''Y'' then ''t-Badge--warning'' when ''N'' then ''t-Badge--success'' end FRESHNESS_CSS, t.collect_state COLLECT_STATE, case t.collect_state when ''FAILING'' then ''t-Badge--d'
+||'anger'' when ''NEVER'' then ''t-Badge--warning'' when ''DISABLED'' then ''t-Badge--info'' when ''OK'' then ''t-Badge--success'' end COLLECT_STATE_CSS, (select count(*) from c_alert a where a.severity = ''CRIT'' and '
+||'a.db_pdb in (select c.db_pdb from c_cont c where c.dbid = t.dbid)) CRIT, (select count(*) from c_alert a where a.severity = ''WARN'' and a.db_pdb in (select c.db_pdb from c_cont c where c.dbid = t.dbid)'
+||') WARN, (select min(f.days_to_full) from c_fit f where f.kind = ''TBSPC'' and f.db in (select c.db_pdb from c_cont c where c.dbid = t.dbid)) DTF, to_char(t.last_ok_at, ''YYYY-MM-DD HH24:MI'') LAST_OK, to_'
+||'char(t.last_error_at, ''YYYY-MM-DD HH24:MI'') LAST_ERROR_AT, t.last_error LAST_ERROR, t.n_gaps GAPS, t.db_link DB_LINK, t.enabled ENABLED',
+'from c_tgt t'))
+,p_include_rowid_column=>false
+);
+wwv_flow_imp_page.create_worksheet(
+ p_id=>wwv_flow_imp.id(110000000000078)
+,p_max_row_count=>'100000'
+,p_no_data_found_message=>'No target is registered.'
+,p_allow_save_rpt_public=>'Y'
+,p_show_nulls_as=>'-'
+,p_pagination_type=>'ROWS_X_TO_Y'
+,p_pagination_display_pos=>'BOTTOM_RIGHT'
+,p_report_list_mode=>'TABS'
+,p_lazy_loading=>false
+,p_show_detail_link=>'N'
+,p_show_notify=>'N'
+,p_download_formats=>'CSV:HTML:XLSX'
+,p_enable_mail_download=>'N'
+,p_internal_uid=>110000000000078
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000079)
+,p_db_column_name=>'TARGET'
+,p_display_order=>10
+,p_column_identifier=>'A'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_column_html_expression=>'<a href="#TARGET_URL#">#TARGET#</a>'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000080)
+,p_db_column_name=>'TARGET_URL'
+,p_display_order=>20
+,p_column_identifier=>'B'
+,p_column_label=>'TARGET_URL'
+,p_column_type=>'STRING'
+,p_display_text_as=>'HIDDEN_ESCAPE_SC'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000081)
+,p_db_column_name=>'DBID'
+,p_display_order=>30
+,p_column_identifier=>'C'
+,p_column_label=>'DBID'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000082)
+,p_db_column_name=>'DB_NAME'
+,p_display_order=>40
+,p_column_identifier=>'D'
+,p_column_label=>'Database'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000083)
+,p_db_column_name=>'HOST_NAME'
+,p_display_order=>50
+,p_column_identifier=>'E'
+,p_column_label=>'Host'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000084)
+,p_db_column_name=>'FEED'
+,p_display_order=>60
+,p_column_identifier=>'F'
+,p_column_label=>'Feed'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000085)
+,p_db_column_name=>'CONTAINERS'
+,p_display_order=>70
+,p_column_identifier=>'G'
+,p_column_label=>'Containers'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000086)
+,p_db_column_name=>'NEWEST_SNAP'
+,p_display_order=>80
+,p_column_identifier=>'H'
+,p_column_label=>'Newest snapshot'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000087)
+,p_db_column_name=>'AGE_HOURS'
+,p_display_order=>90
+,p_column_identifier=>'I'
+,p_column_label=>'Age (hours)'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000088)
+,p_db_column_name=>'FRESHNESS'
+,p_display_order=>100
+,p_column_identifier=>'J'
+,p_column_label=>'Freshness'
+,p_column_type=>'STRING'
+,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #FRESHNESS_CSS#">#FRESHNESS#</span>'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000089)
+,p_db_column_name=>'FRESHNESS_CSS'
+,p_display_order=>110
+,p_column_identifier=>'K'
+,p_column_label=>'FRESHNESS_CSS'
+,p_column_type=>'STRING'
+,p_display_text_as=>'HIDDEN_ESCAPE_SC'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000090)
+,p_db_column_name=>'COLLECT_STATE'
+,p_display_order=>120
+,p_column_identifier=>'L'
+,p_column_label=>'Collect'
+,p_column_type=>'STRING'
+,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #COLLECT_STATE_CSS#">#COLLECT_STATE#</span>'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000091)
+,p_db_column_name=>'COLLECT_STATE_CSS'
+,p_display_order=>130
+,p_column_identifier=>'M'
+,p_column_label=>'COLLECT_STATE_CSS'
+,p_column_type=>'STRING'
+,p_display_text_as=>'HIDDEN_ESCAPE_SC'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000092)
+,p_db_column_name=>'CRIT'
+,p_display_order=>140
+,p_column_identifier=>'N'
+,p_column_label=>'Critical alerts'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000093)
+,p_db_column_name=>'WARN'
+,p_display_order=>150
+,p_column_identifier=>'O'
+,p_column_label=>'Warnings'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000094)
+,p_db_column_name=>'DTF'
+,p_display_order=>160
+,p_column_identifier=>'P'
+,p_column_label=>'Worst days to full'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000095)
+,p_db_column_name=>'LAST_OK'
+,p_display_order=>170
+,p_column_identifier=>'Q'
+,p_column_label=>'Last collect'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000096)
+,p_db_column_name=>'LAST_ERROR_AT'
+,p_display_order=>180
+,p_column_identifier=>'R'
+,p_column_label=>'Last error at'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000097)
+,p_db_column_name=>'LAST_ERROR'
+,p_display_order=>190
+,p_column_identifier=>'S'
+,p_column_label=>'Last error'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000098)
+,p_db_column_name=>'GAPS'
+,p_display_order=>200
+,p_column_identifier=>'T'
+,p_column_label=>'Gaps'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000099)
+,p_db_column_name=>'DB_LINK'
+,p_display_order=>210
+,p_column_identifier=>'U'
+,p_column_label=>'DB link'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000100)
+,p_db_column_name=>'ENABLED'
+,p_display_order=>220
+,p_column_identifier=>'V'
+,p_column_label=>'Enabled'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_rpt(
+ p_id=>wwv_flow_imp.id(110000000000101)
+,p_application_user=>'APXWS_DEFAULT'
+,p_report_seq=>10
+,p_report_alias=>'targets'
+,p_status=>'PUBLIC'
+,p_is_default=>'Y'
+,p_display_rows=>15
+,p_report_columns=>'TARGET:DBID:DB_NAME:HOST_NAME:FEED:CONTAINERS:NEWEST_SNAP:AGE_HOURS:FRESHNESS:COLLECT_STATE:CRIT:WARN:DTF:LAST_OK:LAST_ERROR_AT:LAST_ERROR:GAPS:DB_LINK:ENABLED'
+,p_sort_column_1=>'TARGET'
+,p_sort_direction_1=>'ASC'
+,p_sort_column_2=>'DBID'
+,p_sort_direction_2=>'ASC'
+);
+wwv_flow_imp_page.create_page_plug(
+ p_id=>wwv_flow_imp.id(110000000000102)
+,p_plug_name=>'Hours since the newest snapshot'
+,p_static_id=>'hours-since-the-newest-snapshot'
+,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
+,p_plug_template=>4075786578761660127
+,p_plug_display_sequence=>30
+,p_plug_item_display_point=>'ABOVE'
+,p_plug_source_type=>'NATIVE_JET_CHART'
+);
+wwv_flow_imp_page.create_jet_chart(
+ p_id=>wwv_flow_imp.id(110000000000103)
+,p_region_id=>wwv_flow_imp.id(110000000000102)
+,p_chart_type=>'bar'
+,p_height=>'320'
+,p_animation_on_display=>'none'
+,p_animation_on_data_change=>'none'
+,p_orientation=>'horizontal'
+,p_data_cursor=>'auto'
+,p_data_cursor_behavior=>'auto'
+,p_hide_and_show_behavior=>'withRescale'
+,p_hover_behavior=>'dim'
+,p_stack=>'on'
+,p_stack_label=>'off'
+,p_connect_nulls=>'Y'
+,p_sorting=>'value-desc'
+,p_fill_multi_series_gaps=>true
+,p_zoom_and_scroll=>'off'
+,p_tooltip_rendered=>'Y'
+,p_show_series_name=>true
+,p_show_group_name=>true
+,p_show_value=>true
+,p_legend_rendered=>'on'
+,p_legend_position=>'bottom'
+,p_overview_rendered=>'off'
+,p_no_data_found_message=>'No data in the current scope.'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000104)
+,p_chart_id=>wwv_flow_imp.id(110000000000103)
+,p_static_id=>'stale'
+,p_seq=>10
+,p_name=>'Stale'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_tgt as (select c001 target_name, c002 db_name, c003 feed, c004 host_name, c005 db_link, c006 enabled, c007 is_stale, c008 collect_state, c009 last_error, d001 newest_snap, d002 last_ok_at, d003'
+||' last_error_at, n001 dbid, n002 n_containers, n003 age_hours, n004 n_gaps, n005 collected_snap_id from apex_collections where collection_name = ''AWRCAP_TARGETS'')',
+'select t.target_name || case when t.db_name <> t.target_name then '' '' || t.db_name end label, round(t.age_hours, 1) value from c_tgt t where t.is_stale = ''Y'' order by t.age_hours desc'))
+,p_location=>'LOCAL'
+,p_series_type=>'bar'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'LABEL'
+,p_color=>'#D63B25'
+,p_stack_category=>'age'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000105)
+,p_chart_id=>wwv_flow_imp.id(110000000000103)
+,p_static_id=>'fresh'
+,p_seq=>20
+,p_name=>'Fresh'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_tgt as (select c001 target_name, c002 db_name, c003 feed, c004 host_name, c005 db_link, c006 enabled, c007 is_stale, c008 collect_state, c009 last_error, d001 newest_snap, d002 last_ok_at, d003'
+||' last_error_at, n001 dbid, n002 n_containers, n003 age_hours, n004 n_gaps, n005 collected_snap_id from apex_collections where collection_name = ''AWRCAP_TARGETS'')',
+'select t.target_name || case when t.db_name <> t.target_name then '' '' || t.db_name end label, round(t.age_hours, 1) value from c_tgt t where t.is_stale = ''N'' order by t.age_hours desc'))
+,p_location=>'LOCAL'
+,p_series_type=>'bar'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'LABEL'
+,p_color=>'#309FDB'
+,p_stack_category=>'age'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_axis(
+ p_id=>wwv_flow_imp.id(110000000000106)
+,p_chart_id=>wwv_flow_imp.id(110000000000103)
+,p_static_id=>'x'
+,p_axis=>'x'
+,p_is_rendered=>'on'
+,p_format_scaling=>'auto'
+,p_scaling=>'linear'
+,p_baseline_scaling=>'zero'
+,p_major_tick_rendered=>'on'
+,p_minor_tick_rendered=>'off'
+,p_tick_label_rendered=>'on'
+,p_tick_label_rotation=>'auto'
+,p_tick_label_position=>'outside'
+);
+wwv_flow_imp_page.create_jet_chart_axis(
+ p_id=>wwv_flow_imp.id(110000000000107)
+,p_chart_id=>wwv_flow_imp.id(110000000000103)
+,p_static_id=>'y'
+,p_axis=>'y'
+,p_is_rendered=>'on'
+,p_title=>'hours'
+,p_format_type=>'decimal'
+,p_format_scaling=>'none'
+,p_scaling=>'linear'
+,p_baseline_scaling=>'zero'
+,p_position=>'auto'
+,p_major_tick_rendered=>'on'
+,p_minor_tick_rendered=>'off'
+,p_tick_label_rendered=>'on'
+);
+wwv_flow_imp_page.create_page_branch(
+ p_id=>wwv_flow_imp.id(110000000000108)
+,p_branch_action=>'f?p=&APP_ID.:5:&SESSION.::&DEBUG.:::'
 ,p_branch_point=>'AFTER_PROCESSING'
 ,p_branch_type=>'REDIRECT_URL'
 ,p_branch_sequence=>10
@@ -1244,7 +1906,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'C'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000066)
+ p_id=>wwv_flow_imp.id(110000000000109)
 ,p_name=>'Tablespace summary'
 ,p_static_id=>'tablespace-summary'
 ,p_template=>4075786578761660127
@@ -1254,18 +1916,21 @@ wwv_flow_imp_page.create_report_region(
 ,p_source_type=>'NATIVE_SQL_REPORT'
 ,p_query_type=>'SQL'
 ,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT''),',
 'c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 z, n0'
 ||'05 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
 ||''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
-'select (select count(*) from c_fit f where f.kind = ''TBSPC'' and f.sev = ''CRIT'' and (:P0_DB is null or f.db = :P0_DB)) CRIT, (select count(*) from c_fit f where f.kind = ''TBSPC'' and f.sev = ''WARN'' and '
-||'(:P0_DB is null or f.db = :P0_DB)) WARN, (select count(*) from c_anom a where a.kind = ''TBSPC'' and (:P0_DB is null or a.db = :P0_DB) and a.ts between nvl(to_date(:P0_FROM default null on conversion er'
-||'ror, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts)) ANOM, (select nvl(to_char(min(f.days_to_full)), ''-'') from c_fit f where f.kind = ''TBSPC'' and (:'
-||'P0_DB is null or f.db = :P0_DB)) DTF',
+'select (select count(*) from c_fit f where f.kind = ''TBSPC'' and f.sev = ''CRIT'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_n'
+||'ame = :P0_TARGET)))) CRIT, (select count(*) from c_fit f where f.kind = ''TBSPC'' and f.sev = ''WARN'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_con'
+||'t t where t.target_name = :P0_TARGET)))) WARN, (select count(*) from c_anom a where a.kind = ''TBSPC'' and ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_c'
+||'ont t where t.target_name = :P0_TARGET))) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM'
+||'-DD''), a.ts)) ANOM, (select nvl(to_char(min(f.days_to_full)), ''-'') from c_fit f where f.kind = ''TBSPC'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c'
+||'_cont t where t.target_name = :P0_TARGET)))) DTF',
 'from dual'))
 ,p_ajax_enabled=>'Y'
 ,p_lazy_loading=>false
@@ -1280,7 +1945,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000067)
+ p_id=>wwv_flow_imp.id(110000000000110)
 ,p_query_column_id=>1
 ,p_column_alias=>'CRIT'
 ,p_column_display_sequence=>10
@@ -1292,7 +1957,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000068)
+ p_id=>wwv_flow_imp.id(110000000000111)
 ,p_query_column_id=>2
 ,p_column_alias=>'WARN'
 ,p_column_display_sequence=>20
@@ -1304,7 +1969,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000069)
+ p_id=>wwv_flow_imp.id(110000000000112)
 ,p_query_column_id=>3
 ,p_column_alias=>'ANOM'
 ,p_column_display_sequence=>30
@@ -1316,7 +1981,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000070)
+ p_id=>wwv_flow_imp.id(110000000000113)
 ,p_query_column_id=>4
 ,p_column_alias=>'DTF'
 ,p_column_display_sequence=>40
@@ -1327,7 +1992,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000071)
+ p_id=>wwv_flow_imp.id(110000000000114)
 ,p_plug_name=>'Days to full'
 ,p_static_id=>'days-to-full'
 ,p_region_template_options=>'#DEFAULT#'
@@ -1337,20 +2002,21 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_IR'
 ,p_query_type=>'SQL'
 ,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select f.db DB, f.series TABLESPACE, apex_page.get_url(p_page => 2, p_items => ''P0_TBSPC'', p_values => f.db || ''|'' || f.series) TABLESPACE_URL, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'''
-||' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, round(f.pct, 1) USED_PCT, round(f.value / 1073741824, 2) USED_GIB, round(f.limit_value / 1073'
-||'741824, 2) CEILING_GIB, round(f.slope_per_day / 1048576, 1) GROWTH_MIB, f.days_to_full DTF, f.days_to_full_lo DTF_LO, f.days_to_full_hi DTF_HI, round(f.r2, 3) R2, f.quality QUALITY, f.limit_source LIM'
-||'IT_SOURCE',
-'from c_fit f where f.kind = ''TBSPC'' and (:P0_DB is null or f.db = :P0_DB)'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select (select max(t.target_name) from c_cont t where t.db_pdb = f.db) TARGET, f.db DB, f.series TABLESPACE, apex_page.get_url(p_page => 2, p_items => ''P0_TBSPC'', p_values => f.db || ''|'' || f.series) '
+||'TABLESPACE_URL, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, round(f.pct, 1) USED_'
+||'PCT, round(f.value / 1073741824, 2) USED_GIB, round(f.limit_value / 1073741824, 2) CEILING_GIB, round(f.slope_per_day / 1048576, 1) GROWTH_MIB, f.days_to_full DTF, f.days_to_full_lo DTF_LO, f.days_to_'
+||'full_hi DTF_HI, round(f.r2, 3) R2, f.quality QUALITY, f.limit_source LIMIT_SOURCE',
+'from c_fit f where f.kind = ''TBSPC'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))'))
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000072)
+ p_id=>wwv_flow_imp.id(110000000000115)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No rows in the current scope.'
 ,p_allow_save_rpt_public=>'Y'
@@ -1363,13 +2029,24 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000072
+,p_internal_uid=>110000000000115
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000073)
-,p_db_column_name=>'DB'
+ p_id=>wwv_flow_imp.id(110000000000116)
+,p_db_column_name=>'TARGET'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000117)
+,p_db_column_name=>'DB'
+,p_display_order=>20
+,p_column_identifier=>'B'
 ,p_column_label=>'Database'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -1377,10 +2054,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000074)
+ p_id=>wwv_flow_imp.id(110000000000118)
 ,p_db_column_name=>'TABLESPACE'
-,p_display_order=>20
-,p_column_identifier=>'B'
+,p_display_order=>30
+,p_column_identifier=>'C'
 ,p_column_label=>'Tablespace'
 ,p_column_type=>'STRING'
 ,p_column_html_expression=>'<a href="#TABLESPACE_URL#">#TABLESPACE#</a>'
@@ -1389,10 +2066,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000075)
+ p_id=>wwv_flow_imp.id(110000000000119)
 ,p_db_column_name=>'TABLESPACE_URL'
-,p_display_order=>30
-,p_column_identifier=>'C'
+,p_display_order=>40
+,p_column_identifier=>'D'
 ,p_column_label=>'TABLESPACE_URL'
 ,p_column_type=>'STRING'
 ,p_display_text_as=>'HIDDEN_ESCAPE_SC'
@@ -1401,10 +2078,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000076)
+ p_id=>wwv_flow_imp.id(110000000000120)
 ,p_db_column_name=>'SEV'
-,p_display_order=>40
-,p_column_identifier=>'D'
+,p_display_order=>50
+,p_column_identifier=>'E'
 ,p_column_label=>'Severity'
 ,p_column_type=>'STRING'
 ,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #SEV_CSS#">#SEV#</span>'
@@ -1413,10 +2090,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000077)
+ p_id=>wwv_flow_imp.id(110000000000121)
 ,p_db_column_name=>'SEV_CSS'
-,p_display_order=>50
-,p_column_identifier=>'E'
+,p_display_order=>60
+,p_column_identifier=>'F'
 ,p_column_label=>'SEV_CSS'
 ,p_column_type=>'STRING'
 ,p_display_text_as=>'HIDDEN_ESCAPE_SC'
@@ -1425,10 +2102,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000078)
+ p_id=>wwv_flow_imp.id(110000000000122)
 ,p_db_column_name=>'USED_PCT'
-,p_display_order=>60
-,p_column_identifier=>'F'
+,p_display_order=>70
+,p_column_identifier=>'G'
 ,p_column_label=>'Used %'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -1437,10 +2114,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000079)
+ p_id=>wwv_flow_imp.id(110000000000123)
 ,p_db_column_name=>'USED_GIB'
-,p_display_order=>70
-,p_column_identifier=>'G'
+,p_display_order=>80
+,p_column_identifier=>'H'
 ,p_column_label=>'Used GiB'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -1449,10 +2126,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000080)
+ p_id=>wwv_flow_imp.id(110000000000124)
 ,p_db_column_name=>'CEILING_GIB'
-,p_display_order=>80
-,p_column_identifier=>'H'
+,p_display_order=>90
+,p_column_identifier=>'I'
 ,p_column_label=>'Ceiling GiB'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -1461,10 +2138,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000081)
+ p_id=>wwv_flow_imp.id(110000000000125)
 ,p_db_column_name=>'GROWTH_MIB'
-,p_display_order=>90
-,p_column_identifier=>'I'
+,p_display_order=>100
+,p_column_identifier=>'J'
 ,p_column_label=>'Growth MiB/day'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -1473,10 +2150,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000082)
+ p_id=>wwv_flow_imp.id(110000000000126)
 ,p_db_column_name=>'DTF'
-,p_display_order=>100
-,p_column_identifier=>'J'
+,p_display_order=>110
+,p_column_identifier=>'K'
 ,p_column_label=>'Days to full'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -1485,10 +2162,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000083)
+ p_id=>wwv_flow_imp.id(110000000000127)
 ,p_db_column_name=>'DTF_LO'
-,p_display_order=>110
-,p_column_identifier=>'K'
+,p_display_order=>120
+,p_column_identifier=>'L'
 ,p_column_label=>'DTF low'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -1497,10 +2174,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000084)
+ p_id=>wwv_flow_imp.id(110000000000128)
 ,p_db_column_name=>'DTF_HI'
-,p_display_order=>120
-,p_column_identifier=>'L'
+,p_display_order=>130
+,p_column_identifier=>'M'
 ,p_column_label=>'DTF high'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -1509,10 +2186,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000085)
+ p_id=>wwv_flow_imp.id(110000000000129)
 ,p_db_column_name=>'R2'
-,p_display_order=>130
-,p_column_identifier=>'M'
+,p_display_order=>140
+,p_column_identifier=>'N'
 ,p_column_label=>'R2'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -1521,10 +2198,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000086)
+ p_id=>wwv_flow_imp.id(110000000000130)
 ,p_db_column_name=>'QUALITY'
-,p_display_order=>140
-,p_column_identifier=>'N'
+,p_display_order=>150
+,p_column_identifier=>'O'
 ,p_column_label=>'Quality'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -1532,10 +2209,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000087)
+ p_id=>wwv_flow_imp.id(110000000000131)
 ,p_db_column_name=>'LIMIT_SOURCE'
-,p_display_order=>150
-,p_column_identifier=>'O'
+,p_display_order=>160
+,p_column_identifier=>'P'
 ,p_column_label=>'Ceiling source'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -1543,21 +2220,21 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000088)
+ p_id=>wwv_flow_imp.id(110000000000132)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'days-to-full'
 ,p_status=>'PUBLIC'
 ,p_is_default=>'Y'
 ,p_display_rows=>15
-,p_report_columns=>'DB:TABLESPACE:SEV:USED_PCT:USED_GIB:CEILING_GIB:GROWTH_MIB:DTF:DTF_LO:DTF_HI:R2:QUALITY:LIMIT_SOURCE'
+,p_report_columns=>'TARGET:DB:TABLESPACE:SEV:USED_PCT:USED_GIB:CEILING_GIB:GROWTH_MIB:DTF:DTF_LO:DTF_HI:R2:QUALITY:LIMIT_SOURCE'
 ,p_sort_column_1=>'DTF'
 ,p_sort_direction_1=>'ASC'
 ,p_sort_column_2=>'USED_PCT'
 ,p_sort_direction_2=>'DESC'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000089)
+ p_id=>wwv_flow_imp.id(110000000000133)
 ,p_plug_name=>'Used space'
 ,p_static_id=>'used-space'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -1567,8 +2244,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000090)
-,p_region_id=>wwv_flow_imp.id(110000000000089)
+ p_id=>wwv_flow_imp.id(110000000000134)
+,p_region_id=>wwv_flow_imp.id(110000000000133)
 ,p_chart_type=>'line'
 ,p_height=>'420'
 ,p_animation_on_display=>'none'
@@ -1594,21 +2271,23 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No tablespace in scope. Pick a database or a tablespace in the filters.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000091)
-,p_chart_id=>wwv_flow_imp.id(110000000000090)
+ p_id=>wwv_flow_imp.id(110000000000135)
+,p_chart_id=>wwv_flow_imp.id(110000000000134)
 ,p_static_id=>'used'
 ,p_seq=>10
 ,p_name=>'Used'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''999999999999'
-||'99999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''9999999999999999999999'
-||'9999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D9'
-||'999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''9999999999999999999999999'
-||'9D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
 'select s.ts, round(s.value / 1073741824, 2) value, case when :P0_TBSPC = ''ALL'' then case when :P0_DB is null then s.db || '' '' || s.series else s.series end else ''Used GiB'' end name from c_series s whe'
-||'re s.kind = ''TBSPC'' and (s.db || ''|'' || s.series = :P0_TBSPC or (:P0_TBSPC = ''ALL'' and (:P0_DB is null or s.db = :P0_DB))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY'
-||'-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+||'re s.kind = ''TBSPC'' and (s.db || ''|'' || s.series = :P0_TBSPC or (:P0_TBSPC = ''ALL'' and ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.db_pdb from c_cont t where t.targ'
+||'et_name = :P0_TARGET))))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) ord'
+||'er by s.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -1624,8 +2303,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000092)
-,p_chart_id=>wwv_flow_imp.id(110000000000090)
+ p_id=>wwv_flow_imp.id(110000000000136)
+,p_chart_id=>wwv_flow_imp.id(110000000000134)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
@@ -1649,8 +2328,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000093)
-,p_chart_id=>wwv_flow_imp.id(110000000000090)
+ p_id=>wwv_flow_imp.id(110000000000137)
+,p_chart_id=>wwv_flow_imp.id(110000000000134)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
@@ -1675,8 +2354,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000094)
-,p_chart_id=>wwv_flow_imp.id(110000000000090)
+ p_id=>wwv_flow_imp.id(110000000000138)
+,p_chart_id=>wwv_flow_imp.id(110000000000134)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
@@ -1701,8 +2380,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000095)
-,p_chart_id=>wwv_flow_imp.id(110000000000090)
+ p_id=>wwv_flow_imp.id(110000000000139)
+,p_chart_id=>wwv_flow_imp.id(110000000000134)
 ,p_static_id=>'ceiling'
 ,p_seq=>50
 ,p_name=>'Ceiling'
@@ -1731,8 +2410,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000096)
-,p_chart_id=>wwv_flow_imp.id(110000000000090)
+ p_id=>wwv_flow_imp.id(110000000000140)
+,p_chart_id=>wwv_flow_imp.id(110000000000134)
 ,p_static_id=>'esm-30'
 ,p_seq=>60
 ,p_name=>'ESM +30'
@@ -1756,20 +2435,22 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000097)
-,p_chart_id=>wwv_flow_imp.id(110000000000090)
+ p_id=>wwv_flow_imp.id(110000000000141)
+,p_chart_id=>wwv_flow_imp.id(110000000000134)
 ,p_static_id=>'anomaly'
 ,p_seq=>70
 ,p_name=>'Anomaly'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''999999999999'
-||'99999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''9999999999999999999999'
-||'9999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D9'
-||'999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''9999999999999999999999999'
-||'9D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
-'select s.ts, round(s.value / 1073741824, 2) value from c_series s where s.kind = ''TBSPC'' and s.anomaly = 1 and (s.db || ''|'' || s.series = :P0_TBSPC or (:P0_TBSPC = ''ALL'' and (:P0_DB is null or s.db = '
-||':P0_DB))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select s.ts, round(s.value / 1073741824, 2) value from c_series s where s.kind = ''TBSPC'' and s.anomaly = 1 and (s.db || ''|'' || s.series = :P0_TBSPC or (:P0_TBSPC = ''ALL'' and ((:P0_DB is null or s.db ='
+||' :P0_DB) and (:P0_TARGET is null or s.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), '
+||'s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_items_value_column_name=>'VALUE'
@@ -1784,8 +2465,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000098)
-,p_chart_id=>wwv_flow_imp.id(110000000000090)
+ p_id=>wwv_flow_imp.id(110000000000142)
+,p_chart_id=>wwv_flow_imp.id(110000000000134)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -1800,8 +2481,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000099)
-,p_chart_id=>wwv_flow_imp.id(110000000000090)
+ p_id=>wwv_flow_imp.id(110000000000143)
+,p_chart_id=>wwv_flow_imp.id(110000000000134)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -1816,7 +2497,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000100)
+ p_id=>wwv_flow_imp.id(110000000000144)
 ,p_plug_name=>'Daily growth'
 ,p_static_id=>'daily-growth'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -1826,8 +2507,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000101)
-,p_region_id=>wwv_flow_imp.id(110000000000100)
+ p_id=>wwv_flow_imp.id(110000000000145)
+,p_region_id=>wwv_flow_imp.id(110000000000144)
 ,p_chart_type=>'combo'
 ,p_height=>'360'
 ,p_animation_on_display=>'none'
@@ -1853,8 +2534,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'Pick a single tablespace to see its daily growth.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000102)
-,p_chart_id=>wwv_flow_imp.id(110000000000101)
+ p_id=>wwv_flow_imp.id(110000000000146)
+,p_chart_id=>wwv_flow_imp.id(110000000000145)
 ,p_static_id=>'growth'
 ,p_seq=>10
 ,p_name=>'Growth'
@@ -1878,8 +2559,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000103)
-,p_chart_id=>wwv_flow_imp.id(110000000000101)
+ p_id=>wwv_flow_imp.id(110000000000147)
+,p_chart_id=>wwv_flow_imp.id(110000000000145)
 ,p_static_id=>'anomalous-growth'
 ,p_seq=>20
 ,p_name=>'Anomalous growth'
@@ -1903,8 +2584,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000104)
-,p_chart_id=>wwv_flow_imp.id(110000000000101)
+ p_id=>wwv_flow_imp.id(110000000000148)
+,p_chart_id=>wwv_flow_imp.id(110000000000145)
 ,p_static_id=>'median-rate'
 ,p_seq=>30
 ,p_name=>'Median rate'
@@ -1932,8 +2613,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000105)
-,p_chart_id=>wwv_flow_imp.id(110000000000101)
+ p_id=>wwv_flow_imp.id(110000000000149)
+,p_chart_id=>wwv_flow_imp.id(110000000000145)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -1948,8 +2629,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000106)
-,p_chart_id=>wwv_flow_imp.id(110000000000101)
+ p_id=>wwv_flow_imp.id(110000000000150)
+,p_chart_id=>wwv_flow_imp.id(110000000000145)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -1964,7 +2645,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000107)
+ p_id=>wwv_flow_imp.id(110000000000151)
 ,p_plug_name=>'Growth anomalies'
 ,p_static_id=>'growth-anomalies'
 ,p_region_template_options=>'#DEFAULT#'
@@ -1974,18 +2655,20 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_IR'
 ,p_query_type=>'SQL'
 ,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 '
-||'z, n005 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='
-||'''''.,'''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
-'select a.ts DAY, a.db DB, a.series TABLESPACE, apex_page.get_url(p_page => 2, p_items => ''P0_TBSPC'', p_values => a.db || ''|'' || a.series) TABLESPACE_URL, a.anomaly_kind ANOMALY_KIND, a.sev SEV, case a'
-||'.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, round(a.value / 1073741824, 2) GROWTH_GIB, round(a.rat'
-||'e_bpd / 1048576, 1) RATE_MIB, round(a.expected / 1048576, 1) MEDIAN_MIB, round(a.threshold / 1048576, 1) THRESHOLD_MIB, round(a.z, 1) Z, a.anomaly_flag FLAG, a.message MESSAGE',
-'from c_anom a where a.kind = ''TBSPC'' and (:P0_DB is null or a.db = :P0_DB) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default n'
-||'ull on conversion error, ''YYYY-MM-DD''), a.ts)'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 z, n0'
+||'05 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
+||''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
+'select a.ts DAY, (select max(t.target_name) from c_cont t where t.db_pdb = a.db) TARGET, a.db DB, a.series TABLESPACE, apex_page.get_url(p_page => 2, p_items => ''P0_TBSPC'', p_values => a.db || ''|'' || '
+||'a.series) TABLESPACE_URL, a.anomaly_kind ANOMALY_KIND, a.sev SEV, case a.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--succ'
+||'ess'' end SEV_CSS, round(a.value / 1073741824, 2) GROWTH_GIB, round(a.rate_bpd / 1048576, 1) RATE_MIB, round(a.expected / 1048576, 1) MEDIAN_MIB, round(a.threshold / 1048576, 1) THRESHOLD_MIB, round(a.'
+||'z, 1) Z, a.anomaly_flag FLAG, a.message MESSAGE',
+'from c_anom a where a.kind = ''TBSPC'' and ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and a.ts between nvl(t'
+||'o_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts)'))
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000108)
+ p_id=>wwv_flow_imp.id(110000000000152)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No tablespace anomalies in the date range.'
 ,p_allow_save_rpt_public=>'Y'
@@ -1998,10 +2681,10 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000108
+,p_internal_uid=>110000000000152
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000109)
+ p_id=>wwv_flow_imp.id(110000000000153)
 ,p_db_column_name=>'DAY'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
@@ -2014,10 +2697,21 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000110)
-,p_db_column_name=>'DB'
+ p_id=>wwv_flow_imp.id(110000000000154)
+,p_db_column_name=>'TARGET'
 ,p_display_order=>20
 ,p_column_identifier=>'B'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000155)
+,p_db_column_name=>'DB'
+,p_display_order=>30
+,p_column_identifier=>'C'
 ,p_column_label=>'Database'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -2025,10 +2719,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000111)
+ p_id=>wwv_flow_imp.id(110000000000156)
 ,p_db_column_name=>'TABLESPACE'
-,p_display_order=>30
-,p_column_identifier=>'C'
+,p_display_order=>40
+,p_column_identifier=>'D'
 ,p_column_label=>'Tablespace'
 ,p_column_type=>'STRING'
 ,p_column_html_expression=>'<a href="#TABLESPACE_URL#">#TABLESPACE#</a>'
@@ -2037,10 +2731,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000112)
+ p_id=>wwv_flow_imp.id(110000000000157)
 ,p_db_column_name=>'TABLESPACE_URL'
-,p_display_order=>40
-,p_column_identifier=>'D'
+,p_display_order=>50
+,p_column_identifier=>'E'
 ,p_column_label=>'TABLESPACE_URL'
 ,p_column_type=>'STRING'
 ,p_display_text_as=>'HIDDEN_ESCAPE_SC'
@@ -2049,10 +2743,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000113)
+ p_id=>wwv_flow_imp.id(110000000000158)
 ,p_db_column_name=>'ANOMALY_KIND'
-,p_display_order=>50
-,p_column_identifier=>'E'
+,p_display_order=>60
+,p_column_identifier=>'F'
 ,p_column_label=>'Kind'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -2060,10 +2754,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000114)
+ p_id=>wwv_flow_imp.id(110000000000159)
 ,p_db_column_name=>'SEV'
-,p_display_order=>60
-,p_column_identifier=>'F'
+,p_display_order=>70
+,p_column_identifier=>'G'
 ,p_column_label=>'Severity'
 ,p_column_type=>'STRING'
 ,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #SEV_CSS#">#SEV#</span>'
@@ -2072,10 +2766,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000115)
+ p_id=>wwv_flow_imp.id(110000000000160)
 ,p_db_column_name=>'SEV_CSS'
-,p_display_order=>70
-,p_column_identifier=>'G'
+,p_display_order=>80
+,p_column_identifier=>'H'
 ,p_column_label=>'SEV_CSS'
 ,p_column_type=>'STRING'
 ,p_display_text_as=>'HIDDEN_ESCAPE_SC'
@@ -2084,10 +2778,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000116)
+ p_id=>wwv_flow_imp.id(110000000000161)
 ,p_db_column_name=>'GROWTH_GIB'
-,p_display_order=>80
-,p_column_identifier=>'H'
+,p_display_order=>90
+,p_column_identifier=>'I'
 ,p_column_label=>'Growth GiB'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2096,10 +2790,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000117)
+ p_id=>wwv_flow_imp.id(110000000000162)
 ,p_db_column_name=>'RATE_MIB'
-,p_display_order=>90
-,p_column_identifier=>'I'
+,p_display_order=>100
+,p_column_identifier=>'J'
 ,p_column_label=>'Rate MiB/day'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2108,10 +2802,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000118)
+ p_id=>wwv_flow_imp.id(110000000000163)
 ,p_db_column_name=>'MEDIAN_MIB'
-,p_display_order=>100
-,p_column_identifier=>'J'
+,p_display_order=>110
+,p_column_identifier=>'K'
 ,p_column_label=>'Median MiB/day'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2120,10 +2814,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000119)
+ p_id=>wwv_flow_imp.id(110000000000164)
 ,p_db_column_name=>'THRESHOLD_MIB'
-,p_display_order=>110
-,p_column_identifier=>'K'
+,p_display_order=>120
+,p_column_identifier=>'L'
 ,p_column_label=>'Threshold MiB'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2132,10 +2826,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000120)
+ p_id=>wwv_flow_imp.id(110000000000165)
 ,p_db_column_name=>'Z'
-,p_display_order=>120
-,p_column_identifier=>'L'
+,p_display_order=>130
+,p_column_identifier=>'M'
 ,p_column_label=>'z'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2144,10 +2838,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000121)
+ p_id=>wwv_flow_imp.id(110000000000166)
 ,p_db_column_name=>'FLAG'
-,p_display_order=>130
-,p_column_identifier=>'M'
+,p_display_order=>140
+,p_column_identifier=>'N'
 ,p_column_label=>'Flag'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -2155,10 +2849,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000122)
+ p_id=>wwv_flow_imp.id(110000000000167)
 ,p_db_column_name=>'MESSAGE'
-,p_display_order=>140
-,p_column_identifier=>'N'
+,p_display_order=>150
+,p_column_identifier=>'O'
 ,p_column_label=>'Message'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -2166,19 +2860,19 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000123)
+ p_id=>wwv_flow_imp.id(110000000000168)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'growth-anomalies'
 ,p_status=>'PUBLIC'
 ,p_is_default=>'Y'
 ,p_display_rows=>15
-,p_report_columns=>'DAY:DB:TABLESPACE:ANOMALY_KIND:SEV:GROWTH_GIB:RATE_MIB:MEDIAN_MIB:THRESHOLD_MIB:Z:FLAG:MESSAGE'
+,p_report_columns=>'DAY:TARGET:DB:TABLESPACE:ANOMALY_KIND:SEV:GROWTH_GIB:RATE_MIB:MEDIAN_MIB:THRESHOLD_MIB:Z:FLAG:MESSAGE'
 ,p_sort_column_1=>'DAY'
 ,p_sort_direction_1=>'DESC'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000124)
+ p_id=>wwv_flow_imp.id(110000000000169)
 ,p_name=>'Tablespace alerts'
 ,p_static_id=>'tablespace-alerts'
 ,p_template=>4075786578761660127
@@ -2188,11 +2882,13 @@ wwv_flow_imp_page.create_report_region(
 ,p_source_type=>'NATIVE_SQL_REPORT'
 ,p_query_type=>'SQL'
 ,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_alert as (select c001 severity, c002 kind, c003 db_pdb, c004 series_key, c005 unit, c006 message, d001 day_dt, n001 sev_rank, n002 value, n003 threshold from apex_collections where collection_n'
-||'ame = ''AWRCAP_ALERTS'')',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_alert as (select c001 severity, c002 kind, c003 db_pdb, c004 series_key, c005 unit, c006 message, d001 day_dt, n001 sev_rank, n002 value, n003 threshold from apex_collections where collection_name ='
+||' ''AWRCAP_ALERTS'')',
 'select a.severity SEV, case a.severity when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, a.sev_rank SEV_RANK,'
-||' a.kind KIND, a.db_pdb DB, a.series_key SERIES, a.day_dt DAY, round(a.value, 2) VALUE, round(a.threshold, 2) THRESHOLD, a.unit UNIT, a.message MESSAGE',
-'from c_alert a where a.kind like ''TBSPC%'' and (:P0_DB is null or a.db_pdb = :P0_DB)',
+||' a.kind KIND, (select max(t.target_name) from c_cont t where t.db_pdb = a.db_pdb) TARGET, a.db_pdb DB, a.series_key SERIES, a.day_dt DAY, round(a.value, 2) VALUE, round(a.threshold, 2) THRESHOLD, case'
+||' lower(a.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else a.unit end UNIT, a.message MESSAGE',
+'from c_alert a where a.kind like ''TBSPC%'' and ((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))',
 'order by a.sev_rank, a.day_dt desc'))
 ,p_ajax_enabled=>'Y'
 ,p_lazy_loading=>false
@@ -2207,7 +2903,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000125)
+ p_id=>wwv_flow_imp.id(110000000000170)
 ,p_query_column_id=>1
 ,p_column_alias=>'SEV'
 ,p_column_display_sequence=>10
@@ -2219,7 +2915,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000126)
+ p_id=>wwv_flow_imp.id(110000000000171)
 ,p_query_column_id=>2
 ,p_column_alias=>'SEV_CSS'
 ,p_column_display_sequence=>20
@@ -2230,7 +2926,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000127)
+ p_id=>wwv_flow_imp.id(110000000000172)
 ,p_query_column_id=>3
 ,p_column_alias=>'SEV_RANK'
 ,p_column_display_sequence=>30
@@ -2241,7 +2937,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000128)
+ p_id=>wwv_flow_imp.id(110000000000173)
 ,p_query_column_id=>4
 ,p_column_alias=>'KIND'
 ,p_column_display_sequence=>40
@@ -2252,10 +2948,21 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000129)
+ p_id=>wwv_flow_imp.id(110000000000174)
 ,p_query_column_id=>5
-,p_column_alias=>'DB'
+,p_column_alias=>'TARGET'
 ,p_column_display_sequence=>50
+,p_column_heading=>'Target'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000175)
+,p_query_column_id=>6
+,p_column_alias=>'DB'
+,p_column_display_sequence=>60
 ,p_column_heading=>'Database'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -2263,10 +2970,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000130)
-,p_query_column_id=>6
+ p_id=>wwv_flow_imp.id(110000000000176)
+,p_query_column_id=>7
 ,p_column_alias=>'SERIES'
-,p_column_display_sequence=>60
+,p_column_display_sequence=>70
 ,p_column_heading=>'Tablespace'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -2274,10 +2981,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000131)
-,p_query_column_id=>7
+ p_id=>wwv_flow_imp.id(110000000000177)
+,p_query_column_id=>8
 ,p_column_alias=>'DAY'
-,p_column_display_sequence=>70
+,p_column_display_sequence=>80
 ,p_column_heading=>'Day'
 ,p_column_format=>'YYYY-MM-DD'
 ,p_heading_alignment=>'LEFT'
@@ -2286,10 +2993,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000132)
-,p_query_column_id=>8
+ p_id=>wwv_flow_imp.id(110000000000178)
+,p_query_column_id=>9
 ,p_column_alias=>'VALUE'
-,p_column_display_sequence=>80
+,p_column_display_sequence=>90
 ,p_column_heading=>'Value'
 ,p_column_alignment=>'RIGHT'
 ,p_heading_alignment=>'RIGHT'
@@ -2298,10 +3005,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000133)
-,p_query_column_id=>9
+ p_id=>wwv_flow_imp.id(110000000000179)
+,p_query_column_id=>10
 ,p_column_alias=>'THRESHOLD'
-,p_column_display_sequence=>90
+,p_column_display_sequence=>100
 ,p_column_heading=>'Threshold'
 ,p_column_alignment=>'RIGHT'
 ,p_heading_alignment=>'RIGHT'
@@ -2310,10 +3017,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000134)
-,p_query_column_id=>10
+ p_id=>wwv_flow_imp.id(110000000000180)
+,p_query_column_id=>11
 ,p_column_alias=>'UNIT'
-,p_column_display_sequence=>100
+,p_column_display_sequence=>110
 ,p_column_heading=>'Unit'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -2321,10 +3028,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000135)
-,p_query_column_id=>11
+ p_id=>wwv_flow_imp.id(110000000000181)
+,p_query_column_id=>12
 ,p_column_alias=>'MESSAGE'
-,p_column_display_sequence=>110
+,p_column_display_sequence=>120
 ,p_column_heading=>'Message'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -2332,7 +3039,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_branch(
- p_id=>wwv_flow_imp.id(110000000000136)
+ p_id=>wwv_flow_imp.id(110000000000182)
 ,p_branch_action=>'f?p=&APP_ID.:2:&SESSION.::&DEBUG.:::'
 ,p_branch_point=>'AFTER_PROCESSING'
 ,p_branch_type=>'REDIRECT_URL'
@@ -2354,7 +3061,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'C'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000137)
+ p_id=>wwv_flow_imp.id(110000000000183)
 ,p_plug_name=>'Host CPU busy %'
 ,p_static_id=>'host-cpu-busy'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -2364,8 +3071,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000138)
-,p_region_id=>wwv_flow_imp.id(110000000000137)
+ p_id=>wwv_flow_imp.id(110000000000184)
+,p_region_id=>wwv_flow_imp.id(110000000000183)
 ,p_chart_type=>'line'
 ,p_height=>'400'
 ,p_animation_on_display=>'none'
@@ -2391,22 +3098,22 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No host CPU in scope. Host CPU (OSSTAT) is recorded under the CDB root container; select the CDB, one of its PDBs, or all databases.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000139)
-,p_chart_id=>wwv_flow_imp.id(110000000000138)
+ p_id=>wwv_flow_imp.id(110000000000185)
+,p_chart_id=>wwv_flow_imp.id(110000000000184)
 ,p_static_id=>'busy'
 ,p_seq=>10
 ,p_name=>'Busy %'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
 'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
 ||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
 ||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
 ||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
 ||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
-'select s.ts, round(s.value, 1) value, s.db || '' busy %'' name from c_series s where s.kind = ''CPU'' and s.series = ''BUSY_PCT'' and (:P0_DB is null or s.db in (select r.db_pdb from c_cont r, c_cont c wher'
-||'e c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on co'
-||'nversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+'select s.ts, round(s.value, 1) value, s.db || '' busy %'' name from c_series s where s.kind = ''CPU'' and s.series = ''BUSY_PCT'' and ((:P0_DB is null or s.db in (select r.db_pdb from c_cont r, c_cont c whe'
+||'re c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or s.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl(to_date(:P'
+||'0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -2422,22 +3129,22 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000140)
-,p_chart_id=>wwv_flow_imp.id(110000000000138)
+ p_id=>wwv_flow_imp.id(110000000000186)
+,p_chart_id=>wwv_flow_imp.id(110000000000184)
 ,p_static_id=>'busy-hour-p95'
 ,p_seq=>20
 ,p_name=>'Busy-hour p95'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
 'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
 ||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
 ||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
 ||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
 ||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
-'select s.ts, round(s.busy_p95, 1) value, s.db || '' busy-hour p95'' name from c_series s where s.kind = ''CPU'' and s.series = ''BUSY_PCT'' and (:P0_DB is null or s.db in (select r.db_pdb from c_cont r, c_c'
-||'ont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default '
-||'null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+'select s.ts, round(s.busy_p95, 1) value, s.db || '' busy-hour p95'' name from c_series s where s.kind = ''CPU'' and s.series = ''BUSY_PCT'' and ((:P0_DB is null or s.db in (select r.db_pdb from c_cont r, c_'
+||'cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or s.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl('
+||'to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -2452,19 +3159,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000141)
-,p_chart_id=>wwv_flow_imp.id(110000000000138)
+ p_id=>wwv_flow_imp.id(110000000000187)
+,p_chart_id=>wwv_flow_imp.id(110000000000184)
 ,p_static_id=>'forecast'
 ,p_seq=>30
 ,p_name=>'Forecast'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
 'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
 ||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''CPU'' and f.method = ''REGR'' and f.series = ''BUSY_P95'' and (:P0_DB is null or f.db in (select r.db_pdb from c'
-||'_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0'
-||'_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''CPU'' and f.method = ''REGR'' and f.series = ''BUSY_P95'' and ((:P0_DB is null or f.db in (select r.db_pdb from '
+||'c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts '
+||'between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -2480,19 +3187,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000142)
-,p_chart_id=>wwv_flow_imp.id(110000000000138)
+ p_id=>wwv_flow_imp.id(110000000000188)
+,p_chart_id=>wwv_flow_imp.id(110000000000184)
 ,p_static_id=>'forecast-low'
 ,p_seq=>40
 ,p_name=>'Forecast low'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
 'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
 ||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''CPU'' and f.method = ''REGR'' and f.series = ''BUSY_P95'' and (:P0_DB is null or f.db in (select '
-||'r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and '
-||'nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''CPU'' and f.method = ''REGR'' and f.series = ''BUSY_P95'' and ((:P0_DB is null or f.db in (select'
+||' r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARG'
+||'ET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -2509,19 +3216,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000143)
-,p_chart_id=>wwv_flow_imp.id(110000000000138)
+ p_id=>wwv_flow_imp.id(110000000000189)
+,p_chart_id=>wwv_flow_imp.id(110000000000184)
 ,p_static_id=>'forecast-high'
 ,p_seq=>50
 ,p_name=>'Forecast high'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
 'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
 ||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''CPU'' and f.method = ''REGR'' and f.series = ''BUSY_P95'' and (:P0_DB is null or f.db in (select'
-||' r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and'
-||' nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''CPU'' and f.method = ''REGR'' and f.series = ''BUSY_P95'' and ((:P0_DB is null or f.db in (selec'
+||'t r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TAR'
+||'GET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -2538,8 +3245,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000144)
-,p_chart_id=>wwv_flow_imp.id(110000000000138)
+ p_id=>wwv_flow_imp.id(110000000000190)
+,p_chart_id=>wwv_flow_imp.id(110000000000184)
 ,p_static_id=>'saturation'
 ,p_seq=>60
 ,p_name=>'Saturation'
@@ -2565,22 +3272,22 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000145)
-,p_chart_id=>wwv_flow_imp.id(110000000000138)
+ p_id=>wwv_flow_imp.id(110000000000191)
+,p_chart_id=>wwv_flow_imp.id(110000000000184)
 ,p_static_id=>'anomaly'
 ,p_seq=>70
 ,p_name=>'Anomaly'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
 'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
 ||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
 ||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
 ||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
 ||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
-'select s.ts, round(s.value, 1) value from c_series s where s.kind = ''CPU'' and s.series = ''BUSY_PCT'' and s.anomaly = 1 and (:P0_DB is null or s.db in (select r.db_pdb from c_cont r, c_cont c where c.db'
-||'_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversi'
-||'on error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+'select s.ts, round(s.value, 1) value from c_series s where s.kind = ''CPU'' and s.series = ''BUSY_PCT'' and s.anomaly = 1 and ((:P0_DB is null or s.db in (select r.db_pdb from c_cont r, c_cont c where c.d'
+||'b_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or s.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl(to_date(:P0_FROM'
+||' default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_items_value_column_name=>'VALUE'
@@ -2595,8 +3302,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000146)
-,p_chart_id=>wwv_flow_imp.id(110000000000138)
+ p_id=>wwv_flow_imp.id(110000000000192)
+,p_chart_id=>wwv_flow_imp.id(110000000000184)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -2611,8 +3318,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000147)
-,p_chart_id=>wwv_flow_imp.id(110000000000138)
+ p_id=>wwv_flow_imp.id(110000000000193)
+,p_chart_id=>wwv_flow_imp.id(110000000000184)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -2628,7 +3335,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000148)
+ p_id=>wwv_flow_imp.id(110000000000194)
 ,p_plug_name=>'DB CPU % of host per container'
 ,p_static_id=>'db-cpu-of-host-per-container'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -2638,8 +3345,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000149)
-,p_region_id=>wwv_flow_imp.id(110000000000148)
+ p_id=>wwv_flow_imp.id(110000000000195)
+,p_region_id=>wwv_flow_imp.id(110000000000194)
 ,p_chart_type=>'line'
 ,p_height=>'360'
 ,p_animation_on_display=>'none'
@@ -2665,20 +3372,22 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000150)
-,p_chart_id=>wwv_flow_imp.id(110000000000149)
+ p_id=>wwv_flow_imp.id(110000000000196)
+,p_chart_id=>wwv_flow_imp.id(110000000000195)
 ,p_static_id=>'db-cpu'
 ,p_seq=>10
 ,p_name=>'DB CPU %'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''999999999999'
-||'99999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''9999999999999999999999'
-||'9999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D9'
-||'999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''9999999999999999999999999'
-||'9D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
-'select s.ts, round(s.value, 1) value, s.db name from c_series s where s.kind = ''CPU'' and s.series = ''DB_CPU_PCT'' and (:P0_DB is null or s.db = :P0_DB) and s.ts between nvl(to_date(:P0_FROM default nul'
-||'l on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select s.ts, round(s.value, 1) value, s.db name from c_series s where s.kind = ''CPU'' and s.series = ''DB_CPU_PCT'' and ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.db_'
+||'pdb from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion err'
+||'or, ''YYYY-MM-DD''), s.ts) order by s.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -2694,19 +3403,21 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000151)
-,p_chart_id=>wwv_flow_imp.id(110000000000149)
+ p_id=>wwv_flow_imp.id(110000000000197)
+,p_chart_id=>wwv_flow_imp.id(110000000000195)
 ,p_static_id=>'level-shift'
 ,p_seq=>20
 ,p_name=>'Level shift'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 '
-||'z, n005 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='
-||'''''.,'''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 z, n0'
+||'05 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
+||''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
 'select case k.n when 1 then a.ts else a.obs_day end ts, round(a.value, 1) value, ''Level shift '' || a.db || '' from '' || to_char(a.ts, ''YYYY-MM-DD'') name from c_anom a cross join (select 1 n from dual u'
-||'nion all select 2 n from dual) k where a.anomaly_kind = ''CPU_SHIFT'' and (:P0_DB is null or a.db = :P0_DB) and a.obs_day between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.'
-||'obs_day) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.obs_day) order by 3, 1'))
+||'nion all select 2 n from dual) k where a.anomaly_kind = ''CPU_SHIFT'' and ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_cont t where t.target_name = :P0_T'
+||'ARGET))) and a.obs_day between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.obs_day) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.obs_day) order'
+||' by 3, 1'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -2723,8 +3434,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000152)
-,p_chart_id=>wwv_flow_imp.id(110000000000149)
+ p_id=>wwv_flow_imp.id(110000000000198)
+,p_chart_id=>wwv_flow_imp.id(110000000000195)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -2739,8 +3450,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000153)
-,p_chart_id=>wwv_flow_imp.id(110000000000149)
+ p_id=>wwv_flow_imp.id(110000000000199)
+,p_chart_id=>wwv_flow_imp.id(110000000000195)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -2755,7 +3466,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000154)
+ p_id=>wwv_flow_imp.id(110000000000200)
 ,p_plug_name=>'CPU trend'
 ,p_static_id=>'cpu-trend'
 ,p_region_template_options=>'#DEFAULT#'
@@ -2765,20 +3476,22 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_IR'
 ,p_query_type=>'SQL'
 ,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
 'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
 ||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select f.db DB, f.series METRIC, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, roun'
-||'d(f.value, 1) CURRENT_VALUE, f.unit UNIT, round(f.slope_per_day, 3) SLOPE, f.days_to_full DTS, f.days_to_full_lo DTS_LO, f.days_to_full_hi DTS_HI, round(f.r2, 3) R2, f.quality QUALITY',
-'from c_fit f where f.kind = ''CPU'' and (f.series in (''BUSY_PCT'', ''BUSY_P95'', ''BUSY_PEAK'') and (:P0_DB is null or f.db in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.'
-||'dbid and r.con_dbid = r.dbid)) or f.series not in (''BUSY_PCT'', ''BUSY_P95'', ''BUSY_PEAK'') and (:P0_DB is null or f.db = :P0_DB))'))
+'select (select max(t.target_name) from c_cont t where t.db_pdb = f.db) TARGET, f.db DB, f.series METRIC, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' wh'
+||'en ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, round(f.value, 1) CURRENT_VALUE, case lower(f.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else f.unit en'
+||'d UNIT, round(f.slope_per_day, 3) SLOPE, f.days_to_full DTS, f.days_to_full_lo DTS_LO, f.days_to_full_hi DTS_HI, round(f.r2, 3) R2, f.quality QUALITY',
+'from c_fit f where f.kind = ''CPU'' and (f.series in (''BUSY_PCT'', ''BUSY_P95'', ''BUSY_PEAK'') and ((:P0_DB is null or f.db in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c'
+||'.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) or f.series not in (''BUSY_PCT'', ''BUSY_P95'', ''BUSY_PEAK'') and ((:P0'
+||'_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))))'))
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000155)
+ p_id=>wwv_flow_imp.id(110000000000201)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No rows in the current scope.'
 ,p_allow_save_rpt_public=>'Y'
@@ -2791,13 +3504,24 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000155
+,p_internal_uid=>110000000000201
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000156)
-,p_db_column_name=>'DB'
+ p_id=>wwv_flow_imp.id(110000000000202)
+,p_db_column_name=>'TARGET'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000203)
+,p_db_column_name=>'DB'
+,p_display_order=>20
+,p_column_identifier=>'B'
 ,p_column_label=>'Database'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -2805,10 +3529,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000157)
+ p_id=>wwv_flow_imp.id(110000000000204)
 ,p_db_column_name=>'METRIC'
-,p_display_order=>20
-,p_column_identifier=>'B'
+,p_display_order=>30
+,p_column_identifier=>'C'
 ,p_column_label=>'Metric'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -2816,10 +3540,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000158)
+ p_id=>wwv_flow_imp.id(110000000000205)
 ,p_db_column_name=>'SEV'
-,p_display_order=>30
-,p_column_identifier=>'C'
+,p_display_order=>40
+,p_column_identifier=>'D'
 ,p_column_label=>'Severity'
 ,p_column_type=>'STRING'
 ,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #SEV_CSS#">#SEV#</span>'
@@ -2828,10 +3552,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000159)
+ p_id=>wwv_flow_imp.id(110000000000206)
 ,p_db_column_name=>'SEV_CSS'
-,p_display_order=>40
-,p_column_identifier=>'D'
+,p_display_order=>50
+,p_column_identifier=>'E'
 ,p_column_label=>'SEV_CSS'
 ,p_column_type=>'STRING'
 ,p_display_text_as=>'HIDDEN_ESCAPE_SC'
@@ -2840,10 +3564,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000160)
+ p_id=>wwv_flow_imp.id(110000000000207)
 ,p_db_column_name=>'CURRENT_VALUE'
-,p_display_order=>50
-,p_column_identifier=>'E'
+,p_display_order=>60
+,p_column_identifier=>'F'
 ,p_column_label=>'Current'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2852,10 +3576,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000161)
+ p_id=>wwv_flow_imp.id(110000000000208)
 ,p_db_column_name=>'UNIT'
-,p_display_order=>60
-,p_column_identifier=>'F'
+,p_display_order=>70
+,p_column_identifier=>'G'
 ,p_column_label=>'Unit'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -2863,10 +3587,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000162)
+ p_id=>wwv_flow_imp.id(110000000000209)
 ,p_db_column_name=>'SLOPE'
-,p_display_order=>70
-,p_column_identifier=>'G'
+,p_display_order=>80
+,p_column_identifier=>'H'
 ,p_column_label=>'Slope/day'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2875,10 +3599,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000163)
+ p_id=>wwv_flow_imp.id(110000000000210)
 ,p_db_column_name=>'DTS'
-,p_display_order=>80
-,p_column_identifier=>'H'
+,p_display_order=>90
+,p_column_identifier=>'I'
 ,p_column_label=>'Days to saturation'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2887,10 +3611,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000164)
+ p_id=>wwv_flow_imp.id(110000000000211)
 ,p_db_column_name=>'DTS_LO'
-,p_display_order=>90
-,p_column_identifier=>'I'
+,p_display_order=>100
+,p_column_identifier=>'J'
 ,p_column_label=>'Low'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2899,10 +3623,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000165)
+ p_id=>wwv_flow_imp.id(110000000000212)
 ,p_db_column_name=>'DTS_HI'
-,p_display_order=>100
-,p_column_identifier=>'J'
+,p_display_order=>110
+,p_column_identifier=>'K'
 ,p_column_label=>'High'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2911,10 +3635,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000166)
+ p_id=>wwv_flow_imp.id(110000000000213)
 ,p_db_column_name=>'R2'
-,p_display_order=>110
-,p_column_identifier=>'K'
+,p_display_order=>120
+,p_column_identifier=>'L'
 ,p_column_label=>'R2'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -2923,10 +3647,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000167)
+ p_id=>wwv_flow_imp.id(110000000000214)
 ,p_db_column_name=>'QUALITY'
-,p_display_order=>120
-,p_column_identifier=>'L'
+,p_display_order=>130
+,p_column_identifier=>'M'
 ,p_column_label=>'Quality'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -2934,19 +3658,19 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000168)
+ p_id=>wwv_flow_imp.id(110000000000215)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'cpu-trend'
 ,p_status=>'PUBLIC'
 ,p_is_default=>'Y'
 ,p_display_rows=>15
-,p_report_columns=>'DB:METRIC:SEV:CURRENT_VALUE:UNIT:SLOPE:DTS:DTS_LO:DTS_HI:R2:QUALITY'
+,p_report_columns=>'TARGET:DB:METRIC:SEV:CURRENT_VALUE:UNIT:SLOPE:DTS:DTS_LO:DTS_HI:R2:QUALITY'
 ,p_sort_column_1=>'DTS'
 ,p_sort_direction_1=>'ASC'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000169)
+ p_id=>wwv_flow_imp.id(110000000000216)
 ,p_plug_name=>'Sessions'
 ,p_static_id=>'sessions'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -2957,8 +3681,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000170)
-,p_region_id=>wwv_flow_imp.id(110000000000169)
+ p_id=>wwv_flow_imp.id(110000000000217)
+,p_region_id=>wwv_flow_imp.id(110000000000216)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -2984,20 +3708,22 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000171)
-,p_chart_id=>wwv_flow_imp.id(110000000000170)
+ p_id=>wwv_flow_imp.id(110000000000218)
+,p_chart_id=>wwv_flow_imp.id(110000000000217)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''999999999999'
-||'99999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''9999999999999999999999'
-||'9999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D9'
-||'999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''9999999999999999999999999'
-||'9D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
-'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''SESSIONS'' and (:P0_DB is null or s.db = :P0_DB) and s.ts between nvl(to_date(:P0_FROM default nu'
-||'ll on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''SESSIONS'' and ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.db'
+||'_pdb from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion er'
+||'ror, ''YYYY-MM-DD''), s.ts) order by s.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3013,17 +3739,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000172)
-,p_chart_id=>wwv_flow_imp.id(110000000000170)
+ p_id=>wwv_flow_imp.id(110000000000219)
+,p_chart_id=>wwv_flow_imp.id(110000000000217)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''SESSIONS'' and (:P0_DB is null or f.db = :P0_DB) and f.ts betw'
-||'een nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''SESSIONS'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TAR'
+||'GET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:'
+||'P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3039,17 +3767,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000173)
-,p_chart_id=>wwv_flow_imp.id(110000000000170)
+ p_id=>wwv_flow_imp.id(110000000000220)
+,p_chart_id=>wwv_flow_imp.id(110000000000217)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''SESSIONS'' and (:P0_DB is null or f.db = :P0_DB'
-||') and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''SESSIONS'' and ((:P0_DB is null or f.db = :P0_D'
+||'B) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) an'
+||'d nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3066,17 +3796,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000174)
-,p_chart_id=>wwv_flow_imp.id(110000000000170)
+ p_id=>wwv_flow_imp.id(110000000000221)
+,p_chart_id=>wwv_flow_imp.id(110000000000217)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''SESSIONS'' and (:P0_DB is null or f.db = :P0_D'
-||'B) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''SESSIONS'' and ((:P0_DB is null or f.db = :P0_'
+||'DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) a'
+||'nd nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3093,21 +3825,22 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000175)
-,p_chart_id=>wwv_flow_imp.id(110000000000170)
+ p_id=>wwv_flow_imp.id(110000000000222)
+,p_chart_id=>wwv_flow_imp.id(110000000000217)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''SESSIONS'' and (:P0_DB is null or f.db = :P0_DB)) l cross join (s'
-||'elect to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all select to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not nu'
-||'ll and l.value is not null order by e.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''SESSIONS'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET'
+||' is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all sel'
+||'ect to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3124,8 +3857,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000176)
-,p_chart_id=>wwv_flow_imp.id(110000000000170)
+ p_id=>wwv_flow_imp.id(110000000000223)
+,p_chart_id=>wwv_flow_imp.id(110000000000217)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -3140,11 +3873,12 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000177)
-,p_chart_id=>wwv_flow_imp.id(110000000000170)
+ p_id=>wwv_flow_imp.id(110000000000224)
+,p_chart_id=>wwv_flow_imp.id(110000000000217)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
+,p_title=>'sessions'
 ,p_format_type=>'decimal'
 ,p_format_scaling=>'none'
 ,p_scaling=>'linear'
@@ -3155,7 +3889,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000178)
+ p_id=>wwv_flow_imp.id(110000000000225)
 ,p_plug_name=>'Processes'
 ,p_static_id=>'processes'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -3167,8 +3901,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000179)
-,p_region_id=>wwv_flow_imp.id(110000000000178)
+ p_id=>wwv_flow_imp.id(110000000000226)
+,p_region_id=>wwv_flow_imp.id(110000000000225)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -3194,20 +3928,22 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000180)
-,p_chart_id=>wwv_flow_imp.id(110000000000179)
+ p_id=>wwv_flow_imp.id(110000000000227)
+,p_chart_id=>wwv_flow_imp.id(110000000000226)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''999999999999'
-||'99999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''9999999999999999999999'
-||'9999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D9'
-||'999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''9999999999999999999999999'
-||'9D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
-'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''PROCESSES'' and (:P0_DB is null or s.db = :P0_DB) and s.ts between nvl(to_date(:P0_FROM default n'
-||'ull on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''PROCESSES'' and ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.d'
+||'b_pdb from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion e'
+||'rror, ''YYYY-MM-DD''), s.ts) order by s.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3223,17 +3959,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000181)
-,p_chart_id=>wwv_flow_imp.id(110000000000179)
+ p_id=>wwv_flow_imp.id(110000000000228)
+,p_chart_id=>wwv_flow_imp.id(110000000000226)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''PROCESSES'' and (:P0_DB is null or f.db = :P0_DB) and f.ts bet'
-||'ween nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''PROCESSES'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TA'
+||'RGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date('
+||':P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3249,17 +3987,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000182)
-,p_chart_id=>wwv_flow_imp.id(110000000000179)
+ p_id=>wwv_flow_imp.id(110000000000229)
+,p_chart_id=>wwv_flow_imp.id(110000000000226)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''PROCESSES'' and (:P0_DB is null or f.db = :P0_D'
-||'B) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''PROCESSES'' and ((:P0_DB is null or f.db = :P0_'
+||'DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) a'
+||'nd nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3276,17 +4016,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000183)
-,p_chart_id=>wwv_flow_imp.id(110000000000179)
+ p_id=>wwv_flow_imp.id(110000000000230)
+,p_chart_id=>wwv_flow_imp.id(110000000000226)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''PROCESSES'' and (:P0_DB is null or f.db = :P0_'
-||'DB) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''PROCESSES'' and ((:P0_DB is null or f.db = :P0'
+||'_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) '
+||'and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3303,21 +4045,22 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000184)
-,p_chart_id=>wwv_flow_imp.id(110000000000179)
+ p_id=>wwv_flow_imp.id(110000000000231)
+,p_chart_id=>wwv_flow_imp.id(110000000000226)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''PROCESSES'' and (:P0_DB is null or f.db = :P0_DB)) l cross join ('
-||'select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all select to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not n'
-||'ull and l.value is not null order by e.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''PROCESSES'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGE'
+||'T is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all se'
+||'lect to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3334,8 +4077,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000185)
-,p_chart_id=>wwv_flow_imp.id(110000000000179)
+ p_id=>wwv_flow_imp.id(110000000000232)
+,p_chart_id=>wwv_flow_imp.id(110000000000226)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -3350,11 +4093,12 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000186)
-,p_chart_id=>wwv_flow_imp.id(110000000000179)
+ p_id=>wwv_flow_imp.id(110000000000233)
+,p_chart_id=>wwv_flow_imp.id(110000000000226)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
+,p_title=>'processes'
 ,p_format_type=>'decimal'
 ,p_format_scaling=>'none'
 ,p_scaling=>'linear'
@@ -3365,7 +4109,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000187)
+ p_id=>wwv_flow_imp.id(110000000000234)
 ,p_plug_name=>'Database size (GiB)'
 ,p_static_id=>'database-size-gib'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -3376,8 +4120,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000188)
-,p_region_id=>wwv_flow_imp.id(110000000000187)
+ p_id=>wwv_flow_imp.id(110000000000235)
+,p_region_id=>wwv_flow_imp.id(110000000000234)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -3403,20 +4147,22 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000189)
-,p_chart_id=>wwv_flow_imp.id(110000000000188)
+ p_id=>wwv_flow_imp.id(110000000000236)
+,p_chart_id=>wwv_flow_imp.id(110000000000235)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''999999999999'
-||'99999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''9999999999999999999999'
-||'9999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D9'
-||'999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''9999999999999999999999999'
-||'9D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
-'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''DB_SIZE_GB'' and (:P0_DB is null or s.db = :P0_DB) and s.ts between nvl(to_date(:P0_FROM default '
-||'null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''DB_SIZE_GB'' and ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.'
+||'db_pdb from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion '
+||'error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3432,17 +4178,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000190)
-,p_chart_id=>wwv_flow_imp.id(110000000000188)
+ p_id=>wwv_flow_imp.id(110000000000237)
+,p_chart_id=>wwv_flow_imp.id(110000000000235)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''DB_SIZE_GB'' and (:P0_DB is null or f.db = :P0_DB) and f.ts be'
-||'tween nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''DB_SIZE_GB'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_T'
+||'ARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date'
+||'(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3458,17 +4206,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000191)
-,p_chart_id=>wwv_flow_imp.id(110000000000188)
+ p_id=>wwv_flow_imp.id(110000000000238)
+,p_chart_id=>wwv_flow_imp.id(110000000000235)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''DB_SIZE_GB'' and (:P0_DB is null or f.db = :P0_'
-||'DB) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''DB_SIZE_GB'' and ((:P0_DB is null or f.db = :P0'
+||'_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) '
+||'and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3485,17 +4235,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000192)
-,p_chart_id=>wwv_flow_imp.id(110000000000188)
+ p_id=>wwv_flow_imp.id(110000000000239)
+,p_chart_id=>wwv_flow_imp.id(110000000000235)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''DB_SIZE_GB'' and (:P0_DB is null or f.db = :P0'
-||'_DB) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''DB_SIZE_GB'' and ((:P0_DB is null or f.db = :P'
+||'0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts)'
+||' and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3512,21 +4264,22 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000193)
-,p_chart_id=>wwv_flow_imp.id(110000000000188)
+ p_id=>wwv_flow_imp.id(110000000000240)
+,p_chart_id=>wwv_flow_imp.id(110000000000235)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''DB_SIZE_GB'' and (:P0_DB is null or f.db = :P0_DB)) l cross join '
-||'(select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all select to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not '
-||'null and l.value is not null order by e.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''DB_SIZE_GB'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARG'
+||'ET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all s'
+||'elect to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3543,8 +4296,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000194)
-,p_chart_id=>wwv_flow_imp.id(110000000000188)
+ p_id=>wwv_flow_imp.id(110000000000241)
+,p_chart_id=>wwv_flow_imp.id(110000000000235)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -3559,11 +4312,12 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000195)
-,p_chart_id=>wwv_flow_imp.id(110000000000188)
+ p_id=>wwv_flow_imp.id(110000000000242)
+,p_chart_id=>wwv_flow_imp.id(110000000000235)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
+,p_title=>'GiB'
 ,p_format_type=>'decimal'
 ,p_format_scaling=>'none'
 ,p_scaling=>'linear'
@@ -3574,7 +4328,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000196)
+ p_id=>wwv_flow_imp.id(110000000000243)
 ,p_plug_name=>'Redo (GiB/day)'
 ,p_static_id=>'redo-gib-day'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -3586,8 +4340,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000197)
-,p_region_id=>wwv_flow_imp.id(110000000000196)
+ p_id=>wwv_flow_imp.id(110000000000244)
+,p_region_id=>wwv_flow_imp.id(110000000000243)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -3613,20 +4367,22 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000198)
-,p_chart_id=>wwv_flow_imp.id(110000000000197)
+ p_id=>wwv_flow_imp.id(110000000000245)
+,p_chart_id=>wwv_flow_imp.id(110000000000244)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''999999999999'
-||'99999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''9999999999999999999999'
-||'9999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D9'
-||'999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''9999999999999999999999999'
-||'9D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
-'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''REDO_GB_DAY'' and (:P0_DB is null or s.db = :P0_DB) and s.ts between nvl(to_date(:P0_FROM default'
-||' null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''REDO_GB_DAY'' and ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t'
+||'.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion'
+||' error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3642,17 +4398,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000199)
-,p_chart_id=>wwv_flow_imp.id(110000000000197)
+ p_id=>wwv_flow_imp.id(110000000000246)
+,p_chart_id=>wwv_flow_imp.id(110000000000244)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''REDO_GB_DAY'' and (:P0_DB is null or f.db = :P0_DB) and f.ts b'
-||'etween nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''REDO_GB_DAY'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_'
+||'TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_dat'
+||'e(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3668,17 +4426,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000200)
-,p_chart_id=>wwv_flow_imp.id(110000000000197)
+ p_id=>wwv_flow_imp.id(110000000000247)
+,p_chart_id=>wwv_flow_imp.id(110000000000244)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''REDO_GB_DAY'' and (:P0_DB is null or f.db = :P0'
-||'_DB) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''REDO_GB_DAY'' and ((:P0_DB is null or f.db = :P'
+||'0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts)'
+||' and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3695,17 +4455,19 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000201)
-,p_chart_id=>wwv_flow_imp.id(110000000000197)
+ p_id=>wwv_flow_imp.id(110000000000248)
+,p_chart_id=>wwv_flow_imp.id(110000000000244)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''9999999999999'
-||'9999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
-'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''REDO_GB_DAY'' and (:P0_DB is null or f.db = :P'
-||'0_DB) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''REDO_GB_DAY'' and ((:P0_DB is null or f.db = :'
+||'P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts'
+||') and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3722,21 +4484,22 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000202)
-,p_chart_id=>wwv_flow_imp.id(110000000000197)
+ p_id=>wwv_flow_imp.id(110000000000249)
+,p_chart_id=>wwv_flow_imp.id(110000000000244)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''REDO_GB_DAY'' and (:P0_DB is null or f.db = :P0_DB)) l cross join'
-||' (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all select to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not'
-||' null and l.value is not null order by e.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''REDO_GB_DAY'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TAR'
+||'GET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all '
+||'select to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'line'
 ,p_series_name_column_name=>'NAME'
@@ -3753,8 +4516,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000203)
-,p_chart_id=>wwv_flow_imp.id(110000000000197)
+ p_id=>wwv_flow_imp.id(110000000000250)
+,p_chart_id=>wwv_flow_imp.id(110000000000244)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -3769,11 +4532,12 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000204)
-,p_chart_id=>wwv_flow_imp.id(110000000000197)
+ p_id=>wwv_flow_imp.id(110000000000251)
+,p_chart_id=>wwv_flow_imp.id(110000000000244)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
+,p_title=>'GiB/day'
 ,p_format_type=>'decimal'
 ,p_format_scaling=>'none'
 ,p_scaling=>'linear'
@@ -3784,28 +4548,469 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000205)
+ p_id=>wwv_flow_imp.id(110000000000252)
+,p_plug_name=>'I/O requests per second (daily p95)'
+,p_static_id=>'i-o-requests-per-second-daily-p95'
+,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
+,p_plug_template=>4075786578761660127
+,p_plug_display_sequence=>80
+,p_plug_grid_column_span=>6
+,p_plug_item_display_point=>'ABOVE'
+,p_plug_source_type=>'NATIVE_JET_CHART'
+);
+wwv_flow_imp_page.create_jet_chart(
+ p_id=>wwv_flow_imp.id(110000000000253)
+,p_region_id=>wwv_flow_imp.id(110000000000252)
+,p_chart_type=>'line'
+,p_height=>'300'
+,p_animation_on_display=>'none'
+,p_animation_on_data_change=>'none'
+,p_orientation=>'vertical'
+,p_data_cursor=>'auto'
+,p_data_cursor_behavior=>'auto'
+,p_hide_and_show_behavior=>'withRescale'
+,p_hover_behavior=>'dim'
+,p_stack=>'off'
+,p_stack_label=>'off'
+,p_connect_nulls=>'Y'
+,p_fill_multi_series_gaps=>false
+,p_zoom_and_scroll=>'off'
+,p_tooltip_rendered=>'Y'
+,p_show_series_name=>true
+,p_show_group_name=>true
+,p_show_value=>true
+,p_legend_rendered=>'on'
+,p_legend_position=>'bottom'
+,p_overview_rendered=>'off'
+,p_time_axis_type=>'mixedFrequency'
+,p_no_data_found_message=>'No data in the current scope.'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000254)
+,p_chart_id=>wwv_flow_imp.id(110000000000253)
+,p_static_id=>'observed'
+,p_seq=>10
+,p_name=>'Observed'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''IOPS'' and ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.db_pdb'
+||' from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error,'
+||' ''YYYY-MM-DD''), s.ts) order by s.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_line_style=>'solid'
+,p_line_width=>2
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000255)
+,p_chart_id=>wwv_flow_imp.id(110000000000253)
+,p_static_id=>'forecast'
+,p_seq=>20
+,p_name=>'Forecast'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''IOPS'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET '
+||'is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_T'
+||'O default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_line_style=>'dashed'
+,p_line_width=>2
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000256)
+,p_chart_id=>wwv_flow_imp.id(110000000000253)
+,p_static_id=>'forecast-low'
+,p_seq=>30
+,p_name=>'Forecast low'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''IOPS'' and ((:P0_DB is null or f.db = :P0_DB) a'
+||'nd (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nv'
+||'l(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_color=>'#8E8E8E'
+,p_line_style=>'dotted'
+,p_line_width=>1
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000257)
+,p_chart_id=>wwv_flow_imp.id(110000000000253)
+,p_static_id=>'forecast-high'
+,p_seq=>40
+,p_name=>'Forecast high'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''IOPS'' and ((:P0_DB is null or f.db = :P0_DB) '
+||'and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and n'
+||'vl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_color=>'#8E8E8E'
+,p_line_style=>'dotted'
+,p_line_width=>1
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000258)
+,p_chart_id=>wwv_flow_imp.id(110000000000253)
+,p_static_id=>'limit'
+,p_seq=>50
+,p_name=>'Limit'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''IOPS'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is '
+||'null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all select '
+||'to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_color=>'#8E8E8E'
+,p_line_style=>'dashed'
+,p_line_width=>2
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_axis(
+ p_id=>wwv_flow_imp.id(110000000000259)
+,p_chart_id=>wwv_flow_imp.id(110000000000253)
+,p_static_id=>'x'
+,p_axis=>'x'
+,p_is_rendered=>'on'
+,p_format_type=>'date-short'
+,p_format_scaling=>'auto'
+,p_scaling=>'linear'
+,p_baseline_scaling=>'zero'
+,p_major_tick_rendered=>'on'
+,p_minor_tick_rendered=>'off'
+,p_tick_label_rendered=>'on'
+,p_tick_label_rotation=>'auto'
+,p_tick_label_position=>'outside'
+);
+wwv_flow_imp_page.create_jet_chart_axis(
+ p_id=>wwv_flow_imp.id(110000000000260)
+,p_chart_id=>wwv_flow_imp.id(110000000000253)
+,p_static_id=>'y'
+,p_axis=>'y'
+,p_is_rendered=>'on'
+,p_title=>'requests/s'
+,p_format_type=>'decimal'
+,p_format_scaling=>'none'
+,p_scaling=>'linear'
+,p_baseline_scaling=>'zero'
+,p_position=>'auto'
+,p_major_tick_rendered=>'on'
+,p_minor_tick_rendered=>'off'
+,p_tick_label_rendered=>'on'
+);
+wwv_flow_imp_page.create_page_plug(
+ p_id=>wwv_flow_imp.id(110000000000261)
+,p_plug_name=>'I/O throughput MB/s (daily p95)'
+,p_static_id=>'i-o-throughput-mb-s-daily-p95'
+,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
+,p_plug_template=>4075786578761660127
+,p_plug_display_sequence=>90
+,p_plug_new_grid_row=>false
+,p_plug_grid_column_span=>6
+,p_plug_item_display_point=>'ABOVE'
+,p_plug_source_type=>'NATIVE_JET_CHART'
+);
+wwv_flow_imp_page.create_jet_chart(
+ p_id=>wwv_flow_imp.id(110000000000262)
+,p_region_id=>wwv_flow_imp.id(110000000000261)
+,p_chart_type=>'line'
+,p_height=>'300'
+,p_animation_on_display=>'none'
+,p_animation_on_data_change=>'none'
+,p_orientation=>'vertical'
+,p_data_cursor=>'auto'
+,p_data_cursor_behavior=>'auto'
+,p_hide_and_show_behavior=>'withRescale'
+,p_hover_behavior=>'dim'
+,p_stack=>'off'
+,p_stack_label=>'off'
+,p_connect_nulls=>'Y'
+,p_fill_multi_series_gaps=>false
+,p_zoom_and_scroll=>'off'
+,p_tooltip_rendered=>'Y'
+,p_show_series_name=>true
+,p_show_group_name=>true
+,p_show_value=>true
+,p_legend_rendered=>'on'
+,p_legend_position=>'bottom'
+,p_overview_rendered=>'off'
+,p_time_axis_type=>'mixedFrequency'
+,p_no_data_found_message=>'No data in the current scope.'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000263)
+,p_chart_id=>wwv_flow_imp.id(110000000000262)
+,p_static_id=>'observed'
+,p_seq=>10
+,p_name=>'Observed'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''IO_MBPS'' and ((:P0_DB is null or s.db = :P0_DB) and (:P0_TARGET is null or s.db in (select t.db_'
+||'pdb from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion err'
+||'or, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_line_style=>'solid'
+,p_line_width=>2
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000264)
+,p_chart_id=>wwv_flow_imp.id(110000000000262)
+,p_static_id=>'forecast'
+,p_seq=>20
+,p_name=>'Forecast'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''IO_MBPS'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARG'
+||'ET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P'
+||'0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_line_style=>'dashed'
+,p_line_width=>2
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000265)
+,p_chart_id=>wwv_flow_imp.id(110000000000262)
+,p_static_id=>'forecast-low'
+,p_seq=>30
+,p_name=>'Forecast low'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''IO_MBPS'' and ((:P0_DB is null or f.db = :P0_DB'
+||') and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and'
+||' nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_color=>'#8E8E8E'
+,p_line_style=>'dotted'
+,p_line_width=>1
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000266)
+,p_chart_id=>wwv_flow_imp.id(110000000000262)
+,p_static_id=>'forecast-high'
+,p_seq=>40
+,p_name=>'Forecast high'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''IO_MBPS'' and ((:P0_DB is null or f.db = :P0_D'
+||'B) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) an'
+||'d nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_color=>'#8E8E8E'
+,p_line_style=>'dotted'
+,p_line_width=>1
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000267)
+,p_chart_id=>wwv_flow_imp.id(110000000000262)
+,p_static_id=>'limit'
+,p_seq=>50
+,p_name=>'Limit'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''IO_MBPS'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET '
+||'is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all sele'
+||'ct to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_color=>'#8E8E8E'
+,p_line_style=>'dashed'
+,p_line_width=>2
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_axis(
+ p_id=>wwv_flow_imp.id(110000000000268)
+,p_chart_id=>wwv_flow_imp.id(110000000000262)
+,p_static_id=>'x'
+,p_axis=>'x'
+,p_is_rendered=>'on'
+,p_format_type=>'date-short'
+,p_format_scaling=>'auto'
+,p_scaling=>'linear'
+,p_baseline_scaling=>'zero'
+,p_major_tick_rendered=>'on'
+,p_minor_tick_rendered=>'off'
+,p_tick_label_rendered=>'on'
+,p_tick_label_rotation=>'auto'
+,p_tick_label_position=>'outside'
+);
+wwv_flow_imp_page.create_jet_chart_axis(
+ p_id=>wwv_flow_imp.id(110000000000269)
+,p_chart_id=>wwv_flow_imp.id(110000000000262)
+,p_static_id=>'y'
+,p_axis=>'y'
+,p_is_rendered=>'on'
+,p_title=>'MB/s'
+,p_format_type=>'decimal'
+,p_format_scaling=>'none'
+,p_scaling=>'linear'
+,p_baseline_scaling=>'zero'
+,p_position=>'auto'
+,p_major_tick_rendered=>'on'
+,p_minor_tick_rendered=>'off'
+,p_tick_label_rendered=>'on'
+);
+wwv_flow_imp_page.create_page_plug(
+ p_id=>wwv_flow_imp.id(110000000000270)
 ,p_plug_name=>'Workload fits'
 ,p_static_id=>'workload-fits'
 ,p_region_template_options=>'#DEFAULT#'
 ,p_plug_template=>2103954283454391425
-,p_plug_display_sequence=>80
+,p_plug_display_sequence=>100
 ,p_plug_item_display_point=>'ABOVE'
 ,p_plug_source_type=>'NATIVE_IR'
 ,p_query_type=>'SQL'
 ,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005'
-||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
-||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
-'select f.db DB, f.series SERIES, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, roun'
-||'d(f.value, 2) CURRENT_VALUE, f.unit UNIT, round(f.limit_value, 2) LIMIT_VALUE, round(f.pct, 1) PCT, f.days_to_full DTL, round(f.slope_per_day, 3) SLOPE, round(f.r2, 3) R2, f.quality QUALITY',
-'from c_fit f where f.kind = ''SERIES'' and (:P0_DB is null or f.db = :P0_DB)'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select (select max(t.target_name) from c_cont t where t.db_pdb = f.db) TARGET, f.db DB, f.series SERIES, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' wh'
+||'en ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, round(f.value, 2) CURRENT_VALUE, case lower(f.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else f.unit en'
+||'d UNIT, round(f.limit_value, 2) LIMIT_VALUE, round(f.pct, 1) PCT, f.days_to_full DTL, round(f.slope_per_day, 3) SLOPE, round(f.r2, 3) R2, f.quality QUALITY',
+'from c_fit f where f.kind = ''SERIES'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))'))
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000206)
+ p_id=>wwv_flow_imp.id(110000000000271)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No rows in the current scope.'
 ,p_allow_save_rpt_public=>'Y'
@@ -3818,13 +5023,24 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000206
+,p_internal_uid=>110000000000271
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000207)
-,p_db_column_name=>'DB'
+ p_id=>wwv_flow_imp.id(110000000000272)
+,p_db_column_name=>'TARGET'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000273)
+,p_db_column_name=>'DB'
+,p_display_order=>20
+,p_column_identifier=>'B'
 ,p_column_label=>'Database'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -3832,10 +5048,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000208)
+ p_id=>wwv_flow_imp.id(110000000000274)
 ,p_db_column_name=>'SERIES'
-,p_display_order=>20
-,p_column_identifier=>'B'
+,p_display_order=>30
+,p_column_identifier=>'C'
 ,p_column_label=>'Series'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -3843,10 +5059,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000209)
+ p_id=>wwv_flow_imp.id(110000000000275)
 ,p_db_column_name=>'SEV'
-,p_display_order=>30
-,p_column_identifier=>'C'
+,p_display_order=>40
+,p_column_identifier=>'D'
 ,p_column_label=>'Severity'
 ,p_column_type=>'STRING'
 ,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #SEV_CSS#">#SEV#</span>'
@@ -3855,10 +5071,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000210)
+ p_id=>wwv_flow_imp.id(110000000000276)
 ,p_db_column_name=>'SEV_CSS'
-,p_display_order=>40
-,p_column_identifier=>'D'
+,p_display_order=>50
+,p_column_identifier=>'E'
 ,p_column_label=>'SEV_CSS'
 ,p_column_type=>'STRING'
 ,p_display_text_as=>'HIDDEN_ESCAPE_SC'
@@ -3867,10 +5083,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000211)
+ p_id=>wwv_flow_imp.id(110000000000277)
 ,p_db_column_name=>'CURRENT_VALUE'
-,p_display_order=>50
-,p_column_identifier=>'E'
+,p_display_order=>60
+,p_column_identifier=>'F'
 ,p_column_label=>'Current'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -3879,10 +5095,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000212)
+ p_id=>wwv_flow_imp.id(110000000000278)
 ,p_db_column_name=>'UNIT'
-,p_display_order=>60
-,p_column_identifier=>'F'
+,p_display_order=>70
+,p_column_identifier=>'G'
 ,p_column_label=>'Unit'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -3890,10 +5106,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000213)
+ p_id=>wwv_flow_imp.id(110000000000279)
 ,p_db_column_name=>'LIMIT_VALUE'
-,p_display_order=>70
-,p_column_identifier=>'G'
+,p_display_order=>80
+,p_column_identifier=>'H'
 ,p_column_label=>'Limit'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -3902,10 +5118,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000214)
+ p_id=>wwv_flow_imp.id(110000000000280)
 ,p_db_column_name=>'PCT'
-,p_display_order=>80
-,p_column_identifier=>'H'
+,p_display_order=>90
+,p_column_identifier=>'I'
 ,p_column_label=>'% of limit'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -3914,10 +5130,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000215)
+ p_id=>wwv_flow_imp.id(110000000000281)
 ,p_db_column_name=>'DTL'
-,p_display_order=>90
-,p_column_identifier=>'I'
+,p_display_order=>100
+,p_column_identifier=>'J'
 ,p_column_label=>'Days to limit'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -3926,10 +5142,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000216)
+ p_id=>wwv_flow_imp.id(110000000000282)
 ,p_db_column_name=>'SLOPE'
-,p_display_order=>100
-,p_column_identifier=>'J'
+,p_display_order=>110
+,p_column_identifier=>'K'
 ,p_column_label=>'Slope/day'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -3938,10 +5154,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000217)
+ p_id=>wwv_flow_imp.id(110000000000283)
 ,p_db_column_name=>'R2'
-,p_display_order=>110
-,p_column_identifier=>'K'
+,p_display_order=>120
+,p_column_identifier=>'L'
 ,p_column_label=>'R2'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -3950,10 +5166,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000218)
+ p_id=>wwv_flow_imp.id(110000000000284)
 ,p_db_column_name=>'QUALITY'
-,p_display_order=>120
-,p_column_identifier=>'L'
+,p_display_order=>130
+,p_column_identifier=>'M'
 ,p_column_label=>'Quality'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -3961,35 +5177,37 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000219)
+ p_id=>wwv_flow_imp.id(110000000000285)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'workload-fits'
 ,p_status=>'PUBLIC'
 ,p_is_default=>'Y'
 ,p_display_rows=>15
-,p_report_columns=>'DB:SERIES:SEV:CURRENT_VALUE:UNIT:LIMIT_VALUE:PCT:DTL:SLOPE:R2:QUALITY'
+,p_report_columns=>'TARGET:DB:SERIES:SEV:CURRENT_VALUE:UNIT:LIMIT_VALUE:PCT:DTL:SLOPE:R2:QUALITY'
 ,p_sort_column_1=>'DTL'
 ,p_sort_direction_1=>'ASC'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000220)
+ p_id=>wwv_flow_imp.id(110000000000286)
 ,p_name=>'CPU and series alerts'
 ,p_static_id=>'cpu-and-series-alerts'
 ,p_template=>4075786578761660127
-,p_display_sequence=>90
+,p_display_sequence=>110
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
 ,p_component_template_options=>'#DEFAULT#:t-Report--stretch:t-Report--altRowsDefault:t-Report--rowHighlight'
 ,p_source_type=>'NATIVE_SQL_REPORT'
 ,p_query_type=>'SQL'
 ,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
 'c_alert as (select c001 severity, c002 kind, c003 db_pdb, c004 series_key, c005 unit, c006 message, d001 day_dt, n001 sev_rank, n002 value, n003 threshold from apex_collections where collection_name ='
 ||' ''AWRCAP_ALERTS'')',
 'select a.severity SEV, case a.severity when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, a.sev_rank SEV_RANK,'
-||' a.kind KIND, a.db_pdb DB, a.series_key SERIES, a.day_dt DAY, round(a.value, 2) VALUE, round(a.threshold, 2) THRESHOLD, a.unit UNIT, a.message MESSAGE',
-'from c_alert a where a.kind not like ''TBSPC%'' and ((:P0_DB is null or a.db_pdb = :P0_DB) or (:P0_DB is null or a.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid ='
-||' c.dbid and r.con_dbid = r.dbid)))',
+||' a.kind KIND, (select max(t.target_name) from c_cont t where t.db_pdb = a.db_pdb) TARGET, a.db_pdb DB, a.series_key SERIES, a.day_dt DAY, round(a.value, 2) VALUE, round(a.threshold, 2) THRESHOLD, case'
+||' lower(a.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else a.unit end UNIT, a.message MESSAGE',
+'from c_alert a where a.kind not like ''TBSPC%'' and (((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) or ('
+||'(:P0_DB is null or a.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb fr'
+||'om c_cont t where t.target_name = :P0_TARGET))))',
 'order by a.sev_rank, a.day_dt desc'))
 ,p_ajax_enabled=>'Y'
 ,p_lazy_loading=>false
@@ -4004,7 +5222,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000221)
+ p_id=>wwv_flow_imp.id(110000000000287)
 ,p_query_column_id=>1
 ,p_column_alias=>'SEV'
 ,p_column_display_sequence=>10
@@ -4016,7 +5234,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000222)
+ p_id=>wwv_flow_imp.id(110000000000288)
 ,p_query_column_id=>2
 ,p_column_alias=>'SEV_CSS'
 ,p_column_display_sequence=>20
@@ -4027,7 +5245,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000223)
+ p_id=>wwv_flow_imp.id(110000000000289)
 ,p_query_column_id=>3
 ,p_column_alias=>'SEV_RANK'
 ,p_column_display_sequence=>30
@@ -4038,7 +5256,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000224)
+ p_id=>wwv_flow_imp.id(110000000000290)
 ,p_query_column_id=>4
 ,p_column_alias=>'KIND'
 ,p_column_display_sequence=>40
@@ -4049,10 +5267,21 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000225)
+ p_id=>wwv_flow_imp.id(110000000000291)
 ,p_query_column_id=>5
-,p_column_alias=>'DB'
+,p_column_alias=>'TARGET'
 ,p_column_display_sequence=>50
+,p_column_heading=>'Target'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000292)
+,p_query_column_id=>6
+,p_column_alias=>'DB'
+,p_column_display_sequence=>60
 ,p_column_heading=>'Database'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -4060,10 +5289,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000226)
-,p_query_column_id=>6
+ p_id=>wwv_flow_imp.id(110000000000293)
+,p_query_column_id=>7
 ,p_column_alias=>'SERIES'
-,p_column_display_sequence=>60
+,p_column_display_sequence=>70
 ,p_column_heading=>'Series'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -4071,10 +5300,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000227)
-,p_query_column_id=>7
+ p_id=>wwv_flow_imp.id(110000000000294)
+,p_query_column_id=>8
 ,p_column_alias=>'DAY'
-,p_column_display_sequence=>70
+,p_column_display_sequence=>80
 ,p_column_heading=>'Day'
 ,p_column_format=>'YYYY-MM-DD'
 ,p_heading_alignment=>'LEFT'
@@ -4083,10 +5312,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000228)
-,p_query_column_id=>8
+ p_id=>wwv_flow_imp.id(110000000000295)
+,p_query_column_id=>9
 ,p_column_alias=>'VALUE'
-,p_column_display_sequence=>80
+,p_column_display_sequence=>90
 ,p_column_heading=>'Value'
 ,p_column_alignment=>'RIGHT'
 ,p_heading_alignment=>'RIGHT'
@@ -4095,10 +5324,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000229)
-,p_query_column_id=>9
+ p_id=>wwv_flow_imp.id(110000000000296)
+,p_query_column_id=>10
 ,p_column_alias=>'THRESHOLD'
-,p_column_display_sequence=>90
+,p_column_display_sequence=>100
 ,p_column_heading=>'Threshold'
 ,p_column_alignment=>'RIGHT'
 ,p_heading_alignment=>'RIGHT'
@@ -4107,10 +5336,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000230)
-,p_query_column_id=>10
+ p_id=>wwv_flow_imp.id(110000000000297)
+,p_query_column_id=>11
 ,p_column_alias=>'UNIT'
-,p_column_display_sequence=>100
+,p_column_display_sequence=>110
 ,p_column_heading=>'Unit'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -4118,10 +5347,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000231)
-,p_query_column_id=>11
+ p_id=>wwv_flow_imp.id(110000000000298)
+,p_query_column_id=>12
 ,p_column_alias=>'MESSAGE'
-,p_column_display_sequence=>110
+,p_column_display_sequence=>120
 ,p_column_heading=>'Message'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -4129,8 +5358,948 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_branch(
- p_id=>wwv_flow_imp.id(110000000000232)
+ p_id=>wwv_flow_imp.id(110000000000299)
 ,p_branch_action=>'f?p=&APP_ID.:3:&SESSION.::&DEBUG.:::'
+,p_branch_point=>'AFTER_PROCESSING'
+,p_branch_type=>'REDIRECT_URL'
+,p_branch_sequence=>10
+);
+end;
+/
+prompt --application/pages/page_00006
+begin
+wwv_flow_imp_page.create_page(
+ p_id=>6
+,p_name=>'Memory sizing'
+,p_alias=>'MEMORY'
+,p_step_title=>'Memory sizing - AWR Capacity'
+,p_autocomplete_on_off=>'OFF'
+,p_warn_on_unsaved_changes=>'N'
+,p_step_template=>4075783602716660119
+,p_page_template_options=>'#DEFAULT#'
+,p_protection_level=>'C'
+);
+wwv_flow_imp_page.create_report_region(
+ p_id=>wwv_flow_imp.id(110000000000300)
+,p_name=>'Memory summary'
+,p_static_id=>'memory-summary'
+,p_template=>4075786578761660127
+,p_display_sequence=>10
+,p_region_template_options=>'#DEFAULT#:t-Region--hideHeader js-addHiddenHeadingRoleDesc'
+,p_component_template_options=>'#DEFAULT#:t-BadgeList--medium:t-BadgeList--dash:t-BadgeList--flex'
+,p_source_type=>'NATIVE_SQL_REPORT'
+,p_query_type=>'SQL'
+,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_memv as (select c001 db_pdb, c002 area, c003 area_label, c004 mem_mode, c005 grade, c006 reason, c007 reason_text, c008 actionable, c009 current_size, c010 suggested_size, c011 suggested_param, c012'
+||' exceeds_host_ram, c013 exceeds_sga, c014 headline, d001 window_start, d002 window_end, n001 instance_number, n002 area_rank, n003 current_bytes, n004 suggested_bytes, n005 change_pct, to_number(c015,'
+||' ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_evidence, to_number(c016, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_pressure, to_number(c'
+||'017, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_days, to_number(c018, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') rank_mem from apex_coll'
+||'ections where collection_name = ''AWRCAP_MEM_VERDICT''),',
+'c_meme as (select c001 db_pdb, c002 area, c003 area_label, c004 kind, c005 signal, c006 direction, c007 unit, c008 evidence_text, d001 observed_at, n001 instance_number, n002 area_rank, n003 value, n0'
+||'04 threshold, n005 rank_ev from apex_collections where collection_name = ''AWRCAP_MEM_EVIDENCE'')',
+'select (select count(*) from c_memv m where ((:P0_DB is null or m.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARG'
+||'ET is null or m.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) AREAS, (select count(*) from c_memv m where m.actionable = ''Y'' and ((:P0_DB is null or m.db_pdb in (select'
+||' r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or m.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_'
+||'TARGET)))) ACTIONABLE, (select count(*) from c_memv m where m.grade = ''UNDERSIZED'' and ((:P0_DB is null or m.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.d'
+||'bid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or m.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) UNDERSIZED, (select count(*) from c_memv m where m.grade = ''OVE'
+||'RSIZED'' and ((:P0_DB is null or m.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or m.db_pdb in (selec'
+||'t t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) OVERSIZED, (select count(*) from c_meme e where e.direction = ''PRESSURE'' and ((:P0_DB is null or e.db_pdb in (select r.db_pdb from c_cont '
+||'r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or e.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) PRESSURE',
+'from dual'))
+,p_ajax_enabled=>'Y'
+,p_lazy_loading=>false
+,p_query_row_template=>2108071605011515574
+,p_query_num_rows=>1
+,p_query_num_rows_type=>'SHOW_ALL'
+,p_query_no_data_found=>'No rows in the current scope.'
+,p_pagination_display_position=>'BOTTOM_RIGHT'
+,p_csv_output=>'N'
+,p_prn_output=>'N'
+,p_sort_null=>'L'
+,p_plug_query_strip_html=>'N'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000301)
+,p_query_column_id=>1
+,p_column_alias=>'AREAS'
+,p_column_display_sequence=>10
+,p_column_heading=>'Areas graded'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000302)
+,p_query_column_id=>2
+,p_column_alias=>'ACTIONABLE'
+,p_column_display_sequence=>20
+,p_column_heading=>'Need a change'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000303)
+,p_query_column_id=>3
+,p_column_alias=>'UNDERSIZED'
+,p_column_display_sequence=>30
+,p_column_heading=>'Undersized'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000304)
+,p_query_column_id=>4
+,p_column_alias=>'OVERSIZED'
+,p_column_display_sequence=>40
+,p_column_heading=>'Oversized'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000305)
+,p_query_column_id=>5
+,p_column_alias=>'PRESSURE'
+,p_column_display_sequence=>50
+,p_column_heading=>'Pressure signals'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_page_plug(
+ p_id=>wwv_flow_imp.id(110000000000306)
+,p_plug_name=>'Memory verdicts'
+,p_static_id=>'memory-verdicts'
+,p_region_template_options=>'#DEFAULT#'
+,p_plug_template=>2103954283454391425
+,p_plug_display_sequence=>20
+,p_plug_item_display_point=>'ABOVE'
+,p_plug_source_type=>'NATIVE_IR'
+,p_query_type=>'SQL'
+,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_memv as (select c001 db_pdb, c002 area, c003 area_label, c004 mem_mode, c005 grade, c006 reason, c007 reason_text, c008 actionable, c009 current_size, c010 suggested_size, c011 suggested_param, c012'
+||' exceeds_host_ram, c013 exceeds_sga, c014 headline, d001 window_start, d002 window_end, n001 instance_number, n002 area_rank, n003 current_bytes, n004 suggested_bytes, n005 change_pct, to_number(c015,'
+||' ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_evidence, to_number(c016, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_pressure, to_number(c'
+||'017, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_days, to_number(c018, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') rank_mem from apex_coll'
+||'ections where collection_name = ''AWRCAP_MEM_VERDICT'')',
+'select (select max(t.target_name) from c_cont t where t.db_pdb = m.db_pdb) TARGET, m.db_pdb DB, m.instance_number INST, m.area_label AREA, m.grade GRADE, case m.grade when ''UNDERSIZED'' then ''t-Badge--'
+||'warning'' when ''THRASHING'' then ''t-Badge--warning'' when ''OVERSIZED'' then ''t-Badge--info'' when ''DRIFTING'' then ''t-Badge--info'' when ''OK'' then ''t-Badge--success'' end GRADE_CSS, m.current_size CURRENT_SIZ'
+||'E, m.suggested_size SUGGESTED_SIZE, m.change_pct CHANGE_PCT, m.suggested_param PARAM, m.headline HEADLINE, m.reason_text REASON, trim(case when m.exceeds_host_ram = ''Y'' then ''exceeds host RAM '' end ||'
+||' case when m.exceeds_sga = ''Y'' then ''exceeds sga_target'' end) FLAGS, m.mem_mode MEM_MODE, m.n_evidence SIGNALS, m.n_pressure PRESSURE, m.n_days DAYS_SAMPLED, m.window_start WINDOW_START, m.window_end '
+||'WINDOW_END, m.rank_mem RANK_MEM',
+'from c_memv m where ((:P0_DB is null or m.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or m.db_pdb i'
+||'n (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))'))
+,p_include_rowid_column=>false
+);
+wwv_flow_imp_page.create_worksheet(
+ p_id=>wwv_flow_imp.id(110000000000307)
+,p_max_row_count=>'100000'
+,p_no_data_found_message=>'No memory verdict in scope. The verdicts are instance level: select the CDB, one of its PDBs, or all databases.'
+,p_allow_save_rpt_public=>'Y'
+,p_show_nulls_as=>'-'
+,p_pagination_type=>'ROWS_X_TO_Y'
+,p_pagination_display_pos=>'BOTTOM_RIGHT'
+,p_report_list_mode=>'TABS'
+,p_lazy_loading=>false
+,p_show_detail_link=>'N'
+,p_show_notify=>'N'
+,p_download_formats=>'CSV:HTML:XLSX'
+,p_enable_mail_download=>'N'
+,p_internal_uid=>110000000000307
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000308)
+,p_db_column_name=>'TARGET'
+,p_display_order=>10
+,p_column_identifier=>'A'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000309)
+,p_db_column_name=>'DB'
+,p_display_order=>20
+,p_column_identifier=>'B'
+,p_column_label=>'Database'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000310)
+,p_db_column_name=>'INST'
+,p_display_order=>30
+,p_column_identifier=>'C'
+,p_column_label=>'Instance'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000311)
+,p_db_column_name=>'AREA'
+,p_display_order=>40
+,p_column_identifier=>'D'
+,p_column_label=>'Area'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000312)
+,p_db_column_name=>'GRADE'
+,p_display_order=>50
+,p_column_identifier=>'E'
+,p_column_label=>'Grade'
+,p_column_type=>'STRING'
+,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #GRADE_CSS#">#GRADE#</span>'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000313)
+,p_db_column_name=>'GRADE_CSS'
+,p_display_order=>60
+,p_column_identifier=>'F'
+,p_column_label=>'GRADE_CSS'
+,p_column_type=>'STRING'
+,p_display_text_as=>'HIDDEN_ESCAPE_SC'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000314)
+,p_db_column_name=>'CURRENT_SIZE'
+,p_display_order=>70
+,p_column_identifier=>'G'
+,p_column_label=>'Current size'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000315)
+,p_db_column_name=>'SUGGESTED_SIZE'
+,p_display_order=>80
+,p_column_identifier=>'H'
+,p_column_label=>'Suggested size'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000316)
+,p_db_column_name=>'CHANGE_PCT'
+,p_display_order=>90
+,p_column_identifier=>'I'
+,p_column_label=>'Change %'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000317)
+,p_db_column_name=>'PARAM'
+,p_display_order=>100
+,p_column_identifier=>'J'
+,p_column_label=>'Parameter'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000318)
+,p_db_column_name=>'HEADLINE'
+,p_display_order=>110
+,p_column_identifier=>'K'
+,p_column_label=>'Headline'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000319)
+,p_db_column_name=>'REASON'
+,p_display_order=>120
+,p_column_identifier=>'L'
+,p_column_label=>'Reason'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000320)
+,p_db_column_name=>'FLAGS'
+,p_display_order=>130
+,p_column_identifier=>'M'
+,p_column_label=>'Flags'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000321)
+,p_db_column_name=>'MEM_MODE'
+,p_display_order=>140
+,p_column_identifier=>'N'
+,p_column_label=>'Memory mode'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000322)
+,p_db_column_name=>'SIGNALS'
+,p_display_order=>150
+,p_column_identifier=>'O'
+,p_column_label=>'Signals'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000323)
+,p_db_column_name=>'PRESSURE'
+,p_display_order=>160
+,p_column_identifier=>'P'
+,p_column_label=>'Pressure signals'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000324)
+,p_db_column_name=>'DAYS_SAMPLED'
+,p_display_order=>170
+,p_column_identifier=>'Q'
+,p_column_label=>'Days sampled'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000325)
+,p_db_column_name=>'WINDOW_START'
+,p_display_order=>180
+,p_column_identifier=>'R'
+,p_column_label=>'Window from'
+,p_column_type=>'DATE'
+,p_format_mask=>'YYYY-MM-DD'
+,p_heading_alignment=>'LEFT'
+,p_tz_dependent=>'N'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000326)
+,p_db_column_name=>'WINDOW_END'
+,p_display_order=>190
+,p_column_identifier=>'S'
+,p_column_label=>'Window to'
+,p_column_type=>'DATE'
+,p_format_mask=>'YYYY-MM-DD'
+,p_heading_alignment=>'LEFT'
+,p_tz_dependent=>'N'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000327)
+,p_db_column_name=>'RANK_MEM'
+,p_display_order=>200
+,p_column_identifier=>'T'
+,p_column_label=>'RANK_MEM'
+,p_column_type=>'STRING'
+,p_display_text_as=>'HIDDEN_ESCAPE_SC'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_rpt(
+ p_id=>wwv_flow_imp.id(110000000000328)
+,p_application_user=>'APXWS_DEFAULT'
+,p_report_seq=>10
+,p_report_alias=>'memory-verdicts'
+,p_status=>'PUBLIC'
+,p_is_default=>'Y'
+,p_display_rows=>15
+,p_report_columns=>'TARGET:DB:INST:AREA:GRADE:CURRENT_SIZE:SUGGESTED_SIZE:CHANGE_PCT:PARAM:HEADLINE:REASON:FLAGS:MEM_MODE:SIGNALS:PRESSURE:DAYS_SAMPLED:WINDOW_START:WINDOW_END'
+,p_sort_column_1=>'DB'
+,p_sort_direction_1=>'ASC'
+,p_sort_column_2=>'RANK_MEM'
+,p_sort_direction_2=>'ASC'
+);
+wwv_flow_imp_page.create_page_plug(
+ p_id=>wwv_flow_imp.id(110000000000329)
+,p_plug_name=>'SGA components'
+,p_static_id=>'sga-components'
+,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
+,p_plug_template=>4075786578761660127
+,p_plug_display_sequence=>30
+,p_plug_grid_column_span=>6
+,p_plug_item_display_point=>'ABOVE'
+,p_plug_source_type=>'NATIVE_JET_CHART'
+);
+wwv_flow_imp_page.create_jet_chart(
+ p_id=>wwv_flow_imp.id(110000000000330)
+,p_region_id=>wwv_flow_imp.id(110000000000329)
+,p_chart_type=>'line'
+,p_height=>'300'
+,p_animation_on_display=>'none'
+,p_animation_on_data_change=>'none'
+,p_orientation=>'vertical'
+,p_data_cursor=>'auto'
+,p_data_cursor_behavior=>'auto'
+,p_hide_and_show_behavior=>'withRescale'
+,p_hover_behavior=>'dim'
+,p_stack=>'off'
+,p_stack_label=>'off'
+,p_connect_nulls=>'Y'
+,p_fill_multi_series_gaps=>false
+,p_zoom_and_scroll=>'off'
+,p_tooltip_rendered=>'Y'
+,p_show_series_name=>true
+,p_show_group_name=>true
+,p_show_value=>true
+,p_legend_rendered=>'on'
+,p_legend_position=>'bottom'
+,p_overview_rendered=>'off'
+,p_time_axis_type=>'mixedFrequency'
+,p_no_data_found_message=>'No SGA component history in scope.'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000331)
+,p_chart_id=>wwv_flow_imp.id(110000000000330)
+,p_static_id=>'component'
+,p_seq=>10
+,p_name=>'Component'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_memp as (select c001 db_pdb, c002 component, d001 ts, n001 instance_number, n002 bytes, n003 min_bytes, n004 max_bytes, n005 ops from apex_collections where collection_name = ''AWRCAP_MEM_POINTS'')',
+'select p.ts, round(p.bytes / 1073741824, 2) value, case when :P0_DB is null then p.db_pdb || '' '' || p.component else p.component end || case when p.instance_number > 1 then '' #'' || p.instance_number e'
+||'nd name from c_memp p where ((:P0_DB is null or p.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or p.'
+||'db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and p.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), p.ts) and nvl(to_date(:P0_TO default'
+||' null on conversion error, ''YYYY-MM-DD''), p.ts) order by p.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_line_style=>'solid'
+,p_line_width=>2
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_axis(
+ p_id=>wwv_flow_imp.id(110000000000332)
+,p_chart_id=>wwv_flow_imp.id(110000000000330)
+,p_static_id=>'x'
+,p_axis=>'x'
+,p_is_rendered=>'on'
+,p_format_type=>'date-short'
+,p_format_scaling=>'auto'
+,p_scaling=>'linear'
+,p_baseline_scaling=>'zero'
+,p_major_tick_rendered=>'on'
+,p_minor_tick_rendered=>'off'
+,p_tick_label_rendered=>'on'
+,p_tick_label_rotation=>'auto'
+,p_tick_label_position=>'outside'
+);
+wwv_flow_imp_page.create_jet_chart_axis(
+ p_id=>wwv_flow_imp.id(110000000000333)
+,p_chart_id=>wwv_flow_imp.id(110000000000330)
+,p_static_id=>'y'
+,p_axis=>'y'
+,p_is_rendered=>'on'
+,p_title=>'GiB'
+,p_format_type=>'decimal'
+,p_format_scaling=>'none'
+,p_scaling=>'linear'
+,p_baseline_scaling=>'zero'
+,p_position=>'auto'
+,p_major_tick_rendered=>'on'
+,p_minor_tick_rendered=>'off'
+,p_tick_label_rendered=>'on'
+);
+wwv_flow_imp_page.create_page_plug(
+ p_id=>wwv_flow_imp.id(110000000000334)
+,p_plug_name=>'PGA allocated (GiB)'
+,p_static_id=>'pga-allocated-gib'
+,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
+,p_plug_template=>4075786578761660127
+,p_plug_display_sequence=>40
+,p_plug_new_grid_row=>false
+,p_plug_grid_column_span=>6
+,p_plug_item_display_point=>'ABOVE'
+,p_plug_source_type=>'NATIVE_JET_CHART'
+);
+wwv_flow_imp_page.create_jet_chart(
+ p_id=>wwv_flow_imp.id(110000000000335)
+,p_region_id=>wwv_flow_imp.id(110000000000334)
+,p_chart_type=>'line'
+,p_height=>'300'
+,p_animation_on_display=>'none'
+,p_animation_on_data_change=>'none'
+,p_orientation=>'vertical'
+,p_data_cursor=>'auto'
+,p_data_cursor_behavior=>'auto'
+,p_hide_and_show_behavior=>'withRescale'
+,p_hover_behavior=>'dim'
+,p_stack=>'off'
+,p_stack_label=>'off'
+,p_connect_nulls=>'Y'
+,p_fill_multi_series_gaps=>false
+,p_zoom_and_scroll=>'off'
+,p_tooltip_rendered=>'Y'
+,p_show_series_name=>true
+,p_show_group_name=>true
+,p_show_value=>true
+,p_legend_rendered=>'on'
+,p_legend_position=>'bottom'
+,p_overview_rendered=>'off'
+,p_time_axis_type=>'mixedFrequency'
+,p_no_data_found_message=>'No data in the current scope.'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000336)
+,p_chart_id=>wwv_flow_imp.id(110000000000335)
+,p_static_id=>'observed'
+,p_seq=>10
+,p_name=>'Observed'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_series as (select c001 db, c002 kind, c003 series, c004 unit, c005 anomaly_flag, d001 ts, n001 value, n002 limit_value, n003 expected, n004 rate_bpd, n005 anomaly, to_number(c006, ''99999999999999999'
+||'999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') gap, to_number(c008, ''99999999999999999999999999D'
+||'9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') z, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') threshold, to_number(c010, ''99999999999999999999999999D999999'
+||'9999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') delta_bytes, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_p95, to_number(c012, ''99999999999999999999999999D999'
+||'9999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') busy_peak_pct from apex_collections where collection_name = ''AWRCAP_SERIES'')',
+'select s.ts, round(s.value, 2) value, s.db name from c_series s where s.kind = ''SERIES'' and s.series = ''PGA_ALLOC_GB'' and ((:P0_DB is null or s.db in (select r.db_pdb from c_cont r, c_cont c where c.d'
+||'b_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or s.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and s.ts between nvl(to_date(:P0_FROM'
+||' default null on conversion error, ''YYYY-MM-DD''), s.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), s.ts) order by s.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_line_style=>'solid'
+,p_line_width=>2
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000337)
+,p_chart_id=>wwv_flow_imp.id(110000000000335)
+,p_static_id=>'forecast'
+,p_seq=>20
+,p_name=>'Forecast'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(f.value, 2) value, f.db || '' forecast'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''PGA_ALLOC_GB'' and ((:P0_DB is null or f.db in (select r.db_pd'
+||'b from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) an'
+||'d f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_line_style=>'dashed'
+,p_line_width=>2
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000338)
+,p_chart_id=>wwv_flow_imp.id(110000000000335)
+,p_static_id=>'forecast-low'
+,p_seq=>30
+,p_name=>'Forecast low'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.lo, f.value), 2) value, f.db || '' forecast low'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''PGA_ALLOC_GB'' and ((:P0_DB is null or f.db in '
+||'(select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :'
+||'P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_color=>'#8E8E8E'
+,p_line_style=>'dotted'
+,p_line_width=>1
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000339)
+,p_chart_id=>wwv_flow_imp.id(110000000000335)
+,p_static_id=>'forecast-high'
+,p_seq=>40
+,p_name=>'Forecast high'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fcst as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, d001 ts, n001 value, n002 lo, n003 hi, n004 limit_value, n005 horizon_days, to_number(c007, ''999999999999999999'
+||'99999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') pct from apex_collections where collection_name = ''AWRCAP_FORECAST'')',
+'select f.ts, round(nvl(f.hi, f.value), 2) value, f.db || '' forecast high'' name from c_fcst f where f.kind = ''SERIES'' and f.method = ''REGR'' and f.series = ''PGA_ALLOC_GB'' and ((:P0_DB is null or f.db in'
+||' (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = '
+||':P0_TARGET))) and f.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), f.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), f.ts) order by f.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_color=>'#8E8E8E'
+,p_line_style=>'dotted'
+,p_line_width=>1
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_series(
+ p_id=>wwv_flow_imp.id(110000000000340)
+,p_chart_id=>wwv_flow_imp.id(110000000000335)
+,p_static_id=>'limit'
+,p_seq=>50
+,p_name=>'Limit'
+,p_data_source_type=>'SQL'
+,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fit as (select c001 db, c002 kind, c003 series, c004 unit, c005 method, c006 quality, c007 sev, c008 limit_source, d001 last_day, n001 value, n002 limit_value, n003 pct, n004 days_to_full, n005 sev_'
+||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
+||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
+||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
+||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''PGA_ALLOC_GB'' and ((:P0_DB is null or f.db in (select r.db_pdb f'
+||'rom c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cr'
+||'oss join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all select to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.t'
+||'s is not null and l.value is not null order by e.ts'))
+,p_location=>'LOCAL'
+,p_series_type=>'line'
+,p_series_name_column_name=>'NAME'
+,p_items_value_column_name=>'VALUE'
+,p_items_label_column_name=>'TS'
+,p_color=>'#8E8E8E'
+,p_line_style=>'dashed'
+,p_line_width=>2
+,p_line_type=>'straight'
+,p_marker_rendered=>'off'
+,p_marker_shape=>'circle'
+,p_assigned_to_y2=>'off'
+,p_items_label_rendered=>false
+,p_threshold_display=>'onIndicator'
+);
+wwv_flow_imp_page.create_jet_chart_axis(
+ p_id=>wwv_flow_imp.id(110000000000341)
+,p_chart_id=>wwv_flow_imp.id(110000000000335)
+,p_static_id=>'x'
+,p_axis=>'x'
+,p_is_rendered=>'on'
+,p_format_type=>'date-short'
+,p_format_scaling=>'auto'
+,p_scaling=>'linear'
+,p_baseline_scaling=>'zero'
+,p_major_tick_rendered=>'on'
+,p_minor_tick_rendered=>'off'
+,p_tick_label_rendered=>'on'
+,p_tick_label_rotation=>'auto'
+,p_tick_label_position=>'outside'
+);
+wwv_flow_imp_page.create_jet_chart_axis(
+ p_id=>wwv_flow_imp.id(110000000000342)
+,p_chart_id=>wwv_flow_imp.id(110000000000335)
+,p_static_id=>'y'
+,p_axis=>'y'
+,p_is_rendered=>'on'
+,p_title=>'GiB'
+,p_format_type=>'decimal'
+,p_format_scaling=>'none'
+,p_scaling=>'linear'
+,p_baseline_scaling=>'zero'
+,p_position=>'auto'
+,p_major_tick_rendered=>'on'
+,p_minor_tick_rendered=>'off'
+,p_tick_label_rendered=>'on'
+);
+wwv_flow_imp_page.create_page_plug(
+ p_id=>wwv_flow_imp.id(110000000000343)
+,p_plug_name=>'Memory evidence'
+,p_static_id=>'memory-evidence'
+,p_region_template_options=>'#DEFAULT#'
+,p_plug_template=>2103954283454391425
+,p_plug_display_sequence=>50
+,p_plug_item_display_point=>'ABOVE'
+,p_plug_source_type=>'NATIVE_IR'
+,p_query_type=>'SQL'
+,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_meme as (select c001 db_pdb, c002 area, c003 area_label, c004 kind, c005 signal, c006 direction, c007 unit, c008 evidence_text, d001 observed_at, n001 instance_number, n002 area_rank, n003 value, n0'
+||'04 threshold, n005 rank_ev from apex_collections where collection_name = ''AWRCAP_MEM_EVIDENCE'')',
+'select (select max(t.target_name) from c_cont t where t.db_pdb = e.db_pdb) TARGET, e.db_pdb DB, e.instance_number INST, e.area_label AREA, e.kind KIND, e.signal SIGNAL, e.direction DIRECTION, case e.d'
+||'irection when ''PRESSURE'' then ''t-Badge--warning'' when ''SLACK'' then ''t-Badge--info'' end DIRECTION_CSS, round(e.value, 2) VALUE, e.unit UNIT, round(e.threshold, 2) THRESHOLD, to_char(e.observed_at, ''YYY'
+||'Y-MM-DD HH24:MI'') OBSERVED, e.evidence_text EVIDENCE, e.rank_ev RANK_EV',
+'from c_meme e where ((:P0_DB is null or e.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or e.db_pdb i'
+||'n (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))'))
+,p_include_rowid_column=>false
+);
+wwv_flow_imp_page.create_worksheet(
+ p_id=>wwv_flow_imp.id(110000000000344)
+,p_max_row_count=>'100000'
+,p_no_data_found_message=>'No memory evidence in scope.'
+,p_allow_save_rpt_public=>'Y'
+,p_show_nulls_as=>'-'
+,p_pagination_type=>'ROWS_X_TO_Y'
+,p_pagination_display_pos=>'BOTTOM_RIGHT'
+,p_report_list_mode=>'TABS'
+,p_lazy_loading=>false
+,p_show_detail_link=>'N'
+,p_show_notify=>'N'
+,p_download_formats=>'CSV:HTML:XLSX'
+,p_enable_mail_download=>'N'
+,p_internal_uid=>110000000000344
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000345)
+,p_db_column_name=>'TARGET'
+,p_display_order=>10
+,p_column_identifier=>'A'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000346)
+,p_db_column_name=>'DB'
+,p_display_order=>20
+,p_column_identifier=>'B'
+,p_column_label=>'Database'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000347)
+,p_db_column_name=>'INST'
+,p_display_order=>30
+,p_column_identifier=>'C'
+,p_column_label=>'Instance'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000348)
+,p_db_column_name=>'AREA'
+,p_display_order=>40
+,p_column_identifier=>'D'
+,p_column_label=>'Area'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000349)
+,p_db_column_name=>'KIND'
+,p_display_order=>50
+,p_column_identifier=>'E'
+,p_column_label=>'Kind'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000350)
+,p_db_column_name=>'SIGNAL'
+,p_display_order=>60
+,p_column_identifier=>'F'
+,p_column_label=>'Signal'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000351)
+,p_db_column_name=>'DIRECTION'
+,p_display_order=>70
+,p_column_identifier=>'G'
+,p_column_label=>'Direction'
+,p_column_type=>'STRING'
+,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #DIRECTION_CSS#">#DIRECTION#</span>'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000352)
+,p_db_column_name=>'DIRECTION_CSS'
+,p_display_order=>80
+,p_column_identifier=>'H'
+,p_column_label=>'DIRECTION_CSS'
+,p_column_type=>'STRING'
+,p_display_text_as=>'HIDDEN_ESCAPE_SC'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000353)
+,p_db_column_name=>'VALUE'
+,p_display_order=>90
+,p_column_identifier=>'I'
+,p_column_label=>'Value'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000354)
+,p_db_column_name=>'UNIT'
+,p_display_order=>100
+,p_column_identifier=>'J'
+,p_column_label=>'Unit'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000355)
+,p_db_column_name=>'THRESHOLD'
+,p_display_order=>110
+,p_column_identifier=>'K'
+,p_column_label=>'Threshold'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000356)
+,p_db_column_name=>'OBSERVED'
+,p_display_order=>120
+,p_column_identifier=>'L'
+,p_column_label=>'Observed'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000357)
+,p_db_column_name=>'EVIDENCE'
+,p_display_order=>130
+,p_column_identifier=>'M'
+,p_column_label=>'Evidence'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000358)
+,p_db_column_name=>'RANK_EV'
+,p_display_order=>140
+,p_column_identifier=>'N'
+,p_column_label=>'RANK_EV'
+,p_column_type=>'STRING'
+,p_display_text_as=>'HIDDEN_ESCAPE_SC'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_rpt(
+ p_id=>wwv_flow_imp.id(110000000000359)
+,p_application_user=>'APXWS_DEFAULT'
+,p_report_seq=>10
+,p_report_alias=>'memory-evidence'
+,p_status=>'PUBLIC'
+,p_is_default=>'Y'
+,p_display_rows=>15
+,p_report_columns=>'TARGET:DB:INST:AREA:KIND:SIGNAL:DIRECTION:VALUE:UNIT:THRESHOLD:OBSERVED:EVIDENCE'
+,p_sort_column_1=>'DB'
+,p_sort_direction_1=>'ASC'
+,p_sort_column_2=>'RANK_EV'
+,p_sort_direction_2=>'ASC'
+);
+wwv_flow_imp_page.create_page_branch(
+ p_id=>wwv_flow_imp.id(110000000000360)
+,p_branch_action=>'f?p=&APP_ID.:6:&SESSION.::&DEBUG.:::'
 ,p_branch_point=>'AFTER_PROCESSING'
 ,p_branch_type=>'REDIRECT_URL'
 ,p_branch_sequence=>10
@@ -4155,7 +6324,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'C'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000233)
+ p_id=>wwv_flow_imp.id(110000000000361)
 ,p_name=>'Anomaly summary'
 ,p_static_id=>'anomaly-summary'
 ,p_template=>4075786578761660127
@@ -4165,17 +6334,20 @@ wwv_flow_imp_page.create_report_region(
 ,p_source_type=>'NATIVE_SQL_REPORT'
 ,p_query_type=>'SQL'
 ,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 '
-||'z, n005 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='
-||'''''.,'''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
-'select (select count(*) from c_anom a where (:P0_DB is null or a.db = :P0_DB) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO defaul'
-||'t null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV)) ANOMALIES, (select count(distinct a.db) from c_anom a whe'
-||'re (:P0_DB is null or a.db = :P0_DB) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'')'
-||', a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV)) DATABASES, (select count(distinct a.db || ''|'' || a.series) from c_anom a where (:P0_DB is null or '
-||'a.db = :P0_DB) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND '
-||'is null or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV)) SERIES, (select count(*) from c_anom a where a.sev in (''WARN'', ''CRIT'') and (:P0_DB is null or a.db = :P0_DB) and a.ts be'
-||'tween nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind '
-||'= :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV)) SERIOUS',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 z, n0'
+||'05 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
+||''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
+'select (select count(*) from c_anom a where ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and a.ts between nv'
+||'l(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_KI'
+||'ND) and (:P0_SEV is null or a.sev = :P0_SEV)) ANOMALIES, (select count(distinct a.db) from c_anom a where ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_'
+||'cont t where t.target_name = :P0_TARGET))) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-M'
+||'M-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV)) DATABASES, (select count(distinct a.db || ''|'' || a.series) from c_anom a where ((:P0_DB is n'
+||'ull or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYY'
+||'Y-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV)) SERIES, (se'
+||'lect count(*) from c_anom a where a.sev in (''WARN'', ''CRIT'') and ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))'
+||' and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.a'
+||'nomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV)) SERIOUS',
 'from dual'))
 ,p_ajax_enabled=>'Y'
 ,p_lazy_loading=>false
@@ -4190,7 +6362,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000234)
+ p_id=>wwv_flow_imp.id(110000000000362)
 ,p_query_column_id=>1
 ,p_column_alias=>'ANOMALIES'
 ,p_column_display_sequence=>10
@@ -4202,7 +6374,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000235)
+ p_id=>wwv_flow_imp.id(110000000000363)
 ,p_query_column_id=>2
 ,p_column_alias=>'DATABASES'
 ,p_column_display_sequence=>20
@@ -4214,7 +6386,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000236)
+ p_id=>wwv_flow_imp.id(110000000000364)
 ,p_query_column_id=>3
 ,p_column_alias=>'SERIES'
 ,p_column_display_sequence=>30
@@ -4226,7 +6398,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000237)
+ p_id=>wwv_flow_imp.id(110000000000365)
 ,p_query_column_id=>4
 ,p_column_alias=>'SERIOUS'
 ,p_column_display_sequence=>40
@@ -4238,7 +6410,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000238)
+ p_id=>wwv_flow_imp.id(110000000000366)
 ,p_plug_name=>'Anomalies per day by kind'
 ,p_static_id=>'anomalies-per-day-by-kind'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -4249,8 +6421,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000239)
-,p_region_id=>wwv_flow_imp.id(110000000000238)
+ p_id=>wwv_flow_imp.id(110000000000367)
+,p_region_id=>wwv_flow_imp.id(110000000000366)
 ,p_chart_type=>'bar'
 ,p_height=>'320'
 ,p_animation_on_display=>'none'
@@ -4276,19 +6448,20 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000240)
-,p_chart_id=>wwv_flow_imp.id(110000000000239)
+ p_id=>wwv_flow_imp.id(110000000000368)
+,p_chart_id=>wwv_flow_imp.id(110000000000367)
 ,p_static_id=>'anomalies'
 ,p_seq=>10
 ,p_name=>'Anomalies'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 '
-||'z, n005 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='
-||'''''.,'''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
-'select a.ts, count(*) value, a.anomaly_kind name from c_anom a where (:P0_DB is null or a.db = :P0_DB) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and '
-||'nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV) group by a.ts, a.anomaly_kind ord'
-||'er by a.ts'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 z, n0'
+||'05 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
+||''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
+'select a.ts, count(*) value, a.anomaly_kind name from c_anom a where ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARG'
+||'ET))) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null o'
+||'r a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV) group by a.ts, a.anomaly_kind order by a.ts'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'bar'
 ,p_series_name_column_name=>'NAME'
@@ -4300,8 +6473,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000241)
-,p_chart_id=>wwv_flow_imp.id(110000000000239)
+ p_id=>wwv_flow_imp.id(110000000000369)
+,p_chart_id=>wwv_flow_imp.id(110000000000367)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -4316,8 +6489,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000242)
-,p_chart_id=>wwv_flow_imp.id(110000000000239)
+ p_id=>wwv_flow_imp.id(110000000000370)
+,p_chart_id=>wwv_flow_imp.id(110000000000367)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -4332,7 +6505,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000243)
+ p_id=>wwv_flow_imp.id(110000000000371)
 ,p_plug_name=>'Most anomalous series'
 ,p_static_id=>'most-anomalous-series'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -4344,8 +6517,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000244)
-,p_region_id=>wwv_flow_imp.id(110000000000243)
+ p_id=>wwv_flow_imp.id(110000000000372)
+,p_region_id=>wwv_flow_imp.id(110000000000371)
 ,p_chart_type=>'bar'
 ,p_height=>'320'
 ,p_animation_on_display=>'none'
@@ -4370,19 +6543,20 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000245)
-,p_chart_id=>wwv_flow_imp.id(110000000000244)
+ p_id=>wwv_flow_imp.id(110000000000373)
+,p_chart_id=>wwv_flow_imp.id(110000000000372)
 ,p_static_id=>'anomalies'
 ,p_seq=>10
 ,p_name=>'Anomalies'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 '
-||'z, n005 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='
-||'''''.,'''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
-'select a.db || '' '' || a.series label, count(*) value from c_anom a where (:P0_DB is null or a.db = :P0_DB) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) '
-||'and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV) group by a.db, a.series order'
-||' by count(*) desc, 1 fetch first 10 rows only'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 z, n0'
+||'05 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
+||''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
+'select a.db || '' '' || a.series label, count(*) value from c_anom a where ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_cont t where t.target_name = :P0_'
+||'TARGET))) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is nu'
+||'ll or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV) group by a.db, a.series order by count(*) desc, 1 fetch first 10 rows only'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'bar'
 ,p_items_value_column_name=>'VALUE'
@@ -4393,8 +6567,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000246)
-,p_chart_id=>wwv_flow_imp.id(110000000000244)
+ p_id=>wwv_flow_imp.id(110000000000374)
+,p_chart_id=>wwv_flow_imp.id(110000000000372)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -4408,8 +6582,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000247)
-,p_chart_id=>wwv_flow_imp.id(110000000000244)
+ p_id=>wwv_flow_imp.id(110000000000375)
+,p_chart_id=>wwv_flow_imp.id(110000000000372)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -4424,7 +6598,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000248)
+ p_id=>wwv_flow_imp.id(110000000000376)
 ,p_plug_name=>'Anomaly timeline'
 ,p_static_id=>'anomaly-timeline'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -4434,8 +6608,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000249)
-,p_region_id=>wwv_flow_imp.id(110000000000248)
+ p_id=>wwv_flow_imp.id(110000000000377)
+,p_region_id=>wwv_flow_imp.id(110000000000376)
 ,p_chart_type=>'gantt'
 ,p_height=>'480'
 ,p_animation_on_display=>'none'
@@ -4465,22 +6639,24 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_gantt_axis_position=>'top'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000250)
-,p_chart_id=>wwv_flow_imp.id(110000000000249)
+ p_id=>wwv_flow_imp.id(110000000000378)
+,p_chart_id=>wwv_flow_imp.id(110000000000377)
 ,p_static_id=>'anomalies'
 ,p_seq=>10
 ,p_name=>'Anomalies'
 ,p_data_source_type=>'SQL'
 ,p_data_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 '
-||'z, n005 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='
-||'''''.,'''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 z, n0'
+||'05 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
+||''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
 'select e.db || '' '' || e.series || '': '' || e.anomaly_kind || case when e.n > 1 then '' ('' || e.n || '' days)'' end task_name, e.db || ''|'' || e.series || ''|'' || e.anomaly_kind || ''|'' || to_char(e.start_dat'
 ||'e, ''YYYYMMDD'') task_id, e.start_date, e.end_date, e.anomaly_kind kind, nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), min(e.start_date) over ()) gantt_start, nvl(to_date(:P0_TO '
 ||'default null on conversion error, ''YYYY-MM-DD''), max(e.end_date) over ()) gantt_end',
 'from (select a.db, a.series, a.anomaly_kind, min(a.ts) start_date, max(nvl(a.obs_day, a.ts)) + 1 end_date, count(*) n from (select a.*, a.ts - dense_rank() over (partition by a.db, a.series, a.anomaly'
-||'_kind order by a.ts) grp from c_anom a where (:P0_DB is null or a.db = :P0_DB) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO defau'
-||'lt null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV)) a group by a.db, a.series, a.anomaly_kind, a.grp) e',
+||'_kind order by a.ts) grp from c_anom a where ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and a.ts between n'
+||'vl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_K'
+||'IND) and (:P0_SEV is null or a.sev = :P0_SEV)) a group by a.db, a.series, a.anomaly_kind, a.grp) e',
 'order by e.db, e.series, e.start_date'))
 ,p_location=>'LOCAL'
 ,p_series_type=>'gantt'
@@ -4499,23 +6675,23 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_task_label_position=>'none'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000251)
-,p_chart_id=>wwv_flow_imp.id(110000000000249)
+ p_id=>wwv_flow_imp.id(110000000000379)
+,p_chart_id=>wwv_flow_imp.id(110000000000377)
 ,p_static_id=>'major'
 ,p_axis=>'major'
 ,p_is_rendered=>'on'
 ,p_axis_scale=>'months'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000252)
-,p_chart_id=>wwv_flow_imp.id(110000000000249)
+ p_id=>wwv_flow_imp.id(110000000000380)
+,p_chart_id=>wwv_flow_imp.id(110000000000377)
 ,p_static_id=>'minor'
 ,p_axis=>'minor'
 ,p_is_rendered=>'on'
 ,p_axis_scale=>'weeks'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000253)
+ p_id=>wwv_flow_imp.id(110000000000381)
 ,p_plug_name=>'Anomalies'
 ,p_static_id=>'anomalies'
 ,p_region_template_options=>'#DEFAULT#'
@@ -4525,19 +6701,22 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_IR'
 ,p_query_type=>'SQL'
 ,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 '
-||'z, n005 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='
-||'''''.,'''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
-'select a.ts DAY, a.obs_day END_DAY, a.db DB, apex_page.get_url(p_page => case a.kind when ''TBSPC'' then 2 else 3 end, p_items => ''P0_DB'', p_values => a.db) DB_URL, a.series SERIES, apex_page.get_url(p_'
-||'page => case a.kind when ''TBSPC'' then 2 else 3 end, p_items => ''P0_DB,P0_TBSPC'', p_values => a.db || '','' || case when a.kind = ''TBSPC'' then a.db || ''|'' || a.series end) SERIES_URL, a.anomaly_kind ANOM'
-||'ALY_KIND, a.sev SEV, case a.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, a.anomaly_flag FLAG, round('
-||'a.value, 2) VALUE, round(a.expected, 2) EXPECTED, round(a.threshold, 2) THRESHOLD, round(a.z, 1) Z, round(a.shift_pct, 1) SHIFT_PCT, a.unit UNIT, a.message MESSAGE',
-'from c_anom a where (:P0_DB is null or a.db = :P0_DB) and a.ts between nvl(to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion err'
-||'or, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null or a.sev = :P0_SEV)'))
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 z, n0'
+||'05 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
+||''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
+'select a.ts DAY, a.obs_day END_DAY, (select max(t.target_name) from c_cont t where t.db_pdb = a.db) TARGET, a.db DB, apex_page.get_url(p_page => case a.kind when ''TBSPC'' then 2 else 3 end, p_items => '
+||'''P0_DB'', p_values => a.db) DB_URL, a.series SERIES, apex_page.get_url(p_page => case a.kind when ''TBSPC'' then 2 else 3 end, p_items => ''P0_DB,P0_TBSPC'', p_values => a.db || '','' || case when a.kind = '''
+||'TBSPC'' then a.db || ''|'' || a.series end) SERIES_URL, a.anomaly_kind ANOMALY_KIND, a.sev SEV, case a.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge'
+||'--info'' else ''t-Badge--success'' end SEV_CSS, a.anomaly_flag FLAG, round(a.value, 2) VALUE, round(a.expected, 2) EXPECTED, round(a.threshold, 2) THRESHOLD, round(a.z, 1) Z, round(a.shift_pct, 1) SHIFT_'
+||'PCT, case lower(a.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else a.unit end UNIT, a.message MESSAGE',
+'from c_anom a where ((:P0_DB is null or a.db = :P0_DB) and (:P0_TARGET is null or a.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and a.ts between nvl(to_date(:P0_FROM defau'
+||'lt null on conversion error, ''YYYY-MM-DD''), a.ts) and nvl(to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD''), a.ts) and (:P0_KIND is null or a.anomaly_kind = :P0_KIND) and (:P0_SEV is null'
+||' or a.sev = :P0_SEV)'))
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000254)
+ p_id=>wwv_flow_imp.id(110000000000382)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No anomalies match the filters.'
 ,p_allow_save_rpt_public=>'Y'
@@ -4550,10 +6729,10 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000254
+,p_internal_uid=>110000000000382
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000255)
+ p_id=>wwv_flow_imp.id(110000000000383)
 ,p_db_column_name=>'DAY'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
@@ -4566,7 +6745,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000256)
+ p_id=>wwv_flow_imp.id(110000000000384)
 ,p_db_column_name=>'END_DAY'
 ,p_display_order=>20
 ,p_column_identifier=>'B'
@@ -4579,10 +6758,21 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000257)
-,p_db_column_name=>'DB'
+ p_id=>wwv_flow_imp.id(110000000000385)
+,p_db_column_name=>'TARGET'
 ,p_display_order=>30
 ,p_column_identifier=>'C'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000386)
+,p_db_column_name=>'DB'
+,p_display_order=>40
+,p_column_identifier=>'D'
 ,p_column_label=>'Database'
 ,p_column_type=>'STRING'
 ,p_column_html_expression=>'<a href="#DB_URL#">#DB#</a>'
@@ -4591,10 +6781,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000258)
+ p_id=>wwv_flow_imp.id(110000000000387)
 ,p_db_column_name=>'DB_URL'
-,p_display_order=>40
-,p_column_identifier=>'D'
+,p_display_order=>50
+,p_column_identifier=>'E'
 ,p_column_label=>'DB_URL'
 ,p_column_type=>'STRING'
 ,p_display_text_as=>'HIDDEN_ESCAPE_SC'
@@ -4603,10 +6793,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000259)
+ p_id=>wwv_flow_imp.id(110000000000388)
 ,p_db_column_name=>'SERIES'
-,p_display_order=>50
-,p_column_identifier=>'E'
+,p_display_order=>60
+,p_column_identifier=>'F'
 ,p_column_label=>'Series'
 ,p_column_type=>'STRING'
 ,p_column_html_expression=>'<a href="#SERIES_URL#">#SERIES#</a>'
@@ -4615,10 +6805,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000260)
+ p_id=>wwv_flow_imp.id(110000000000389)
 ,p_db_column_name=>'SERIES_URL'
-,p_display_order=>60
-,p_column_identifier=>'F'
+,p_display_order=>70
+,p_column_identifier=>'G'
 ,p_column_label=>'SERIES_URL'
 ,p_column_type=>'STRING'
 ,p_display_text_as=>'HIDDEN_ESCAPE_SC'
@@ -4627,10 +6817,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000261)
+ p_id=>wwv_flow_imp.id(110000000000390)
 ,p_db_column_name=>'ANOMALY_KIND'
-,p_display_order=>70
-,p_column_identifier=>'G'
+,p_display_order=>80
+,p_column_identifier=>'H'
 ,p_column_label=>'Kind'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -4638,10 +6828,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000262)
+ p_id=>wwv_flow_imp.id(110000000000391)
 ,p_db_column_name=>'SEV'
-,p_display_order=>80
-,p_column_identifier=>'H'
+,p_display_order=>90
+,p_column_identifier=>'I'
 ,p_column_label=>'Severity'
 ,p_column_type=>'STRING'
 ,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #SEV_CSS#">#SEV#</span>'
@@ -4650,10 +6840,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000263)
+ p_id=>wwv_flow_imp.id(110000000000392)
 ,p_db_column_name=>'SEV_CSS'
-,p_display_order=>90
-,p_column_identifier=>'I'
+,p_display_order=>100
+,p_column_identifier=>'J'
 ,p_column_label=>'SEV_CSS'
 ,p_column_type=>'STRING'
 ,p_display_text_as=>'HIDDEN_ESCAPE_SC'
@@ -4662,10 +6852,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000264)
+ p_id=>wwv_flow_imp.id(110000000000393)
 ,p_db_column_name=>'FLAG'
-,p_display_order=>100
-,p_column_identifier=>'J'
+,p_display_order=>110
+,p_column_identifier=>'K'
 ,p_column_label=>'Flag'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -4673,10 +6863,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000265)
+ p_id=>wwv_flow_imp.id(110000000000394)
 ,p_db_column_name=>'VALUE'
-,p_display_order=>110
-,p_column_identifier=>'K'
+,p_display_order=>120
+,p_column_identifier=>'L'
 ,p_column_label=>'Value'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -4685,10 +6875,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000266)
+ p_id=>wwv_flow_imp.id(110000000000395)
 ,p_db_column_name=>'EXPECTED'
-,p_display_order=>120
-,p_column_identifier=>'L'
+,p_display_order=>130
+,p_column_identifier=>'M'
 ,p_column_label=>'Expected'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -4697,10 +6887,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000267)
+ p_id=>wwv_flow_imp.id(110000000000396)
 ,p_db_column_name=>'THRESHOLD'
-,p_display_order=>130
-,p_column_identifier=>'M'
+,p_display_order=>140
+,p_column_identifier=>'N'
 ,p_column_label=>'Threshold'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -4709,10 +6899,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000268)
+ p_id=>wwv_flow_imp.id(110000000000397)
 ,p_db_column_name=>'Z'
-,p_display_order=>140
-,p_column_identifier=>'N'
+,p_display_order=>150
+,p_column_identifier=>'O'
 ,p_column_label=>'z'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -4721,10 +6911,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000269)
+ p_id=>wwv_flow_imp.id(110000000000398)
 ,p_db_column_name=>'SHIFT_PCT'
-,p_display_order=>150
-,p_column_identifier=>'O'
+,p_display_order=>160
+,p_column_identifier=>'P'
 ,p_column_label=>'Shift'
 ,p_column_type=>'NUMBER'
 ,p_heading_alignment=>'RIGHT'
@@ -4733,10 +6923,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000270)
+ p_id=>wwv_flow_imp.id(110000000000399)
 ,p_db_column_name=>'UNIT'
-,p_display_order=>160
-,p_column_identifier=>'P'
+,p_display_order=>170
+,p_column_identifier=>'Q'
 ,p_column_label=>'Unit'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -4744,10 +6934,10 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000271)
+ p_id=>wwv_flow_imp.id(110000000000400)
 ,p_db_column_name=>'MESSAGE'
-,p_display_order=>170
-,p_column_identifier=>'Q'
+,p_display_order=>180
+,p_column_identifier=>'R'
 ,p_column_label=>'Message'
 ,p_column_type=>'STRING'
 ,p_heading_alignment=>'LEFT'
@@ -4755,21 +6945,21 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000272)
+ p_id=>wwv_flow_imp.id(110000000000401)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'anomalies'
 ,p_status=>'PUBLIC'
 ,p_is_default=>'Y'
 ,p_display_rows=>15
-,p_report_columns=>'DAY:END_DAY:DB:SERIES:ANOMALY_KIND:SEV:FLAG:VALUE:EXPECTED:THRESHOLD:Z:SHIFT_PCT:UNIT:MESSAGE'
+,p_report_columns=>'DAY:END_DAY:TARGET:DB:SERIES:ANOMALY_KIND:SEV:FLAG:VALUE:EXPECTED:THRESHOLD:Z:SHIFT_PCT:UNIT:MESSAGE'
 ,p_sort_column_1=>'DAY'
 ,p_sort_direction_1=>'DESC'
 ,p_sort_column_2=>'DB'
 ,p_sort_direction_2=>'ASC'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000273)
+ p_id=>wwv_flow_imp.id(110000000000402)
 ,p_name=>'All alerts'
 ,p_static_id=>'all-alerts'
 ,p_template=>4075786578761660127
@@ -4779,11 +6969,14 @@ wwv_flow_imp_page.create_report_region(
 ,p_source_type=>'NATIVE_SQL_REPORT'
 ,p_query_type=>'SQL'
 ,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
-'with c_alert as (select c001 severity, c002 kind, c003 db_pdb, c004 series_key, c005 unit, c006 message, d001 day_dt, n001 sev_rank, n002 value, n003 threshold from apex_collections where collection_n'
-||'ame = ''AWRCAP_ALERTS'')',
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_alert as (select c001 severity, c002 kind, c003 db_pdb, c004 series_key, c005 unit, c006 message, d001 day_dt, n001 sev_rank, n002 value, n003 threshold from apex_collections where collection_name ='
+||' ''AWRCAP_ALERTS'')',
 'select a.severity SEV, case a.severity when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, a.sev_rank SEV_RANK,'
-||' a.kind KIND, a.db_pdb DB, a.series_key SERIES, a.day_dt DAY, round(a.value, 2) VALUE, round(a.threshold, 2) THRESHOLD, a.unit UNIT, a.message MESSAGE',
-'from c_alert a where (:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_SEV is null or a.severity = :P0_SEV)',
+||' a.kind KIND, (select max(t.target_name) from c_cont t where t.db_pdb = a.db_pdb) TARGET, a.db_pdb DB, a.series_key SERIES, a.day_dt DAY, round(a.value, 2) VALUE, round(a.threshold, 2) THRESHOLD, case'
+||' lower(a.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else a.unit end UNIT, a.message MESSAGE',
+'from c_alert a where ((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) and (:P0_SEV is null or a.severity'
+||' = :P0_SEV)',
 'order by a.sev_rank, a.day_dt desc'))
 ,p_ajax_enabled=>'Y'
 ,p_lazy_loading=>false
@@ -4798,7 +6991,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000274)
+ p_id=>wwv_flow_imp.id(110000000000403)
 ,p_query_column_id=>1
 ,p_column_alias=>'SEV'
 ,p_column_display_sequence=>10
@@ -4810,7 +7003,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000275)
+ p_id=>wwv_flow_imp.id(110000000000404)
 ,p_query_column_id=>2
 ,p_column_alias=>'SEV_CSS'
 ,p_column_display_sequence=>20
@@ -4821,7 +7014,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000276)
+ p_id=>wwv_flow_imp.id(110000000000405)
 ,p_query_column_id=>3
 ,p_column_alias=>'SEV_RANK'
 ,p_column_display_sequence=>30
@@ -4832,7 +7025,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000277)
+ p_id=>wwv_flow_imp.id(110000000000406)
 ,p_query_column_id=>4
 ,p_column_alias=>'KIND'
 ,p_column_display_sequence=>40
@@ -4843,10 +7036,21 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000278)
+ p_id=>wwv_flow_imp.id(110000000000407)
 ,p_query_column_id=>5
-,p_column_alias=>'DB'
+,p_column_alias=>'TARGET'
 ,p_column_display_sequence=>50
+,p_column_heading=>'Target'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000408)
+,p_query_column_id=>6
+,p_column_alias=>'DB'
+,p_column_display_sequence=>60
 ,p_column_heading=>'Database'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -4854,10 +7058,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000279)
-,p_query_column_id=>6
+ p_id=>wwv_flow_imp.id(110000000000409)
+,p_query_column_id=>7
 ,p_column_alias=>'SERIES'
-,p_column_display_sequence=>60
+,p_column_display_sequence=>70
 ,p_column_heading=>'Series'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -4865,10 +7069,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000280)
-,p_query_column_id=>7
+ p_id=>wwv_flow_imp.id(110000000000410)
+,p_query_column_id=>8
 ,p_column_alias=>'DAY'
-,p_column_display_sequence=>70
+,p_column_display_sequence=>80
 ,p_column_heading=>'Day'
 ,p_column_format=>'YYYY-MM-DD'
 ,p_heading_alignment=>'LEFT'
@@ -4877,10 +7081,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000281)
-,p_query_column_id=>8
+ p_id=>wwv_flow_imp.id(110000000000411)
+,p_query_column_id=>9
 ,p_column_alias=>'VALUE'
-,p_column_display_sequence=>80
+,p_column_display_sequence=>90
 ,p_column_heading=>'Value'
 ,p_column_alignment=>'RIGHT'
 ,p_heading_alignment=>'RIGHT'
@@ -4889,10 +7093,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000282)
-,p_query_column_id=>9
+ p_id=>wwv_flow_imp.id(110000000000412)
+,p_query_column_id=>10
 ,p_column_alias=>'THRESHOLD'
-,p_column_display_sequence=>90
+,p_column_display_sequence=>100
 ,p_column_heading=>'Threshold'
 ,p_column_alignment=>'RIGHT'
 ,p_heading_alignment=>'RIGHT'
@@ -4901,10 +7105,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000283)
-,p_query_column_id=>10
+ p_id=>wwv_flow_imp.id(110000000000413)
+,p_query_column_id=>11
 ,p_column_alias=>'UNIT'
-,p_column_display_sequence=>100
+,p_column_display_sequence=>110
 ,p_column_heading=>'Unit'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -4912,10 +7116,10 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000284)
-,p_query_column_id=>11
+ p_id=>wwv_flow_imp.id(110000000000414)
+,p_query_column_id=>12
 ,p_column_alias=>'MESSAGE'
-,p_column_display_sequence=>110
+,p_column_display_sequence=>120
 ,p_column_heading=>'Message'
 ,p_heading_alignment=>'LEFT'
 ,p_disable_sort_column=>'Y'
@@ -4923,7 +7127,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_branch(
- p_id=>wwv_flow_imp.id(110000000000285)
+ p_id=>wwv_flow_imp.id(110000000000415)
 ,p_branch_action=>'f?p=&APP_ID.:4:&SESSION.::&DEBUG.:::'
 ,p_branch_point=>'AFTER_PROCESSING'
 ,p_branch_type=>'REDIRECT_URL'
@@ -4947,7 +7151,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'C'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000286)
+ p_id=>wwv_flow_imp.id(110000000000416)
 ,p_plug_name=>'AWR Capacity'
 ,p_static_id=>'login'
 ,p_icon_css_classes=>'fa-area-chart'
@@ -4960,9 +7164,9 @@ wwv_flow_imp_page.create_page_plug(
   'output_as', 'HTML')).to_clob
 );
 wwv_flow_imp_page.create_page_button(
- p_id=>wwv_flow_imp.id(110000000000287)
+ p_id=>wwv_flow_imp.id(110000000000417)
 ,p_button_sequence=>40
-,p_button_plug_id=>wwv_flow_imp.id(110000000000286)
+,p_button_plug_id=>wwv_flow_imp.id(110000000000416)
 ,p_button_name=>'LOGIN'
 ,p_static_id=>'login-button'
 ,p_show_as_disabled=>false
@@ -4975,10 +7179,10 @@ wwv_flow_imp_page.create_page_button(
 ,p_grid_new_row=>'Y'
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000288)
+ p_id=>wwv_flow_imp.id(110000000000418)
 ,p_name=>'P9999_USERNAME'
 ,p_item_sequence=>10
-,p_item_plug_id=>wwv_flow_imp.id(110000000000286)
+,p_item_plug_id=>wwv_flow_imp.id(110000000000416)
 ,p_prompt=>'Username'
 ,p_placeholder=>'Username'
 ,p_source_type=>'ALWAYS_NULL'
@@ -4998,10 +7202,10 @@ wwv_flow_imp_page.create_page_item(
   'trim_spaces', 'BOTH')).to_clob
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000289)
+ p_id=>wwv_flow_imp.id(110000000000419)
 ,p_name=>'P9999_PASSWORD'
 ,p_item_sequence=>20
-,p_item_plug_id=>wwv_flow_imp.id(110000000000286)
+,p_item_plug_id=>wwv_flow_imp.id(110000000000416)
 ,p_prompt=>'Password'
 ,p_placeholder=>'Password'
 ,p_source_type=>'ALWAYS_NULL'
@@ -5018,10 +7222,10 @@ wwv_flow_imp_page.create_page_item(
   'submit_when_enter_pressed', 'Y')).to_clob
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000290)
+ p_id=>wwv_flow_imp.id(110000000000420)
 ,p_name=>'P9999_REMEMBER'
 ,p_item_sequence=>30
-,p_item_plug_id=>wwv_flow_imp.id(110000000000286)
+,p_item_plug_id=>wwv_flow_imp.id(110000000000416)
 ,p_prompt=>'Remember username'
 ,p_source_type=>'ALWAYS_NULL'
 ,p_display_as=>'NATIVE_SINGLE_CHECKBOX'
@@ -5035,7 +7239,7 @@ wwv_flow_imp_page.create_page_item(
   'use_defaults', 'Y')).to_clob
 );
 wwv_flow_imp_page.create_page_process(
- p_id=>wwv_flow_imp.id(110000000000291)
+ p_id=>wwv_flow_imp.id(110000000000421)
 ,p_process_sequence=>10
 ,p_process_point=>'BEFORE_HEADER'
 ,p_process_type=>'NATIVE_PLSQL'
@@ -5047,7 +7251,7 @@ wwv_flow_imp_page.create_page_process(
 ,p_process_clob_language=>'PLSQL'
 );
 wwv_flow_imp_page.create_page_process(
- p_id=>wwv_flow_imp.id(110000000000292)
+ p_id=>wwv_flow_imp.id(110000000000422)
 ,p_process_sequence=>10
 ,p_process_point=>'AFTER_SUBMIT'
 ,p_process_type=>'NATIVE_INVOKE_API'
@@ -5060,8 +7264,8 @@ wwv_flow_imp_page.create_page_process(
 ,p_error_display_location=>'INLINE_IN_NOTIFICATION'
 );
 wwv_flow_imp_shared.create_invokeapi_comp_param(
- p_id=>wwv_flow_imp.id(110000000000293)
-,p_page_process_id=>wwv_flow_imp.id(110000000000292)
+ p_id=>wwv_flow_imp.id(110000000000423)
+,p_page_process_id=>wwv_flow_imp.id(110000000000422)
 ,p_page_id=>9999
 ,p_name=>'p_username'
 ,p_direction=>'IN'
@@ -5073,8 +7277,8 @@ wwv_flow_imp_shared.create_invokeapi_comp_param(
 ,p_value=>'lower( :P9999_USERNAME )'
 );
 wwv_flow_imp_shared.create_invokeapi_comp_param(
- p_id=>wwv_flow_imp.id(110000000000294)
-,p_page_process_id=>wwv_flow_imp.id(110000000000292)
+ p_id=>wwv_flow_imp.id(110000000000424)
+,p_page_process_id=>wwv_flow_imp.id(110000000000422)
 ,p_page_id=>9999
 ,p_name=>'p_consent'
 ,p_direction=>'IN'
@@ -5085,7 +7289,7 @@ wwv_flow_imp_shared.create_invokeapi_comp_param(
 ,p_value=>'P9999_REMEMBER'
 );
 wwv_flow_imp_page.create_page_process(
- p_id=>wwv_flow_imp.id(110000000000295)
+ p_id=>wwv_flow_imp.id(110000000000425)
 ,p_process_sequence=>20
 ,p_process_point=>'AFTER_SUBMIT'
 ,p_process_type=>'NATIVE_INVOKE_API'
@@ -5098,8 +7302,8 @@ wwv_flow_imp_page.create_page_process(
 ,p_error_display_location=>'INLINE_IN_NOTIFICATION'
 );
 wwv_flow_imp_shared.create_invokeapi_comp_param(
- p_id=>wwv_flow_imp.id(110000000000296)
-,p_page_process_id=>wwv_flow_imp.id(110000000000295)
+ p_id=>wwv_flow_imp.id(110000000000426)
+,p_page_process_id=>wwv_flow_imp.id(110000000000425)
 ,p_page_id=>9999
 ,p_name=>'p_username'
 ,p_direction=>'IN'
@@ -5110,8 +7314,8 @@ wwv_flow_imp_shared.create_invokeapi_comp_param(
 ,p_value=>'P9999_USERNAME'
 );
 wwv_flow_imp_shared.create_invokeapi_comp_param(
- p_id=>wwv_flow_imp.id(110000000000297)
-,p_page_process_id=>wwv_flow_imp.id(110000000000295)
+ p_id=>wwv_flow_imp.id(110000000000427)
+,p_page_process_id=>wwv_flow_imp.id(110000000000425)
 ,p_page_id=>9999
 ,p_name=>'p_password'
 ,p_direction=>'IN'
@@ -5122,8 +7326,8 @@ wwv_flow_imp_shared.create_invokeapi_comp_param(
 ,p_value=>'P9999_PASSWORD'
 );
 wwv_flow_imp_shared.create_invokeapi_comp_param(
- p_id=>wwv_flow_imp.id(110000000000298)
-,p_page_process_id=>wwv_flow_imp.id(110000000000295)
+ p_id=>wwv_flow_imp.id(110000000000428)
+,p_page_process_id=>wwv_flow_imp.id(110000000000425)
 ,p_page_id=>9999
 ,p_name=>'p_set_persistent_auth'
 ,p_direction=>'IN'
@@ -5133,7 +7337,7 @@ wwv_flow_imp_shared.create_invokeapi_comp_param(
 ,p_value_type=>'API_DEFAULT'
 );
 wwv_flow_imp_page.create_page_process(
- p_id=>wwv_flow_imp.id(110000000000299)
+ p_id=>wwv_flow_imp.id(110000000000429)
 ,p_process_sequence=>30
 ,p_process_point=>'AFTER_SUBMIT'
 ,p_process_type=>'NATIVE_SESSION_STATE'
