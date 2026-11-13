@@ -6055,6 +6055,7 @@ BEGIN
     --   TRK_GOOD  8 forecasts, errors +-1 .. +-4, half-width 10
     --   TRK_FEW   6 forecasts + one whose outcome day is missing (the value
     --             2 days later stands in, elapsed 32) + one with no outcome
+    --             + a CYCLIC and an INSUFFICIENT_HISTORY fit, not forecasts
     --   TRK_OLD   8 forecasts stored without a band + one with a band whose
     --             outcome day is missing with a value on both sides
     -- ================================================================
@@ -6072,12 +6073,12 @@ BEGIN
 
         -- Day LAST - p_j of a series: the newest day lives in the newest run.
         PROCEDURE fit(p_series VARCHAR2, p_j NUMBER, p_value NUMBER, p_slope NUMBER, p_half NUMBER,
-                      p_run NUMBER DEFAULT NULL) IS
+                      p_run NUMBER DEFAULT NULL, p_quality VARCHAR2 DEFAULT 'OK') IS
         BEGIN
             INSERT INTO cap_fit_hist (run_id, kind, dbid, con_dbid, series, as_of_day, db, unit, quality,
                                       value, slope_per_day, last_day, is_current, proj_30, proj_30_lo, proj_30_hi)
             VALUES (NVL(p_run, CASE WHEN p_j = 0 THEN r_now ELSE 1000 - p_j END), 'SERIES', v_dbid, v_dbid,
-                    p_series, d0 - p_j, 'TRACK', 'count', 'OK', p_value, p_slope, d0 - p_j, 1,
+                    p_series, d0 - p_j, 'TRACK', 'count', p_quality, p_value, p_slope, d0 - p_j, 1,
                     CASE WHEN p_half IS NOT NULL THEN p_value + 30 * p_slope END,
                     p_value + 30 * p_slope - p_half, p_value + 30 * p_slope + p_half);
         END;
@@ -6141,6 +6142,11 @@ BEGIN
         -- The forecast of LAST - 45 has no value within 2 days of LAST - 15.
         fit('TRK_FEW', 37, 1000 - 32 * 2 - 70, 2, 100);
         fit('TRK_FEW', 45, 500, 2, 100);
+        -- A CYCLIC or INSUFFICIENT_HISTORY fit issued no straight-line forecast:
+        -- LAST - 5 (elapsed 31) and LAST (elapsed 28) would stand in for
+        -- these two, and do not.
+        fit('TRK_FEW', 36, 0, 2, 100, p_quality => 'CYCLIC');
+        fit('TRK_FEW', 28, 0, 2, 100, p_quality => 'INSUFFICIENT_HISTORY');
         -- Day LAST - 10 is missing, LAST - 11 reads 2000 and LAST - 9 1000:
         -- the earlier one stands in (elapsed 29, error 100 = 5%, inside 150).
         fit('TRK_OLD', 9,  1000, NULL, NULL);

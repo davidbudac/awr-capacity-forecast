@@ -632,7 +632,9 @@ WHERE  a.last_day > h.last_day
 --
 -- A stored fit is both a forecast and, for the older fits of its series, the
 -- actual value. One fit per series and data day (last_day; the newest run
--- that saw the day). A forecast is checked against the fit whose last_day is
+-- that saw the day). A fit graded INSUFFICIENT_HISTORY or CYCLIC issued no
+-- straight-line forecast (no projection points, or a cycle judged on its
+-- peaks) and is an actual only. A forecast is checked against the fit whose last_day is
 -- accuracy_horizon_days later, or failing that the nearest within 2 days
 -- (the earlier one on a tie), when that outcome day lies in the last
 -- accuracy_window_days before the series' newest day:
@@ -673,9 +675,9 @@ WITH ok AS (
         WHERE  h.run_id = (SELECT MAX(run_id) FROM ok)
      ),
      fc AS (
-        SELECT kind, dbid, con_dbid, series, last_day, value, slope_per_day, proj_30_lo, proj_30_hi
+        SELECT kind, dbid, con_dbid, series, last_day, value, slope_per_day, quality, proj_30_lo, proj_30_hi
         FROM  (SELECT h.kind, h.dbid, h.con_dbid, h.series, h.last_day, h.value, h.slope_per_day,
-                      h.proj_30_lo, h.proj_30_hi,
+                      h.quality, h.proj_30_lo, h.proj_30_hi,
                       ROW_NUMBER() OVER (PARTITION BY h.dbid, h.con_dbid, h.kind, h.series, h.last_day
                                          ORDER BY h.run_id DESC) AS rn
                FROM   cap_fit_hist h
@@ -706,6 +708,7 @@ WITH ok AS (
         JOIN   cur c
           ON   c.kind = f.kind AND c.dbid = f.dbid AND c.con_dbid = f.con_dbid AND c.series = f.series
         WHERE  f.slope_per_day IS NOT NULL
+          AND  f.quality NOT IN ('INSUFFICIENT_HISTORY', 'CYCLIC')
      ),
      e AS (
         SELECT kind, dbid, con_dbid, series,

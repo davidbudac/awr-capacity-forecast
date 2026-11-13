@@ -709,7 +709,8 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   no rows without an OK run) and pairs every stored fit (one per series and
   `last_day`, newest run) with the fit `accuracy_horizon_days` later, else
   the nearest within 2 days (earlier on a tie), outcome day inside
-  `accuracy_window_days`. The pair is picked first, the window applied after
+  `accuracy_window_days`. A fit graded INSUFFICIENT_HISTORY or CYCLIC is an
+  actual only, never a forecast. The pair is picked first, the window applied after
   (filtering candidates first paired a forecast with a non-nearest day).
   Join the outcome by equality on `last_day + horizon + offset` (five
   offsets), never by a day range (series x runs squared). `band_factor` =
