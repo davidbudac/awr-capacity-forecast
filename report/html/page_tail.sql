@@ -402,13 +402,13 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  /* ---------- charts ---------- */~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  var CHARTS = [];~');
   DBMS_OUTPUT.PUT_LINE(q'~  var W = 640, H = 196, ML = 44, MR = 14, MT = 22, MB = 24;~');
   DBMS_OUTPUT.PUT_LINE(NULL);
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  function niceTicks(lo, hi, n) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var span = hi - lo || 1, step = Math.pow(10, Math.floor(Math.log10(span / n)));~');
   DBMS_OUTPUT.PUT_LINE(q'~    var err = span / n / step;~');
@@ -422,9 +422,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  function forecastKnots(m, method) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    return m.fc.filter(function (r) { return r.m === method; })~');
   DBMS_OUTPUT.PUT_LINE(q'~      .map(function (r) { return { x: dayN(r.t), y: r.v, lo: r.lo, hi: r.hi }; })~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      .sort(function (a, b) { return a.x - b.x; });~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
@@ -808,13 +805,13 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  /* The tablespace with the fewest days to full, as one sentence. */~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  function fillsFirstHtml(ts) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var first = ts.filter(function (m) { return m.f.dtf != null && m.f.q !== 'INSUFFICIENT_HISTORY'; })~');
   DBMS_OUTPUT.PUT_LINE(q'~      .sort(function (a, b) { return a.f.dtf - b.f.dtf; })[0];~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (!first) return '<div class="lead">No tablespace is on course to fill.</div>';~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    var f = first.f, tone = dtfFact(f, '').tone;~');
   DBMS_OUTPUT.PUT_LINE(q'~    return '<a class="lead" href="#' + first.id + '">Fills first: <b>' + esc(first.name) + '</b> <span>' + esc(first.ctr) +~');
   DBMS_OUTPUT.PUT_LINE(q'~      (QUALITY_TAG[f.q] ? ' \u00b7 ' + QUALITY_TAG[f.q] : '') + '</span>, ' +~');
@@ -828,9 +825,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    var out = ['<div class="rates">'];~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~    if (dbs.length) {~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      out.push('<h3>Database size</h3><div class="ghead"><span></span><span>size</span><span>per day</span><span>per 30 d</span><span>last 30 d</span></div>');~');
   DBMS_OUTPUT.PUT_LINE(q'~      dbs.forEach(function (m) {~');
   DBMS_OUTPUT.PUT_LINE(q'~        var f = m.f, obs = observedChange(m.pts, 30);~');
@@ -1214,13 +1208,13 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        var p = nearest(spec.lines[0].pts, x);~');
   DBMS_OUTPUT.PUT_LINE(q'~        if (!p) return hide();~');
   DBMS_OUTPUT.PUT_LINE(q'~        px = spec.xs(p.x); py = spec.ys(p.y);~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        lines.push('<b>' + fWDay(p.x) + ' ' + dateOf(p.x).getUTCFullYear() + '</b>');~');
   DBMS_OUTPUT.PUT_LINE(q'~        spec.lines.forEach(function (l) {~');
   DBMS_OUTPUT.PUT_LINE(q'~          var q = nearest(l.pts, p.x);~');
   DBMS_OUTPUT.PUT_LINE(q'~          if (q && q.x === p.x) lines.push((l.label ? esc(l.label) + ' ' : '') + '<b>' + spec.unit.fmt(q.y) + '</b>' + (spec.m.f.lim && l.role === 0 && !spec.pctAxis ? ' \u00b7 ' + num(q.y / (q.lim || spec.m.f.lim) * 100, 1) + '%' : ''));~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~          if (q && q.x === p.x && (q.a === 1 || q.a === -1)) {~');
   DBMS_OUTPUT.PUT_LINE(q'~            var note = anomalyNote(spec.m, l.s, q.x);~');
   DBMS_OUTPUT.PUT_LINE(q'~            lines.push('<span class="a">' + esc(note || 'unusual') + '</span>');~');
@@ -1234,9 +1228,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        var a = fc[i - 1], b = fc[i], t = Math.max(0, Math.min(1, (x - a.x) / (b.x - a.x)));~');
   DBMS_OUTPUT.PUT_LINE(q'~        var xd = Math.round(a.x + t * (b.x - a.x));~');
   DBMS_OUTPUT.PUT_LINE(q'~        t = (xd - a.x) / (b.x - a.x);~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        var y = a.y + t * (b.y - a.y);~');
   DBMS_OUTPUT.PUT_LINE(q'~        var lo = a.lo != null ? a.lo + t * ((b.lo != null ? b.lo : b.y) - a.lo) : (b.lo != null ? a.y + t * (b.lo - a.y) : null);~');
   DBMS_OUTPUT.PUT_LINE(q'~        var hi = a.hi != null ? a.hi + t * ((b.hi != null ? b.hi : b.y) - a.hi) : (b.hi != null ? a.y + t * (b.hi - a.y) : null);~');
