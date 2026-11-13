@@ -193,16 +193,25 @@ WHERE  kind = UPPER(:kind)
   AND  ]' || c_tgt_filter || q'[
 ORDER  BY db, series, method DESC, horizon_days]');
 
+    -- restart_reason / restart_day: a tablespace fit's (ddl/30). The track
+    -- columns are the series' row of CAPR_FIT_TRACK, the forecast track
+    -- record of the newest refresh run: stored rows, NULL before a run.
     get('fit', q'[
-SELECT kind, series, db, con_dbid, unit, method, value, limit_value, pct,
-       slope_per_day, r2, quality, days_to_full, days_to_full_lo, days_to_full_hi,
-       accel, train_n, sev, sev_rank, limit_source, last_day, target_name
+SELECT t.kind, t.series, t.db, t.con_dbid, t.unit, t.method, t.value, t.limit_value, t.pct,
+       t.slope_per_day, t.r2, t.quality, t.days_to_full, t.days_to_full_lo, t.days_to_full_hi,
+       t.accel, t.train_n, t.sev, t.sev_rank, t.limit_source, t.last_day, target_name,
+       t.restart_reason, t.restart_day,
+       tr.reliability, tr.n_forecasts, tr.abs_err_pct, tr.bias_pct, tr.band_hit_pct,
+       tr.band_factor, tr.summary AS track_summary
 FROM   capr_fit t
+LEFT   JOIN capr_fit_track tr
+  ON   tr.dbid = t.dbid AND tr.con_dbid = t.con_dbid
+ AND   tr.kind = t.kind AND tr.series = t.series
 ]' || c_tgt || q'[
-WHERE  (:kind IS NULL OR kind = UPPER(:kind))
-  AND  (:db IS NULL OR db = :db)
+WHERE  (:kind IS NULL OR t.kind = UPPER(:kind))
+  AND  (:db IS NULL OR t.db = :db)
   AND  ]' || c_tgt_filter || q'[
-ORDER  BY sev_rank, days_to_full NULLS LAST, db, kind, series]');
+ORDER  BY t.sev_rank, t.days_to_full NULLS LAST, t.db, t.kind, t.series]');
 
     get('anomalies', q'[
 SELECT ts, kind, series, db, con_dbid, anomaly_kind, anomaly_flag, value,
@@ -221,6 +230,7 @@ ORDER  BY ts DESC, sev_rank, db, series]', 'from,to,mode');
 SELECT TRIM(severity) AS sev, sev_rank, kind AS alert_kind,
        CASE WHEN kind LIKE 'TBSPC%'  THEN 'TBSPC'
             WHEN kind LIKE 'SERIES%' THEN 'SERIES'
+            WHEN kind = 'DISK_FULL'  THEN 'DISK'
             ELSE 'CPU' END AS kind,
        series_key AS series, db_pdb AS db, con_dbid, day_dt AS obs_day,
        value, threshold, LOWER(unit) AS unit, message, baseline_mode, alert_key,
@@ -231,15 +241,105 @@ WHERE  (:db IS NULL OR db_pdb = :db)
   AND  ]' || c_tgt_filter || q'[
 ORDER  BY sev_rank, db_pdb, kind, series_key]');
 
+    -- How many alerts the knobs make (CAPR_ALERT_VOLUME, doctor's view: it
+    -- runs the anomaly engine twice). The floor and mode columns are set on
+    -- the anomaly kinds only.
+    get('alert_volume', q'[
+SELECT target_name, db_pdb AS db, dbid, con_dbid, kind AS alert_kind,
+       series_key AS series, baseline_mode, state_key, episodes, n_crit, n_warn,
+       n_info, window_days, scored_days, flagged_days, flagged_pct, max_dev,
+       floor_knob, floor_value, suggested_floor, mode_knob, mode_bit, noisy
+FROM   capr_alert_volume t
+]' || c_tgt || q'[
+WHERE  (:db IS NULL OR db_pdb = :db)
+  AND  ]' || c_tgt_filter || q'[
+ORDER  BY episodes DESC, db_pdb, kind, series_key, baseline_mode]');
+
+    -- The shared disk (ddl/33). tbspc_shared: every tablespace against the
+    -- disk its database's datafiles share. disk: one row per database and
+    -- disk, database level, so db names the root container and a :db that
+    -- names any container of the database finds it.
+    get('tbspc_shared', q'[
+SELECT target_name, db_pdb AS db, dbid, con_dbid, tablespace_name AS series,
+       disk_name, quality, is_current, cur_gb, alloc_gb, limit_gb, limit_own_gb,
+       limit_live, grow_mb, grow_worst_mb, ext_days, days_to_full, dtf_own,
+       dtf_shared, dtf_shared_worst, limit_shared_gb, stopped_by, rank_shared
+FROM   capr_tbspc_shared t
+]' || c_tgt || q'[
+WHERE  (:db IS NULL OR db_pdb = :db)
+  AND  ]' || c_tgt_filter || q'[
+ORDER  BY dbid, rank_shared]');
+
+    get('disk', q'[
+SELECT target_name, db, dbid, con_dbid, disk_name, series_key AS series,
+       disk_source, disk_as_of, disk_free_gb, alloc_gb, disk_dtf, disk_dtf_worst,
+       disk_full_day, newest_day, n_tbspc, n_growing, n_growing_ok, grow_mb,
+       grow_worst_mb, top_growers, raw_sev, sev, sev_rank, gated_by, message
+FROM   capr_disk t
+]' || c_tgt || q'[
+WHERE  (:db IS NULL
+        OR t.dbid IN (SELECT c.dbid FROM capr_container c WHERE c.db_pdb = :db))
+  AND  ]' || c_tgt_filter || q'[
+ORDER  BY sev_rank, disk_dtf NULLS LAST, db, disk_name]');
+
+    -- Tablespace families (ddl/32): one row per family, one per member.
+    get('families', q'[
+SELECT target_name, db_pdb AS db, dbid, con_dbid, family_name, source, period,
+       n_members, n_done, n_filling, n_empty, last_day, used_gb, max_limit_gb,
+       slope_gb_day, period_days, growth_per_period_gb, recent_n, trend_sig,
+       trend_gb, next_member_gb, next_member_hi_gb, next_over_limit,
+       filling_member, filling_used_gb, filling_limit_gb, filling_pct_used,
+       filling_from, fill_rate_gb_day, period_end_day, days_left,
+       expected_final_gb, expected_final_hi_gb, fits, sev, actionable, headline
+FROM   capr_tbspc_family t
+]' || c_tgt || q'[
+WHERE  (:db IS NULL OR db_pdb = :db)
+  AND  ]' || c_tgt_filter || q'[
+ORDER  BY dbid, rank_family]');
+
+    get('family_members', q'[
+SELECT target_name, db_pdb AS db, dbid, con_dbid, family_name,
+       tablespace_name AS series, member_seq, state, source, period, period_start,
+       period_end, last_day, used_gb, limit_gb, pct_used, final_gb, fill_from,
+       fill_to, fill_days, fill_rate_gb_day, quality, restart_reason
+FROM   capr_tbspc_family_members t
+]' || c_tgt || q'[
+WHERE  (:db IS NULL OR db_pdb = :db)
+  AND  (:family IS NULL OR family_name = :family)
+  AND  ]' || c_tgt_filter || q'[
+ORDER  BY db_pdb, family_name, member_seq]');
+
     -- Memory sizing (M26.4 report views): instance level, so db is the
     -- root container's label. Report content, never an alert.
+    -- mem_verdicts and mem_evidence answer from the snapshot tables
+    -- CAPR_MEM_VERDICT_S / CAPR_MEM_EVIDENCE_S, which every
+    -- cap_results.refresh fills: the last refresh, in milliseconds, with
+    -- snap_run_id naming its run. Without a snapshot (no refresh since the
+    -- install: CAPR_FIT_S is empty) the second branch reads the live views
+    -- and snap_run_id is null. The NOT EXISTS is not correlated, so with a
+    -- snapshot the live views are parsed (once per cursor) but never run.
     get('mem_verdicts', q'[
 SELECT target_name, db_pdb AS db, dbid, con_dbid, instance_number, area,
        area_label, area_rank, mem_mode, grade, reason, reason_text, actionable,
        current_bytes, suggested_bytes, current_size, suggested_size, change_pct,
        suggested_param, exceeds_host_ram, exceeds_sga, n_evidence, n_pressure,
-       n_days, window_start, window_end, headline
-FROM   capr_mem_verdict t
+       n_days, window_start, window_end, headline, snap_run_id
+FROM  (SELECT s.dbid, s.con_dbid, s.db_pdb, s.instance_number, s.area, s.area_label,
+              s.area_rank, s.mem_mode, s.grade, s.reason, s.reason_text, s.actionable,
+              s.current_bytes, s.suggested_bytes, s.current_size, s.suggested_size,
+              s.change_pct, s.suggested_param, s.exceeds_host_ram, s.exceeds_sga,
+              s.n_evidence, s.n_pressure, s.n_days, s.window_start, s.window_end,
+              s.headline, s.snap_run_id
+       FROM   capr_mem_verdict_s s
+       UNION  ALL
+       SELECT v.dbid, v.con_dbid, v.db_pdb, v.instance_number, v.area, v.area_label,
+              v.area_rank, v.mem_mode, v.grade, v.reason, v.reason_text, v.actionable,
+              v.current_bytes, v.suggested_bytes, v.current_size, v.suggested_size,
+              v.change_pct, v.suggested_param, v.exceeds_host_ram, v.exceeds_sga,
+              v.n_evidence, v.n_pressure, v.n_days, v.window_start, v.window_end,
+              v.headline, CAST(NULL AS NUMBER)
+       FROM   capr_mem_verdict v
+       WHERE  NOT EXISTS (SELECT NULL FROM capr_fit_s)) t
 ]' || c_tgt || q'[
 WHERE  (:db IS NULL OR db_pdb = :db)
   AND  ]' || c_tgt_filter || q'[
@@ -248,8 +348,17 @@ ORDER  BY db_pdb, instance_number, area_rank]');
     get('mem_evidence', q'[
 SELECT target_name, db_pdb AS db, dbid, con_dbid, instance_number, area,
        area_label, area_rank, kind AS evidence_kind, signal, direction, value,
-       unit, threshold, observed_at, evidence_text
-FROM   capr_mem_evidence t
+       unit, threshold, observed_at, evidence_text, snap_run_id
+FROM  (SELECT s.dbid, s.con_dbid, s.db_pdb, s.instance_number, s.area, s.area_label,
+              s.area_rank, s.kind, s.signal, s.direction, s.value, s.unit, s.threshold,
+              s.observed_at, s.evidence_text, s.rank_ev, s.snap_run_id
+       FROM   capr_mem_evidence_s s
+       UNION  ALL
+       SELECT e.dbid, e.con_dbid, e.db_pdb, e.instance_number, e.area, e.area_label,
+              e.area_rank, e.kind, e.signal, e.direction, e.value, e.unit, e.threshold,
+              e.observed_at, e.evidence_text, e.rank_ev, CAST(NULL AS NUMBER)
+       FROM   capr_mem_evidence e
+       WHERE  NOT EXISTS (SELECT NULL FROM capr_fit_s)) t
 ]' || c_tgt || q'[
 WHERE  (:db IS NULL OR db_pdb = :db)
   AND  (:area IS NULL OR area = UPPER(:area))

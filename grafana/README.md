@@ -15,7 +15,8 @@ Oracle   CAPR_SERIES_POINTS / CAPR_HOURLY_POINTS / CAPR_FORECAST_POINTS / CAPR_F
    │
    ▼
 ORDS     module awrcap: GET /ords/<schema>/awrcap/{containers,targets,series,hourly,forecast,
-   │     fit,anomalies,alerts,mem_verdicts,mem_evidence,mem_components,mem_points,metrics}
+   │     fit,anomalies,alerts,alert_volume,tbspc_shared,disk,families,family_members,
+   │     mem_verdicts,mem_evidence,mem_components,mem_points,metrics}
    │     protected: a bearer token of an OAuth2 client with the role awrcap_reader
    │     (grafana/ords/awrcap_module.sql; ORDS itself runs anywhere with JDBC access)
    ▼
@@ -88,6 +89,14 @@ table has a Target column. The CPU and workload series board draws one panel
 per workload series, `IOPS` and `IO_MBPS` included. The memory board shows
 the verdicts, their evidence and the SGA components (`mem_*` endpoints);
 its rows are instance level, so they belong to a database's root container.
+The tablespaces board also shows, below the charts: the shared disk of each
+database (`disk`) and every growing tablespace against it (`tbspc_shared`),
+the tablespace families (`families`) and their members (`family_members`).
+Its days-to-full table has the fit's restart reason and day and, like the
+two fit tables of the CPU board, the series' forecast track record
+(`reliability`). The fleet board ends with the alert volume table
+(`alert_volume`): alerts per series and the floor that would quiet a noisy
+one.
 To show a new column of an endpoint, add it to the handler's `SELECT` in
 `grafana/ords/awrcap_module.sql` and to the panel's column list; a string
 column also joins `STRING_COLS` in `dash_lib.py`. Every panel is an Infinity JSON query against one endpoint
@@ -159,10 +168,13 @@ The views expose capacity numbers and object names, never row data.
   kind.
 - **No fit history.** `fit` is the current fit only. The ELK path keeps a
   daily snapshot of fits and alerts; this path does not.
-- **Memory endpoints are slow.** `mem_verdicts` and `mem_evidence` read a
-  30-day window of AWR memory history on every request and take far longer
-  than the other endpoints. The data source waits up to five minutes
-  (`timeoutInSeconds`); the memory board loads last.
+- **The memory board shows the last refresh.** `mem_verdicts` and
+  `mem_evidence` read the snapshot tables that `cap_results.refresh` fills,
+  not the live views (which go through a 30-day window of AWR memory history
+  and took minutes on a busy lab VM). Before the first refresh they fall
+  back to the live views; the data source waits up to five minutes
+  (`timeoutInSeconds`). `alert_volume` is the slowest handler now: it runs
+  the anomaly engine twice.
 - **Lab only.** Anonymous viewer access is convenient on a workstation and
   wrong anywhere else; see Security above.
 

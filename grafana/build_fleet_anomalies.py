@@ -140,6 +140,35 @@ b.add({
                 "tooltip": {"mode": "single", "sort": "none"}},
 }, 0, 13, 24, 7)
 
-b.add(alerts_table("Fleet alerts", DB), 0, 32, 24, 8)
+# Alert volume (CAPR_ALERT_VOLUME): alerts per series with the knobs as
+# they are, and for an anomaly series the floor that would quiet it.
+b.add(table(
+    "Alert volume: alerts per series with the knobs as they are",
+    q("A", "alert_volume", ["target_name", "db", "alert_kind", "series", "baseline_mode",
+                            "episodes", "n_crit", "n_warn", "n_info", "noisy",
+                            "flagged_days", "scored_days", "flagged_pct", "max_dev",
+                            "floor_knob", "floor_value", "suggested_floor"], filt=DB), [
+        TARGET_COL,
+        ("db", "Database", [width(190)]), ("alert_kind", "Alert", [width(150)]),
+        ("series", "Series", [width(170)]), ("baseline_mode", "Mode", [width(120)]),
+        ("episodes", "Alerts", [width(70), prop("decimals", 0)]),
+        ("n_crit", "CRIT", [width(60)]), ("n_warn", "WARN", [width(60)]),
+        ("n_info", "INFO", [width(60)]), ("noisy", "Noisy", [width(70)]),
+        ("flagged_days", "Flagged days", [prop("decimals", 0)]),
+        ("scored_days", "of scored", [prop("decimals", 0)]),
+        ("flagged_pct", "Flagged %", cell_bg(((GREEN, None), (AMBER, 10), (RED, 30)),
+                                             prop("unit", "percent"), prop("decimals", 1))),
+        ("max_dev", "Largest deviation", [prop("decimals", 2)]),
+        ("floor_knob", "Floor knob"), ("floor_value", "Floor now", [prop("decimals", 2)]),
+        ("suggested_floor", "Suggested floor", [prop("decimals", 2)])],
+    sort="episodes", desc=True,
+    description="One row per alert series and baseline mode. An anomaly kind lists one "
+                "alert per run of flagged days in the alert window. Noisy = Y: it alerts "
+                "often (noise_episodes, noise_flag_pct). Suggested floor: the value of the "
+                "floor knob that would end those alerts; the knob is shared by every series "
+                "of the unit. doctor.sql section 12 prints the UPDATE."),
+    0, 32, 24, 8)
+
+b.add(alerts_table("Fleet alerts", DB), 0, 40, 24, 8)
 
 b.write()

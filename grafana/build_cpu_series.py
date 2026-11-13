@@ -88,7 +88,9 @@ def trend_table(title, kind, value_label, dtf_label, with_limit, description="")
              ("days_to_full_lo", "low", [prop("decimals", 0)]),
              ("days_to_full_hi", "high", [prop("decimals", 0)]),
              ("r2", "R²", [prop("decimals", 2)]),
-             ("quality", "Fit quality")]
+             ("quality", "Fit quality"),
+             # The forecast track record (CAPR_FIT_TRACK): GOOD / BIASED / WIDE.
+             ("reliability", "Track", [width(90)])]
     query_cols = {c[0] for c in cols} | {"limit_value"}
     cols.append(("soonest", "soonest"))
     return table(title, q("A", f"fit?kind={kind}", sorted(query_cols), filt=DB,
@@ -131,7 +133,8 @@ b.add(trend_table("Workload series (latest fit, soonest limit first)",
                   "SERIES", "Current", "Days to limit", True),
       0, 55, 24, 9)
 
-b.add(alerts_table("CPU and series alerts", where("kind != 'TBSPC'", DB)), 0, 64, 24, 8)
+b.add(alerts_table("CPU and series alerts",
+                   where("kind != 'TBSPC' && kind != 'DISK'", DB)), 0, 64, 24, 8)
 
 b.annotations += [
     annotation("Host CPU anomalies",

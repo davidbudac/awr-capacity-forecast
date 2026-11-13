@@ -14,7 +14,9 @@ OUT = pathlib.Path(__file__).resolve().parent / "dashboards"
 
 TIME_COLS = {"ts", "obs_day", "last_day", "day_dt", "window_start", "window_end",
              "observed_at", "last_resize_at", "newest_snap", "last_ok_at",
-             "last_error_at"}
+             "last_error_at", "restart_day", "disk_as_of", "disk_full_day",
+             "newest_day", "filling_from", "period_end_day", "period_start",
+             "period_end", "fill_from", "fill_to"}
 # Every column that is not a time or a string is a number: a new string
 # column of an endpoint is one name here.
 STRING_COLS = {
@@ -27,6 +29,12 @@ STRING_COLS = {
     "exceeds_host_ram", "exceeds_sga", "headline", "evidence_kind", "signal",
     "direction", "evidence_text", "component", "is_pool",
     "feed", "host_name", "enabled", "is_stale", "collect_state", "last_error",
+    "restart_reason", "reliability", "track_summary",
+    "disk_name", "disk_source", "top_growers", "raw_sev", "gated_by",
+    "is_current", "limit_live", "stopped_by",
+    "family_name", "source", "period", "trend_sig", "next_over_limit",
+    "filling_member", "fits", "state",
+    "state_key", "floor_knob", "mode_knob", "noisy",
 }
 # The CAPR_ANOMALIES vocabularies (grafana/API.md).
 ANOMALY_KINDS = ("TBSPC_GROWTH", "CPU_BUSY", "DBCPU_BUSY", "SERIES_LEVEL",
@@ -35,6 +43,9 @@ BASELINE_MODES = ("TRAILING", "SAME_DOW", "HOUR_OF_WEEK")
 RANGE = "from=${__from:date:iso}&to=${__to:date:iso}"
 DB = "db IN (${db:singlequote})"
 SERIES = "series IN (${series:singlequote})"
+# Database-level rows (the shared disk) carry the root container as db, so
+# they follow the target selection, not the database one.
+TARGET = "target_name IN (${target:singlequote})"
 SEV_MAPPING = [{"type": "value", "options": {
     "CRIT": {"color": RED, "index": 0},
     "WARN": {"color": AMBER, "index": 1},

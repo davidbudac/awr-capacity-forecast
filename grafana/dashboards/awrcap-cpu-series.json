@@ -1075,6 +1075,11 @@
               "type": "number"
             },
             {
+              "selector": "reliability",
+              "text": "reliability",
+              "type": "string"
+            },
+            {
               "selector": "series",
               "text": "series",
               "type": "string"
@@ -1138,7 +1143,8 @@
               "days_to_full_hi": 8,
               "r2": 9,
               "quality": 10,
-              "soonest": 11
+              "reliability": 11,
+              "soonest": 12
             },
             "renameByName": {
               "target_name": "Target",
@@ -1151,7 +1157,8 @@
               "days_to_full_lo": "low",
               "days_to_full_hi": "high",
               "r2": "R\u00b2",
-              "quality": "Fit quality"
+              "quality": "Fit quality",
+              "reliability": "Track"
             },
             "excludeByName": {
               "soonest": true,
@@ -1362,6 +1369,18 @@
               {
                 "id": "decimals",
                 "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Track"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
               }
             ]
           }
@@ -2552,6 +2571,11 @@
               "type": "number"
             },
             {
+              "selector": "reliability",
+              "text": "reliability",
+              "type": "string"
+            },
+            {
               "selector": "series",
               "text": "series",
               "type": "string"
@@ -2617,7 +2641,8 @@
               "days_to_full_hi": 10,
               "r2": 11,
               "quality": 12,
-              "soonest": 13
+              "reliability": 13,
+              "soonest": 14
             },
             "renameByName": {
               "target_name": "Target",
@@ -2632,7 +2657,8 @@
               "days_to_full_lo": "low",
               "days_to_full_hi": "high",
               "r2": "R\u00b2",
-              "quality": "Fit quality"
+              "quality": "Fit quality",
+              "reliability": "Track"
             },
             "excludeByName": {
               "soonest": true
@@ -2915,6 +2941,18 @@
                 "value": 2
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Track"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
           }
         ]
       },
@@ -3022,7 +3060,7 @@
           ],
           "filters": [],
           "computed_columns": [],
-          "filterExpression": "kind != 'TBSPC' && db IN (${db:singlequote})"
+          "filterExpression": "kind != 'TBSPC' && kind != 'DISK' && db IN (${db:singlequote})"
         }
       ],
       "transformations": [
