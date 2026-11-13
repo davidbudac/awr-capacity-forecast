@@ -36,7 +36,9 @@ threshold and robust z, and the `drill_*` scripts print the fit arithmetic.
   seam reads the copies (or the test fixtures); everything above is the same
   SQL.
 - **Tier 1**: SQL linear fit (least squares, or Theil-Sen / drift on demand),
-  anchored at today's value. **Tier 2** (optional): OML exponential
+  anchored at today's value. A tablespace fit restarts after a purge and
+  where growth stopped or began, so a tablespace that filled and then
+  stopped gets no full date. **Tier 2** (optional): OML exponential
   smoothing as a second opinion, at most +30 days on 19c.
 - Thresholds live in the `CAP_CONFIG` table, never in the SQL.
 

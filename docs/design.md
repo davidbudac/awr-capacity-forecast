@@ -762,6 +762,43 @@ Ordinary least squares via `REGR_*` over `day_n = day_dt − DATE '2020-01-01'`
   follows `slope_method` (OLS, Theil–Sen over the window's pairs, or DRIFT),
   and `CAPF_BACKTEST.slope_method` names it, so flipping the knob compares the
   estimators on the same holdout.
+- **Purge events**: knob `cliff_merge_days` (1). A purge that runs past
+  midnight, or a delete followed by a shrink the next day, leaves two cliff
+  days side by side. Counted one by one they were two cliffs: `CYCLIC`, no
+  reset, and no full date for up to `train_days`. Cliff days at most
+  `cliff_merge_days` days apart are one purge event. `cycle_n` counts events,
+  `cycle_days` is measured between their first cliff days, and the reset day
+  is the last cliff day of the newest event (only then is `used_bytes` the
+  post-purge level). `0` makes every cliff day its own event. Fixture:
+  `FIX_PURGE2`.
+- **Growth that stopped or began (STOP / START)**: knobs `quiet_days` (14;
+  0 = off), `quiet_ratio` (2), `quiet_chance` (0.01), `growth_floor` (0.001).
+  The maintainer's production database has one tablespace per month: each
+  fills during its month and then stops. A line through the whole window
+  gives a stopped tablespace a slope and a full date it never reaches, and a
+  late starter a rate that is far too low. The rule is the standalone
+  query's, applied to the window left after the M9.3 reset. A growth day is a
+  new high (above every earlier day of the window by more than `growth_floor`
+  x the window's rise), a pause a run of days without one. STOP restarts the
+  fit on the day after the last growth day when the pause up to the newest
+  day is long; START restarts it on the last day before the first growth day
+  when the pause before it is long and `span + trail + 2 >= min_train_days`
+  days are left. Long = `quiet_days` or more, `quiet_ratio` x the longest
+  other pause or more, and a chance `(s / (s + q)) ^ g` (START: `g - 1`)
+  below `quiet_chance`, for g growth days s days apart and a pause of q days.
+  One growth day (s = 0) stops after `quiet_days` and never starts a fit.
+  STOP wins. A stopped, flat tablespace has slope 0: `FLAT`, no
+  `days_to_full`, no `TBSPC_FULL`. Its window is the quiet days, so under the
+  shipped knobs (`quiet_days` = `min_train_days`) it is never
+  `INSUFFICIENT_HISTORY`; with `quiet_days` below `min_train_days` it is
+  until `min_train_days` quiet days have passed, as in the standalone query.
+  `restart_reason` (`PURGE` / `STOP` / `START` / NULL) and `restart_day` (=
+  `train_start` when a reason is set) are the last columns of
+  `CAPF_TBSPC_FORECAST` and `CAPR_FIT`; `reset_day` stays the purge reset.
+  Not judged: `CYCLIC` rows, and a window whose cliff did not reset it
+  (`reset_on_shrink = 0`), because regrowth under the old peak sets no new
+  high. A rate that changes without a pause is still averaged. Fixture:
+  `FIX_STOPPED`, `FIX_STARTED`.
 - **CYCLIC grade**: knob `cyclic_min_cliffs` (2; 0 = off). A rolling-retention
   tablespace (fill for a month, purge, repeat) has a cliff in every cycle. The
   M9.3 reset restarts at the most recent one only, so the post-purge leg reads
@@ -769,7 +806,7 @@ Ordinary least squares via `REGR_*` over `day_n = day_dt − DATE '2020-01-01'`
   a 300 GiB tablespace) read `112 − k` days to full on cycle day k and fell
   through `dtf_warn` 8 days a month; a weekly purge would never collect
   `min_train_days` rows. So the cliffs of the **full** `train_days` window are
-  counted with the M9.3 rule (`cycle_n`, on every row). With `cycle_n ≥
+  counted with the M9.3 rule, as purge events (`cycle_n`, on every row). With `cycle_n ≥
   cyclic_min_cliffs` no reset applies and quality is `CYCLIC`, judged on the
   peaks: `cycle_days` (median spacing of the cliffs), `cycle_peak_bytes` /
   `cycle_peak_pct` (the window's maximum, against `limit_bytes`),

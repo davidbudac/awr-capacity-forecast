@@ -36,14 +36,20 @@ for making changes safely.
   space derived from the `LIVE` caps or `prm.disk_free_gb`: the view's
   ceiling is `LEAST(sum of maxbytes, allocated + device free)` per tablespace
   at any file count, verified 19.27), and STATUS
-  uses `dtf_shared`. A fourth: the fit window also restarts where growth
-  stopped or began (`RESTART` STOP / START beside PURGE, `prm.quiet_days` 0 =
-  off), judged on growth days (new highs) and the pauses between them: a
-  pause of `quiet_days`, `quiet_ratio` x the longest other pause, and a
-  chance `(span / (span + pause)) ^ growth days` (START: `growth days - 1`)
-  under `quiet_chance`. One growth day has span 0: STOP after `quiet_days`
-  (a single load is not fitted as a step), START never.
-  The suite restarts at a purge cliff only. `standalone/README.md`
+  uses `dtf_shared`. Shared with the suite (ddl/30, same rule, knobs of the
+  same names in `CAP_CONFIG` / `prm`): cliff days at most `cliff_merge_days`
+  (1) apart are one purge event, the reset day its last cliff day; and the
+  fit window also restarts where growth stopped or began (`RESTART` STOP /
+  START beside PURGE, `quiet_days` 0 = off), judged on growth days (new
+  highs by more than `growth_floor` x the window's rise) and the pauses
+  between them: a pause of `quiet_days`, `quiet_ratio` x the longest other
+  pause, and a chance `(span / (span + pause)) ^ growth days` (START:
+  `growth days - 1`) under `quiet_chance`. One growth day has span 0: STOP
+  after `quiet_days` (a single load is not fitted as a step), START never.
+  The suite publishes it as `restart_reason` / `restart_day` on
+  `CAPF_TBSPC_FORECAST` and `CAPR_FIT` (`reset_day` stays the purge reset)
+  and does not judge a window whose cliffs did not reset it (CYCLIC,
+  `reset_on_shrink` 0). `standalone/README.md`
   explains its columns and formulas for readers outside the project (it is
   also pasted into Confluence): change it with the query.
   `standalone/tbspc_monitor.sql` is its monitoring companion (own doc
@@ -559,7 +565,12 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   `CAP_FIXTURE_ASM_DISKGROUP` (DATA 200 + 5i of 1000 GiB: a second
   SERIES_LIMIT, FRA flat), `CAP_FIXTURE_SEG_STAT` (three segments in
   `FIX_FILLING`, 70/20/10 % of its growth) and a 3-day burst on `FIX_GAP`
-  (one anomaly episode).
+  (one anomaly episode). `FIX_PURGE2` (a purge over days 80 and 81: one
+  event, reset on day 81, OK. `cliff_merge_days` 0: CYCLIC), `FIX_STOPPED`
+  (ramp to day 90, then flat: STOP on day 91, FLAT, no full date.
+  `quiet_days` 0: OK, 45 days, a TBSPC_FULL WARN) and `FIX_STARTED` (flat
+  to day 95, then 16 MiB/day: START on day 95, OK, 200 days). Each adds
+  under 0.5 GiB a day, so DB_SIZE_GB flags nothing new.
 - **PGA fixture (M26):** `CAP_FIXTURE_PGASTAT`, root only, both PGA_LIMIT
   names on every snapshot. `total PGA allocated` 0.5 GiB at 06:00, 1 + i/1200 at
   18:00: `PGA_ALLOC_GB` exactly linear, 1.1 of 2 GiB (55%), no alert, no

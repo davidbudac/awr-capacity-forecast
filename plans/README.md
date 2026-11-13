@@ -82,10 +82,10 @@ So nobody re-audits them:
 
 The maintainer chose not to plan these yet; they remain open findings.
 
-- **A purge spread over two days counts as two cliffs = CYCLIC**
-  (`ddl/30_forecast_views.sql:257-275`, mirrored in the standalone query
-  `:301-311`): no reset, and the tablespace's full-date alert is off for up
-  to `train_days`.
+- **A purge spread over two days counts as two cliffs = CYCLIC**. Closed
+  (2026-11-12): cliff days at most `cliff_merge_days` (1) apart are one purge
+  event, in `ddl/30_forecast_views.sql` and both standalone queries
+  (`FIX_PURGE2`, standalone `PURGE2` / `PURGE3`).
 - **`test/run_test.sql` assumes the fixture was loaded today**
   (`--no-fixture` the next morning fails at `:4621`). The other half of this
   finding is closed (2026-11-12): `test/check.sh` is the one entry point for
@@ -114,7 +114,9 @@ The maintainer chose not to plan these yet; they remain open findings.
 ## Direction options (not planned; the maintainer said "none for now")
 
 - Port the standalone STOP / START window restart into the suite's
-  tablespace forecast behind `quiet_days = 0`.
+  tablespace forecast. Done (2026-11-12), on by default (`quiet_days` 14, 0 =
+  off): `restart_reason` / `restart_day` on `CAPF_TBSPC_FORECAST` and
+  `CAPR_FIT`. The dashboards (ELK, Grafana, APEX) do not show them yet.
 - `target_name` and the memory verdicts in the ELK, ORDS / Grafana and APEX
   paths (none of them reads either today).
 - A persisted memory verdict history (`CAPR_MEM_VERDICT_S` is already filled

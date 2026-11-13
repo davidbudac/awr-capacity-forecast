@@ -312,6 +312,15 @@
             <tr><td class="def">25</td><td><code>FIX_UNDO</code></td>
                 <td>UNDO, 4&nbsp;GiB autoextending to 10&nbsp;GiB, peak 3&nbsp;GiB every day</td>
                 <td><code>UNDO_PEAK:FIX_UNDO</code> reads 3 of 10&nbsp;GiB, FLAT, silent</td></tr>
+            <tr><td class="def">30</td><td><code>FIX_PURGE2</code></td>
+                <td>10&nbsp;MiB/day, a purge of <b>302.5&nbsp;MiB on day&nbsp;80 and again on day&nbsp;81</b></td>
+                <td>one purge event (<code>cliff_merge_days</code>): <code>cycle_n = 1</code>, <code>reset_day</code> = day&nbsp;81, <code>train_n = 40</code>, exactly 10&nbsp;MiB/day, OK. With <code>cliff_merge_days = 0</code>: two cliffs, <code>CYCLIC</code>, no reset</td></tr>
+            <tr><td class="def">31</td><td><code>FIX_STOPPED</code></td>
+                <td>1&nbsp;GiB + 16&nbsp;MiB/day until day&nbsp;90, then flat at 2464 of 3000&nbsp;MiB</td>
+                <td><code>restart_reason = STOP</code>, <code>restart_day</code> = day&nbsp;91, 30 flat days, FLAT, no <code>days_to_full</code>, no alert. With <code>quiet_days = 0</code>: 11.7&nbsp;MiB/day, OK, 45 days, a <code>TBSPC_FULL</code> WARN</td></tr>
+            <tr><td class="def">32</td><td><code>FIX_STARTED</code></td>
+                <td>flat at 1&nbsp;GiB until day&nbsp;95, then 16&nbsp;MiB/day</td>
+                <td><code>restart_reason = START</code>, <code>restart_day</code> = day&nbsp;95, <code>train_n = 26</code>, exactly 16&nbsp;MiB/day, OK, <code>days_to_full = 200</code>. With <code>quiet_days = 0</code>: 3.1&nbsp;MiB/day, <code>LOW_CONFIDENCE</code></td></tr>
           </tbody>
         </table>
       </div>

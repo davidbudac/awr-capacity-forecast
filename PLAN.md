@@ -148,6 +148,16 @@ every new number (see `test/run_test.sql`).
       `CAPF_ESM_BACKTEST`, never leak into `CAPF_ESM_FORECAST`/`CAPF_COMPARE`).
       Section 6c (text + HTML) shows MAPE/bias per engine + BETTER verdict.
       Feeds ESM model-type selection in M10.4.
+- [x] **M9.6 Purge events and STOP / START (2026-11).** Done: knob
+      `cliff_merge_days` (1): cliff days on adjacent days are one purge event,
+      so a two-day purge resets the fit at its last cliff day and is no longer
+      `CYCLIC` (`FIX_PURGE2`). Knobs `quiet_days` (14, 0 = off), `quiet_ratio`
+      (2), `quiet_chance` (0.01), `growth_floor` (0.001): the fit window also
+      restarts where growth stopped or began, the standalone query's rule
+      (`FIX_STOPPED`: `FLAT`, no full date; `FIX_STARTED`: the ramp alone).
+      `restart_reason` / `restart_day` on `CAPF_TBSPC_FORECAST`, `CAPR_FIT`,
+      `CAPR_TBSPC_FORECAST`, `CAPR_TBSPC_DAYS_TO_FULL` and `CAP_FIT_HIST`, shown
+      in the text, HTML, briefing and CSV reports. Not in the dashboards yet.
 - [x] **M9.5 Tablespace limit overrides / exclusions.** Done:
       `CAP_TBSPC_OVERRIDE (dbid, con_dbid, tablespace_name, limit_bytes,
       exclude_flag, note)` — the THIRD persisted table (created idempotently in

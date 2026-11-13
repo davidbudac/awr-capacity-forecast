@@ -595,6 +595,37 @@
         <span class="inline">min_train_days</span> rows remain, quality is
         <span class="pill crit">INSUFFICIENT_HISTORY</span>. Tablespaces only; a CPU step is handled
         by <a href="#cpu">CAPA_CPU_SHIFT</a>.</p>
+      <p>A purge can run past midnight and leave two cliff days side by side. Cliff days at most
+        <span class="inline">cliff_merge_days</span> (1) days apart are one purge event: the reset day
+        is the last cliff day of the newest event, and <span class="inline">cycle_n</span> counts
+        events, so a two-day purge is not graded <span class="inline">CYCLIC</span>.</p>
+
+      <h3>Growth that stopped or began</h3>
+      <p>One line through the whole window is wrong when the tablespace grew in only a part of it.
+        A tablespace that filled during its month and then stopped keeps a slope and a full date it
+        never reaches. One that began to fill late reads far too slow. A growth day is a new high of
+        <span class="inline">used_bytes</span> in the window, a pause a run of days without one.
+        The fit restarts where a pause is long:</p>
+      <ul>
+        <li><b>STOP</b>: on the day after the last growth day, when the pause up to the newest day is
+          long. A tablespace that stays flat since then is <span class="inline">FLAT</span>: no
+          <span class="inline">days_to_full</span>, no <span class="inline">TBSPC_FULL</span>.</li>
+        <li><b>START</b>: on the last day before the first growth day, when the pause before it is
+          long and <span class="inline">min_train_days</span> days are left.</li>
+      </ul>
+      <p>Long means all three: at least <span class="inline">quiet_days</span> (14) days, at least
+        <span class="inline">quiet_ratio</span> (2) times the longest other pause, and a chance below
+        <span class="inline">quiet_chance</span> (0.01), where g growth days spread over s days make a
+        pause of q days as likely as <code>(s / (s + q)) ^ g</code>. A tablespace that grows in rare
+        steps or weekly batches keeps its whole window. One growth day is a load, not a rate: it
+        stops after <span class="inline">quiet_days</span> and never starts a fit.
+        <span class="inline">restart_reason</span> (<span class="inline">PURGE</span> /
+        <span class="inline">STOP</span> / <span class="inline">START</span>) and
+        <span class="inline">restart_day</span> are on <span class="inline">CAPF_TBSPC_FORECAST</span>
+        and <span class="inline">CAPR_FIT</span>, and the reports print them.
+        <span class="inline">quiet_days = 0</span> turns the rule off. It is the rule of
+        <span class="inline">standalone/tbspc_capacity.sql</span>. A rate that changes without a
+        pause (fast to slow) is still averaged.</p>
 
             <svg class="dg" viewBox="0 0 640 190" role="img" aria-label="A purge drops usage. A fit across the cliff is too flat; the reset fits only the days from the cliff on.">
 <line class="ax" x1="30" y1="170" x2="620" y2="170"/>

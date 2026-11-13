@@ -1361,7 +1361,10 @@ COMMIT;</pre>
         default): after the most recent large <em>shrink</em> in a tablespace, the training window
         restarts at that day (its <code>used_bytes</code> is already post-purge).
         <span class="inline">shrink_mad_k</span> (6) sets how large a drop counts; it is higher than
-        <span class="inline">mad_k</span> because it restarts a fit.</p>
+        <span class="inline">mad_k</span> because it restarts a fit. Cliff days on adjacent days are
+        one purge (<span class="inline">cliff_merge_days</span>). The window also restarts where
+        growth stopped or began (<span class="inline">quiet_days</span>, 0 = off): the reports show
+        <code>RESTART</code> <code>PURGE</code> / <code>STOP</code> / <code>START</code>.</p>
       </div>
 
       <!-- ===================== JOBS ===================== -->

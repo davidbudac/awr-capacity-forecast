@@ -6,11 +6,11 @@
 -- changes nothing. It is the suite's Tier 1 tablespace forecast (ddl/20
 -- CAPD_TBSPC_DAILY + ddl/30 CAPF_TBSPC_FORECAST, slope_method 0) cut down
 -- to one SELECT, with its defaults inlined in the prm CTE instead of
--- CAP_CONFIG. No ML, no CAP_TBSPC_OVERRIDE, no anomaly scoring. Four
+-- CAP_CONFIG. No ML, no CAP_TBSPC_OVERRIDE, no anomaly scoring. Three
 -- things differ from the suite: the limit takes the live ceiling when that
--- is lower, the worst case takes the wider of two error models, every
--- tablespace is also forecast against the one disk they share, and the fit
--- restarts where growth stopped or began (all below).
+-- is lower, the worst case takes the wider of two error models, and every
+-- tablespace is also forecast against the one disk they share (all below).
+-- The purge and STOP / START restarts are the suite's.
 --
 -- One row per (container, permanent tablespace) still sampled by AWR:
 --   used / limit / pct    newest day's sample. limit = autoextend maxsize
