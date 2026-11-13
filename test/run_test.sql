@@ -1037,19 +1037,28 @@ BEGIN
           WHERE DECODE(s.days_to_full, f.days_to_full, 0, 1) = 1
              OR DECODE(s.slope_bpd, f.slope_bpd, 0, 1) = 1 OR s.limit_bytes <> f.limit_bytes;
         chk_int ('CAPF_TBSPC_SHARED passes days_to_full / slope_bpd / limit_bytes through', v_n, 0);
-        SELECT dtf_shared, limit_shared_gb, disk_name INTO v_num, v_num2, v_str FROM capr_fit
-          WHERE kind = 'TBSPC' AND series = 'FIX_FILLING';
-        chk_int ('CAPR_FIT FILLING dtf_shared', v_num, v_fdtf);
-        chk_close('CAPR_FIT FILLING limit_shared_gb', v_num2, 1500 / 1024, 0.000000001);
-        chk_str ('CAPR_FIT FILLING disk_name', v_str, 'DATAFILES');
-        SELECT COUNT(*) INTO v_n FROM capr_fit
-          WHERE kind <> 'TBSPC' AND (dtf_shared IS NOT NULL OR limit_shared_gb IS NOT NULL OR disk_name IS NOT NULL);
-        chk_int ('CAPR_FIT CPU / SERIES rows carry no shared-disk value', v_n, 0);
-        SELECT dtf_shared, stopped_by, limit_own_gb, limit_live INTO v_num, v_str, v_num2, v_c1
-          FROM capr_tbspc_days_to_full WHERE tablespace_name = 'FIX_OVERRIDE';
-        chk_true('CAPR_TBSPC_DAYS_TO_FULL OVERRIDE shared columns (got ' || v_num || ' ' || v_str || ' ' || v_c1 || ')',
+        SELECT dtf_shared, limit_shared_gb, disk_name, db_pdb INTO v_num, v_num2, v_str, v_str2
+          FROM capr_tbspc_shared WHERE tablespace_name = 'FIX_FILLING';
+        chk_int ('CAPR_TBSPC_SHARED FILLING dtf_shared', v_num, v_fdtf);
+        chk_close('CAPR_TBSPC_SHARED FILLING limit_shared_gb', v_num2, 1500 / 1024, 0.000000001);
+        chk_str ('CAPR_TBSPC_SHARED FILLING disk_name', v_str, 'DATAFILES');
+        chk_str ('CAPR_TBSPC_SHARED FILLING db_pdb', v_str2, 'FIXCDB');
+        SELECT dtf_shared, stopped_by, limit_own_gb, limit_live, grow_mb INTO v_num, v_str, v_num2, v_c1, v_num3
+          FROM capr_tbspc_shared WHERE tablespace_name = 'FIX_OVERRIDE';
+        chk_true('CAPR_TBSPC_SHARED OVERRIDE (got ' || v_num || ' ' || v_str || ' ' || v_c1 || ')',
                  v_num = meta_n('OVERRIDE_DTF_OWN') AND v_str = 'LIMIT' AND v_c1 = 'Y'
                  AND ABS(v_num2 - meta_n('OVERRIDE_LIVE_LIMIT') / c_gib) < 0.000000001);
+        chk_close('CAPR_TBSPC_SHARED OVERRIDE grow_mb', v_num3, 10, 0.000000001);
+        -- rank_shared: growing tablespaces first, the soonest stuck first.
+        SELECT COUNT(*), COUNT(CASE WHEN grow_mb IS NULL THEN 1 END),
+               MIN(CASE WHEN grow_mb IS NULL THEN rank_shared END),
+               MAX(CASE WHEN rank_shared = 1 THEN tablespace_name END),
+               COUNT(DISTINCT rank_shared)
+          INTO v_n, v_num, v_num2, v_str, v_num3 FROM capr_tbspc_shared WHERE dbid = v_dbid;
+        chk_int ('CAPR_TBSPC_SHARED rows', v_n, t.COUNT);
+        chk_true('CAPR_TBSPC_SHARED rank_shared: unique, the not growing rows last (got ' || v_num3 || ' ' || v_num2 || ')',
+                 v_num3 = v_n AND v_num2 = v_n - v_num + 1);
+        chk_str ('CAPR_TBSPC_SHARED rank_shared 1 = FIX_FILLING (stuck in 20 days)', v_str, 'FIX_FILLING');
 
         -- ---- a designed disk. Three growers and one flat tablespace are
         -- left (every other one excluded), FIX_LINEAR gets 105 MiB of free

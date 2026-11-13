@@ -747,11 +747,7 @@ FROM   gated g;
 -- peak in GiB and the peak slope in MiB/day like cur_gb / slope_mb. And the
 -- sizing ask: need_gib_30 / _90 / _180 (GiB to add so the worst case stays
 -- under the ceiling through +h) and add_by_day (the worst-case fill date).
--- Then restart_reason / restart_day, as on CAPF_TBSPC_FORECAST.
--- Last (U09), from CAPF_TBSPC_SHARED: dtf_shared / dtf_shared_worst (days
--- until the tablespace is stuck on the disk it shares), limit_shared_gb
--- (its size then), limit_own_gb with limit_live = 'Y' when the live ceiling
--- is under limit_gb, stopped_by (DISK / LIMIT) and disk_name.
+-- Last: restart_reason / restart_day, as on CAPF_TBSPC_FORECAST.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_tbspc_days_to_full AS
 SELECT f.dbid,
@@ -799,16 +795,8 @@ SELECT f.dbid,
        s.eff_nearfull_warn_pct,
        s.eff_nearfull_crit_pct,
        f.restart_reason,
-       f.restart_day,
-       -- U09: the shared-disk columns of CAPF_TBSPC_SHARED (ddl/33).
-       f.dtf_shared,
-       f.dtf_shared_worst,
-       f.limit_shared_bytes / 1024 / 1024 / 1024 AS limit_shared_gb,
-       f.limit_own_bytes    / 1024 / 1024 / 1024 AS limit_own_gb,
-       f.limit_live,
-       f.stopped_by,
-       f.disk_name
-FROM   capf_tbspc_shared f
+       f.restart_day
+FROM   capf_tbspc_forecast f
 LEFT   JOIN (SELECT dbid, con_dbid, series_key,
                     MAX(CASE WHEN kind = 'TBSPC_FULL'     THEN sev            END) AS sev_dtf,
                     MAX(CASE WHEN kind = 'TBSPC_NEARFULL' THEN sev            END) AS sev_nearfull,
@@ -1419,9 +1407,6 @@ GROUP  BY dbid, con_dbid;
 -- CPU and SERIES. Then restart_reason (PURGE / STOP / START: why the TBSPC
 -- fit window is shorter than train_days) and restart_day (its first day),
 -- NULL for CPU and SERIES and for a window that was not restarted.
--- Then (U09) the TBSPC shared-disk columns of CAPF_TBSPC_SHARED (ddl/33):
--- dtf_shared, dtf_shared_worst, limit_shared_gb (GiB) and disk_name, NULL
--- for CPU and SERIES.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_fit AS
 SELECT f.dbid,
@@ -1461,11 +1446,7 @@ SELECT f.dbid,
        f.need_gib_180,
        f.add_by_day,
        f.restart_reason,
-       f.restart_day,
-       f.dtf_shared,
-       f.dtf_shared_worst,
-       f.limit_shared_gb,
-       f.disk_name
+       f.restart_day
 FROM  (
         SELECT t.dbid, t.con_dbid, 'TBSPC' AS kind, t.tablespace_name AS series,
                'bytes' AS unit, t.slope_method AS method,
@@ -1481,11 +1462,8 @@ FROM  (
                CAST(NULL AS NUMBER)                               AS slope_sig,
                CAST(NULL AS NUMBER)                               AS hot_now,
                t.need_gib_30, t.need_gib_90, t.need_gib_180, t.add_by_day,
-               t.restart_reason, t.restart_day,
-               t.dtf_shared, t.dtf_shared_worst,
-               t.limit_shared_bytes / 1073741824                  AS limit_shared_gb,
-               t.disk_name
-        FROM   capf_tbspc_shared t
+               t.restart_reason, t.restart_day
+        FROM   capf_tbspc_forecast t
         UNION ALL
         SELECT t.dbid, t.con_dbid, 'CPU', t.metric,
                CASE t.metric WHEN 'DB_CPU_SEC' THEN 'sec' ELSE 'pct' END, t.slope_method,
@@ -1502,8 +1480,7 @@ FROM  (
                CASE t.slope_sig WHEN 'Y' THEN 1 ELSE 0 END,
                CASE t.hot_now WHEN 'Y' THEN 1 WHEN 'N' THEN 0 END,
                NULL, NULL, NULL, CAST(NULL AS DATE),
-               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE),
-               NULL, NULL, NULL, CAST(NULL AS VARCHAR2(30))
+               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE)
         FROM   capf_cpu_trend t
         CROSS  JOIN cap_cfg cfg
         UNION ALL
@@ -1517,8 +1494,7 @@ FROM  (
                CASE t.is_current WHEN 'Y' THEN 1 ELSE 0 END, NULL,
                NULL, NULL, NULL, NULL, NULL, NULL,
                NULL, NULL, NULL, CAST(NULL AS DATE),
-               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE),
-               NULL, NULL, NULL, CAST(NULL AS VARCHAR2(30))
+               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE)
         FROM   capf_series_forecast t
       ) f
 LEFT   JOIN (SELECT fit_kind, dbid, con_dbid, series_key, MIN(sev_rank) AS sev_rank
@@ -1915,6 +1891,15 @@ LEFT   JOIN capr_container c
 --   sev, sev_rank    raw_sev, or OK / 3 when gated
 --   message          the DISK_FULL message, NULL when sev = OK
 -- CAPR_ALERTS (ddl/55) raises the rows whose sev is not OK.
+--
+-- CAPR_TBSPC_SHARED, below it: the per-tablespace shared-disk columns of
+-- CAPF_TBSPC_SHARED for the reports, one row per tablespace, GiB and MiB a
+-- day. A view of its own and not columns of CAPR_FIT or
+-- CAPR_TBSPC_DAYS_TO_FULL: with the simulation inside, CAPR_FIT's hard
+-- parse went from 15 s to 42 s (19.27, fixture; 76 to 113 s as an outer
+-- join), and every statement on it pays that. This view parses in 5 s.
+-- Join it on (dbid, con_dbid, tablespace_name). rank_shared counts per
+-- database: growing tablespaces first, the soonest stuck first.
 -- ====================================================================
 CREATE OR REPLACE VIEW capr_disk AS
 WITH j AS (
@@ -1972,4 +1957,34 @@ SELECT g.dbid,
 FROM   g
 LEFT   JOIN capr_container c
   ON   c.dbid = g.dbid AND c.con_dbid = g.dbid;
+
+CREATE OR REPLACE VIEW capr_tbspc_shared AS
+SELECT s.dbid,
+       s.con_dbid,
+       NVL(c.db_pdb, TO_CHAR(s.con_dbid))        AS db_pdb,
+       s.tablespace_name,
+       s.disk_name,
+       s.quality,
+       s.is_current,
+       s.cur_used           / 1073741824         AS cur_gb,
+       s.alloc_bytes        / 1073741824         AS alloc_gb,
+       s.limit_bytes        / 1073741824         AS limit_gb,
+       s.limit_own_bytes    / 1073741824         AS limit_own_gb,
+       s.limit_live,
+       s.grow_bpd           / 1048576            AS grow_mb,
+       s.grow_worst_bpd     / 1048576            AS grow_worst_mb,
+       s.ext_days,
+       s.days_to_full,
+       s.dtf_own,
+       s.dtf_shared,
+       s.dtf_shared_worst,
+       s.limit_shared_bytes / 1073741824         AS limit_shared_gb,
+       s.stopped_by,
+       ROW_NUMBER() OVER (PARTITION BY s.dbid
+                          ORDER BY CASE WHEN s.grow_bpd IS NOT NULL THEN 0 ELSE 1 END,
+                                   s.dtf_shared NULLS LAST, s.grow_bpd DESC NULLS LAST,
+                                   s.con_dbid, s.tablespace_name) AS rank_shared
+FROM   capf_tbspc_shared s
+LEFT   JOIN capr_container c
+  ON   c.dbid = s.dbid AND c.con_dbid = s.con_dbid;
 -- U09 END

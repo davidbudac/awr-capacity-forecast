@@ -36,9 +36,6 @@ PROMPT     NEED_90_GIB = space to add so the worst case (upper 95% band) stays u
 PROMPT     limit for 90 days. ADD_BY = the worst-case fill date (last day + WORST).
 PROMPT     RESTART = why the fit uses less than the whole window: PURGE (since a purge
 PROMPT     cliff), START (since growth began). Section 2 lists the stopped ones (STOP).
-PROMPT     SHARED = days until the tablespace is stuck when all tablespaces grow on the one
-PROMPT     disk they share (1c): its own limit, or the first day it has to extend after the
-PROMPT     disk is full. Below DAYS_FULL, BY reads DISK. SHARED_GIB = its size on that day.
 
 COLUMN db_pdb          FORMAT A20           HEADING 'DB/PDB'
 COLUMN tablespace_name FORMAT A18           HEADING 'TABLESPACE'
@@ -58,9 +55,6 @@ COLUMN cycle_peak_pct  FORMAT 990.0         HEADING 'PEAK%'
 COLUMN need_gib_90     FORMAT 9999990.00    HEADING 'NEED_90_GIB'
 COLUMN add_by          FORMAT A10           HEADING 'ADD_BY'
 COLUMN restart_reason  FORMAT A7            HEADING 'RESTART'
-COLUMN dtf_shared      FORMAT 99999990      HEADING 'SHARED'
-COLUMN stopped_by      FORMAT A5            HEADING 'BY'
-COLUMN limit_shared_gb FORMAT 99990.00      HEADING 'SHARED_GIB'
 
 SELECT db_pdb,
        tablespace_name,
@@ -79,10 +73,7 @@ SELECT db_pdb,
        cycle_peak_pct,
        need_gib_90,
        TO_CHAR(add_by_day, 'YYYY-MM-DD') AS add_by,
-       restart_reason,
-       dtf_shared,
-       stopped_by,
-       limit_shared_gb
+       restart_reason
 FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_dtf) AS s_rank
        FROM   capr_tbspc_days_to_full&cap_s t
        WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)
@@ -112,9 +103,10 @@ WHERE  pct_used IS NOT NULL
   AND  s_rank <= &top_n
 ORDER  BY dbid, s_rank;
 
--- 1c (U09): the disk the datafiles share, one row per database. FORMAT ONLY:
--- CAPR_DISK owns every number and the DISK_FULL severity. A row is filed
--- under the database (con_dbid = dbid), so a PDB scope lists none.
+-- 1c (U09): the disk the datafiles share, one row per database, then the
+-- growing tablespaces on it. FORMAT ONLY: CAPR_DISK owns the disk's numbers
+-- and the DISK_FULL severity, CAPR_TBSPC_SHARED the tablespaces'. A disk row
+-- is filed under the database (con_dbid = dbid), so a PDB scope lists none.
 PROMPT
 PROMPT == 1c. SHARED DISK (all tablespaces of a database on one disk) ==
 PROMPT     FREE_GIB = free space on the disk now. SOURCE: OVERRIDE = CAP_DISK_OVERRIDE,
@@ -156,3 +148,42 @@ FROM   capr_disk&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, disk_name;
+
+PROMPT
+PROMPT     Growing tablespaces on the shared disk (top &top_n). SHARED = days until the
+PROMPT     tablespace is stuck: its own limit, or the first day it has to extend after the
+PROMPT     disk is full (BY = DISK). WORST = the same with every tablespace at its worst-case
+PROMPT     rate. SHARED_GIB = its size on that day. OWN_GIB = its own limit, LV = Y when that
+PROMPT     is the live ceiling. IN_FILES = days the free space inside its files lasts.
+
+COLUMN db_pdb           FORMAT A20           HEADING 'DB/PDB'
+COLUMN tablespace_name  FORMAT A18           HEADING 'TABLESPACE'
+COLUMN grow_mb          FORMAT 999990.000    HEADING 'MIB/DAY'
+COLUMN ext_days         FORMAT 9999990.0     HEADING 'IN_FILES'
+COLUMN own_gb           FORMAT 99990.00      HEADING 'OWN_GIB'
+COLUMN limit_live       FORMAT A2            HEADING 'LV'
+COLUMN dtf_own          FORMAT 99999990      HEADING 'OWN_DAYS'
+COLUMN dtf_shared       FORMAT 99999990      HEADING 'SHARED'
+COLUMN dtf_shared_worst FORMAT 99999990      HEADING 'WORST'
+COLUMN stopped_by       FORMAT A5            HEADING 'BY'
+COLUMN limit_shared_gb  FORMAT 99990.00      HEADING 'SHARED_GIB'
+
+SELECT db_pdb,
+       tablespace_name,
+       grow_mb,
+       ext_days,
+       limit_own_gb AS own_gb,
+       limit_live,
+       dtf_own,
+       dtf_shared,
+       dtf_shared_worst,
+       stopped_by,
+       limit_shared_gb,
+       quality
+FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_shared) AS s_rank
+       FROM   capr_tbspc_shared&cap_s t
+       WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)
+         AND  (&cap_scon  IS NULL OR t.con_dbid = &cap_scon)
+         AND  t.grow_mb IS NOT NULL)
+WHERE  s_rank <= &top_n
+ORDER  BY dbid, s_rank;

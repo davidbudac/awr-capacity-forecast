@@ -1359,11 +1359,11 @@ tables. (Fixed later: the stubs are opaque, see M27.)
       `CAPF_DISK`: the standalone query's shared-disk simulation with the
       suite's slope and worst-case rate. Free space from the new operator
       table `CAP_DISK_OVERRIDE`, else from the live ceilings, else unknown.
-- [x] **M29.3 Surfacing.** `dtf_shared`, `dtf_shared_worst`,
-      `limit_shared_gb`, `disk_name` on `CAPR_FIT` and
-      `CAPR_TBSPC_DAYS_TO_FULL`; `CAPR_DISK`; the `DISK_FULL` alert; text
-      section 1 (columns and block 1c), the HTML report, the briefing, the
-      CSV. Not done: mapping datafiles to devices or ASM disk groups (one
+- [x] **M29.3 Surfacing.** `CAPR_DISK` (per disk) and `CAPR_TBSPC_SHARED`
+      (per tablespace: `dtf_shared`, `dtf_shared_worst`, `limit_shared_gb`,
+      `stopped_by`); the `DISK_FULL` alert; text block 1c, the HTML report,
+      the briefing, the CSV. The columns are not on `CAPR_FIT`: with the
+      simulation inside, its hard parse nearly tripled (15 s to 42 s). Not done: mapping datafiles to devices or ASM disk groups (one
       disk per database), the dashboards (ELK, Grafana, APEX), the demo
       fixture, `suite_version`.
 

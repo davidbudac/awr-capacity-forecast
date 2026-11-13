@@ -868,6 +868,8 @@ h1 {
   var TRK = {};
   (D.track || []).forEach(function (t) { TRK[key(t.k, t.dbid, t.con, t.s)] = t; });
   var REL_TAG = { BIASED: 'forecasts biased', WIDE: 'band too narrow' };
+  var SHARED = {};
+  (D.shared || []).forEach(function (r) { SHARED[key(r.dbid, r.con, r.s)] = r; });
   var HOURS = {};
   (D.hours || []).forEach(function (h) { HOURS[key(h.dbid, h.con, h.s)] = h; });
 
@@ -987,9 +989,10 @@ h1 {
       out.push({ l: 'Growth', v: m.unit.rate(f.slope), s: f.accel != null && f.accel >= 1.5 ? 'accelerating \u00d7' + num(f.accel, 1) : 'fit over ' + (f.n || '\u2013') + ' d' + since });
     }
     out.push(dtfFact(f, 'Full in'));
-    // The disk the tablespaces share stops it before its own limit (CAPR_FIT.dtf_shared).
-    if (f.dtfSh != null && (f.dtf == null || f.dtfSh < f.dtf))
-      out.push({ l: 'On the shared disk', v: fDays(f.dtfSh), s: 'stuck at ' + num(f.limSh, 1) + ' GiB' + (f.disk ? ', disk ' + esc(f.disk) : '') });
+    // The disk the tablespaces share stops it before its own limit (CAPR_TBSPC_SHARED).
+    var sh = SHARED[key(f.dbid, f.con, f.s)];
+    if (sh && sh.by === 'DISK' && sh.dtfSh != null)
+      out.push({ l: 'On the shared disk', v: fDays(sh.dtfSh), s: 'stuck at ' + num(sh.limSh, 1) + ' GiB' + (sh.disk ? ', disk ' + esc(sh.disk) : '') });
     if (f.need90 > 0) out.push({ l: 'Add for 90 d', v: num(f.need90, 1) + '<small>GiB</small>', s: f.addBy ? 'by ' + fDay(dayN(f.addBy)) : '' });
     if (f.below) out.push({ l: 'Limit', v: 'below used', tone: 'crit' });
     return out;

@@ -272,8 +272,9 @@ try {
   check(false, 'render with a track block throws: ' + e.message);
 }
 
-// The shared disk (CAPR_DISK, block "disks") and the tablespace fact it
-// feeds: the demo page has no such block, so one is built here. A disk with
+// The shared disk (CAPR_DISK, block "disks") and the tablespace fact of
+// block "shared" (CAPR_TBSPC_SHARED): the demo page has neither, so they
+// are built here. A disk with
 // free space reads as one sentence, one without says how to supply it, and a
 // tablespace the disk stops before its own limit gets the fact.
 try {
@@ -286,7 +287,7 @@ try {
   ];
   const withDisk = Object.assign({}, d, {
     disks,
-    fits: d.fits.map(f => f === ts ? Object.assign({}, f, { dtfSh: Math.max(0, f.dtf - 5), dtfShW: 1, limSh: 12.34, disk: '/u02' }) : f)
+    shared: [{ dbid: ts.dbid, con: ts.con, s: ts.s, disk: '/u02', dtfSh: Math.max(0, ts.dtf - 5), dtfShW: 1, limSh: 12.34, by: 'DISK' }]
   });
   const h = render(JSON.stringify(withDisk));
   check(!h.includes('undefined') && !h.includes('NaN') && !h.includes('>null<'), 'render with a disks block is clean');
@@ -295,6 +296,8 @@ try {
   check(h.includes('free space not known. Set it in CAP_DISK_OVERRIDE'), 'a disk without free space says how to supply it');
   check(h.includes('On the shared disk') && h.includes('stuck at 12.3 GiB, disk /u02'), 'a tablespace the disk stops first shows the shared-disk fact');
   check(!html.includes('<h3>Shared disk</h3>') || (d.disks || []).length > 0, 'no shared-disk heading without a disks block');
+  const noBy = render(JSON.stringify(Object.assign({}, withDisk, { shared: [Object.assign({}, withDisk.shared[0], { by: 'LIMIT' })] })));
+  check(!noBy.includes('On the shared disk'), 'a tablespace stopped by its own limit shows no shared-disk fact');
 } catch (e) {
   check(false, 'render with a disks block throws: ' + e.message);
 }

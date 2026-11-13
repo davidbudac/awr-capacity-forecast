@@ -1298,8 +1298,8 @@ COMMIT;</pre>
         database against the one disk they share: <span class="inline">dtf_shared</span> is the day
         the tablespace is stuck, <span class="inline">limit_shared_gb</span> its size on that day,
         and <span class="inline">CAPR_DISK</span> has one row per database with the free space and
-        <span class="inline">disk_dtf</span>, the day the disk is full. Report section 1 prints both
-        (columns <code>SHARED</code>, <code>BY</code>, <code>SHARED_GIB</code> and block 1c).</p>
+        <span class="inline">disk_dtf</span>, the day the disk is full. Report block 1c prints the
+        disk and the growing tablespaces on it (<span class="inline">CAPR_TBSPC_SHARED</span>).</p>
       <p>The free space comes from the live tablespace ceilings the collector copies
         (<span class="inline">disk_source = LIVE</span>): where Oracle caps an autoextend tablespace
         by storage, the ceiling minus the allocated size is the free space. When no tablespace is

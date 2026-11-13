@@ -345,7 +345,7 @@ BEGIN
                      r2, quality, days_to_full, days_to_full_lo, days_to_full_hi, accel, train_n, sev,
                      limit_source, last_day, is_current, limit_below_used, cycle_n, cycle_days,
                      cycle_peak_pct, peak_slope_per_day, slope_sig, hot_now, need_gib_90, add_by_day,
-                     restart_reason, restart_day, dtf_shared, dtf_shared_worst, limit_shared_gb, disk_name
+                     restart_reason, restart_day
               FROM   capr_fit&cap_s
               ORDER  BY 1, 2, 3, 4, 6) LOOP
       IF in_scope(r.dbid, r.con_dbid) THEN
@@ -360,9 +360,7 @@ BEGIN
           || ',"cycN":' || jn(r.cycle_n) || ',"cycD":' || jn(r.cycle_days) || ',"cycPk":' || jn(r.cycle_peak_pct)
           || ',"pkSlope":' || jn(r.peak_slope_per_day) || ',"sig":' || jn(r.slope_sig)
           || ',"hot":' || jn(r.hot_now) || ',"need90":' || jn(r.need_gib_90) || ',"addBy":' || jd(r.add_by_day)
-          || ',"rst":' || js(r.restart_reason) || ',"rstDay":' || jd(r.restart_day)
-          || ',"dtfSh":' || jn(r.dtf_shared) || ',"dtfShW":' || jn(r.dtf_shared_worst)
-          || ',"limSh":' || jn(r.limit_shared_gb) || ',"disk":' || js(r.disk_name) || '}');
+          || ',"rst":' || js(r.restart_reason) || ',"rstDay":' || jd(r.restart_day) || '}');
         v_sep := ',';
       END IF;
     END LOOP;
@@ -422,6 +420,30 @@ BEGIN
     w(']');
     flush_block('disks');
   EXCEPTION WHEN OTHERS THEN fail_block('disks', SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
+  -- shared (U09): the growing tablespaces on the shared disk
+  -- (CAPR_TBSPC_SHARED), keyed like their TBSPC fit.
+  ----------------------------------------------------------------------
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, tablespace_name, disk_name, dtf_shared, dtf_shared_worst,
+                     limit_shared_gb, stopped_by
+              FROM   capr_tbspc_shared&cap_s
+              WHERE  grow_mb IS NOT NULL
+              ORDER  BY dbid, con_dbid, tablespace_name) LOOP
+      IF in_scope(r.dbid, r.con_dbid) THEN
+        w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"s":' || js(r.tablespace_name)
+          || ',"disk":' || js(r.disk_name) || ',"dtfSh":' || jn(r.dtf_shared) || ',"dtfShW":' || jn(r.dtf_shared_worst)
+          || ',"limSh":' || jn(r.limit_shared_gb) || ',"by":' || js(r.stopped_by) || '}');
+        v_sep := ',';
+      END IF;
+    END LOOP;
+    w(']');
+    flush_block('shared');
+  EXCEPTION WHEN OTHERS THEN fail_block('shared', SQLERRM);
   END;
 
   ----------------------------------------------------------------------

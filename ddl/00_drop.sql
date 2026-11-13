@@ -68,6 +68,7 @@ DECLARE
         'CAPR_MEM_VERDICT',
         'CAPR_MEM_AREA',
         -- U09: the shared-disk views (ddl/33, CAPR_DISK in ddl/45).
+        'CAPR_TBSPC_SHARED',
         'CAPR_DISK',
         'CAPF_DISK',
         'CAPF_TBSPC_SHARED',

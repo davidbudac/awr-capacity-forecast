@@ -829,13 +829,20 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
 
 - **Layers.** `CAPV_TBSPC_LIVE` (seam; fixture twin
   `CAP_FIXTURE_TBSPC_LIVE`, a stub without it) → `CAPF_TBSPC_SHARED` (every
-  `CAPF_TBSPC_FORECAST` column, then the shared columns: read it instead of
-  joining the two, the fit then runs once) → `CAPF_DISK` (per dbid and
-  disk) → `CAPR_DISK` (ddl/45, snapshot registry, owner of the DISK_FULL
-  severity and message) → the `DISK_FULL` branch of `CAPR_ALERTS`.
-  `CAPR_FIT` and `CAPR_TBSPC_DAYS_TO_FULL` read `CAPF_TBSPC_SHARED` and
-  carry `dtf_shared`, `dtf_shared_worst`, `limit_shared_gb`, `disk_name`
-  last.
+  `CAPF_TBSPC_FORECAST` column, then the shared columns) → `CAPF_DISK` (per
+  dbid and disk) → `CAPR_DISK` (ddl/45, owner of the DISK_FULL severity and
+  message) and `CAPR_TBSPC_SHARED` (the per-tablespace columns for the
+  reports), both in the snapshot registry → the `DISK_FULL` branch of
+  `CAPR_ALERTS`.
+- **Not inside `CAPR_FIT` or `CAPR_TBSPC_DAYS_TO_FULL`.** With
+  `CAPF_TBSPC_SHARED` as the TBSPC branch, `CAPR_FIT`'s hard parse went from
+  15 s to 42 s (19.27, fixture, EXPLAIN PLAN of `SELECT *`), 48 s unmerged,
+  76 s and 113 s as an outer join, and the first `cap_results.refresh` of
+  run_test.sql was still parsing after an hour of parse CPU. Both views
+  keep their base text. `CAPF_TBSPC_SHARED` alone parses in 5 s,
+  `CAPR_DISK` in 9 s. The `DISK_FULL` branch takes `CAPR_ALERTS` from 5 s
+  to 12 s. Consumers join `CAPR_TBSPC_SHARED` on (dbid, con_dbid,
+  tablespace_name).
 - **One disk per database.** All tablespaces of a dbid (every container)
   share it. Datafiles are not mapped to devices or ASM disk groups
   (`DBA_HIST_DATAFILE.filename` is not copied). The disk is named by the

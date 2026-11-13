@@ -163,6 +163,8 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  var TRK = {};~');
   DBMS_OUTPUT.PUT_LINE(q'~  (D.track || []).forEach(function (t) { TRK[key(t.k, t.dbid, t.con, t.s)] = t; });~');
   DBMS_OUTPUT.PUT_LINE(q'~  var REL_TAG = { BIASED: 'forecasts biased', WIDE: 'band too narrow' };~');
+  DBMS_OUTPUT.PUT_LINE(q'~  var SHARED = {};~');
+  DBMS_OUTPUT.PUT_LINE(q'~  (D.shared || []).forEach(function (r) { SHARED[key(r.dbid, r.con, r.s)] = r; });~');
   DBMS_OUTPUT.PUT_LINE(q'~  var HOURS = {};~');
   DBMS_OUTPUT.PUT_LINE(q'~  (D.hours || []).forEach(function (h) { HOURS[key(h.dbid, h.con, h.s)] = h; });~');
   DBMS_OUTPUT.PUT_LINE(NULL);
@@ -282,9 +284,10 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      out.push({ l: 'Growth', v: m.unit.rate(f.slope), s: f.accel != null && f.accel >= 1.5 ? 'accelerating \u00d7' + num(f.accel, 1) : 'fit over ' + (f.n || '\u2013') + ' d' + since });~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    out.push(dtfFact(f, 'Full in'));~');
-  DBMS_OUTPUT.PUT_LINE(q'~    // The disk the tablespaces share stops it before its own limit (CAPR_FIT.dtf_shared).~');
-  DBMS_OUTPUT.PUT_LINE(q'~    if (f.dtfSh != null && (f.dtf == null || f.dtfSh < f.dtf))~');
-  DBMS_OUTPUT.PUT_LINE(q'~      out.push({ l: 'On the shared disk', v: fDays(f.dtfSh), s: 'stuck at ' + num(f.limSh, 1) + ' GiB' + (f.disk ? ', disk ' + esc(f.disk) : '') });~');
+  DBMS_OUTPUT.PUT_LINE(q'~    // The disk the tablespaces share stops it before its own limit (CAPR_TBSPC_SHARED).~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var sh = SHARED[key(f.dbid, f.con, f.s)];~');
+  DBMS_OUTPUT.PUT_LINE(q'~    if (sh && sh.by === 'DISK' && sh.dtfSh != null)~');
+  DBMS_OUTPUT.PUT_LINE(q'~      out.push({ l: 'On the shared disk', v: fDays(sh.dtfSh), s: 'stuck at ' + num(sh.limSh, 1) + ' GiB' + (sh.disk ? ', disk ' + esc(sh.disk) : '') });~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (f.need90 > 0) out.push({ l: 'Add for 90 d', v: num(f.need90, 1) + '<small>GiB</small>', s: f.addBy ? 'by ' + fDay(dayN(f.addBy)) : '' });~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (f.below) out.push({ l: 'Limit', v: 'below used', tone: 'crit' });~');
   DBMS_OUTPUT.PUT_LINE(q'~    return out;~');
@@ -399,12 +402,12 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        usual = 'usual ' + fBytes(a.e * scale);~');
   DBMS_OUTPUT.PUT_LINE(q'~      } else {~');
   DBMS_OUTPUT.PUT_LINE(q'~        val = m.unit.fmt(a.v);~');
-  DBMS_OUTPUT.PUT_LINE(q'~        usual = 'usual ' + m.unit.fmt(a.e);~');
-  DBMS_OUTPUT.PUT_LINE(q'~      }~');
-  DBMS_OUTPUT.PUT_LINE(q'~    }~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~        usual = 'usual ' + m.unit.fmt(a.e);~');
+  DBMS_OUTPUT.PUT_LINE(q'~      }~');
+  DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (ev.nh) {~');
   DBMS_OUTPUT.PUT_LINE(q'~      var hrs = ev.nh + ' h ' + (ev.f === 'LOW' ? 'below' : 'above') + ' their usual hour';~');
   DBMS_OUTPUT.PUT_LINE(q'~      if (val) usual += ' \u00b7 ' + hrs; else val = hrs;~');
@@ -802,12 +805,12 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  var SPACE_TOP = 5;~');
   DBMS_OUTPUT.PUT_LINE(NULL);
-  DBMS_OUTPUT.PUT_LINE(q'~  function famMetrics(id) {~');
-  DBMS_OUTPUT.PUT_LINE(q'~    var s = sections.filter(function (x) { return x.fam.id === id; })[0];~');
-  DBMS_OUTPUT.PUT_LINE(q'~    return s ? s.ms : [];~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~  function famMetrics(id) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var s = sections.filter(function (x) { return x.fam.id === id; })[0];~');
+  DBMS_OUTPUT.PUT_LINE(q'~    return s ? s.ms : [];~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(q'~  /* The rate a tablespace fills at: a cyclic one is judged on its peaks. */~');
   DBMS_OUTPUT.PUT_LINE(q'~  function fillRate(f) { return f.q === 'CYCLIC' ? f.pkSlope : f.slope; }~');
@@ -1205,12 +1208,12 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    (absent.length ? ' No data for ' + absent.map(function (s) { return esc(s.fam.title); }).join(', ') + '.' : '') + '</p>');~');
   DBMS_OUTPUT.PUT_LINE(q'~  html.push('<div class="tally">' +~');
   DBMS_OUTPUT.PUT_LINE(q'~    '<div' + (nCrit ? ' class="crit"' : '') + '><b>' + nCrit + '</b><span>critical</span></div>' +~');
-  DBMS_OUTPUT.PUT_LINE(q'~    '<div' + (nWarn ? ' class="warn"' : '') + '><b>' + nWarn + '</b><span>warning</span></div>' +~');
-  DBMS_OUTPUT.PUT_LINE(q'~    '<div><b>' + nOk + '</b><span>of ' + nSeries + ' series healthy</span></div>' +~');
-  DBMS_OUTPUT.PUT_LINE(q'~    '<div><b>' + nFitOk + '/' + nSeries + '</b><span>fits graded OK</span></div></div>');~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~    '<div' + (nWarn ? ' class="warn"' : '') + '><b>' + nWarn + '</b><span>warning</span></div>' +~');
+  DBMS_OUTPUT.PUT_LINE(q'~    '<div><b>' + nOk + '</b><span>of ' + nSeries + ' series healthy</span></div>' +~');
+  DBMS_OUTPUT.PUT_LINE(q'~    '<div><b>' + nFitOk + '/' + nSeries + '</b><span>fits graded OK</span></div></div>');~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  html.push(spaceHtml());~');
   DBMS_OUTPUT.PUT_LINE(NULL);
