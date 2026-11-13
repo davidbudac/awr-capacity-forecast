@@ -18,10 +18,11 @@
 -- Before it drops anything it writes the operator's config to a replay file,
 -- reports/cap_config_replay_<schema>_<YYYYMMDD_HH24MISS>.sql (path printed):
 -- one UPDATE per CAP_CONFIG knob whose value differs from its default
--- (suite_version aside) and one MERGE per CAP_TBSPC_OVERRIDE row. Run it in
--- the new owner after the new install.sql, which has seeded every knob by
--- then. A knob the new release no longer has updates no row and is named.
--- With no such knob and no override row it writes no file.
+-- (suite_version aside) and one MERGE per CAP_TBSPC_OVERRIDE and
+-- CAP_TBSPC_FAMILY row. Run it in the new owner after the new install.sql,
+-- which has seeded every knob by then. A knob the new release no longer has
+-- updates no row and is named. With no such knob and no operator row it
+-- writes no file.
 --
 SET APPINFO OFF
 SET APPINFO "AWRCAP/uninstall.sql"
@@ -30,7 +31,7 @@ SET SERVEROUTPUT ON SIZE UNLIMITED FORMAT WRAPPED
 SET FEEDBACK OFF
 WHENEVER SQLERROR EXIT FAILURE ROLLBACK
 
-PROMPT -- writing the config replay file (knobs off their default, tablespace overrides) ...
+PROMPT -- writing the config replay file (knobs off their default, tablespace overrides, family rows) ...
 VARIABLE cap_replay      CLOB
 VARIABLE cap_replay_n    NUMBER
 VARIABLE cap_replay_file VARCHAR2(200)
@@ -80,7 +81,8 @@ BEGIN
     put('-- ' || :cap_replay_file);
     put('-- Written by uninstall.sql from schema ' || v_owner || ' at '
         || TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS') || ': its CAP_CONFIG knobs');
-    put('-- off their default and its CAP_TBSPC_OVERRIDE rows. Run it in the new owner');
+    put('-- off their default and its CAP_TBSPC_OVERRIDE / CAP_TBSPC_FAMILY rows. Run it in');
+    put('-- the new owner');
     put('-- after install.sql:');
     put('--   SQL> @' || :cap_replay_file);
     put('SET APPINFO OFF');
@@ -129,54 +131,60 @@ BEGIN
     END;
     v_n := v_knobs;
 
-    FOR c IN (SELECT c.column_name, c.data_type,
-                     (SELECT COUNT(*)
-                      FROM   all_constraints k
-                      JOIN   all_cons_columns kc ON kc.owner = k.owner
-                                                AND kc.constraint_name = k.constraint_name
-                      WHERE  k.owner = c.owner AND k.table_name = c.table_name
-                        AND  k.constraint_type = 'P' AND kc.column_name = c.column_name) AS is_pk
-              FROM   all_tab_columns c
-              WHERE  c.owner = v_owner AND c.table_name = 'CAP_TBSPC_OVERRIDE'
-              ORDER  BY c.column_id) LOOP
-        CONTINUE WHEN literal_sql(c.column_name, c.data_type) IS NULL;
-        v_sel  := v_sel || CASE WHEN v_sel IS NOT NULL THEN q'[ || ', ' || ]' END
-                  || literal_sql(c.column_name, c.data_type) || q'[ || ' AS ]' || c.column_name || q'[']';
-        v_cols := v_cols || CASE WHEN v_cols IS NOT NULL THEN ', ' END || c.column_name;
-        v_vals := v_vals || CASE WHEN v_vals IS NOT NULL THEN ', ' END || 's.' || c.column_name;
-        IF c.is_pk > 0 THEN
-            v_on := v_on || CASE WHEN v_on IS NOT NULL THEN ' AND ' END
-                    || 'o.' || c.column_name || ' = s.' || c.column_name;
-            v_pk := v_pk || CASE WHEN v_pk IS NOT NULL THEN ', ' END || c.column_name;
-        ELSE
-            v_set := v_set || CASE WHEN v_set IS NOT NULL THEN ', ' END
-                     || 'o.' || c.column_name || ' = s.' || c.column_name;
+    -- The operator tables, one MERGE per row: the tablespace overrides and
+    -- the tablespace family rows (ddl/05).
+    FOR t IN (SELECT 'CAP_TBSPC_OVERRIDE' AS tab FROM dual
+              UNION ALL SELECT 'CAP_TBSPC_FAMILY' FROM dual) LOOP
+        v_sel := NULL; v_cols := NULL; v_vals := NULL; v_on := NULL; v_set := NULL; v_pk := NULL;
+        FOR c IN (SELECT c.column_name, c.data_type,
+                         (SELECT COUNT(*)
+                          FROM   all_constraints k
+                          JOIN   all_cons_columns kc ON kc.owner = k.owner
+                                                    AND kc.constraint_name = k.constraint_name
+                          WHERE  k.owner = c.owner AND k.table_name = c.table_name
+                            AND  k.constraint_type = 'P' AND kc.column_name = c.column_name) AS is_pk
+                  FROM   all_tab_columns c
+                  WHERE  c.owner = v_owner AND c.table_name = t.tab
+                  ORDER  BY c.column_id) LOOP
+            CONTINUE WHEN literal_sql(c.column_name, c.data_type) IS NULL;
+            v_sel  := v_sel || CASE WHEN v_sel IS NOT NULL THEN q'[ || ', ' || ]' END
+                      || literal_sql(c.column_name, c.data_type) || q'[ || ' AS ]' || c.column_name || q'[']';
+            v_cols := v_cols || CASE WHEN v_cols IS NOT NULL THEN ', ' END || c.column_name;
+            v_vals := v_vals || CASE WHEN v_vals IS NOT NULL THEN ', ' END || 's.' || c.column_name;
+            IF c.is_pk > 0 THEN
+                v_on := v_on || CASE WHEN v_on IS NOT NULL THEN ' AND ' END
+                        || 'o.' || c.column_name || ' = s.' || c.column_name;
+                v_pk := v_pk || CASE WHEN v_pk IS NOT NULL THEN ', ' END || c.column_name;
+            ELSE
+                v_set := v_set || CASE WHEN v_set IS NOT NULL THEN ', ' END
+                         || 'o.' || c.column_name || ' = s.' || c.column_name;
+            END IF;
+        END LOOP;
+        IF v_sel IS NOT NULL AND v_on IS NOT NULL THEN
+            BEGIN
+                OPEN v_cur FOR 'SELECT ' || v_sel || ' FROM ' || LOWER(t.tab) || ' ORDER BY ' || v_pk;
+                LOOP
+                    FETCH v_cur INTO v_row;
+                    EXIT WHEN v_cur%NOTFOUND;
+                    v_n := v_n + 1;
+                    put('MERGE INTO ' || LOWER(t.tab) || ' o');
+                    put('USING (SELECT ' || v_row || ' FROM dual) s');
+                    put('ON (' || v_on || ')');
+                    IF v_set IS NOT NULL THEN
+                        put('WHEN MATCHED THEN UPDATE SET ' || v_set);
+                    END IF;
+                    put('WHEN NOT MATCHED THEN INSERT (' || v_cols || ') VALUES (' || v_vals || ');');
+                END LOOP;
+                CLOSE v_cur;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    IF v_cur%ISOPEN THEN CLOSE v_cur; END IF;
+                    IF SQLCODE <> -942 THEN RAISE; END IF;
+            END;
         END IF;
     END LOOP;
-    IF v_sel IS NOT NULL AND v_on IS NOT NULL THEN
-        BEGIN
-            OPEN v_cur FOR 'SELECT ' || v_sel || ' FROM cap_tbspc_override ORDER BY ' || v_pk;
-            LOOP
-                FETCH v_cur INTO v_row;
-                EXIT WHEN v_cur%NOTFOUND;
-                v_n := v_n + 1;
-                put('MERGE INTO cap_tbspc_override o');
-                put('USING (SELECT ' || v_row || ' FROM dual) s');
-                put('ON (' || v_on || ')');
-                IF v_set IS NOT NULL THEN
-                    put('WHEN MATCHED THEN UPDATE SET ' || v_set);
-                END IF;
-                put('WHEN NOT MATCHED THEN INSERT (' || v_cols || ') VALUES (' || v_vals || ');');
-            END LOOP;
-            CLOSE v_cur;
-        EXCEPTION
-            WHEN OTHERS THEN
-                IF v_cur%ISOPEN THEN CLOSE v_cur; END IF;
-                IF SQLCODE <> -942 THEN RAISE; END IF;
-        END;
-    END IF;
     put('COMMIT;');
-    put('PROMPT -- config replayed (' || (v_n - v_knobs) || ' tablespace override row(s)).');
+    put('PROMPT -- config replayed (' || (v_n - v_knobs) || ' operator row(s): tablespace overrides, family rows).');
     put('WHENEVER SQLERROR CONTINUE');
     put('SET FEEDBACK ON');
     :cap_replay_n := v_n;
@@ -197,7 +205,7 @@ SELECT CASE WHEN :cap_replay_n > 0 THEN 'ON' ELSE 'OFF' END AS cap_r_spool_termo
        CASE WHEN :cap_replay_n > 0
             THEN '-- config replay file: ' || :cap_replay_file || ' (' || :cap_replay_n
                  || ' statement(s)), run it in the new owner after install.sql'
-            ELSE '-- no config replay file: no knob off its default, no tablespace override' END AS cap_r_note
+            ELSE '-- no config replay file: no knob off its default, no tablespace override, no family row' END AS cap_r_note
 FROM   dual;
 COLUMN cap_r_spool_termout  CLEAR
 COLUMN cap_r_mkdir CLEAR
@@ -314,6 +322,7 @@ BEGIN
     drop_it('DROP TABLE cap_ml_model PURGE',       -942);
     drop_it('DROP TABLE cap_ml_input',             -942);
     drop_it('DROP TABLE cap_tbspc_override PURGE', -942);
+    drop_it('DROP TABLE cap_tbspc_family PURGE',   -942);
     drop_it('DROP TABLE cap_config PURGE',         -942);
     drop_it('DROP TYPE cap_esm_tab',               -4043);
     drop_it('DROP TYPE cap_esm_row',               -4043);

@@ -24,6 +24,13 @@ DECLARE
     v_views name_list := name_list(
         'CAPR_FORECAST_ACCURACY',
         'CAPR_FIT_TRACK',
+        -- tablespace families (ddl/32, ddl/45)
+        'CAPR_TBSPC_FAMILY_MEMBERS',
+        'CAPR_TBSPC_FAMILY',
+        'CAPF_TBSPC_FAMILY',
+        'CAPF_TBSPC_FAMILY_MEMBER',
+        'CAPD_TBSPC_FAMILY_DAILY',
+        'CAPD_TBSPC_FAMILY',
         'CAPR_WEEKLY_DIGEST',
         'CAPR_FIT_HISTORY',
         'CAPR_COVERAGE',
@@ -148,7 +155,7 @@ BEGIN
     END LOOP;
 
     -- NOTE: the PERSISTED tables are deliberately NOT dropped here: CAP_CONFIG,
-    -- CAP_TBSPC_OVERRIDE, CAP_ML_MODEL and the results layer's CAP_RUN,
+    -- CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY, CAP_ML_MODEL and the results layer's CAP_RUN,
     -- CAP_FIT_HIST, CAP_ALERT_STATE, CAP_ALERT_EVENT. A re-install must preserve
     -- operator config overrides, the hand-set tablespace limits / exclusions
     -- (M9.5), the trained-model registry and the run history, alert state and

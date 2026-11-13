@@ -174,6 +174,10 @@ USING (
     UNION ALL SELECT 'mem_resize_reversals',    2,        'M26 SGA_BALANCE: THRASHING when the buffer cache and the shared pool reversed direction at least this many times in the window.' FROM dual
     UNION ALL SELECT 'mem_shift_pct',          10,        'M26 SGA_BALANCE: DRIFTING when the buffer cache or the shared pool ends the window at least this percent of sga_target below its largest size in it.' FROM dual
     UNION ALL SELECT 'reader_expiry_warn_days', 30,       'Repository mode: doctor.sql check 11 WARNs when a target reader''s password expires within this many days (its collects fail with ORA-28001 from then on).' FROM dual
+    -- ---- tablespace families (ddl/32) ----
+    UNION ALL SELECT 'family_auto',             1,        'Tablespace families: 1 = tablespaces of one container whose names differ only in a period token (YYYYMM, YYYYQn, YYYY, MONYY ...) form a family. 0 = only CAP_TBSPC_FAMILY rows do.' FROM dual
+    UNION ALL SELECT 'family_min_members',      3,        'Tablespace families: an automatic family needs at least this many current members. A family a CAP_TBSPC_FAMILY row names needs one.' FROM dual
+    UNION ALL SELECT 'family_recent_members',   6,        'Tablespace families: next_member_gb is judged on the final sizes of this many newest DONE members.' FROM dual
 ) s
 ON (c.cfg_name = s.cfg_name)
 WHEN MATCHED THEN
@@ -293,7 +297,11 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'mem_resize_reversals'    THEN cfg_value END) AS mem_resize_reversals,
        MAX(CASE WHEN cfg_name = 'mem_ref_tolerance_pct'   THEN cfg_value END) AS mem_ref_tolerance_pct,
        MAX(CASE WHEN cfg_name = 'mem_shift_pct'           THEN cfg_value END) AS mem_shift_pct,
-       MAX(CASE WHEN cfg_name = 'reader_expiry_warn_days' THEN cfg_value END) AS reader_expiry_warn_days
+       MAX(CASE WHEN cfg_name = 'reader_expiry_warn_days' THEN cfg_value END) AS reader_expiry_warn_days,
+       -- ---- tablespace families (ddl/32) ----
+       MAX(CASE WHEN cfg_name = 'family_auto'             THEN cfg_value END) AS family_auto,
+       MAX(CASE WHEN cfg_name = 'family_min_members'      THEN cfg_value END) AS family_min_members,
+       MAX(CASE WHEN cfg_name = 'family_recent_members'   THEN cfg_value END) AS family_recent_members
 FROM   cap_config;
 
 COMMENT ON TABLE cap_cfg IS 'One row, one NUMBER column per CAP_CONFIG knob (column name = knob name). NULL = the knob row is missing.';
@@ -362,7 +370,8 @@ WITH u AS (
                mem_symptom_dbtime_pct, mem_temp_io_dbtime_pct, mem_multipass_pct,
                mem_onepass_pct, mem_reload_pct, mem_rowcache_miss_pct,
                mem_shpool_free_pct, mem_resize_ops_day, mem_resize_reversals,
-               mem_ref_tolerance_pct, mem_shift_pct, reader_expiry_warn_days))
+               mem_ref_tolerance_pct, mem_shift_pct, reader_expiry_warn_days,
+               family_auto, family_min_members, family_recent_members))
      ),
      r AS (
         SELECT u.knob, u.value,
@@ -484,6 +493,13 @@ WITH u AS (
                         THEN 'must be a whole number >= 1'
                    WHEN u.knob IN ('series_floor_iops', 'series_floor_mbps') AND u.value < 0
                         THEN 'must be >= 0: the smallest deviation an I/O anomaly may flag on'
+                   -- ---- tablespace families (ddl/32) ----
+                   WHEN u.knob = 'family_auto'         AND u.value NOT IN (0, 1)
+                        THEN 'must be 0 (CAP_TBSPC_FAMILY rows only) or 1 (period tokens too)'
+                   WHEN u.knob = 'family_min_members'  AND (u.value <> TRUNC(u.value) OR u.value < 2)
+                        THEN 'must be a whole number >= 2'
+                   WHEN u.knob = 'family_recent_members' AND (u.value <> TRUNC(u.value) OR u.value < 1)
+                        THEN 'must be a whole number >= 1'
                    WHEN u.knob = 'suite_version'       AND u.value < 26.4
                         THEN 'older than this release (26.4): re-run install.sql'
                END AS reason
@@ -582,3 +598,52 @@ COMMENT ON COLUMN cap_tbspc_override.dtf_warn          IS 'days_to_full at/below
 COMMENT ON COLUMN cap_tbspc_override.dtf_crit          IS 'days_to_full at/below which TBSPC_FULL is a CRIT for this tablespace. NULL = the dtf_crit knob.';
 COMMENT ON COLUMN cap_tbspc_override.nearfull_warn_pct IS 'Percent used at/above which TBSPC_NEARFULL is a WARN for this tablespace. NULL = the nearfull_warn_pct knob.';
 COMMENT ON COLUMN cap_tbspc_override.nearfull_crit_pct IS 'Percent used at/above which TBSPC_NEARFULL is a CRIT for this tablespace. NULL = the nearfull_crit_pct knob.';
+
+-- =====================================================================
+-- CAP_TBSPC_FAMILY -- operator rows for tablespace families (ddl/32).
+-- =====================================================================
+-- Operator data like CAP_TBSPC_OVERRIDE: ddl/00_drop.sql leaves it alone, a
+-- re-install keeps its rows, only uninstall.sql drops it (after spooling the
+-- rows to the replay file).
+--
+-- ddl/32 finds families by the period token in the name. A row here adds a
+-- tablespace to a family, renames a family or keeps a tablespace out of
+-- every family. name_regex is a regular expression matched against the whole
+-- tablespace name with REGEXP_LIKE: anchor it (^SALES_[0-9]{6}$), an
+-- unanchored one matches anywhere in the name. dbid = 0 and / or con_dbid = 0
+-- mean "any", as in CAP_TBSPC_OVERRIDE. When several rows match one
+-- tablespace the most specific wins: a real dbid first, then a real
+-- con_dbid, then the row whose name_regex sorts first. The winning row
+-- decides alone: exclude_flag = Y takes the tablespace out of every family,
+-- N puts it into family_name (which may be the name the period token would
+-- give, to add a member to an automatic family).
+--
+-- cap_tbspc_family_rx evaluates the expression once, so an invalid one is
+-- rejected by the INSERT (ORA-12725 and its neighbours) and never reaches
+-- the views.
+DECLARE
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE TABLE cap_tbspc_family (
+        dbid         NUMBER        DEFAULT 0   NOT NULL,
+        con_dbid     NUMBER        DEFAULT 0   NOT NULL,
+        name_regex   VARCHAR2(200)             NOT NULL,
+        family_name  VARCHAR2(60),
+        exclude_flag CHAR(1)       DEFAULT ''N'' NOT NULL,
+        note         VARCHAR2(200),
+        CONSTRAINT cap_tbspc_family_pk PRIMARY KEY (dbid, con_dbid, name_regex),
+        CONSTRAINT cap_tbspc_family_ck CHECK (exclude_flag IN (''Y'',''N'')),
+        CONSTRAINT cap_tbspc_family_nm CHECK (exclude_flag = ''Y'' OR family_name IS NOT NULL),
+        CONSTRAINT cap_tbspc_family_rx CHECK (REGEXP_COUNT(''X'', name_regex) >= 0)
+    )';
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF;
+END;
+/
+
+COMMENT ON TABLE  cap_tbspc_family              IS 'Tablespace families, operator rows: add a tablespace to a family, rename a family or keep a tablespace out. Applied by CAPD_TBSPC_FAMILY; dbid/con_dbid = 0 mean "any".';
+COMMENT ON COLUMN cap_tbspc_family.dbid         IS 'DBID this rule applies to, or 0 = any database.';
+COMMENT ON COLUMN cap_tbspc_family.con_dbid     IS 'CON_DBID this rule applies to, or 0 = any container.';
+COMMENT ON COLUMN cap_tbspc_family.name_regex   IS 'Regular expression (REGEXP_LIKE) on the tablespace name. Anchor it with ^ and $ to match the whole name.';
+COMMENT ON COLUMN cap_tbspc_family.family_name  IS 'Family the matching tablespaces belong to. NULL only on an exclude row.';
+COMMENT ON COLUMN cap_tbspc_family.exclude_flag IS 'Y = the matching tablespaces belong to no family. N (default) = they belong to family_name.';
+COMMENT ON COLUMN cap_tbspc_family.note         IS 'Free-text reason.';

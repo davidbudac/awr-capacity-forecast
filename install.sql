@@ -34,7 +34,7 @@
 -- harness, CI) always DEFINE it up front to avoid the prompt consuming a line.
 --
 -- Read-only against AWR data: the suite writes only to CAP_* tables it owns.
--- Operator tables (CAP_CONFIG, CAP_TBSPC_OVERRIDE) and derived tables
+-- Operator tables (CAP_CONFIG, CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY) and derived tables
 -- (CAP_ML_MODEL; the results layer's CAP_RUN, CAP_FIT_HIST, CAP_ALERT_STATE,
 -- CAP_ALERT_EVENT) all survive a re-install: ddl/00_drop drops views only.
 -- No AWR object is modified.
@@ -130,6 +130,9 @@ EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/25_series_daily')
 PROMPT -- [30] Tier 1 forecasts (CAPF_*) ...
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/30_forecast_views')
 @@ddl/30_forecast_views.sql
+PROMPT -- [32] tablespace families (CAPD_TBSPC_FAMILY, CAPF_TBSPC_FAMILY_MEMBER, CAPF_TBSPC_FAMILY) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/32_tbspc_family')
+@@ddl/32_tbspc_family.sql
 PROMPT -- [35] fixed-ceiling series forecast (CAPF_SERIES_FORECAST) ...
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/35_series_forecast')
 @@ddl/35_series_forecast.sql

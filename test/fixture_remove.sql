@@ -39,4 +39,12 @@ EXCEPTION
     WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;
 END;
 /
+-- CAP_TBSPC_FAMILY is persisted too: only the fixture's rows go.
+BEGIN
+    EXECUTE IMMEDIATE q'[DELETE FROM cap_tbspc_family WHERE name_regex LIKE '%FIX%']';
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;
+END;
+/
 PROMPT Fixture tables dropped.
