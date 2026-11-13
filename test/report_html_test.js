@@ -53,17 +53,29 @@ const families = [
   ['sessions', f => f.s === 'SESSIONS'], ['processes', f => f.s === 'PROCESSES'],
   ['pga', f => f.s === 'PGA_ALLOC_GB'],
   ['redo', f => f.s === 'REDO_GB_DAY'], ['undo', f => /^UNDO_PEAK:/.test(f.s)],
-  ['temp', f => /^TEMP_PEAK:/.test(f.s)], ['asm', f => /^ASM_DG:/.test(f.s)]
+  ['temp', f => /^TEMP_PEAK:/.test(f.s)], ['asm', f => /^ASM_DG:/.test(f.s)],
+  ['iops', f => f.s === 'IOPS'], ['io-mbps', f => f.s === 'IO_MBPS']
 ];
-let metrics = 0;
-for (const [id, match] of families) {
-  const n = d.fits.filter(match).length;
-  metrics += n;
-  check(html.includes('<section id="' + id + '"') === n > 0, 'section ' + id + ' present exactly when it has series (' + n + ')');
+// Each family has its section exactly when it has series, every metric
+// section the page renders is a family of this list (a family of the
+// renderer that the list lacks made the card count come out short), and
+// each fit of a family has one card or row.
+function checkCards(h, fits, what) {
+  let metrics = 0;
+  for (const [id, match] of families) {
+    const n = fits.filter(match).length;
+    metrics += n;
+    check(h.includes('<section id="' + id + '"') === n > 0, what + 'section ' + id + ' present exactly when it has series (' + n + ')');
+  }
+  const known = new Set(families.map(x => x[0]).concat(['overview', 'memory']));
+  const extra = [...h.matchAll(/<section id="([^"]+)"/g)].map(m => m[1]).filter(id => !known.has(id));
+  check(extra.length === 0, what + 'every section is a family of this test (not: ' + extra.join(', ') + ')');
+  const shown = (h.match(/<article class="card (?!mem)/g) || []).length + (h.match(/<div class="row" id=/g) || []).length;
+  check(shown === metrics, what + 'one card or row per metric: ' + shown + ' of ' + metrics);
+  check((h.match(/<svg /g) || []).length >= metrics, what + 'every metric has a chart');
+  return metrics;
 }
-const shown = (html.match(/<article class="card (?!mem)/g) || []).length + (html.match(/<div class="row" id=/g) || []).length;
-check(shown === metrics, 'one card or row per metric: ' + shown + ' of ' + metrics);
-check((html.match(/<svg /g) || []).length >= metrics, 'every metric has a chart');
+const metrics = checkCards(html, d.fits, '');
 check(/^[\x00-\x7f]*$/.test(page), 'page is ASCII only');
 
 // The memory section: one card per (dbid, instance), one row per verdict,
@@ -219,17 +231,23 @@ try {
 // The I/O rate series (IOPS, IO_MBPS): no limit, like redo. The page's own
 // data has them only when its source collected the I/O counters, so two are
 // built here from the redo series: a section each, the unit on the card, no
-// "soonest" countdown.
+// "soonest" countdown. A point row starts with its day offset, and a series
+// may lack days (the fixture's restart day), so the built values count back
+// from the last row's offset, not from the row count, and one day is left
+// out here so the docs demo has such a gap too.
 try {
   const redoFit = d.fits.filter(f => f.s === 'REDO_GB_DAY')[0];
   const redoPts = d.points.filter(p => p.s === 'REDO_GB_DAY' && p.dbid === redoFit.dbid && p.con === redoFit.con)[0];
+  const lastDay = redoPts.d[redoPts.d.length - 1][0];
+  const days = redoPts.d.filter((r, i) => i !== redoPts.d.length - 3);
   const io = [['IOPS', 'io_per_sec', 3090, 9.5, 'OK'], ['IO_MBPS', 'mb_per_sec', 48.5, 0, 'FLAT']];
   const withIo = Object.assign({}, d, {
     fits: d.fits.filter(f => f.s !== 'IOPS' && f.s !== 'IO_MBPS').concat(io.map(x => Object.assign({}, redoFit, { s: x[0], u: x[1], v: x[2], slope: x[3], q: x[4] }))),
-    points: d.points.filter(p => p.s !== 'IOPS' && p.s !== 'IO_MBPS').concat(io.map(x => Object.assign({}, redoPts, { s: x[0], d: redoPts.d.map(r => [r[0], x[2] + x[3] * (r[0] - redoPts.d.length + 1), null, 0, 0]) })))
+    points: d.points.filter(p => p.s !== 'IOPS' && p.s !== 'IO_MBPS').concat(io.map(x => Object.assign({}, redoPts, { s: x[0], d: days.map(r => [r[0], x[2] + x[3] * (r[0] - lastDay), null, 0, 0]) })))
   });
   const h = render(JSON.stringify(withIo));
   check(!h.includes('undefined') && !h.includes('NaN'), 'render with IOPS / IO_MBPS is clean');
+  checkCards(h, withIo.fits, 'with IOPS / IO_MBPS: ');
   const sec = id => between(h, '<section id="' + id + '"', '</section>');
   check(sec('iops').includes('I/O requests') && sec('iops').includes('3,090 IO/s') && sec('iops').includes('Busy-hour p95'), 'section iops shows the latest p95 in IO/s');
   check(sec('io-mbps').includes('I/O throughput') && sec('io-mbps').includes('48.5 MB/s'), 'section io-mbps shows the latest p95 in MB/s');
