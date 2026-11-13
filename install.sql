@@ -34,7 +34,8 @@
 -- harness, CI) always DEFINE it up front to avoid the prompt consuming a line.
 --
 -- Read-only against AWR data: the suite writes only to CAP_* tables it owns.
--- Operator tables (CAP_CONFIG, CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY) and derived tables
+-- Operator tables (CAP_CONFIG, CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY,
+-- CAP_DISK_OVERRIDE) and derived tables
 -- (CAP_ML_MODEL; the results layer's CAP_RUN, CAP_FIT_HIST, CAP_ALERT_STATE,
 -- CAP_ALERT_EVENT) all survive a re-install: ddl/00_drop drops views only.
 -- No AWR object is modified.

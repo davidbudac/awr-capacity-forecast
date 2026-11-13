@@ -20,9 +20,9 @@
 -- one UPDATE per CAP_CONFIG knob whose value differs from its default
 -- (suite_version aside) and one MERGE per CAP_TBSPC_OVERRIDE,
 -- CAP_TBSPC_FAMILY and CAP_DISK_OVERRIDE row. Run it in the new owner after
--- the new install.sql, which has seeded every knob by then. A knob the new release no longer has
--- updates no row and is named. With no such knob and no operator row it
--- writes no file.
+-- the new install.sql, which has seeded every knob by then. A knob the new
+-- release no longer has updates no row and is named. With no such knob and
+-- no operator row it writes no file.
 --
 SET APPINFO OFF
 SET APPINFO "AWRCAP/uninstall.sql"
