@@ -29,6 +29,70 @@
   "templating": {
     "list": [
       {
+        "name": "target",
+        "label": "Target",
+        "type": "query",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "awrcap-ords"
+        },
+        "query": {
+          "queryType": "infinity",
+          "infinityQuery": {
+            "refId": "V",
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "awrcap-ords"
+            },
+            "type": "json",
+            "source": "url",
+            "parser": "backend",
+            "format": "table",
+            "url": "/containers",
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "root_selector": "items",
+            "columns": [
+              {
+                "selector": "target_name",
+                "text": "target_name",
+                "type": "string"
+              },
+              {
+                "selector": "db",
+                "text": "db",
+                "type": "string"
+              }
+            ],
+            "filters": [],
+            "computed_columns": [],
+            "summarizeExpression": "count(db)",
+            "summarizeBy": "target_name",
+            "summarizeAlias": "summary"
+          },
+          "meta": {
+            "valueField": "target_name",
+            "textField": "target_name"
+          },
+          "refId": "var-target"
+        },
+        "definition": "/containers",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
         "name": "db",
         "label": "Database",
         "type": "query",
@@ -59,10 +123,16 @@
                 "selector": "db",
                 "text": "db",
                 "type": "string"
+              },
+              {
+                "selector": "target_name",
+                "text": "target_name",
+                "type": "string"
               }
             ],
             "filters": [],
-            "computed_columns": []
+            "computed_columns": [],
+            "filterExpression": "target_name IN (${target:singlequote})"
           },
           "meta": {
             "valueField": "db",
@@ -267,6 +337,11 @@
           "root_selector": "items",
           "columns": [
             {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
               "selector": "db",
               "text": "db",
               "type": "string"
@@ -440,6 +515,11 @@
               "type": "timestamp"
             },
             {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
               "selector": "db",
               "text": "db",
               "type": "string"
@@ -586,22 +666,24 @@
           "id": "organize",
           "options": {
             "indexByName": {
-              "db": 0,
-              "series": 1,
-              "sev": 2,
-              "pct": 3,
-              "value": 4,
-              "limit_value": 5,
-              "slope_per_day": 6,
-              "days_to_full": 7,
-              "days_to_full_lo": 8,
-              "days_to_full_hi": 9,
-              "r2": 10,
-              "quality": 11,
-              "sev_rank": 12,
-              "soonest": 13
+              "target_name": 0,
+              "db": 1,
+              "series": 2,
+              "sev": 3,
+              "pct": 4,
+              "value": 5,
+              "limit_value": 6,
+              "slope_per_day": 7,
+              "days_to_full": 8,
+              "days_to_full_lo": 9,
+              "days_to_full_hi": 10,
+              "r2": 11,
+              "quality": 12,
+              "sev_rank": 13,
+              "soonest": 14
             },
             "renameByName": {
+              "target_name": "Target",
               "db": "Database",
               "series": "Tablespace",
               "sev": "Sev",
@@ -632,6 +714,18 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -1560,21 +1654,23 @@
           "options": {
             "indexByName": {
               "ts": 0,
-              "db": 1,
-              "series": 2,
-              "baseline_mode": 3,
-              "raw_value": 4,
-              "value": 5,
-              "expected": 6,
-              "z": 7,
-              "anomaly_flag": 8,
-              "sev": 9,
-              "message": 10,
-              "anomaly_kind": 11,
-              "sev_rank": 12
+              "target_name": 1,
+              "db": 2,
+              "series": 3,
+              "baseline_mode": 4,
+              "raw_value": 5,
+              "value": 6,
+              "expected": 7,
+              "z": 8,
+              "anomaly_flag": 9,
+              "sev": 10,
+              "message": 11,
+              "anomaly_kind": 12,
+              "sev_rank": 13
             },
             "renameByName": {
               "ts": "Day",
+              "target_name": "Target",
               "db": "Database",
               "series": "Tablespace",
               "baseline_mode": "Mode",
@@ -1615,6 +1711,18 @@
               {
                 "id": "unit",
                 "value": "time:YYYY-MM-DD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
               }
             ]
           },
@@ -2047,6 +2155,11 @@
               "type": "string"
             },
             {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
               "selector": "db",
               "text": "db",
               "type": "string"
@@ -2105,19 +2218,21 @@
             "indexByName": {
               "sev": 0,
               "alert_kind": 1,
-              "db": 2,
-              "series": 3,
-              "obs_day": 4,
-              "message": 5,
-              "sev_rank": 6,
-              "kind": 7,
-              "value": 8,
-              "threshold": 9,
-              "unit": 10
+              "target_name": 2,
+              "db": 3,
+              "series": 4,
+              "obs_day": 5,
+              "message": 6,
+              "sev_rank": 7,
+              "kind": 8,
+              "value": 9,
+              "threshold": 10,
+              "unit": 11
             },
             "renameByName": {
               "sev": "Sev",
               "alert_kind": "Alert",
+              "target_name": "Target",
               "db": "Database",
               "series": "Series",
               "obs_day": "Day",
@@ -2196,6 +2311,18 @@
               {
                 "id": "custom.width",
                 "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
               }
             ]
           },

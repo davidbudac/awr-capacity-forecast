@@ -3,6 +3,10 @@
 #   Grafana http://<BIND_ADDR>:3001  (admin, password from GF_ADMIN_PASSWORD in grafana/.env;
 #   anonymous users get read-only Viewer access)
 #   ORDS    http://<BIND_ADDR>:8181/ords/capdemo/awrcap/  (install once: grafana/ords/README.md)
+# The awrcap module is protected: Grafana fetches a bearer token with the
+# OAuth2 client in ORDS_CLIENT_ID / ORDS_CLIENT_SECRET (grafana/.env, written
+# from grafana/ords/awrcap_client.sql) at ORDS_TOKEN_URL. For a module
+# published PUBLIC set ORDS_AUTH_METHOD=none.
 # BIND_ADDR is the host interface both ports are published on (default 0.0.0.0;
 # a gitignored grafana/.env pins it, e.g. to a Tailscale address). ORDS_HOST_PORT
 # overrides 8181 (8080 is taken on the lab host). Grafana reaches ORDS over the
@@ -16,6 +20,10 @@ services:
       - "${BIND_ADDR:-0.0.0.0}:3001:3000"
     environment:
       ORDS_URL: ${ORDS_URL:-http://ords:8080/ords/capdemo/awrcap}
+      ORDS_TOKEN_URL: ${ORDS_TOKEN_URL:-http://ords:8080/ords/capdemo/oauth/token}
+      ORDS_AUTH_METHOD: ${ORDS_AUTH_METHOD:-oauth2}
+      ORDS_CLIENT_ID: ${ORDS_CLIENT_ID:-}
+      ORDS_CLIENT_SECRET: ${ORDS_CLIENT_SECRET:-}
       GF_PLUGINS_PREINSTALL: yesoreyeram-infinity-datasource
       GF_SECURITY_ADMIN_PASSWORD: "${GF_ADMIN_PASSWORD:?set GF_ADMIN_PASSWORD in grafana/.env}"
       GF_AUTH_ANONYMOUS_ENABLED: "true"

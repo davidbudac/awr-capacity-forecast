@@ -2,9 +2,9 @@
 """Generate dashboards/awrcap-tablespaces.json (AWR capacity: tablespaces)."""
 from dash_lib import (
     AMBER, DB, DOTTED, DASHED, GREEN, GREY, NO_LEGEND, PAST_120D, RANGE,
-    RED, SERIES, SOONEST, BLUE, Board, named, alerts_table, annotation, cell_bg, fixed, override,
-    prop, q, query_var, db_var, red_points, sev_cell, stat, table, timeseries,
-    keep, where, width,
+    RED, SERIES, SOONEST, BLUE, TARGET_COL, Board, named, alerts_table, annotation, cell_bg,
+    fixed, override, prop, q, query_var, db_var, red_points, sev_cell, stat, table,
+    target_var, timeseries, keep, where, width,
 )
 
 FILT = where(DB, SERIES)
@@ -17,6 +17,7 @@ b = Board("awrcap-tablespaces", "AWR Capacity - Tablespaces",
           "days to full, and the growth days the anomaly layer flagged.",
           "now-120d", "now+120d")
 b.variables += [
+    target_var(),
     db_var(),
     query_var("series", "Tablespace", q(
         "V", "fit?kind=TBSPC", ["series", "db"], filt=DB,
@@ -24,7 +25,7 @@ b.variables += [
 ]
 
 fit = q("A", "fit?kind=TBSPC", [
-    "db", "series", "sev", "sev_rank", "pct", "value", "limit_value",
+    "target_name", "db", "series", "sev", "sev_rank", "pct", "value", "limit_value",
     "slope_per_day", "days_to_full", "days_to_full_lo", "days_to_full_hi",
     "r2", "quality"], filt=FILT, computed=[SOONEST])
 DTF_STEPS = ((RED, None), (AMBER, 31), (GREEN, 91))
@@ -37,7 +38,7 @@ fit_table = b.add(stat("Tablespaces CRIT", fit, transformations=[keep("sev", "CR
            description="Latest fit says full in 30 days or less (or already past the near-full line)."),
       0, 0, 6, 4)
 anomaly_table = b.add(stat("Growth anomalies in range",
-    q("A", f"anomalies?kind=TBSPC&{RANGE}", ["ts", "db", "series", "anomaly_kind",
+    q("A", f"anomalies?kind=TBSPC&{RANGE}", ["ts", "target_name", "db", "series", "anomaly_kind",
                                               "baseline_mode", "raw_value", "value",
                                               "expected", "z", "anomaly_flag", "sev",
                                               "sev_rank", "message"],
@@ -48,6 +49,7 @@ anomaly_table = b.add(stat("Growth anomalies in range",
       12, 0, 6, 4)
 b.add(table(
     "Days to full (latest fit per tablespace, soonest first)", fit_table, [
+        TARGET_COL,
         ("db", "Database", [width(190)]), ("series", "Tablespace", [width(190)]),
         ("sev", "Sev", sev_cell()),
         ("pct", "Used %", cell_bg(((GREEN, None), (AMBER, 90), (RED, 97)),
@@ -117,6 +119,7 @@ growth = b.add(timeseries(
 b.add(table(
     "Growth anomalies (newest first)", anomaly_table, [
         ("ts", "Day", [width(110), prop("unit", "time:YYYY-MM-DD")]),
+        TARGET_COL,
         ("db", "Database", [width(190)]), ("series", "Tablespace", [width(170)]),
         ("baseline_mode", "Mode", [width(110)]),
         ("raw_value", "Growth", [width(100), prop("unit", "bytes"), prop("decimals", 1)]),
