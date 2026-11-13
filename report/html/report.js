@@ -247,7 +247,7 @@
       if (f.dtf > 3650) return { k: 'dtf', l: label, v: fDays(f.dtf), s: 'not in sight', tone: 'muted' };
       sub = '→ ' + fDay(LAST + f.dtf) + (f.dtfLo != null && f.dtfHi != null && Math.round(f.dtfLo) !== Math.round(f.dtfHi)
         ? ' · ' + Math.round(f.dtfLo) + '–' + Math.round(f.dtfHi) + ' d' : '');
-    } else if (f.q === 'FLAT') sub = 'no growth';
+    } else if (f.q === 'FLAT') sub = f.rst === 'STOP' ? 'growth stopped' : 'no growth';
     else if (f.q === 'CYCLIC') sub = 'peaks not growing';
     else if (f.slope != null && f.slope <= 0) sub = 'not growing';
     else sub = 'beyond the forecast';
@@ -258,15 +258,19 @@
 
   function pctTone(p, warn, crit) { return p == null ? '' : p >= crit ? 'crit' : p >= warn ? 'warn' : ''; }
 
+  // Why the fit window is shorter than the history (CAPR_FIT.restart_reason).
+  var RESTART = { PURGE: 'since the purge', STOP: 'since growth stopped', START: 'since growth began' };
+
   function tbspcFacts(m) {
     var f = m.f, out = [];
+    var since = f.rst && RESTART[f.rst] ? ' ' + RESTART[f.rst] + (f.rstDay ? ', ' + fDay(dayN(f.rstDay)) : '') : '';
     out.push({ k: 'pct', l: 'Used', v: num(f.pct, 1) + '<small>%</small>', s: m.unit.fmt(f.v) + ' of ' + m.unit.fmt(f.lim),
       tone: pctTone(f.pct, K.nfWarn, K.nfCrit) });
     if (f.q === 'CYCLIC') {
       out.push({ l: 'Cycle peak', v: num(f.cycPk, 1) + '<small>%</small>', s: (f.cycN || 0) + ' purges, every ' + Math.round(f.cycD || 0) + ' d' });
       out.push({ l: 'Peak growth', v: m.unit.rate(f.pkSlope) });
     } else {
-      out.push({ l: 'Growth', v: m.unit.rate(f.slope), s: f.accel != null && f.accel >= 1.5 ? 'accelerating ×' + num(f.accel, 1) : 'fit over ' + (f.n || '–') + ' d' });
+      out.push({ l: 'Growth', v: m.unit.rate(f.slope), s: f.accel != null && f.accel >= 1.5 ? 'accelerating ×' + num(f.accel, 1) : 'fit over ' + (f.n || '–') + ' d' + since });
     }
     out.push(dtfFact(f, 'Full in'));
     if (f.need90 > 0) out.push({ l: 'Add for 90 d', v: num(f.need90, 1) + '<small>GiB</small>', s: f.addBy ? 'by ' + fDay(dayN(f.addBy)) : '' });

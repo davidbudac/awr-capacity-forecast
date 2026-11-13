@@ -34,6 +34,8 @@ PROMPT     window, DAYS_FULL = when the peak line reaches the limit (empty when 
 PROMPT     do not grow).
 PROMPT     NEED_90_GIB = space to add so the worst case (upper 95% band) stays under the
 PROMPT     limit for 90 days. ADD_BY = the worst-case fill date (last day + WORST).
+PROMPT     RESTART = why the fit uses less than the whole window: PURGE (since a purge
+PROMPT     cliff), START (since growth began). Section 2 lists the stopped ones (STOP).
 
 COLUMN db_pdb          FORMAT A20           HEADING 'DB/PDB'
 COLUMN tablespace_name FORMAT A18           HEADING 'TABLESPACE'
@@ -52,6 +54,7 @@ COLUMN cycle_days      FORMAT 9990          HEADING 'CYC_D'
 COLUMN cycle_peak_pct  FORMAT 990.0         HEADING 'PEAK%'
 COLUMN need_gib_90     FORMAT 9999990.00    HEADING 'NEED_90_GIB'
 COLUMN add_by          FORMAT A10           HEADING 'ADD_BY'
+COLUMN restart_reason  FORMAT A7            HEADING 'RESTART'
 
 SELECT db_pdb,
        tablespace_name,
@@ -69,7 +72,8 @@ SELECT db_pdb,
        cycle_days,
        cycle_peak_pct,
        need_gib_90,
-       TO_CHAR(add_by_day, 'YYYY-MM-DD') AS add_by
+       TO_CHAR(add_by_day, 'YYYY-MM-DD') AS add_by,
+       restart_reason
 FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_dtf) AS s_rank
        FROM   capr_tbspc_days_to_full&cap_s t
        WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)

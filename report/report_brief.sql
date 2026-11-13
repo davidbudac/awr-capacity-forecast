@@ -171,7 +171,7 @@ DECLARE
     SELECT dbid, con_dbid, db, db_name, con_name, kind, series, unit, value, limit_value, pct,
            slope_per_day, r2, quality, days_to_full, days_to_full_lo, days_to_full_hi, accel,
            train_n, sev, sev_rank, last_day, limit_below_used, cycle_days, cycle_peak_pct,
-           need_gib_30, need_gib_90, add_by_day
+           need_gib_30, need_gib_90, add_by_day, restart_reason, restart_day
     FROM   capr_fit~cap_s
     WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
       AND  is_current = 1
@@ -1045,7 +1045,11 @@ DECLARE
                            || ')' END
          END || '</dd>'
       || '<dt>Fit</dt><dd>' || esc(f.quality) || CASE WHEN f.r2 IS NOT NULL THEN ', R&sup2; ' || TO_CHAR(f.r2, 'FM990.00') END
-      || ' over ' || f.train_n || ' days</dd>'
+      || ' over ' || f.train_n || ' days'
+      || CASE f.restart_reason WHEN 'PURGE' THEN ', since the purge on ' || dfmt(f.restart_day, 'S')
+                               WHEN 'STOP'  THEN ', since growth stopped on ' || dfmt(f.restart_day, 'S')
+                               WHEN 'START' THEN ', since growth began on ' || dfmt(f.restart_day, 'S') END
+      || '</dd>'
       || CASE WHEN v_esm IS NOT NULL THEN
                 '<dt>Second model</dt><dd>Exponential smoothing '
                 || CASE WHEN v_regr IS NOT NULL AND ABS(v_esm - v_regr) <= 0.1 * ABS(v_regr) THEN 'agrees: '
@@ -1430,6 +1434,8 @@ BEGIN
             v_gh  := GREATEST(LEAST(NVL(v_p90, 0), 100) - NVL(f.pct, 0), 0);
             v_when := CASE WHEN f.limit_below_used = 1 THEN 'limit below usage'
                            WHEN f.quality = 'CYCLIC' THEN 'purges every ' || NVL(fx0(f.cycle_days), '?') || ' d'
+                           WHEN f.quality = 'FLAT' AND f.restart_reason = 'STOP'
+                                THEN 'stopped <span>' || dfmt(f.restart_day, 'T') || '</span>'
                            WHEN f.quality = 'FLAT' THEN 'not growing'
                            WHEN f.days_to_full IS NOT NULL THEN fx0(f.days_to_full) || ' d <span>'
                                 || dfmt(f.last_day + f.days_to_full, 'T') || '</span>'
@@ -1437,7 +1443,9 @@ BEGIN
             v_gro := CASE WHEN ABS(NVL(f.slope_per_day, 0)) >= c_gib
                           THEN TO_CHAR(f.slope_per_day / c_gib, 'FMS9990.00') || ' <span>GiB/d</span>'
                           WHEN ROUND(NVL(f.slope_per_day, 0) / c_mib) = 0 THEN '0 <span>MiB/d</span>'
-                          ELSE TO_CHAR(ROUND(f.slope_per_day / c_mib), 'FMS999990') || ' <span>MiB/d</span>' END;
+                          ELSE TO_CHAR(ROUND(f.slope_per_day / c_mib), 'FMS999990') || ' <span>MiB/d</span>' END
+                     || CASE WHEN f.restart_reason = 'START'
+                             THEN ' <span>since ' || dfmt(f.restart_day, 'T') || '</span>' END;
             p('<tr' || CASE f.sev WHEN 'CRIT' THEN ' class="crit"' WHEN 'WARN' THEN ' class="warn"' END || '>'
               || '<td><code>' || esc(f.series) || '</code><small>' || esc(f.con_name) || '</small></td>'
               || '<td class="tank"><div class="track"><i class="now" style="width:' || TO_CHAR(LEAST(NVL(f.pct, 0), 100), 'FM990.0')

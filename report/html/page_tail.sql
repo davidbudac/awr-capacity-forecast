@@ -252,7 +252,7 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      if (f.dtf > 3650) return { k: 'dtf', l: label, v: fDays(f.dtf), s: 'not in sight', tone: 'muted' };~');
   DBMS_OUTPUT.PUT_LINE(q'~      sub = '\u2192 ' + fDay(LAST + f.dtf) + (f.dtfLo != null && f.dtfHi != null && Math.round(f.dtfLo) !== Math.round(f.dtfHi)~');
   DBMS_OUTPUT.PUT_LINE(q'~        ? ' \u00b7 ' + Math.round(f.dtfLo) + '\u2013' + Math.round(f.dtfHi) + ' d' : '');~');
-  DBMS_OUTPUT.PUT_LINE(q'~    } else if (f.q === 'FLAT') sub = 'no growth';~');
+  DBMS_OUTPUT.PUT_LINE(q'~    } else if (f.q === 'FLAT') sub = f.rst === 'STOP' ? 'growth stopped' : 'no growth';~');
   DBMS_OUTPUT.PUT_LINE(q'~    else if (f.q === 'CYCLIC') sub = 'peaks not growing';~');
   DBMS_OUTPUT.PUT_LINE(q'~    else if (f.slope != null && f.slope <= 0) sub = 'not growing';~');
   DBMS_OUTPUT.PUT_LINE(q'~    else sub = 'beyond the forecast';~');
@@ -263,15 +263,19 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  function pctTone(p, warn, crit) { return p == null ? '' : p >= crit ? 'crit' : p >= warn ? 'warn' : ''; }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
+  DBMS_OUTPUT.PUT_LINE(q'~  // Why the fit window is shorter than the history (CAPR_FIT.restart_reason).~');
+  DBMS_OUTPUT.PUT_LINE(q'~  var RESTART = { PURGE: 'since the purge', STOP: 'since growth stopped', START: 'since growth began' };~');
+  DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  function tbspcFacts(m) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var f = m.f, out = [];~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var since = f.rst && RESTART[f.rst] ? ' ' + RESTART[f.rst] + (f.rstDay ? ', ' + fDay(dayN(f.rstDay)) : '') : '';~');
   DBMS_OUTPUT.PUT_LINE(q'~    out.push({ k: 'pct', l: 'Used', v: num(f.pct, 1) + '<small>%</small>', s: m.unit.fmt(f.v) + ' of ' + m.unit.fmt(f.lim),~');
   DBMS_OUTPUT.PUT_LINE(q'~      tone: pctTone(f.pct, K.nfWarn, K.nfCrit) });~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (f.q === 'CYCLIC') {~');
   DBMS_OUTPUT.PUT_LINE(q'~      out.push({ l: 'Cycle peak', v: num(f.cycPk, 1) + '<small>%</small>', s: (f.cycN || 0) + ' purges, every ' + Math.round(f.cycD || 0) + ' d' });~');
   DBMS_OUTPUT.PUT_LINE(q'~      out.push({ l: 'Peak growth', v: m.unit.rate(f.pkSlope) });~');
   DBMS_OUTPUT.PUT_LINE(q'~    } else {~');
-  DBMS_OUTPUT.PUT_LINE(q'~      out.push({ l: 'Growth', v: m.unit.rate(f.slope), s: f.accel != null && f.accel >= 1.5 ? 'accelerating \u00d7' + num(f.accel, 1) : 'fit over ' + (f.n || '\u2013') + ' d' });~');
+  DBMS_OUTPUT.PUT_LINE(q'~      out.push({ l: 'Growth', v: m.unit.rate(f.slope), s: f.accel != null && f.accel >= 1.5 ? 'accelerating \u00d7' + num(f.accel, 1) : 'fit over ' + (f.n || '\u2013') + ' d' + since });~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    out.push(dtfFact(f, 'Full in'));~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (f.need90 > 0) out.push({ l: 'Add for 90 d', v: num(f.need90, 1) + '<small>GiB</small>', s: f.addBy ? 'by ' + fDay(dayN(f.addBy)) : '' });~');
@@ -418,6 +422,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  function forecastKnots(m, method) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    return m.fc.filter(function (r) { return r.m === method; })~');
   DBMS_OUTPUT.PUT_LINE(q'~      .map(function (r) { return { x: dayN(r.t), y: r.v, lo: r.lo, hi: r.hi }; })~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      .sort(function (a, b) { return a.x - b.x; });~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
@@ -821,6 +828,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    var out = ['<div class="rates">'];~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~    if (dbs.length) {~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      out.push('<h3>Database size</h3><div class="ghead"><span></span><span>size</span><span>per day</span><span>per 30 d</span><span>last 30 d</span></div>');~');
   DBMS_OUTPUT.PUT_LINE(q'~      dbs.forEach(function (m) {~');
   DBMS_OUTPUT.PUT_LINE(q'~        var f = m.f, obs = observedChange(m.pts, 30);~');
@@ -1224,6 +1234,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        var a = fc[i - 1], b = fc[i], t = Math.max(0, Math.min(1, (x - a.x) / (b.x - a.x)));~');
   DBMS_OUTPUT.PUT_LINE(q'~        var xd = Math.round(a.x + t * (b.x - a.x));~');
   DBMS_OUTPUT.PUT_LINE(q'~        t = (xd - a.x) / (b.x - a.x);~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        var y = a.y + t * (b.y - a.y);~');
   DBMS_OUTPUT.PUT_LINE(q'~        var lo = a.lo != null ? a.lo + t * ((b.lo != null ? b.lo : b.y) - a.lo) : (b.lo != null ? a.y + t * (b.lo - a.y) : null);~');
   DBMS_OUTPUT.PUT_LINE(q'~        var hi = a.hi != null ? a.hi + t * ((b.hi != null ? b.hi : b.y) - a.hi) : (b.hi != null ? a.y + t * (b.hi - a.y) : null);~');

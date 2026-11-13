@@ -344,7 +344,8 @@ BEGIN
     FOR r IN (SELECT kind, dbid, con_dbid, series, unit, method, value, limit_value, pct, slope_per_day,
                      r2, quality, days_to_full, days_to_full_lo, days_to_full_hi, accel, train_n, sev,
                      limit_source, last_day, is_current, limit_below_used, cycle_n, cycle_days,
-                     cycle_peak_pct, peak_slope_per_day, slope_sig, hot_now, need_gib_90, add_by_day
+                     cycle_peak_pct, peak_slope_per_day, slope_sig, hot_now, need_gib_90, add_by_day,
+                     restart_reason, restart_day
               FROM   capr_fit&cap_s
               ORDER  BY 1, 2, 3, 4, 6) LOOP
       IF in_scope(r.dbid, r.con_dbid) THEN
@@ -358,7 +359,8 @@ BEGIN
           || ',"cur":' || jn(r.is_current) || ',"below":' || jn(r.limit_below_used)
           || ',"cycN":' || jn(r.cycle_n) || ',"cycD":' || jn(r.cycle_days) || ',"cycPk":' || jn(r.cycle_peak_pct)
           || ',"pkSlope":' || jn(r.peak_slope_per_day) || ',"sig":' || jn(r.slope_sig)
-          || ',"hot":' || jn(r.hot_now) || ',"need90":' || jn(r.need_gib_90) || ',"addBy":' || jd(r.add_by_day) || '}');
+          || ',"hot":' || jn(r.hot_now) || ',"need90":' || jn(r.need_gib_90) || ',"addBy":' || jd(r.add_by_day)
+          || ',"rst":' || js(r.restart_reason) || ',"rstDay":' || jd(r.restart_day) || '}');
         v_sep := ',';
       END IF;
     END LOOP;
