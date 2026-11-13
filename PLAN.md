@@ -1323,7 +1323,7 @@ tables. (Fixed later: the stubs are opaque, see M27.)
       upgrade, with no backfill. Not done: the demo fixture and `docs/demo/`
       (a regeneration in a throwaway schema), the ELK / Grafana / APEX
       boards, a storage ceiling to forecast against (AWR has none),
-      `suite_version` (left at 26.4 for the release that lands this).
+      `suite_version` (set with M29: 27.0 for M9.7 and M27 to M29 together).
 
 ## M28 — Forecast track record (done)
 
@@ -1363,9 +1363,12 @@ tables. (Fixed later: the stubs are opaque, see M27.)
       (per tablespace: `dtf_shared`, `dtf_shared_worst`, `limit_shared_gb`,
       `stopped_by`); the `DISK_FULL` alert; text block 1c, the HTML report,
       the briefing, the CSV. The columns are not on `CAPR_FIT`: with the
-      simulation inside, its hard parse nearly tripled (15 s to 42 s). Not done: mapping datafiles to devices or ASM disk groups (one
-      disk per database), the dashboards (ELK, Grafana, APEX), the demo
-      fixture, `suite_version`.
+      simulation inside, its hard parse nearly tripled (15 s to 42 s). Not
+      done: mapping datafiles to devices or ASM disk groups (one disk per
+      database), the dashboards (ELK, Grafana, APEX), the demo fixture.
+- [x] **M29.4 One release.** `suite_version` 27.0 stamps the branch that
+      landed M9.7 (tablespace families), M27 (I/O series), M28 (track record)
+      and M29 together, with the alert volume views and their knobs.
 
 ## v2 (unchanged)
 
