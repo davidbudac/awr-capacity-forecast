@@ -699,7 +699,7 @@
      sentence, and the +30 band at its factor when that widens the band. */
   function trackHtml(m) {
     var t = m.trk, cal = '';
-    if (t.f > 1 && t.lo != null && t.hi != null) {
+    if (t.f > 1 && t.lo != null && t.hi != null && t.hi > t.lo) {
       cal = ' <span class="cal">+30 d band at that factor: ' + m.unit.fmt(t.lo) + ' – ' + m.unit.fmt(t.hi) + '</span>';
     }
     return '<p class="trk' + (REL_TAG[t.rel] ? ' off' : t.rel === 'UNKNOWN' ? ' unk' : '') + '"><span class="tl">Track record</span>' + esc(t.txt) + cal + '</p>';

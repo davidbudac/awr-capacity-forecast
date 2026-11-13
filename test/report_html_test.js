@@ -213,6 +213,10 @@ try {
   }
   check(n > 0 && count(wide, /<p class="trk off">/g) === n && count(wide, /<span class="tag rel">band too narrow<\/span>/g) === n, 'track WIDE: marked line and tag on every card');
   check(count(wide, /<span class="cal">/g) === n, 'track WIDE: the band at the factor is shown');
+  const flat = render(JSON.stringify(Object.assign({}, d, {
+    track: d.fits.map(x => ({ k: x.k, dbid: x.dbid, con: x.con, s: x.s, n: 12, err: 3.2, bias: 1.1, nb: 12, hits: 10, f: 1.4, lo: 5, hi: 5, rel: 'WIDE', txt: 'flat' }))
+  })));
+  check(!flat.includes('<span class="cal">'), 'track WIDE on a band of width 0 today: no band at the factor');
   check(count(biased, /<p class="trk off">/g) === n && count(biased, /<span class="tag rel">forecasts biased<\/span>/g) === n && !biased.includes('<span class="cal">'), 'track BIASED: marked line and tag, no band at factor 1');
   check(count(good, /<p class="trk">/g) === n && !good.includes('class="tag rel"') && !good.includes('<span class="cal">'), 'track GOOD: a plain line, no tag');
   check(count(unk, /<p class="trk unk">/g) === n && !unk.includes('class="tag rel"') && !unk.includes('<span class="cal">'), 'track UNKNOWN: a muted line, no tag');
