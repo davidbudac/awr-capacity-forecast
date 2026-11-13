@@ -123,6 +123,17 @@
 --                  after it, 1.9 GiB (95% of the limit) from day 110 18:00:
 --                  CAPM_VERDICT PGA_LIMIT UNDERSIZED, suggested 2162 MiB.
 --                  OSSTAT PHYSICAL_MEMORY_BYTES 16 GiB beside the CPU rows.
+--   LIVE (U09)   : CAP_FIXTURE_TBSPC_LIVE, the live tablespace ceilings
+--                  (CAPV_TBSPC_LIVE) as of the last day 18:30. FIX_LINEAR is
+--                  capped at allocated + 40 GiB and FIX_SPIKE at allocated +
+--                  45 GiB, both under their 50 GiB maxsize: the shared disk
+--                  has 40 GiB free (source LIVE) and fills long after
+--                  dtf_warn, so no DISK_FULL. FIX_FILLING's ceiling is its
+--                  maxsize (not capped). FIX_OVERRIDE's is 1562.5 MiB, under
+--                  its 2 GiB override: its own limit on the shared disk
+--                  (26.25 days), but an OVERRIDE limit says nothing about
+--                  the disk. run_test.sql builds the closed-form disk in a
+--                  savepoint. See the "U09" block at the end.
 --   MEMORY (M26) : the four advisors, component history, work areas, events,
 --                  library and dictionary cache on every snapshot, constant
 --                  increments per interval, counters reset at both restarts:
@@ -180,7 +191,8 @@ DECLARE
               'CAP_FIXTURE_MEM_COMP','CAP_FIXTURE_WORKAREA_HSTGRM',
               'CAP_FIXTURE_PGA_ADVICE','CAP_FIXTURE_SGA_ADVICE','CAP_FIXTURE_CACHE_ADVICE',
               'CAP_FIXTURE_SHPOOL_ADVICE','CAP_FIXTURE_SGASTAT','CAP_FIXTURE_LIBRARYCACHE',
-              'CAP_FIXTURE_ROWCACHE','CAP_FIXTURE_SYSTEM_EVENT');
+              'CAP_FIXTURE_ROWCACHE','CAP_FIXTURE_SYSTEM_EVENT',
+              'CAP_FIXTURE_TBSPC_LIVE');
 BEGIN
     FOR i IN 1 .. v.COUNT LOOP
         BEGIN EXECUTE IMMEDIATE 'DROP TABLE ' || v(i) || ' PURGE';
@@ -2483,5 +2495,58 @@ END;
 /
 
 COMMIT;
+
+-- =====================================================================
+-- U09 BEGIN -- the live tablespace ceilings (CAPV_TBSPC_LIVE) and the
+-- operator's disk table.
+-- =====================================================================
+-- Columns = the seam view's: ceiling_blocks is the largest size the
+-- tablespace can reach now (blocks), collected_at the collect time. The
+-- ceilings hang off the allocated size of the last day, so they move with
+-- the spine. A FIX_TEMP row proves a tablespace without a forecast row is
+-- ignored.
+CREATE TABLE cap_fixture_tbspc_live (
+    dbid NUMBER, con_dbid NUMBER, tablespace_name VARCHAR2(30),
+    ceiling_blocks NUMBER, used_blocks NUMBER, collected_at DATE);
+
+DECLARE
+    c_dbid CONSTANT NUMBER := 42424242;
+    c_gib  CONSTANT NUMBER := 131072;          -- blocks of 8 KiB in 1 GiB
+    v_at   DATE;
+    PROCEDURE live(p_ts NUMBER, p_name VARCHAR2, p_add NUMBER, p_abs NUMBER) IS
+    BEGIN
+        INSERT INTO cap_fixture_tbspc_live
+        SELECT c_dbid, c_dbid, p_name,
+               NVL(p_abs, MAX(tablespace_size) KEEP (DENSE_RANK LAST ORDER BY snap_id) + p_add),
+               MAX(tablespace_usedsize) KEEP (DENSE_RANK LAST ORDER BY snap_id), v_at
+        FROM   cap_fixture_tbspc_usage
+        WHERE  dbid = c_dbid AND con_dbid = c_dbid AND tablespace_id = p_ts;
+    END;
+BEGIN
+    SELECT dval + 18.5 / 24 INTO v_at FROM cap_fixture_meta WHERE mkey = 'LAST_DAY';
+    live(10, 'FIX_LINEAR',   40 * c_gib, NULL);
+    live(11, 'FIX_SPIKE',    45 * c_gib, NULL);
+    live(15, 'FIX_FILLING',  NULL, 192000);
+    live(17, 'FIX_OVERRIDE', NULL, 200000);
+    live(24, 'FIX_TEMP',     NULL, 2621440);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('LIVE_FREE_GB', 40);
+    INSERT INTO cap_fixture_meta (mkey, dval) VALUES ('LIVE_AT', v_at);
+    -- FIX_OVERRIDE on the shared disk: (1562.5 - 1300) MiB at 10 MiB/day.
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('OVERRIDE_LIVE_LIMIT', 200000 * 8192);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('OVERRIDE_DTF_OWN', 26);
+    COMMIT;
+END;
+/
+
+-- CAP_DISK_OVERRIDE is operator data like CAP_TBSPC_OVERRIDE and survives a
+-- re-install: clear this fixture's rows where the table exists already.
+BEGIN
+    EXECUTE IMMEDIATE 'DELETE FROM cap_disk_override WHERE dbid IN (0, 42424242)';
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;
+END;
+/
+-- U09 END
 
 PROMPT Fixtures installed.  Next: @install.sql (deploy_mode=fixture), then test/run_test.sql

@@ -905,6 +905,324 @@ BEGIN
     END;
     ROLLBACK TO SAVEPOINT u4a_clamp;
 
+    -- ==================================================================
+    -- U09 BEGIN -- the shared disk (ddl/33: CAPF_TBSPC_SHARED, CAPF_DISK;
+    -- CAPR_DISK; the DISK_FULL alert).
+    -- ==================================================================
+    DBMS_OUTPUT.PUT_LINE('=== U09 shared disk (CAPF_TBSPC_SHARED / CAPF_DISK / CAPR_DISK / DISK_FULL) ===');
+    DECLARE
+        c_mib CONSTANT NUMBER := 1048576;
+        c_gib CONSTANT NUMBER := 1073741824;
+        TYPE t_row IS RECORD (
+            is_current  VARCHAR2(1),  quality     VARCHAR2(20), days_to_full NUMBER,
+            limit_bytes NUMBER,       alloc       NUMBER,       own_limit    NUMBER,
+            limit_live  VARCHAR2(1),  grow        NUMBER,       ext_days     NUMBER,
+            dtf_own     NUMBER,       dtf_sh      NUMBER,       dtf_shw      NUMBER,
+            lim_sh      NUMBER,       stopped_by  VARCHAR2(5));
+        TYPE t_rows IS TABLE OF t_row INDEX BY VARCHAR2(30);
+        t      t_rows;
+        -- CAPF_DISK / CAPR_DISK of the fixture database.
+        k_name VARCHAR2(30); k_src  VARCHAR2(10); k_asof DATE;   k_free NUMBER;
+        k_dtf  NUMBER;       k_dtfw NUMBER;       k_day  DATE;   k_nts  NUMBER;
+        k_ngr  NUMBER;       k_nok  NUMBER;       k_grow NUMBER; k_top  VARCHAR2(400);
+        k_raw  VARCHAR2(4);  k_sev  VARCHAR2(4);  k_gate VARCHAR2(20); k_msg VARCHAR2(4000);
+        k_take NUMBER;
+        v_lin  NUMBER := meta_n('LINEAR_CUR');     -- 1300 MiB, FIX_FILLING's too
+        v_sta  NUMBER := meta_n('STARTED_CUR');    -- 1424 MiB
+        v_fdtf NUMBER := meta_n('FILLING_DTF');    -- 20
+        d_live DATE   := meta_d('LIVE_AT');
+
+        -- One read of each view per state.
+        PROCEDURE load IS
+        BEGIN
+            t.DELETE;
+            FOR r IN (SELECT tablespace_name, is_current, quality, days_to_full, limit_bytes,
+                             alloc_bytes, limit_own_bytes, limit_live, grow_bpd, ext_days,
+                             dtf_own, dtf_shared, dtf_shared_worst, limit_shared_bytes, stopped_by
+                      FROM   capf_tbspc_shared WHERE dbid = v_dbid) LOOP
+                t(r.tablespace_name).is_current   := r.is_current;
+                t(r.tablespace_name).quality      := r.quality;
+                t(r.tablespace_name).days_to_full := r.days_to_full;
+                t(r.tablespace_name).limit_bytes  := r.limit_bytes;
+                t(r.tablespace_name).alloc        := r.alloc_bytes;
+                t(r.tablespace_name).own_limit    := r.limit_own_bytes;
+                t(r.tablespace_name).limit_live   := r.limit_live;
+                t(r.tablespace_name).grow         := r.grow_bpd;
+                t(r.tablespace_name).ext_days     := r.ext_days;
+                t(r.tablespace_name).dtf_own      := r.dtf_own;
+                t(r.tablespace_name).dtf_sh       := r.dtf_shared;
+                t(r.tablespace_name).dtf_shw      := r.dtf_shared_worst;
+                t(r.tablespace_name).lim_sh       := r.limit_shared_bytes;
+                t(r.tablespace_name).stopped_by   := r.stopped_by;
+            END LOOP;
+            SELECT disk_name, disk_source, disk_as_of, disk_free_gb, disk_dtf, disk_dtf_worst,
+                   disk_full_day, n_tbspc, n_growing, n_growing_ok, grow_mb, top_growers,
+                   raw_sev, sev, gated_by, message
+              INTO k_name, k_src, k_asof, k_free, k_dtf, k_dtfw,
+                   k_day, k_nts, k_ngr, k_nok, k_grow, k_top,
+                   k_raw, k_sev, k_gate, k_msg
+              FROM capr_disk WHERE dbid = v_dbid;
+            -- What the growing tablespaces take from the disk until they are
+            -- stuck: the free space, when the disk fills.
+            k_take := 0;
+            v_str := t.FIRST;
+            WHILE v_str IS NOT NULL LOOP
+                IF t(v_str).grow IS NOT NULL THEN
+                    k_take := k_take + t(v_str).lim_sh - t(v_str).alloc;
+                END IF;
+                v_str := t.NEXT(v_str);
+            END LOOP;
+        END load;
+        PROCEDURE free_mib(p_mib NUMBER) IS
+        BEGIN
+            UPDATE cap_disk_override SET free_gb = p_mib / 1024 WHERE dbid = v_dbid;
+            load;
+        END;
+    BEGIN
+        -- ---- the fixture as loaded: source LIVE, 40 GiB free, no alert ----
+        load;
+        SELECT COUNT(*) INTO v_n FROM capf_tbspc_forecast WHERE dbid = v_dbid;
+        chk_int ('CAPF_TBSPC_SHARED has one row per CAPF_TBSPC_FORECAST row', t.COUNT, v_n);
+        SELECT COUNT(*) INTO v_n FROM capf_disk;
+        chk_int ('CAPF_DISK rows (one database, one disk)', v_n, 1);
+        chk_str ('disk_name without an operator row', k_name, 'DATAFILES');
+        chk_str ('disk_source', k_src, 'LIVE');
+        chk_close('disk_free_gb = MIN(live ceiling - allocated) over the capped AUTOEXTEND rows',
+                  k_free, meta_n('LIVE_FREE_GB'), 0.000000001);
+        chk_int ('disk_as_of = the copy''s collected_at', (k_asof - d_live) * 86400, 0);
+        SELECT COUNT(*) INTO v_n FROM capf_tbspc_forecast WHERE dbid = v_dbid AND is_current = 'Y';
+        chk_int ('n_tbspc = the current tablespaces', k_nts, v_n);
+        SELECT COUNT(*) INTO v_n FROM capf_tbspc_forecast
+          WHERE dbid = v_dbid AND is_current = 'Y' AND quality <> 'CYCLIC' AND slope_bpd > 0;
+        chk_int ('n_growing = current, not CYCLIC, slope > 0', k_ngr, v_n);
+        chk_true('disk fills after dtf_warn (got ' || k_dtf || '): no DISK_FULL as loaded',
+                 k_dtf > 90 AND k_sev = 'OK' AND k_raw = 'OK' AND k_msg IS NULL AND k_gate IS NULL);
+        chk_true('disk_dtf_worst <= disk_dtf (got ' || k_dtfw || ')', k_dtfw <= k_dtf);
+        chk_int ('disk_full_day = newest day + disk_dtf', k_day - meta_last_day, k_dtf);
+        chk_close('the growers'' takes add up to the free space', k_take, meta_n('LIVE_FREE_GB') * c_gib, 0.000000001);
+        v_n := 0;
+        v_str := t.FIRST;
+        WHILE v_str IS NOT NULL LOOP
+            IF t(v_str).limit_live = 'Y' THEN v_n := v_n + 1; END IF;
+            v_str := t.NEXT(v_str);
+        END LOOP;
+        chk_int ('limit_live = Y rows', v_n, 3);
+        chk_true('limit_live = Y on FIX_LINEAR, FIX_SPIKE, FIX_OVERRIDE',
+                 t('FIX_LINEAR').limit_live = 'Y' AND t('FIX_SPIKE').limit_live = 'Y'
+                 AND t('FIX_OVERRIDE').limit_live = 'Y');
+        chk_int ('LINEAR limit_own_bytes = allocated + 40 GiB', t('FIX_LINEAR').own_limit, v_lin + 40 * c_gib);
+        chk_int ('LINEAR limit_bytes unchanged (50 GiB)', t('FIX_LINEAR').limit_bytes, 50 * c_gib);
+        chk_str ('FILLING limit_live (ceiling = maxsize)', t('FIX_FILLING').limit_live, 'N');
+        -- FIX_OVERRIDE: a live ceiling under its OVERRIDE limit caps the
+        -- tablespace and says nothing about the disk (262.5 MiB would be it).
+        chk_int ('OVERRIDE limit_own_bytes = the live ceiling', t('FIX_OVERRIDE').own_limit, meta_n('OVERRIDE_LIVE_LIMIT'));
+        chk_int ('OVERRIDE dtf_own (262.5 MiB at 10 MiB/day)', t('FIX_OVERRIDE').dtf_own, meta_n('OVERRIDE_DTF_OWN'));
+        chk_int ('OVERRIDE dtf_shared = dtf_own', t('FIX_OVERRIDE').dtf_sh, meta_n('OVERRIDE_DTF_OWN'));
+        chk_int ('OVERRIDE days_to_full unchanged', t('FIX_OVERRIDE').days_to_full, meta_n('OVERRIDE_DTF'));
+        chk_int ('FILLING dtf_shared = days_to_full', t('FIX_FILLING').dtf_sh, v_fdtf);
+        chk_str ('FILLING stopped_by', t('FIX_FILLING').stopped_by, 'LIMIT');
+        chk_int ('FILLING limit_shared_bytes = its own limit', t('FIX_FILLING').lim_sh, t('FIX_FILLING').limit_bytes);
+        chk_true('FLAT not growing: no rate, no dtf_shared, no stopped_by',
+                 t('FIX_FLAT').grow IS NULL AND t('FIX_FLAT').dtf_sh IS NULL AND t('FIX_FLAT').stopped_by IS NULL);
+        chk_int ('FLAT limit_shared_bytes = allocated (600 MiB)', t('FIX_FLAT').lim_sh, 600 * c_mib);
+        chk_true('CYCLIC and stopped tablespaces do not grow',
+                 t('FIX_CYCLIC').grow IS NULL AND t('FIX_CYCLIC_UP').grow IS NULL AND t('FIX_STOPPED').grow IS NULL);
+        chk_true('DROPPED (not current): shared columns NULL',
+                 t('FIX_DROPPED').is_current = 'N' AND t('FIX_DROPPED').grow IS NULL
+                 AND t('FIX_DROPPED').dtf_sh IS NULL AND t('FIX_DROPPED').lim_sh IS NULL
+                 AND t('FIX_DROPPED').dtf_own IS NULL);
+        SELECT COUNT(*) INTO v_n FROM capf_tbspc_shared s
+          JOIN capf_tbspc_forecast f ON f.dbid = s.dbid AND f.con_dbid = s.con_dbid
+                                    AND f.tablespace_name = s.tablespace_name
+          WHERE DECODE(s.days_to_full, f.days_to_full, 0, 1) = 1
+             OR DECODE(s.slope_bpd, f.slope_bpd, 0, 1) = 1 OR s.limit_bytes <> f.limit_bytes;
+        chk_int ('CAPF_TBSPC_SHARED passes days_to_full / slope_bpd / limit_bytes through', v_n, 0);
+        SELECT dtf_shared, limit_shared_gb, disk_name INTO v_num, v_num2, v_str FROM capr_fit
+          WHERE kind = 'TBSPC' AND series = 'FIX_FILLING';
+        chk_int ('CAPR_FIT FILLING dtf_shared', v_num, v_fdtf);
+        chk_close('CAPR_FIT FILLING limit_shared_gb', v_num2, 1500 / 1024, 0.000000001);
+        chk_str ('CAPR_FIT FILLING disk_name', v_str, 'DATAFILES');
+        SELECT COUNT(*) INTO v_n FROM capr_fit
+          WHERE kind <> 'TBSPC' AND (dtf_shared IS NOT NULL OR limit_shared_gb IS NOT NULL OR disk_name IS NOT NULL);
+        chk_int ('CAPR_FIT CPU / SERIES rows carry no shared-disk value', v_n, 0);
+        SELECT dtf_shared, stopped_by, limit_own_gb, limit_live INTO v_num, v_str, v_num2, v_c1
+          FROM capr_tbspc_days_to_full WHERE tablespace_name = 'FIX_OVERRIDE';
+        chk_true('CAPR_TBSPC_DAYS_TO_FULL OVERRIDE shared columns (got ' || v_num || ' ' || v_str || ' ' || v_c1 || ')',
+                 v_num = meta_n('OVERRIDE_DTF_OWN') AND v_str = 'LIMIT' AND v_c1 = 'Y'
+                 AND ABS(v_num2 - meta_n('OVERRIDE_LIVE_LIMIT') / c_gib) < 0.000000001);
+
+        -- ---- a designed disk. Three growers and one flat tablespace are
+        -- left (every other one excluded), FIX_LINEAR gets 105 MiB of free
+        -- space inside its files, and the operator sets the free space.
+        --   FIX_LINEAR  10 MiB/day, extends from day 10.5, own limit far
+        --   FIX_FILLING 10 MiB/day, extends now, own limit on day 20
+        --   FIX_STARTED 16 MiB/day, extends now, own limit on day 200.5
+        -- The disk gives 26 MiB/day to day 10.5 (273 MiB), 36 to day 20
+        -- (615 MiB), 26 after that. Uncommitted, then rolled back.
+        SAVEPOINT u09_disk;
+        BEGIN
+            UPDATE cap_tbspc_override SET exclude_flag = 'Y'
+             WHERE dbid = v_dbid AND tablespace_name IN ('FIX_OVERRIDE', 'FIX_OVERFULL');
+            INSERT INTO cap_tbspc_override (dbid, con_dbid, tablespace_name, exclude_flag, note)
+            SELECT x.dbid, x.con_dbid, x.tablespace_name, 'Y', 'run_test U09'
+              FROM cap_fixture_tablespace x
+             WHERE x.contents = 'PERMANENT'
+               AND x.tablespace_name NOT IN ('FIX_LINEAR', 'FIX_FILLING', 'FIX_STARTED', 'FIX_FLAT')
+               AND NOT EXISTS (SELECT 1 FROM cap_tbspc_override o
+                                WHERE o.dbid = x.dbid AND o.con_dbid = x.con_dbid
+                                  AND o.tablespace_name = x.tablespace_name);
+            UPDATE cap_fixture_tbspc_usage SET tablespace_size = tablespace_usedsize + 105 * 128
+             WHERE tablespace_id = 10
+               AND snap_id = (SELECT MAX(snap_id) FROM cap_fixture_tbspc_usage WHERE tablespace_id = 10);
+            -- 1408 MiB: 615 by day 20, then 26 MiB/day for 30.5 days. The
+            -- dbid = 0 row must lose against the database's own.
+            INSERT INTO cap_disk_override (dbid, disk_name, free_gb, set_at, note)
+            VALUES (v_dbid, '/u02', 1408 / 1024, DATE '2026-01-15', 'run_test U09');
+            INSERT INTO cap_disk_override (dbid, disk_name, free_gb, set_at, note)
+            VALUES (0, 'DECOY', 99999, DATE '2020-01-01', 'run_test U09 wildcard');
+            load;
+            chk_int ('designed disk: tablespaces left', t.COUNT, 4);
+            chk_str ('designed disk: disk_name (the dbid row beats dbid = 0)', k_name, '/u02');
+            chk_str ('designed disk: disk_source', k_src, 'OVERRIDE');
+            chk_int ('designed disk: disk_as_of = set_at', k_asof - DATE '2026-01-15', 0);
+            chk_close('designed disk: disk_free_gb', k_free, 1408 / 1024, 0.000000001);
+            chk_true('designed disk: 4 current, 3 growing, 3 at quality OK (got ' || k_nts || ' ' || k_ngr || ' ' || k_nok || ')',
+                     k_nts = 4 AND k_ngr = 3 AND k_nok = 3);
+            chk_close('designed disk: grow_mb = 10 + 10 + 16', k_grow, 36, 0.000000001);
+            chk_str ('designed disk: top_growers', k_top, 'FIX_STARTED 16.0, FIX_FILLING 10.0, FIX_LINEAR 10.0');
+            chk_close('LINEAR ext_days (105 MiB inside its files)', t('FIX_LINEAR').ext_days, 10.5, 0.000000001);
+            chk_int ('1408 MiB: disk_dtf = FLOOR(20 + (1408 - 615) / 26) = FLOOR(50.5)', k_dtf, 50);
+            chk_int ('1408 MiB: disk_dtf_worst (exact lines: no slope CI)', k_dtfw, 50);
+            chk_int ('1408 MiB: disk_full_day', k_day - meta_last_day, 50);
+            chk_int ('1408 MiB: LINEAR dtf_shared', t('FIX_LINEAR').dtf_sh, 50);
+            chk_str ('1408 MiB: LINEAR stopped_by', t('FIX_LINEAR').stopped_by, 'DISK');
+            chk_int ('1408 MiB: LINEAR dtf_shared_worst', t('FIX_LINEAR').dtf_shw, 50);
+            chk_close('1408 MiB: LINEAR limit_shared = 1300 + 10 x 50.5 MiB', t('FIX_LINEAR').lim_sh, v_lin + 505 * c_mib, 0.000000001);
+            chk_int ('1408 MiB: FILLING dtf_shared (its own limit first)', t('FIX_FILLING').dtf_sh, v_fdtf);
+            chk_str ('1408 MiB: FILLING stopped_by', t('FIX_FILLING').stopped_by, 'LIMIT');
+            chk_int ('1408 MiB: FILLING limit_shared = its own limit', t('FIX_FILLING').lim_sh, 1500 * c_mib);
+            chk_int ('1408 MiB: STARTED dtf_shared', t('FIX_STARTED').dtf_sh, 50);
+            chk_int ('1408 MiB: STARTED days_to_full unchanged', t('FIX_STARTED').days_to_full, meta_n('STARTED_DTF'));
+            chk_close('1408 MiB: STARTED limit_shared = 1424 + 16 x 50.5 MiB', t('FIX_STARTED').lim_sh, v_sta + 808 * c_mib, 0.000000001);
+            chk_true('1408 MiB: FLAT no dtf_shared, limit_shared = allocated',
+                     t('FIX_FLAT').dtf_sh IS NULL AND t('FIX_FLAT').lim_sh = 600 * c_mib);
+            chk_close('1408 MiB: takes 400 + 200 + 808 MiB = the free space', k_take, 1408 * c_mib, 0.000000001);
+            chk_true('1408 MiB: raw_sev WARN, not gated', k_raw = 'WARN' AND k_sev = 'WARN' AND k_gate IS NULL);
+            chk_str ('1408 MiB: DISK_FULL message', k_msg,
+                     'Disk /u02 forecast full in 50 days, on ' || TO_CHAR(meta_last_day + 50, 'YYYY-MM-DD')
+                     || ' (1.38 GiB free, 3 growing tablespaces take 36.0 MiB/day, worst case 50 days).'
+                     || ' Fastest growing: FIX_STARTED 16.0, FIX_FILLING 10.0, FIX_LINEAR 10.0 MiB/day');
+            SELECT COUNT(*), MAX(severity), MAX(value), MAX(threshold), MAX(alarm_threshold),
+                   MAX(unit || '/' || direction), MAX(series_key), MAX(con_dbid), MAX(state_key), MAX(day_dt)
+              INTO v_n, v_str, v_num, v_num2, v_num3, v_str2, v_msg, n_aux, k_msg, d_rsd
+              FROM capr_alerts WHERE kind = 'DISK_FULL';
+            chk_int ('1408 MiB: DISK_FULL alerts', v_n, 1);
+            chk_true('1408 MiB: DISK_FULL WARN, value 50 DAYS LE, threshold 90 (got ' || v_str || ' ' || v_num || ' ' || v_num2 || ' ' || v_str2 || ')',
+                     v_str = 'WARN' AND v_num = 50 AND v_num2 = 90 AND v_num3 = 90 AND v_str2 = 'DAYS/LE');
+            chk_str ('1408 MiB: DISK_FULL series_key', v_msg, 'DISK:/u02');
+            chk_int ('1408 MiB: DISK_FULL con_dbid = dbid', n_aux, v_dbid);
+            chk_str ('1408 MiB: DISK_FULL state_key', k_msg, 'DISK_FULL|' || v_dbid || '|' || v_dbid || '|DISK:/u02|-');
+            chk_int ('1408 MiB: DISK_FULL day_dt = newest day', d_rsd - meta_last_day, 0);
+
+            -- 758 MiB: 615 by day 20, then 26 MiB/day for 5.5 days. CRIT.
+            free_mib(758);
+            chk_int ('758 MiB: disk_dtf = FLOOR(25.5)', k_dtf, 25);
+            chk_int ('758 MiB: LINEAR dtf_shared', t('FIX_LINEAR').dtf_sh, 25);
+            chk_int ('758 MiB: FILLING dtf_shared (own limit, day 20)', t('FIX_FILLING').dtf_sh, v_fdtf);
+            chk_close('758 MiB: STARTED limit_shared = 1424 + 16 x 25.5 MiB', t('FIX_STARTED').lim_sh, v_sta + 408 * c_mib, 0.000000001);
+            chk_close('758 MiB: takes 150 + 200 + 408 MiB', k_take, 758 * c_mib, 0.000000001);
+            chk_true('758 MiB: CRIT', k_raw = 'CRIT' AND k_sev = 'CRIT');
+            SELECT COUNT(*), MAX(severity), MAX(threshold), MAX(alarm_threshold)
+              INTO v_n, v_str, v_num, v_num2 FROM capr_alerts WHERE kind = 'DISK_FULL';
+            chk_true('758 MiB: one DISK_FULL CRIT, threshold 30, alarm_threshold 90 (got ' || v_n || ' ' || v_str || ' ' || v_num || ')',
+                     v_n = 1 AND v_str = 'CRIT' AND v_num = 30 AND v_num2 = 90);
+
+            -- 453 MiB: 273 by day 10.5, then 36 MiB/day for 5 days. The disk
+            -- is full on day 15.5, before FIX_FILLING's own limit.
+            free_mib(453);
+            chk_int ('453 MiB: disk_dtf = FLOOR(15.5)', k_dtf, 15);
+            chk_int ('453 MiB: FILLING dtf_shared (the disk first)', t('FIX_FILLING').dtf_sh, 15);
+            chk_str ('453 MiB: FILLING stopped_by', t('FIX_FILLING').stopped_by, 'DISK');
+            chk_close('453 MiB: FILLING limit_shared = 1300 + 10 x 15.5 MiB', t('FIX_FILLING').lim_sh, v_lin + 155 * c_mib, 0.000000001);
+            chk_close('453 MiB: LINEAR limit_shared = 1300 + 10 x 15.5 MiB', t('FIX_LINEAR').lim_sh, v_lin + 155 * c_mib, 0.000000001);
+            chk_close('453 MiB: takes 50 + 155 + 248 MiB', k_take, 453 * c_mib, 0.000000001);
+
+            -- 143 MiB: 26 MiB/day for 5.5 days. FIX_LINEAR still has room
+            -- inside its files then: it is stuck on day 10.5, at its
+            -- allocated size, and takes nothing.
+            free_mib(143);
+            chk_int ('143 MiB: disk_dtf = FLOOR(5.5)', k_dtf, 5);
+            chk_int ('143 MiB: LINEAR dtf_shared = FLOOR(ext_days 10.5)', t('FIX_LINEAR').dtf_sh, 10);
+            chk_int ('143 MiB: LINEAR limit_shared = allocated', t('FIX_LINEAR').lim_sh, t('FIX_LINEAR').alloc);
+            chk_int ('143 MiB: FILLING dtf_shared', t('FIX_FILLING').dtf_sh, 5);
+            chk_int ('143 MiB: STARTED dtf_shared', t('FIX_STARTED').dtf_sh, 5);
+            chk_close('143 MiB: takes 0 + 55 + 88 MiB', k_take, 143 * c_mib, 0.000000001);
+
+            -- The gate: no growing tablespace at quality OK (every fit short).
+            knob('min_train_days', 200);
+            load;
+            chk_true('gate: raw_sev CRIT, NO OK FIT, sev OK, no message (got ' || k_raw || ' ' || k_gate || ' ' || k_sev || ' ' || k_nok || ')',
+                     k_raw = 'CRIT' AND k_gate = 'NO OK FIT' AND k_sev = 'OK' AND k_msg IS NULL AND k_nok = 0);
+            knob('min_train_days', 14);
+
+            -- No free space: full now.
+            free_mib(0);
+            chk_int ('0 MiB: disk_dtf', k_dtf, 0);
+            chk_int ('0 MiB: FILLING dtf_shared', t('FIX_FILLING').dtf_sh, 0);
+            chk_int ('0 MiB: LINEAR dtf_shared (room inside its files)', t('FIX_LINEAR').dtf_sh, 10);
+
+            -- More than the growers can take: the disk does not fill.
+            free_mib(10000 * 1024);
+            chk_true('10000 GiB: the disk does not fill, no alert',
+                     k_dtf IS NULL AND k_dtfw IS NULL AND k_day IS NULL AND k_sev = 'OK' AND k_src = 'OVERRIDE');
+            chk_int ('10000 GiB: FILLING dtf_shared = days_to_full', t('FIX_FILLING').dtf_sh, v_fdtf);
+            chk_int ('10000 GiB: STARTED dtf_shared = days_to_full', t('FIX_STARTED').dtf_sh, meta_n('STARTED_DTF'));
+            chk_int ('10000 GiB: STARTED limit_shared = its limit', t('FIX_STARTED').lim_sh, t('FIX_STARTED').limit_bytes);
+            chk_int ('10000 GiB: LINEAR limit_shared = the live ceiling', t('FIX_LINEAR').lim_sh, v_lin + 40 * c_gib);
+
+            -- An operator row without free_gb only names the disk: the free
+            -- space is the live one (FIX_SPIKE is excluded here, so FIX_LINEAR
+            -- alone: 40 GiB less the 105 MiB its files gained).
+            UPDATE cap_disk_override SET free_gb = NULL WHERE dbid = v_dbid;
+            load;
+            chk_true('name only: disk_name /u02, source LIVE', k_name = '/u02' AND k_src = 'LIVE');
+            chk_close('name only: disk_free_gb = 40 GiB - 105 MiB', k_free, 40 - 105 / 1024, 0.000000001);
+            chk_int ('name only: disk_as_of = collected_at', (k_asof - d_live) * 86400, 0);
+
+            -- The copy ages: stale_days (3) days behind the newest day it
+            -- still counts, one more and it does not.
+            DELETE FROM cap_disk_override WHERE dbid IN (0, v_dbid);
+            UPDATE cap_fixture_tbspc_live SET collected_at = collected_at - 3;
+            load;
+            chk_true('copy 3 days old: still LIVE', k_src = 'LIVE' AND t('FIX_LINEAR').limit_live = 'Y');
+            UPDATE cap_fixture_tbspc_live SET collected_at = collected_at - 1;
+            load;
+            chk_true('copy 4 days old: source NONE, disk columns NULL (got ' || k_src || ')',
+                     k_src = 'NONE' AND k_name = 'DATAFILES' AND k_free IS NULL AND k_dtf IS NULL
+                     AND k_asof IS NULL AND k_sev = 'OK');
+            chk_true('copy 4 days old: no live limit',
+                     t('FIX_LINEAR').limit_live = 'N' AND t('FIX_LINEAR').own_limit = t('FIX_LINEAR').limit_bytes);
+            chk_true('copy 4 days old: dtf_shared = days_to_full, limit_shared = limit',
+                     t('FIX_FILLING').dtf_sh = v_fdtf AND t('FIX_STARTED').dtf_sh = meta_n('STARTED_DTF')
+                     AND t('FIX_LINEAR').dtf_sh = t('FIX_LINEAR').days_to_full
+                     AND t('FIX_STARTED').lim_sh = t('FIX_STARTED').limit_bytes
+                     AND t('FIX_FLAT').lim_sh = t('FIX_FLAT').limit_bytes);
+            -- No copy at all.
+            DELETE FROM cap_fixture_tbspc_live;
+            load;
+            chk_true('no copy: source NONE, dtf_shared = days_to_full',
+                     k_src = 'NONE' AND k_free IS NULL AND k_dtf IS NULL
+                     AND t('FIX_FILLING').dtf_sh = v_fdtf AND t('FIX_LINEAR').limit_live = 'N');
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u09_disk; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT u09_disk;
+        load;
+        chk_true('rolled back: source LIVE, DATAFILES, every tablespace again',
+                 k_src = 'LIVE' AND k_name = 'DATAFILES' AND t.COUNT > 4);
+    END;
+    -- U09 END
+
     DBMS_OUTPUT.PUT_LINE('=== staleness (stale_days / is_current, FIX_DROPPED) ===');
     SELECT cfg_value INTO v_num FROM cap_config WHERE cfg_name = 'stale_days';
     chk_int('knob stale_days default', v_num, 3);
