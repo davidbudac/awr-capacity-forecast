@@ -1361,6 +1361,34 @@ BEGIN
     WHEN OTHERS THEN sec_failed('memory sizing', SQLERRM);
   END;
 
+  -- Tablespace families (ddl/32), under the memory lines: one line per
+  -- family whose filling member will not fit under its ceiling (the
+  -- TBSPC_FAMILY alert) or whose next member needs more than the largest
+  -- ceiling the family has. A scope without such a family prints nothing.
+  DECLARE
+    n_fam PLS_INTEGER := 0;
+  BEGIN
+    FOR r IN (SELECT db_pdb, sev, headline, period_end_day,
+                     COUNT(DISTINCT dbid || '|' || con_dbid) OVER () AS n_con
+              FROM   capr_tbspc_family~cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+                AND  actionable = 'Y'
+              ORDER  BY dbid, rank_family) LOOP
+      IF n_fam = 0 THEN
+        p('<h3>Tablespace families</h3>');
+        p('<ol class="todo">');
+      END IF;
+      n_fam := n_fam + 1;
+      p('<li><span class="by">' || CASE WHEN r.n_con > 1 THEN esc(r.db_pdb) END || '</span><p>' || esc(r.headline)
+        || '.</p><span>' || CASE WHEN r.sev = 'WARN' THEN 'by ' || dfmt(r.period_end_day, 'S') END || '</span></li>');
+    END LOOP;
+    IF n_fam > 0 THEN
+      p('</ol>');
+    END IF;
+  EXCEPTION
+    WHEN OTHERS THEN sec_failed('tablespace families', SQLERRM);
+  END;
+
   -- Forecast track record, under the advice: one line per series that a
   -- forecast alert names (TBSPC_FULL, CPU_SAT, DBCPU_SAT, SERIES_LIMIT) and
   -- whose earlier forecasts graded BIASED or WIDE (CAPR_FIT_TRACK, the stored

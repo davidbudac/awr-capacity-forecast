@@ -168,6 +168,54 @@ try {
   check(false, 'render with only meta throws: ' + e.message);
 }
 
+// Tablespace families (ddl/32): the page's own data has them only when its
+// source holds a family, so two are built here on the page's first database:
+// one over its ceiling with its TBSPC_FAMILY alert, one quiet without a
+// filling member. A section exactly when there is a family, a card per
+// family, a row per member, the alert linked to its card.
+try {
+  const fam = (f, o) => Object.assign({
+    dbid: root.dbid, con: root.con, f, per: 'MONTH', src: 'AUTO', nd: 2, nf: 1, ne: 1, used: 3.1, gpp: 1.45,
+    next: 1.549, nextHi: 1.574, ts: 'Y', fm: f.replace('#', '202611'), fu: 0.519, lim: 1.563, exp: 1.554,
+    expHi: 1.568, pe: '2026-12-03', dl: 20, fits: 'N', sev: 'WARN', act: 'Y',
+    hl: 'Family ' + f + ': ' + f.replace('#', '202611') + ' may reach 1.57 GiB by 2026-12-03 (expected 1.55 GiB), ceiling 1.56 GiB. Next member: 1.55 GiB (cautious 1.57 GiB)'
+  }, o);
+  const member = (f, seq, t, st, o) => Object.assign({
+    dbid: root.dbid, con: root.con, f, t, seq, st, used: 1.2, lim: 50, pct: 2.4, fin: null, ff: null, ft: null, fd: null, rate: null
+  }, o);
+  const families = [
+    fam('SALES_#', {}),
+    fam('ARCH_#', { per: 'YEAR', nf: 0, ne: 0, fm: null, fu: null, lim: null, exp: null, expHi: null, pe: null, dl: null, fits: null, sev: 'OK', act: 'N', ts: 'N', hl: 'Family ARCH_#: no member is filling. Next member: 0.54 GiB (cautious 0.59 GiB)' })
+  ];
+  const famMembers = [
+    member('SALES_#', 1, 'SALES_202609', 'DONE', { fin: 1.173, ff: '2026-09-04', ft: '2026-10-03', fd: 30 }),
+    member('SALES_#', 2, 'SALES_202610', 'DONE', { fin: 1.363 }),
+    member('SALES_#', 3, 'SALES_202611', 'FILLING', { used: 0.519, lim: 1.563, pct: 33.2, ff: '2026-11-04', rate: 0.0518 }),
+    member('SALES_#', 4, 'SALES_202612', 'EMPTY', { used: 0.001 }),
+    member('ARCH_#', 1, 'ARCH_2024', 'DONE', { fin: 0.586 }),
+    member('ARCH_#', 2, 'ARCH_2025', 'DONE', { fin: 0.488 })
+  ];
+  const alert = { sev: 'WARN', kind: 'TBSPC_FAMILY', dbid: root.dbid, con: root.con, s: 'SALES_#', day: '2026-11-13', v: 1.568, thr: 1.563, u: 'GIB', msg: families[0].hl };
+  const fd = Object.assign({}, d, { families, famMembers, alerts: (d.alerts || []).concat([alert]) });
+  const fh = render(JSON.stringify(fd));
+  for (const bad of ['undefined', 'NaN', '>null<', 'Infinity']) {
+    check(!fh.includes(bad), 'family fixture render has no "' + bad + '"');
+  }
+  check(!html.includes('<section id="families"') === !(d.families || []).length, 'page data: family section present exactly when it has families');
+  check(fh.includes('<section id="families"') && /<a href="#families">Families<span class="n">2<\/span><\/a>/.test(fh), 'family fixture: section and nav link');
+  check(count(fh, /<article class="fam card/g) === 2, 'family fixture: one card per family');
+  check(count(fh, /<article class="fam card warn"/g) === 1, 'family fixture: the family over its ceiling is marked');
+  check(count(between(fh, '<section id="families"', '</section>'), /<tr class="(done|filling|empty)">/g) === famMembers.length, 'family fixture: one row per member');
+  check(fh.includes('<td>SALES_202611</td><td>filling</td>') && fh.includes('since 4 Nov, 53 MiB/d'), 'family fixture: the filling member with its start and rate');
+  check(fh.includes('30 days to 3 Oct'), 'family fixture: a finished member with its fill days');
+  check(/<a class="arow warn" href="#family-0">[\s\S]*?Tablespace family[\s\S]*?may reach <b>1\.57 GiB<\/b>, ceiling 1\.56 GiB/.test(fh), 'family fixture: the alert links to its family card');
+  check(count(fh, /<article class="card (?!mem)/g) === count(html, /<article class="card (?!mem)/g), 'family fixture: the metric cards are unchanged');
+  const none = render(JSON.stringify(Object.assign({}, fd, { families: [], famMembers })));
+  check(!none.includes('<section id="families"') && !none.includes('href="#families"'), 'family fixture: no family, no section and no nav link');
+} catch (e) {
+  check(false, 'render with the family fixture throws: ' + e.message);
+}
+
 // The I/O rate series (IOPS, IO_MBPS): no limit, like redo. The page's own
 // data has them only when its source collected the I/O counters, so two are
 // built here from the redo series: a section each, the unit on the card, no

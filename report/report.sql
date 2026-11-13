@@ -252,6 +252,17 @@ SELECT CASE WHEN UPPER('&show_esm') = 'N'
        END AS esm_file
 FROM   dual;
 
+-- Section 9 dispatch: the tablespace family section only when the scope
+-- holds a family. The DEFINE keeps a failing lookup from prompting.
+DEFINE fam_file = 'report/sections/09_family_skip.sql'
+COLUMN fam_file NEW_VALUE fam_file NOPRINT
+SELECT CASE WHEN COUNT(*) > 0 THEN 'report/sections/09_tbspc_family.sql'
+            ELSE 'report/sections/09_family_skip.sql'
+       END AS fam_file
+FROM   capr_tbspc_family&cap_s
+WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon);
+
 -- reports/ is gitignored, so a fresh clone does not have it.
 HOST mkdir -p reports
 SPOOL &cap_path
@@ -323,6 +334,11 @@ DEFINE cap_tm_lbl = s9
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('s9 track record')
 @@&cap_tm_start
 @@report/sections/09_track.sql
+@@&cap_tm_stop
+DEFINE cap_tm_lbl = s10
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s10 tablespace families')
+@@&cap_tm_start
+@@&fam_file
 @@&cap_tm_stop
 
 PROMPT

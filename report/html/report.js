@@ -352,6 +352,7 @@
       case 'CPU_SHIFT': return 'level shift <b>' + sign(a.v) + num(Math.abs(a.v), 1) + '%</b>';
       case 'DATA_STALE': return 'no AWR snapshot for <b>' + auto(a.v) + ' h</b>';
       case 'MODEL_HEALTH': return 'ESM model ' + esc(a.msg || '');
+      case 'TBSPC_FAMILY': return 'filling member may reach <b>' + num(a.v, 2) + ' GiB</b>, ceiling ' + num(a.thr, 2) + ' GiB';
     }
     if (/_ANOM$/.test(a.kind)) {
       var v = a.u === 'BYTES' ? fBytes(a.v) + '/d' : a.u === 'PCT' ? num(a.v, 1) + '%' : a.u === 'GIB' ? auto(a.v) + ' GiB/d' : auto(a.v);
@@ -1066,6 +1067,44 @@
     }).join('') + '</svg>';
   }
 
+  /* ---------- tablespace families: one tablespace per period, judged as a group ---------- */
+
+  var FAM_M = groupBy(D.famMembers || [], function (m) { return key(m.dbid, m.con, m.f); });
+  var FAM_BY = {};
+  var famCards = (D.families || []).map(function (f, i) {
+    var c = { f: f, id: 'family-' + i, ms: (FAM_M[key(f.dbid, f.con, f.f)] || []).slice().sort(function (a, b) { return a.seq - b.seq; }) };
+    FAM_BY[key(f.dbid, f.con, f.f)] = c;
+    return c;
+  });
+  var PERIOD_LABEL = { MONTH: 'monthly', QUARTER: 'quarterly', YEAR: 'yearly' };
+  function gib(v) { return v == null ? '' : num(v, 2) + ' GiB'; }
+
+  function famCardHtml(c) {
+    var f = c.f, warn = f.sev === 'WARN';
+    var o = ['<article class="fam card' + (warn ? ' warn' : '') + '" id="' + c.id + '"><div class="ch"><h3>' + esc(f.f) + '</h3>' +
+      '<span class="ctr">' + esc(conLabel(f.dbid, f.con)) + '</span>' + (PERIOD_LABEL[f.per] ? '<span class="tag">' + PERIOD_LABEL[f.per] + '</span>' : '') +
+      (warn ? pill('WARN') : '') + '</div><p class="mhl">' + esc(f.hl || '') + '</p><div class="fsz">' +
+      '<span>' + f.nd + ' done, ' + f.nf + ' filling, ' + f.ne + ' empty</span>' +
+      (f.next != null ? '<span>next member <b>' + gib(f.next) + '</b>, cautious ' + gib(f.nextHi) + (f.ts === 'Y' ? ' (trend)' : '') + '</span>' : '') +
+      (f.exp != null ? '<span>' + esc(f.fm) + ' by ' + fDayY(dayN(f.pe)) + ' <b>' + gib(f.exp) + '</b>, at most ' + gib(f.expHi) + ' of ' + gib(f.lim) + '</span>' : '') +
+      (f.gpp != null ? '<span>family ' + sign(f.gpp) + gib(Math.abs(f.gpp)) + ' a period</span>' : '') + '</div>'];
+    o.push('<table class="ftab"><thead><tr><th>Member</th><th>State</th><th class="n">Used</th><th class="n">Ceiling</th><th class="n">Final</th><th>Filled</th></tr></thead><tbody>');
+    c.ms.forEach(function (m) {
+      var filled = m.st === 'FILLING' ? (m.ff ? 'since ' + fDay(dayN(m.ff)) : 'filling') + (m.rate != null ? ', ' + num(m.rate * 1024, 0) + ' MiB/d' : '')
+        : m.fd != null ? m.fd + ' days to ' + fDay(dayN(m.ft)) : '';
+      o.push('<tr class="' + esc(String(m.st || '').toLowerCase()) + '"><td>' + esc(m.t) + '</td><td>' + esc(String(m.st || '').toLowerCase()) + '</td>' +
+        '<td class="n">' + gib(m.used) + '</td><td class="n">' + gib(m.lim) + '</td><td class="n">' + gib(m.fin) + '</td><td>' + filled + '</td></tr>');
+    });
+    o.push('</tbody></table></article>');
+    return o.join('');
+  }
+
+  function famSummary() {
+    var n = famCards.filter(function (c) { return c.f.sev === 'WARN'; }).length;
+    return '<span><b>' + famCards.length + '</b> famil' + (famCards.length === 1 ? 'y' : 'ies') + '</span>' +
+      '<span>' + (n ? '<b>' + n + '</b> filling member' + (n === 1 ? '' : 's') + ' over the ceiling' : 'every filling member fits') + '</span>';
+  }
+
   /* ---------- assemble ---------- */
 
   var sections = FAMILIES.map(function (fam) {
@@ -1104,7 +1143,8 @@
     '<span class="tools"><button class="tbtn" id="themeBtn" type="button">Theme</button><button class="tbtn" type="button" onclick="window.print()">Print</button></span></p>');
   html.push('<nav class="nav"><a href="#overview">Overview</a>' + present.map(function (s) {
     return '<a class="' + SEV_CLASS[s.sev] + '" href="#' + s.fam.id + '">' + esc(s.fam.title) + '<span class="n">' + s.ms.length + '</span></a>';
-  }).join('') + (memCards.length ? '<a href="#memory">Memory<span class="n">' + memCards.length + '</span></a>' : '') + '</nav><main>');
+  }).join('') + (memCards.length ? '<a href="#memory">Memory<span class="n">' + memCards.length + '</span></a>' : '') +
+    (famCards.length ? '<a href="#families">Families<span class="n">' + famCards.length + '</span></a>' : '') + '</nav><main>');
 
   (D.errors || []).forEach(function (e) {
     html.push('<div class="banner">Data block “' + esc(e.block) + '” failed: ' + esc(e.msg) + '</div>');
@@ -1152,8 +1192,9 @@
   if (!listed.length) html.push('<div class="allok">Nothing needs attention</div>');
   listed.forEach(function (a) {
     var m = metricBySeries[key(a.dbid, a.con, a.s)];
-    var href = m ? '#' + m.id : '#overview';
-    html.push('<a class="arow ' + SEV_CLASS[a.sev] + '" href="' + href + '">' + pill(a.sev) + '<span class="m">' + esc(m ? m.fam.title : a.kind) + '</span>' +
+    var fc = !m && a.kind === 'TBSPC_FAMILY' ? FAM_BY[key(a.dbid, a.con, a.s)] : null;
+    var href = m ? '#' + m.id : fc ? '#' + fc.id : '#overview';
+    html.push('<a class="arow ' + SEV_CLASS[a.sev] + '" href="' + href + '">' + pill(a.sev) + '<span class="m">' + esc(m ? m.fam.title : fc ? 'Tablespace family' : a.kind) + '</span>' +
       '<span class="s">' + esc(m ? m.name : a.s) + ' <span>' + esc(m ? m.ctr : conLabel(a.dbid, a.con)) + '</span></span>' +
       '<span class="f">' + alertFact(a, m) + '</span><span class="d">' + alertWhen(a) + '</span></a>');
   });
@@ -1176,6 +1217,10 @@
   if (memCards.length) {
     html.push('<section id="memory" class="wide"><div class="sh"><h2>Memory</h2><div class="sum">' + memSummary() + '</div></div>' +
       '<div class="cards">' + memCards.map(memCardHtml).join('') + '</div></section>');
+  }
+  if (famCards.length) {
+    html.push('<section id="families" class="wide"><div class="sh"><h2>Tablespace families</h2><div class="sum">' + famSummary() + '</div></div>' +
+      '<div class="cards">' + famCards.map(famCardHtml).join('') + '</div></section>');
   }
   html.push('</div></main><footer class="foot"><span>' + esc(M.db) + '</span><span>schema ' + esc(M.schema) + '</span><span>suite ' + esc(K.suiteVersion || '') + '</span>' +
     '<span>' + esc(M.run || '') + '</span><span>read-only</span><span>' + esc(M.file || '') + '</span></footer></div>');

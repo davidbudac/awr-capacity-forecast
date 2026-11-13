@@ -335,6 +335,17 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~.tip .a { color: #ff9b97; }~');
   DBMS_OUTPUT.PUT_LINE(q'~:root[data-theme="dark"] .tip .a { color: var(--crit); }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
+  DBMS_OUTPUT.PUT_LINE(q'~/* tablespace families: one card per family, the members as a table */~');
+  DBMS_OUTPUT.PUT_LINE(q'~.fam.card { grid-column: 1 / -1; }~');
+  DBMS_OUTPUT.PUT_LINE(q'~.fam .fsz { display: flex; flex-wrap: wrap; gap: 4px 28px; margin-top: 8px; font: 12.5px var(--mono); color: var(--ink-2); }~');
+  DBMS_OUTPUT.PUT_LINE(q'~.fam .fsz b { color: var(--ink); font-weight: 600; }~');
+  DBMS_OUTPUT.PUT_LINE(q'~.ftab { width: 100%; border-collapse: collapse; margin-top: 12px; font: 12.5px var(--mono); }~');
+  DBMS_OUTPUT.PUT_LINE(q'~.ftab th { text-align: left; font-weight: 500; color: var(--ink-3); padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line); }~');
+  DBMS_OUTPUT.PUT_LINE(q'~.ftab td { padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line); color: var(--ink-2); }~');
+  DBMS_OUTPUT.PUT_LINE(q'~.ftab .n { text-align: right; }~');
+  DBMS_OUTPUT.PUT_LINE(q'~.ftab tr.filling td { color: var(--ink); font-weight: 600; }~');
+  DBMS_OUTPUT.PUT_LINE(q'~.ftab tr.empty td { color: var(--ink-3); }~');
+  DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~/* memory: sizing verdicts are advice, so no alert colours; a change advised takes the accent */~');
   DBMS_OUTPUT.PUT_LINE(q'~.card.mem {~');
   DBMS_OUTPUT.PUT_LINE(q'~  grid-column: 1 / -1;~');
@@ -391,6 +402,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~.mlh, .mlr { display: grid; grid-template-columns: minmax(0, 1fr) 5.5em 4em 14.5em; gap: 12px; align-items: baseline; }~');
   DBMS_OUTPUT.PUT_LINE(q'~.mlr span { white-space: nowrap; }~');
   DBMS_OUTPUT.PUT_LINE(q'~.mlh { color: var(--ink-3); font-size: 11.5px; padding-bottom: 5px; border-bottom: 1px solid var(--ink); }~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~.mlr { padding: 4px 0; border-bottom: 1px solid var(--line-2); font: 12px var(--mono); color: var(--ink-2); }~');
   DBMS_OUTPUT.PUT_LINE(q'~.mlh span:nth-child(n+2), .mlr span:nth-child(n+2) { text-align: right; }~');
   DBMS_OUTPUT.PUT_LINE(q'~.mlr .mn { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }~');
@@ -402,9 +416,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~.tip .m { opacity: .7; }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~.foot { margin-top: 56px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 16px; }~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~@media (max-width: 760px) {~');
   DBMS_OUTPUT.PUT_LINE(q'~  .page { padding: 20px 16px 48px; }~');

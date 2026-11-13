@@ -628,6 +628,60 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN fail_block('memPoints', SQLERRM);
   END;
 
+  ----------------------------------------------------------------------
+  -- families / famMembers: the tablespace families (ddl/32), one row per
+  -- family and one per member. Sizes in GiB. A scope without a family
+  -- leaves both blocks empty and the page shows no section.
+  ----------------------------------------------------------------------
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, family_name, period, source, n_done, n_filling, n_empty, used_gb,
+                     growth_per_period_gb, next_member_gb, next_member_hi_gb, trend_sig, filling_member,
+                     filling_used_gb, filling_limit_gb, expected_final_gb, expected_final_hi_gb,
+                     period_end_day, days_left, fits, sev, actionable, headline
+              FROM   capr_tbspc_family&cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+              ORDER  BY dbid, rank_family) LOOP
+      w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"f":' || js(r.family_name)
+        || ',"per":' || js(r.period) || ',"src":' || js(r.source)
+        || ',"nd":' || jn(r.n_done) || ',"nf":' || jn(r.n_filling) || ',"ne":' || jn(r.n_empty)
+        || ',"used":' || jn(ROUND(r.used_gb, 3)) || ',"gpp":' || jn(ROUND(r.growth_per_period_gb, 3))
+        || ',"next":' || jn(ROUND(r.next_member_gb, 3)) || ',"nextHi":' || jn(ROUND(r.next_member_hi_gb, 3))
+        || ',"ts":' || js(r.trend_sig) || ',"fm":' || js(r.filling_member)
+        || ',"fu":' || jn(ROUND(r.filling_used_gb, 3)) || ',"lim":' || jn(ROUND(r.filling_limit_gb, 3))
+        || ',"exp":' || jn(ROUND(r.expected_final_gb, 3)) || ',"expHi":' || jn(ROUND(r.expected_final_hi_gb, 3))
+        || ',"pe":' || jd(r.period_end_day) || ',"dl":' || jn(r.days_left)
+        || ',"fits":' || js(r.fits) || ',"sev":' || js(r.sev) || ',"act":' || js(r.actionable)
+        || ',"hl":' || js(r.headline) || '}');
+      v_sep := ',';
+    END LOOP;
+    w(']');
+    flush_block('families');
+  EXCEPTION WHEN OTHERS THEN fail_block('families', SQLERRM);
+  END;
+
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, family_name, tablespace_name, member_seq, state, used_gb, limit_gb,
+                     pct_used, final_gb, fill_from, fill_to, fill_days, fill_rate_gb_day
+              FROM   capr_tbspc_family_members&cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+              ORDER  BY dbid, con_dbid, family_name, member_seq) LOOP
+      w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"f":' || js(r.family_name)
+        || ',"t":' || js(r.tablespace_name) || ',"seq":' || jn(r.member_seq) || ',"st":' || js(r.state)
+        || ',"used":' || jn(ROUND(r.used_gb, 3)) || ',"lim":' || jn(ROUND(r.limit_gb, 3))
+        || ',"pct":' || jn(r.pct_used) || ',"fin":' || jn(ROUND(r.final_gb, 3))
+        || ',"ff":' || jd(r.fill_from) || ',"ft":' || jd(r.fill_to) || ',"fd":' || jn(r.fill_days)
+        || ',"rate":' || jn(ROUND(r.fill_rate_gb_day, 4)) || '}');
+      v_sep := ',';
+    END LOOP;
+    w(']');
+    flush_block('famMembers');
+  EXCEPTION WHEN OTHERS THEN fail_block('famMembers', SQLERRM);
+  END;
+
   p(',"errors":[' || v_errs || '],"seconds":{' || v_tlog || '}}');
   p('</script>');
 END;

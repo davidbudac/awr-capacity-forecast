@@ -323,6 +323,17 @@ h1 {
 .tip .a { color: #ff9b97; }
 :root[data-theme="dark"] .tip .a { color: var(--crit); }
 
+/* tablespace families: one card per family, the members as a table */
+.fam.card { grid-column: 1 / -1; }
+.fam .fsz { display: flex; flex-wrap: wrap; gap: 4px 28px; margin-top: 8px; font: 12.5px var(--mono); color: var(--ink-2); }
+.fam .fsz b { color: var(--ink); font-weight: 600; }
+.ftab { width: 100%; border-collapse: collapse; margin-top: 12px; font: 12.5px var(--mono); }
+.ftab th { text-align: left; font-weight: 500; color: var(--ink-3); padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line); }
+.ftab td { padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line); color: var(--ink-2); }
+.ftab .n { text-align: right; }
+.ftab tr.filling td { color: var(--ink); font-weight: 600; }
+.ftab tr.empty td { color: var(--ink-3); }
+
 /* memory: sizing verdicts are advice, so no alert colours; a change advised takes the accent */
 .card.mem {
   grid-column: 1 / -1;

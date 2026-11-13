@@ -357,6 +357,7 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      case 'CPU_SHIFT': return 'level shift <b>' + sign(a.v) + num(Math.abs(a.v), 1) + '%</b>';~');
   DBMS_OUTPUT.PUT_LINE(q'~      case 'DATA_STALE': return 'no AWR snapshot for <b>' + auto(a.v) + ' h</b>';~');
   DBMS_OUTPUT.PUT_LINE(q'~      case 'MODEL_HEALTH': return 'ESM model ' + esc(a.msg || '');~');
+  DBMS_OUTPUT.PUT_LINE(q'~      case 'TBSPC_FAMILY': return 'filling member may reach <b>' + num(a.v, 2) + ' GiB</b>, ceiling ' + num(a.thr, 2) + ' GiB';~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (/_ANOM$/.test(a.kind)) {~');
   DBMS_OUTPUT.PUT_LINE(q'~      var v = a.u === 'BYTES' ? fBytes(a.v) + '/d' : a.u === 'PCT' ? num(a.v, 1) + '%' : a.u === 'GIB' ? auto(a.v) + ' GiB/d' : auto(a.v);~');
@@ -401,10 +402,10 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      var hrs = ev.nh + ' h ' + (ev.f === 'LOW' ? 'below' : 'above') + ' their usual hour';~');
   DBMS_OUTPUT.PUT_LINE(q'~      if (val) usual += ' \u00b7 ' + hrs; else val = hrs;~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
-  DBMS_OUTPUT.PUT_LINE(q'~    return '<div class="an ' + (ev.f === 'LOW' ? 'lo' : 'hi') + '"><span class="dt">' + fWDay(ev.d) + '</span><span class="vv">' + val +~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~    return '<div class="an ' + (ev.f === 'LOW' ? 'lo' : 'hi') + '"><span class="dt">' + fWDay(ev.d) + '</span><span class="vv">' + val +~');
   DBMS_OUTPUT.PUT_LINE(q'~      '</span><span class="us">' + usual + '</span><span class="z">z ' + num(ev.z, 1) + '</span></div>';~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
@@ -804,10 +805,10 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  /* The rate a tablespace fills at: a cyclic one is judged on its peaks. */~');
   DBMS_OUTPUT.PUT_LINE(q'~  function fillRate(f) { return f.q === 'CYCLIC' ? f.pkSlope : f.slope; }~');
   DBMS_OUTPUT.PUT_LINE(q'~  function observedChange(pts, days) {~');
-  DBMS_OUTPUT.PUT_LINE(q'~    var last = null, first = null;~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~    var last = null, first = null;~');
   DBMS_OUTPUT.PUT_LINE(q'~    for (var i = pts.length - 1; i >= 0; i--) {~');
   DBMS_OUTPUT.PUT_LINE(q'~      var p = pts[i];~');
   DBMS_OUTPUT.PUT_LINE(q'~      if (p.y == null) continue;~');
@@ -1077,6 +1078,44 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    }).join('') + '</svg>';~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
+  DBMS_OUTPUT.PUT_LINE(q'~  /* ---------- tablespace families: one tablespace per period, judged as a group ---------- */~');
+  DBMS_OUTPUT.PUT_LINE(NULL);
+  DBMS_OUTPUT.PUT_LINE(q'~  var FAM_M = groupBy(D.famMembers || [], function (m) { return key(m.dbid, m.con, m.f); });~');
+  DBMS_OUTPUT.PUT_LINE(q'~  var FAM_BY = {};~');
+  DBMS_OUTPUT.PUT_LINE(q'~  var famCards = (D.families || []).map(function (f, i) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var c = { f: f, id: 'family-' + i, ms: (FAM_M[key(f.dbid, f.con, f.f)] || []).slice().sort(function (a, b) { return a.seq - b.seq; }) };~');
+  DBMS_OUTPUT.PUT_LINE(q'~    FAM_BY[key(f.dbid, f.con, f.f)] = c;~');
+  DBMS_OUTPUT.PUT_LINE(q'~    return c;~');
+  DBMS_OUTPUT.PUT_LINE(q'~  });~');
+  DBMS_OUTPUT.PUT_LINE(q'~  var PERIOD_LABEL = { MONTH: 'monthly', QUARTER: 'quarterly', YEAR: 'yearly' };~');
+  DBMS_OUTPUT.PUT_LINE(q'~  function gib(v) { return v == null ? '' : num(v, 2) + ' GiB'; }~');
+  DBMS_OUTPUT.PUT_LINE(NULL);
+  DBMS_OUTPUT.PUT_LINE(q'~  function famCardHtml(c) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var f = c.f, warn = f.sev === 'WARN';~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var o = ['<article class="fam card' + (warn ? ' warn' : '') + '" id="' + c.id + '"><div class="ch"><h3>' + esc(f.f) + '</h3>' +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      '<span class="ctr">' + esc(conLabel(f.dbid, f.con)) + '</span>' + (PERIOD_LABEL[f.per] ? '<span class="tag">' + PERIOD_LABEL[f.per] + '</span>' : '') +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      (warn ? pill('WARN') : '') + '</div><p class="mhl">' + esc(f.hl || '') + '</p><div class="fsz">' +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      '<span>' + f.nd + ' done, ' + f.nf + ' filling, ' + f.ne + ' empty</span>' +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      (f.next != null ? '<span>next member <b>' + gib(f.next) + '</b>, cautious ' + gib(f.nextHi) + (f.ts === 'Y' ? ' (trend)' : '') + '</span>' : '') +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      (f.exp != null ? '<span>' + esc(f.fm) + ' by ' + fDayY(dayN(f.pe)) + ' <b>' + gib(f.exp) + '</b>, at most ' + gib(f.expHi) + ' of ' + gib(f.lim) + '</span>' : '') +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      (f.gpp != null ? '<span>family ' + sign(f.gpp) + gib(Math.abs(f.gpp)) + ' a period</span>' : '') + '</div>'];~');
+  DBMS_OUTPUT.PUT_LINE(q'~    o.push('<table class="ftab"><thead><tr><th>Member</th><th>State</th><th class="n">Used</th><th class="n">Ceiling</th><th class="n">Final</th><th>Filled</th></tr></thead><tbody>');~');
+  DBMS_OUTPUT.PUT_LINE(q'~    c.ms.forEach(function (m) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~      var filled = m.st === 'FILLING' ? (m.ff ? 'since ' + fDay(dayN(m.ff)) : 'filling') + (m.rate != null ? ', ' + num(m.rate * 1024, 0) + ' MiB/d' : '')~');
+  DBMS_OUTPUT.PUT_LINE(q'~        : m.fd != null ? m.fd + ' days to ' + fDay(dayN(m.ft)) : '';~');
+  DBMS_OUTPUT.PUT_LINE(q'~      o.push('<tr class="' + esc(String(m.st || '').toLowerCase()) + '"><td>' + esc(m.t) + '</td><td>' + esc(String(m.st || '').toLowerCase()) + '</td>' +~');
+  DBMS_OUTPUT.PUT_LINE(q'~        '<td class="n">' + gib(m.used) + '</td><td class="n">' + gib(m.lim) + '</td><td class="n">' + gib(m.fin) + '</td><td>' + filled + '</td></tr>');~');
+  DBMS_OUTPUT.PUT_LINE(q'~    });~');
+  DBMS_OUTPUT.PUT_LINE(q'~    o.push('</tbody></table></article>');~');
+  DBMS_OUTPUT.PUT_LINE(q'~    return o.join('');~');
+  DBMS_OUTPUT.PUT_LINE(q'~  }~');
+  DBMS_OUTPUT.PUT_LINE(NULL);
+  DBMS_OUTPUT.PUT_LINE(q'~  function famSummary() {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var n = famCards.filter(function (c) { return c.f.sev === 'WARN'; }).length;~');
+  DBMS_OUTPUT.PUT_LINE(q'~    return '<span><b>' + famCards.length + '</b> famil' + (famCards.length === 1 ? 'y' : 'ies') + '</span>' +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      '<span>' + (n ? '<b>' + n + '</b> filling member' + (n === 1 ? '' : 's') + ' over the ceiling' : 'every filling member fits') + '</span>';~');
+  DBMS_OUTPUT.PUT_LINE(q'~  }~');
+  DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  /* ---------- assemble ---------- */~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  var sections = FAMILIES.map(function (fam) {~');
@@ -1115,7 +1154,8 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    '<span class="tools"><button class="tbtn" id="themeBtn" type="button">Theme</button><button class="tbtn" type="button" onclick="window.print()">Print</button></span></p>');~');
   DBMS_OUTPUT.PUT_LINE(q'~  html.push('<nav class="nav"><a href="#overview">Overview</a>' + present.map(function (s) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    return '<a class="' + SEV_CLASS[s.sev] + '" href="#' + s.fam.id + '">' + esc(s.fam.title) + '<span class="n">' + s.ms.length + '</span></a>';~');
-  DBMS_OUTPUT.PUT_LINE(q'~  }).join('') + (memCards.length ? '<a href="#memory">Memory<span class="n">' + memCards.length + '</span></a>' : '') + '</nav><main>');~');
+  DBMS_OUTPUT.PUT_LINE(q'~  }).join('') + (memCards.length ? '<a href="#memory">Memory<span class="n">' + memCards.length + '</span></a>' : '') +~');
+  DBMS_OUTPUT.PUT_LINE(q'~    (famCards.length ? '<a href="#families">Families<span class="n">' + famCards.length + '</span></a>' : '') + '</nav><main>');~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  (D.errors || []).forEach(function (e) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    html.push('<div class="banner">Data block \u201c' + esc(e.block) + '\u201d failed: ' + esc(e.msg) + '</div>');~');
@@ -1163,10 +1203,14 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  if (!listed.length) html.push('<div class="allok">Nothing needs attention</div>');~');
   DBMS_OUTPUT.PUT_LINE(q'~  listed.forEach(function (a) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var m = metricBySeries[key(a.dbid, a.con, a.s)];~');
-  DBMS_OUTPUT.PUT_LINE(q'~    var href = m ? '#' + m.id : '#overview';~');
-  DBMS_OUTPUT.PUT_LINE(q'~    html.push('<a class="arow ' + SEV_CLASS[a.sev] + '" href="' + href + '">' + pill(a.sev) + '<span class="m">' + esc(m ? m.fam.title : a.kind) + '</span>' +~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var fc = !m && a.kind === 'TBSPC_FAMILY' ? FAM_BY[key(a.dbid, a.con, a.s)] : null;~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var href = m ? '#' + m.id : fc ? '#' + fc.id : '#overview';~');
+  DBMS_OUTPUT.PUT_LINE(q'~    html.push('<a class="arow ' + SEV_CLASS[a.sev] + '" href="' + href + '">' + pill(a.sev) + '<span class="m">' + esc(m ? m.fam.title : fc ? 'Tablespace family' : a.kind) + '</span>' +~');
   DBMS_OUTPUT.PUT_LINE(q'~      '<span class="s">' + esc(m ? m.name : a.s) + ' <span>' + esc(m ? m.ctr : conLabel(a.dbid, a.con)) + '</span></span>' +~');
   DBMS_OUTPUT.PUT_LINE(q'~      '<span class="f">' + alertFact(a, m) + '</span><span class="d">' + alertWhen(a) + '</span></a>');~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  });~');
   DBMS_OUTPUT.PUT_LINE(q'~  html.push('</div></section>');~');
   DBMS_OUTPUT.PUT_LINE(q'~  html.push('<div class="key"><span><i class="k-hist"></i>history</span><span><i class="k-fc"></i>forecast</span><span><i class="k-bd"></i>95% band</span>' +~');
@@ -1188,6 +1232,10 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    html.push('<section id="memory" class="wide"><div class="sh"><h2>Memory</h2><div class="sum">' + memSummary() + '</div></div>' +~');
   DBMS_OUTPUT.PUT_LINE(q'~      '<div class="cards">' + memCards.map(memCardHtml).join('') + '</div></section>');~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
+  DBMS_OUTPUT.PUT_LINE(q'~  if (famCards.length) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    html.push('<section id="families" class="wide"><div class="sh"><h2>Tablespace families</h2><div class="sum">' + famSummary() + '</div></div>' +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      '<div class="cards">' + famCards.map(famCardHtml).join('') + '</div></section>');~');
+  DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(q'~  html.push('</div></main><footer class="foot"><span>' + esc(M.db) + '</span><span>schema ' + esc(M.schema) + '</span><span>suite ' + esc(K.suiteVersion || '') + '</span>' +~');
   DBMS_OUTPUT.PUT_LINE(q'~    '<span>' + esc(M.run || '') + '</span><span>read-only</span><span>' + esc(M.file || '') + '</span></footer></div>');~');
   DBMS_OUTPUT.PUT_LINE(NULL);
@@ -1208,9 +1256,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    if (m.fam.id === 'tablespaces') return 'unusual growth ' + sign(z.v) + fBytes(Math.abs(z.v)) + ', usual ' + fBytes(z.e) + ' \u00b7 z ' + num(z.z, 1);~');
   DBMS_OUTPUT.PUT_LINE(q'~    return 'unusual, usual ' + m.unit.fmt(z.e) + ' \u00b7 z ' + num(z.z, 1);~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  Array.prototype.forEach.call(document.querySelectorAll('.chart'), function (el) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var spec = CHARTS[+el.getAttribute('data-chart')];~');
