@@ -7,7 +7,8 @@
 --   SQL> @target/check.sql
 --
 -- One PASS / WARN / FAIL line per check: the container, the reader account
--- and its password expiry, its direct grants on the twenty-eight DBA_HIST_* views, CONTAINER_DATA (CDB),
+-- and its password expiry, its direct grants on the twenty-eight DBA_HIST_* views
+-- and CDB_TABLESPACE_USAGE_METRICS, CONTAINER_DATA (CDB),
 -- the Diagnostics Pack setting, STATISTICS_LEVEL, AWR retention / interval and
 -- how fresh the newest snapshot is. Exits non-zero when a FAIL line printed.
 -- The proof that the repository can read through its link is
@@ -63,7 +64,8 @@ DECLARE
         'DBA_HIST_MEM_DYNAMIC_COMP', 'DBA_HIST_SQL_WORKAREA_HSTGRM',
         'DBA_HIST_PGA_TARGET_ADVICE', 'DBA_HIST_SGA_TARGET_ADVICE', 'DBA_HIST_DB_CACHE_ADVICE',
         'DBA_HIST_SHARED_POOL_ADVICE', 'DBA_HIST_SGASTAT', 'DBA_HIST_LIBRARYCACHE',
-        'DBA_HIST_ROWCACHE_SUMMARY', 'DBA_HIST_SYSTEM_EVENT');
+        'DBA_HIST_ROWCACHE_SUMMARY', 'DBA_HIST_SYSTEM_EVENT',
+        'CDB_TABLESPACE_USAGE_METRICS');
 
     PROCEDURE emit(p_lvl VARCHAR2, p_what VARCHAR2, p_txt VARCHAR2) IS
     BEGIN
@@ -118,7 +120,7 @@ BEGIN
         END IF;
     END LOOP;
     IF v_missing IS NULL THEN
-        emit('PASS', 'grants', 'SELECT on all ' || v_obj.COUNT || ' DBA_HIST_* views');
+        emit('PASS', 'grants', 'SELECT on all ' || v_obj.COUNT || ' views (DBA_HIST_* and the live tablespace view)');
     ELSE
         emit('FAIL', 'grants', 'missing: ' || v_missing);
     END IF;

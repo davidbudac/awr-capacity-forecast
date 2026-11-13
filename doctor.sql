@@ -857,7 +857,7 @@ BEGIN
                 -- leaves its copy empty too, hence the wording.
                 BEGIN
                     EXECUTE IMMEDIATE 'SELECT copy_table FROM cap_repo_source'
-                                      || ' WHERE optional = ''Y'' ORDER BY seq'
+                                      || ' WHERE optional = ''Y'' AND kind <> ''L'' ORDER BY seq'
                         BULK COLLECT INTO v_opt;
                     v_miss := NULL;
                     FOR i IN 1 .. v_opt.COUNT LOOP
@@ -875,6 +875,23 @@ BEGIN
                     END IF;
                 EXCEPTION
                     WHEN OTHERS THEN emit('WARN', 'memory ' || v_tag, 'cannot read the memory copies: ' || err);
+                END;
+
+                -- U09: the live tablespace ceilings (kind L) are copied for
+                -- the newest DBID of a target only, so the target is asked.
+                BEGIN
+                    EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM cap_h_tbspc_live l WHERE l.dbid IN'
+                                      || ' (SELECT d.dbid FROM cap_target_dbid d WHERE d.target_id ='
+                                      || ' (SELECT x.target_id FROM cap_target_dbid x WHERE x.dbid = :d))'
+                                      || ' AND ROWNUM = 1'
+                        INTO v_pga USING v_dbid;
+                    IF v_hwm > 0 AND v_pga = 0 THEN
+                        emit('WARN', 'disk ' || v_tag, 'no live tablespace ceilings copied (CAP_H_TBSPC_LIVE):'
+                             || ' the shared-disk forecast knows no free space unless CAP_DISK_OVERRIDE sets it.'
+                             || ' If the reader lacks the grant, re-run target/prepare.sql there');
+                    END IF;
+                EXCEPTION
+                    WHEN OTHERS THEN emit('WARN', 'disk ' || v_tag, 'cannot read CAP_H_TBSPC_LIVE: ' || err);
                 END;
 
                 BEGIN

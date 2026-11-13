@@ -92,8 +92,8 @@ SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
 FROM   cap_fixture_sysstat
 WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
--- CAPV_PARAMETER / CAPV_ASM_DISKGROUP / CAPV_SEG_STAT / CAPV_PGASTAT and the
--- memory sources (M26) over CAP_FIXTURE_<view suffix>, e.g. CAPV_MEM_COMP
+-- CAPV_PARAMETER / CAPV_ASM_DISKGROUP / CAPV_SEG_STAT / CAPV_PGASTAT, the
+-- memory sources (M26) and CAPV_TBSPC_LIVE (U09) over CAP_FIXTURE_<view suffix>, e.g. CAPV_MEM_COMP
 -- over CAP_FIXTURE_MEM_COMP (value_num already a NUMBER, group_name without
 -- the '+'). test/demo_fixture.sql builds the demo story without the ASM
 -- and segment tables, so a missing table gets a zero-row contract stub
@@ -290,6 +290,16 @@ BEGIN
                  CAST('-' AS VARCHAR2(64)) AS event_name,
                  CAST('-' AS VARCHAR2(64)) AS wait_class, 0 AS total_waits,
                  0 AS time_waited_micro
+          FROM   dual WHERE ROWNUM < 1]');
+    -- U09: the live tablespace ceilings (repository/seam.sql CAPV_TBSPC_LIVE).
+    mk('CAP_FIXTURE_TBSPC_LIVE',
+       q'[CREATE OR REPLACE VIEW capv_tbspc_live AS
+          SELECT dbid, con_dbid, tablespace_name, ceiling_blocks, used_blocks, collected_at
+          FROM   cap_fixture_tbspc_live
+          WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid)]',
+       q'[CREATE OR REPLACE VIEW capv_tbspc_live AS
+          SELECT 0 AS dbid, 0 AS con_dbid, CAST('-' AS VARCHAR2(30)) AS tablespace_name,
+                 0 AS ceiling_blocks, 0 AS used_blocks, DATE '1970-01-01' AS collected_at
           FROM   dual WHERE ROWNUM < 1]');
 END;
 /

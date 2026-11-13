@@ -7,7 +7,8 @@
 --
 -- A repository copies the DBA_HIST_* views seam.sql reads from each registered
 -- target (repository/cap_repo.sql pulls them over a DB link) into CAP_H_*
--- tables of the same shape. The seam views below are seam.sql's with every
+-- tables of the same shape, and the live tablespace ceilings into
+-- CAP_H_TBSPC_LIVE. The seam views below are seam.sql's with every
 -- dba_hist_<x> renamed cap_h_<x>; the notes on every view live in seam.sql.
 -- CAPV_TARGET reads the target registry, so cap_repo.sql is included before
 -- the seam.
@@ -134,49 +135,61 @@ BEGIN
         'dbid NUMBER', 'con_dbid NUMBER', 'ts# NUMBER', 'obj# NUMBER',
         'dataobj# NUMBER', 'owner VARCHAR2(128 CHAR)', 'object_name VARCHAR2(128 CHAR)', 'subobject_name VARCHAR2(128 CHAR)',
         'object_type VARCHAR2(18 CHAR)', 'tablespace_name VARCHAR2(30 CHAR)'));
+    ensure('cap_h_tbspc_live', SYS.ODCIVARCHAR2LIST(
+        'dbid NUMBER', 'con_dbid NUMBER', 'tablespace_name VARCHAR2(30 CHAR)', 'tablespace_size NUMBER',
+        'used_space NUMBER', 'collected_at DATE'));
 END;
 /
 
 -- One row per copied source: the finished pull statement and its bind shape.
 -- optional = 'Y': a reader without the grant is warned about, not failed.
+-- remote_view: the view read on the target. kind L: a live view, its copy
+-- replaced whole per target at each collect (no snap_id).
 CREATE OR REPLACE VIEW cap_repo_source AS
 SELECT 1 AS seq, 'SNAPSHOT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_SNAPSHOT' AS copy_table,
+       CAST('DBA_HIST_SNAPSHOT' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_snapshot (dbid, instance_number, snap_id, startup_time, begin_interval_time, end_interval_time)
            SELECT dbid, instance_number, snap_id, startup_time, begin_interval_time, end_interval_time
            FROM dba_hist_snapshot@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 2 AS seq, 'TBSPC_SPACE_USAGE' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_TBSPC_SPACE_USAGE' AS copy_table,
+       CAST('DBA_HIST_TBSPC_SPACE_USAGE' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_tbspc_space_usage (dbid, con_dbid, snap_id, tablespace_id, tablespace_size, tablespace_maxsize, tablespace_usedsize)
            SELECT dbid, con_dbid, snap_id, tablespace_id, tablespace_size, tablespace_maxsize, tablespace_usedsize
            FROM dba_hist_tbspc_space_usage@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 3 AS seq, 'OSSTAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_OSSTAT' AS copy_table,
+       CAST('DBA_HIST_OSSTAT' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_osstat (dbid, con_dbid, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
            FROM dba_hist_osstat@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name IN ('BUSY_TIME','IDLE_TIME','IOWAIT_TIME','NUM_CPUS','NUM_CPU_CORES','PHYSICAL_MEMORY_BYTES'))~' AS pull_sql FROM dual
 UNION ALL
 SELECT 4 AS seq, 'SYS_TIME_MODEL' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_SYS_TIME_MODEL' AS copy_table,
+       CAST('DBA_HIST_SYS_TIME_MODEL' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_sys_time_model (dbid, con_dbid, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
            FROM dba_hist_sys_time_model@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name IN ('DB CPU','DB time','background cpu time'))~' AS pull_sql FROM dual
 UNION ALL
 SELECT 5 AS seq, 'CON_SYS_TIME_MODEL' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_CON_SYS_TIME_MODEL' AS copy_table,
+       CAST('DBA_HIST_CON_SYS_TIME_MODEL' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_con_sys_time_model (dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value
            FROM dba_hist_con_sys_time_model@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (stat_name IN ('DB CPU','DB time','background cpu time'))~' AS pull_sql FROM dual
 UNION ALL
 SELECT 6 AS seq, 'RESOURCE_LIMIT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_RESOURCE_LIMIT' AS copy_table,
+       CAST('DBA_HIST_RESOURCE_LIMIT' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_resource_limit (dbid, con_dbid, instance_number, snap_id, resource_name, current_utilization, max_utilization, limit_value)
            SELECT dbid, con_dbid, instance_number, snap_id, resource_name, current_utilization, max_utilization, limit_value
            FROM dba_hist_resource_limit@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (resource_name IN ('processes','sessions'))~' AS pull_sql FROM dual
 UNION ALL
 SELECT 7 AS seq, 'SYSSTAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_SYSSTAT' AS copy_table,
+       CAST('DBA_HIST_SYSSTAT' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_sysstat (dbid, con_dbid, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, instance_number, snap_id, stat_name, value
            FROM dba_hist_sysstat@{LINK}
@@ -185,6 +198,7 @@ SELECT 7 AS seq, 'SYSSTAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_
              'physical read total bytes','physical write total bytes'))~' AS pull_sql FROM dual
 UNION ALL
 SELECT 8 AS seq, 'CON_SYSSTAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_CON_SYSSTAT' AS copy_table,
+       CAST('DBA_HIST_CON_SYSSTAT' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_con_sysstat (dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value)
            SELECT dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value
            FROM dba_hist_con_sysstat@{LINK}
@@ -193,30 +207,35 @@ SELECT 8 AS seq, 'CON_SYSSTAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CA
              'physical read total bytes','physical write total bytes'))~' AS pull_sql FROM dual
 UNION ALL
 SELECT 9 AS seq, 'PARAMETER' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_PARAMETER' AS copy_table,
+       CAST('DBA_HIST_PARAMETER' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_parameter (dbid, con_dbid, instance_number, snap_id, parameter_name, value)
            SELECT dbid, con_dbid, instance_number, snap_id, parameter_name, value
            FROM dba_hist_parameter@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (parameter_name IN ('cpu_count','processes','sessions','db_recovery_file_dest_size','sga_target','sga_max_size','pga_aggregate_target','pga_aggregate_limit','memory_target'))~' AS pull_sql FROM dual
 UNION ALL
 SELECT 10 AS seq, 'ASM_DISKGROUP_STAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_ASM_DISKGROUP_STAT' AS copy_table,
+       CAST('DBA_HIST_ASM_DISKGROUP_STAT' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_asm_diskgroup_stat (dbid, con_dbid, snap_id, group_number, total_mb, free_mb)
            SELECT dbid, con_dbid, snap_id, group_number, total_mb, free_mb
            FROM dba_hist_asm_diskgroup_stat@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 11 AS seq, 'SEG_STAT' AS source_name, 'F' AS kind, 'N' AS optional, 'CAP_H_SEG_STAT' AS copy_table,
+       CAST('DBA_HIST_SEG_STAT' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_seg_stat (dbid, con_dbid, instance_number, snap_id, ts#, obj#, dataobj#, space_used_delta, space_allocated_delta)
            SELECT dbid, con_dbid, instance_number, snap_id, ts#, obj#, dataobj#, space_used_delta, space_allocated_delta
            FROM dba_hist_seg_stat@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 12 AS seq, 'PGASTAT' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_PGASTAT' AS copy_table,
+       CAST('DBA_HIST_PGASTAT' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_pgastat (dbid, con_dbid, instance_number, snap_id, name, value)
            SELECT dbid, con_dbid, instance_number, snap_id, name, value
            FROM dba_hist_pgastat@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 13 AS seq, 'MEM_DYNAMIC_COMP' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_MEM_DYNAMIC_COMP' AS copy_table,
+       CAST('DBA_HIST_MEM_DYNAMIC_COMP' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_mem_dynamic_comp (dbid, con_dbid, instance_number, snap_id, component, current_size, min_size, max_size, user_specified_size, oper_count, last_oper_type, last_oper_mode,
              last_oper_time, granule_size)
            SELECT dbid, con_dbid, instance_number, snap_id, component, current_size, min_size, max_size, user_specified_size, oper_count, last_oper_type, last_oper_mode,
@@ -225,12 +244,14 @@ SELECT 13 AS seq, 'MEM_DYNAMIC_COMP' AS source_name, 'F' AS kind, 'Y' AS optiona
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 14 AS seq, 'SQL_WORKAREA_HSTGRM' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_SQL_WORKAREA_HSTGRM' AS copy_table,
+       CAST('DBA_HIST_SQL_WORKAREA_HSTGRM' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_sql_workarea_hstgrm (dbid, con_dbid, instance_number, snap_id, low_optimal_size, high_optimal_size, optimal_executions, onepass_executions, multipasses_executions, total_executions)
            SELECT dbid, con_dbid, instance_number, snap_id, low_optimal_size, high_optimal_size, optimal_executions, onepass_executions, multipasses_executions, total_executions
            FROM dba_hist_sql_workarea_hstgrm@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 15 AS seq, 'PGA_TARGET_ADVICE' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_PGA_TARGET_ADVICE' AS copy_table,
+       CAST('DBA_HIST_PGA_TARGET_ADVICE' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_pga_target_advice (dbid, con_dbid, instance_number, snap_id, pga_target_for_estimate, pga_target_factor, advice_status, bytes_processed, estd_time, estd_extra_bytes_rw,
              estd_pga_cache_hit_percentage, estd_overalloc_count)
            SELECT dbid, con_dbid, instance_number, snap_id, pga_target_for_estimate, pga_target_factor, advice_status, bytes_processed, estd_time, estd_extra_bytes_rw,
@@ -239,12 +260,14 @@ SELECT 15 AS seq, 'PGA_TARGET_ADVICE' AS source_name, 'F' AS kind, 'Y' AS option
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 16 AS seq, 'SGA_TARGET_ADVICE' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_SGA_TARGET_ADVICE' AS copy_table,
+       CAST('DBA_HIST_SGA_TARGET_ADVICE' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_sga_target_advice (dbid, con_dbid, instance_number, snap_id, sga_size, sga_size_factor, estd_db_time, estd_physical_reads)
            SELECT dbid, con_dbid, instance_number, snap_id, sga_size, sga_size_factor, estd_db_time, estd_physical_reads
            FROM dba_hist_sga_target_advice@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 17 AS seq, 'DB_CACHE_ADVICE' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_DB_CACHE_ADVICE' AS copy_table,
+       CAST('DBA_HIST_DB_CACHE_ADVICE' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_db_cache_advice (dbid, con_dbid, instance_number, snap_id, bpid, name, block_size, advice_status, size_for_estimate, size_factor, buffers_for_estimate, physical_reads,
              base_physical_reads, actual_physical_reads, estd_physical_read_time)
            SELECT dbid, con_dbid, instance_number, snap_id, bpid, name, block_size, advice_status, size_for_estimate, size_factor, buffers_for_estimate, physical_reads,
@@ -253,6 +276,7 @@ SELECT 17 AS seq, 'DB_CACHE_ADVICE' AS source_name, 'F' AS kind, 'Y' AS optional
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 18 AS seq, 'SHARED_POOL_ADVICE' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_SHARED_POOL_ADVICE' AS copy_table,
+       CAST('DBA_HIST_SHARED_POOL_ADVICE' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_shared_pool_advice (dbid, con_dbid, instance_number, snap_id, shared_pool_size_for_estimate, shared_pool_size_factor, estd_lc_size, estd_lc_memory_objects, estd_lc_time_saved,
              estd_lc_time_saved_factor, estd_lc_load_time, estd_lc_load_time_factor, estd_lc_memory_object_hits)
            SELECT dbid, con_dbid, instance_number, snap_id, shared_pool_size_for_estimate, shared_pool_size_factor, estd_lc_size, estd_lc_memory_objects, estd_lc_time_saved,
@@ -261,24 +285,28 @@ SELECT 18 AS seq, 'SHARED_POOL_ADVICE' AS source_name, 'F' AS kind, 'Y' AS optio
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 19 AS seq, 'SGASTAT' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_SGASTAT' AS copy_table,
+       CAST('DBA_HIST_SGASTAT' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_sgastat (dbid, con_dbid, con_id, instance_number, snap_id, pool, name, bytes)
            SELECT dbid, con_dbid, con_id, instance_number, snap_id, pool, name, bytes
            FROM dba_hist_sgastat@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3 AND (name = 'free memory')~' AS pull_sql FROM dual
 UNION ALL
 SELECT 20 AS seq, 'LIBRARYCACHE' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_LIBRARYCACHE' AS copy_table,
+       CAST('DBA_HIST_LIBRARYCACHE' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_librarycache (dbid, con_dbid, instance_number, snap_id, namespace, gets, gethits, pins, pinhits, reloads, invalidations)
            SELECT dbid, con_dbid, instance_number, snap_id, namespace, gets, gethits, pins, pinhits, reloads, invalidations
            FROM dba_hist_librarycache@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 21 AS seq, 'ROWCACHE_SUMMARY' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_ROWCACHE_SUMMARY' AS copy_table,
+       CAST('DBA_HIST_ROWCACHE_SUMMARY' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_rowcache_summary (dbid, con_dbid, instance_number, snap_id, parameter, gets, getmisses)
            SELECT dbid, con_dbid, instance_number, snap_id, parameter, gets, getmisses
            FROM dba_hist_rowcache_summary@{LINK}
            WHERE dbid = :1 AND snap_id > :2 AND snap_id <= :3~' AS pull_sql FROM dual
 UNION ALL
 SELECT 22 AS seq, 'SYSTEM_EVENT' AS source_name, 'F' AS kind, 'Y' AS optional, 'CAP_H_SYSTEM_EVENT' AS copy_table,
+       CAST('DBA_HIST_SYSTEM_EVENT' AS VARCHAR2(40)) AS remote_view,
        q'~INSERT INTO cap_h_system_event (dbid, con_dbid, instance_number, snap_id, event_name, wait_class, total_waits, time_waited_micro)
            SELECT dbid, con_dbid, instance_number, snap_id, event_name, wait_class, total_waits, time_waited_micro
            FROM dba_hist_system_event@{LINK}
@@ -300,6 +328,7 @@ SELECT 22 AS seq, 'SYSTEM_EVENT' AS source_name, 'F' AS kind, 'Y' AS optional, '
              'direct path write temp'))~' AS pull_sql FROM dual
 UNION ALL
 SELECT 23 AS seq, 'TABLESPACE' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_H_TABLESPACE' AS copy_table,
+       CAST('DBA_HIST_TABLESPACE' AS VARCHAR2(40)) AS remote_view,
        q'~MERGE INTO cap_h_tablespace t
            USING (SELECT DISTINCT dbid, con_dbid, ts#, tsname, contents, block_size
                   FROM dba_hist_tablespace@{LINK}
@@ -310,6 +339,7 @@ SELECT 23 AS seq, 'TABLESPACE' AS source_name, 'D' AS kind, 'N' AS optional, 'CA
                 VALUES (s.dbid, s.con_dbid, s.ts#, s.tsname, s.contents, s.block_size)~' AS pull_sql FROM dual
 UNION ALL
 SELECT 24 AS seq, 'DATAFILE' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_H_DATAFILE' AS copy_table,
+       CAST('DBA_HIST_DATAFILE' AS VARCHAR2(40)) AS remote_view,
        q'~MERGE INTO cap_h_datafile t
            USING (SELECT DISTINCT dbid, con_dbid, ts#, block_size
                   FROM dba_hist_datafile@{LINK}
@@ -319,6 +349,7 @@ SELECT 24 AS seq, 'DATAFILE' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_
                 VALUES (s.dbid, s.con_dbid, s.ts#, s.block_size)~' AS pull_sql FROM dual
 UNION ALL
 SELECT 25 AS seq, 'PDB_INSTANCE' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_H_PDB_INSTANCE' AS copy_table,
+       CAST('DBA_HIST_PDB_INSTANCE' AS VARCHAR2(40)) AS remote_view,
        q'~MERGE INTO cap_h_pdb_instance t
            USING (SELECT DISTINCT dbid, con_dbid, pdb_name
                   FROM dba_hist_pdb_instance@{LINK}
@@ -328,6 +359,7 @@ SELECT 25 AS seq, 'PDB_INSTANCE' AS source_name, 'D' AS kind, 'N' AS optional, '
                 VALUES (s.dbid, s.con_dbid, s.pdb_name)~' AS pull_sql FROM dual
 UNION ALL
 SELECT 26 AS seq, 'DATABASE_INSTANCE' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_H_DATABASE_INSTANCE' AS copy_table,
+       CAST('DBA_HIST_DATABASE_INSTANCE' AS VARCHAR2(40)) AS remote_view,
        q'~MERGE INTO cap_h_database_instance t
            USING (SELECT DISTINCT dbid, instance_number, startup_time, db_name, host_name
                   FROM dba_hist_database_instance@{LINK}
@@ -338,6 +370,7 @@ SELECT 26 AS seq, 'DATABASE_INSTANCE' AS source_name, 'D' AS kind, 'N' AS option
                 VALUES (s.dbid, s.instance_number, s.startup_time, s.db_name, s.host_name)~' AS pull_sql FROM dual
 UNION ALL
 SELECT 27 AS seq, 'ASM_DISKGROUP' AS source_name, 'D' AS kind, 'N' AS optional, 'CAP_H_ASM_DISKGROUP' AS copy_table,
+       CAST('DBA_HIST_ASM_DISKGROUP' AS VARCHAR2(40)) AS remote_view,
        q'~MERGE INTO cap_h_asm_diskgroup t
            USING (SELECT DISTINCT dbid, con_dbid, group_number, name
                   FROM dba_hist_asm_diskgroup@{LINK}
@@ -348,6 +381,7 @@ SELECT 27 AS seq, 'ASM_DISKGROUP' AS source_name, 'D' AS kind, 'N' AS optional, 
                 VALUES (s.dbid, s.con_dbid, s.group_number, s.name)~' AS pull_sql FROM dual
 UNION ALL
 SELECT 28 AS seq, 'SEG_STAT_OBJ' AS source_name, 'S' AS kind, 'N' AS optional, 'CAP_H_SEG_STAT_OBJ' AS copy_table,
+       CAST('DBA_HIST_SEG_STAT_OBJ' AS VARCHAR2(40)) AS remote_view,
        q'~MERGE INTO cap_h_seg_stat_obj t
            USING (SELECT DISTINCT dbid, con_dbid, ts#, obj#, dataobj#, owner, object_name, subobject_name, object_type, tablespace_name
                   FROM dba_hist_seg_stat_obj@{LINK}
@@ -359,7 +393,17 @@ SELECT 28 AS seq, 'SEG_STAT_OBJ' AS source_name, 'S' AS kind, 'N' AS optional, '
            ON (t.dbid = s.dbid AND DECODE(t.con_dbid, s.con_dbid, 1, 0) = 1 AND t.ts# = s.ts# AND t.obj# = s.obj# AND t.dataobj# = s.dataobj#)
            WHEN MATCHED THEN UPDATE SET t.owner = s.owner, t.object_name = s.object_name, t.subobject_name = s.subobject_name, t.object_type = s.object_type, t.tablespace_name = s.tablespace_name
            WHEN NOT MATCHED THEN INSERT (dbid, con_dbid, ts#, obj#, dataobj#, owner, object_name, subobject_name, object_type, tablespace_name)
-                VALUES (s.dbid, s.con_dbid, s.ts#, s.obj#, s.dataobj#, s.owner, s.object_name, s.subobject_name, s.object_type, s.tablespace_name)~' AS pull_sql FROM dual;
+                VALUES (s.dbid, s.con_dbid, s.ts#, s.obj#, s.dataobj#, s.owner, s.object_name, s.subobject_name, s.object_type, s.tablespace_name)~' AS pull_sql FROM dual
+UNION ALL
+SELECT 29 AS seq, 'TBSPC_LIVE' AS source_name, 'L' AS kind, 'Y' AS optional, 'CAP_H_TBSPC_LIVE' AS copy_table,
+       CAST('CDB_TABLESPACE_USAGE_METRICS' AS VARCHAR2(40)) AS remote_view,
+       q'~INSERT INTO cap_h_tbspc_live (dbid, con_dbid, tablespace_name, tablespace_size, used_space, collected_at)
+           SELECT :1, t.con_dbid, m.tablespace_name, m.tablespace_size, m.used_space, SYSDATE
+           FROM cdb_tablespace_usage_metrics@{LINK} m
+           JOIN (SELECT DISTINCT NVL(con_id, 0) AS con_id, con_dbid, tsname
+                 FROM dba_hist_tablespace@{LINK}
+                 WHERE dbid = :2) t
+             ON t.con_id = m.con_id AND t.tsname = m.tablespace_name~' AS pull_sql FROM dual;
 
 @@repository/cap_repo.sql
 
@@ -770,6 +814,16 @@ JOIN   cap_h_seg_stat_obj o
  AND   o.ts# = s.ts# AND o.obj# = s.obj# AND o.dataobj# = s.dataobj#
 WHERE  s.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), s.dbid)
   AND  o.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), o.dbid);
+
+CREATE OR REPLACE VIEW capv_tbspc_live AS
+SELECT dbid                     AS dbid,
+       con_dbid                 AS con_dbid,
+       tablespace_name          AS tablespace_name,
+       tablespace_size          AS ceiling_blocks,
+       used_space               AS used_blocks,
+       collected_at             AS collected_at
+FROM   cap_h_tbspc_live
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 CREATE OR REPLACE VIEW capv_contract AS
 WITH src AS (

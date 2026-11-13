@@ -22,6 +22,8 @@
 -- there only a source row missing from the copy is a difference; copy-only
 -- rows are listed as kept. A stale copy of a keyed row still shows as its
 -- source row missing.
+-- A kind L copy (CAP_H_TBSPC_LIVE) is not compared: its source is a live
+-- view with no snapshot to pin, so its numbers move between collect and check.
 -- Prints "COPYCHECK <target> dbid=<n> <source> ..." per source and DBID, its
 -- first 10 differing rows, and one closing line
 --   COPYCHECK-RESULT EQUAL | DIFFERENT | MOVED | FAILED ...
