@@ -470,6 +470,12 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
 - **Positional args:** `COLUMN 1 NEW_VALUE 1` + a zero-row SELECT defines an
   unpassed `&1` as empty and leaves a passed one intact (verified 19c);
   scripts `UNDEFINE 1 2 3` at the end so a later script doesn't inherit them.
+  Never `NULLIF(TRIM('&1'), '-')`: `TRIM('')` folds to the NULL literal,
+  which NULLIF rejects as its first argument (ORA-00932 exactly when the
+  argument is omitted, 19.27; under TERMOUT OFF it left a lone `top_n`
+  ignored). Write `DECODE(TRIM('&1'), '-', NULL, TRIM('&1'))`.
+  `test/lint_nullif_args.sh` enforces it, and `test/snapshot_parity.sh`
+  passes `top_n` 12 alone on its unscoped LIVE runs and checks the spools.
 - **A substitution variable cannot hold a whole command line** (SP2-0734),
   only its arguments: uninstall.sql runs `SPOOL &cap_replay_spool`, the
   variable being the replay file's name or `OFF`.

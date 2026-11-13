@@ -92,12 +92,15 @@ FROM   dual;
 -- omitted argument is the empty string, and '' IS NULL in Oracle, so NVL
 -- picks the default; '-' does the same, so a caller can skip an argument to
 -- reach a later one. Re-DEFINEs the same three names the sections already use.
+-- DECODE, not NULLIF(TRIM('&1'), '-'): with an empty argument TRIM('') folds
+-- to the NULL literal, which NULLIF rejects as its first argument (ORA-00932,
+-- 19.27). Under TERMOUT OFF the failed SELECT left all three at the defaults.
 COLUMN eff_top_n NEW_VALUE top_n        NOPRINT
 COLUMN eff_anom  NEW_VALUE anomaly_days NOPRINT
 COLUMN eff_esm   NEW_VALUE show_esm     NOPRINT
-SELECT NVL(NULLIF(TRIM('&1'), '-'), '&top_n')                  AS eff_top_n,
-       NVL(NULLIF(TRIM('&2'), '-'), '&anomaly_days')           AS eff_anom,
-       NVL(NULLIF(UPPER(TRIM('&3')), '-'), UPPER('&show_esm')) AS eff_esm
+SELECT NVL(DECODE(TRIM('&1'), '-', NULL, TRIM('&1')), '&top_n')                      AS eff_top_n,
+       NVL(DECODE(TRIM('&2'), '-', NULL, TRIM('&2')), '&anomaly_days')               AS eff_anom,
+       NVL(DECODE(TRIM('&3'), '-', NULL, UPPER(TRIM('&3'))), UPPER('&show_esm'))     AS eff_esm
 FROM   dual;
 
 -- Scope and identity (report/scope.sql): cap_sdbid / cap_scon, which every

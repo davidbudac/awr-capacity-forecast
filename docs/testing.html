@@ -1138,6 +1138,21 @@ All fixture assertions passed.</pre>
             </div>
             <div class="callout tip">
               <span class="ico">▸</span>
+              <p><strong>Argument lint.</strong>
+              An omitted positional argument is the empty string, and <code>TRIM('')</code> folds to the
+              NULL literal, which <code>NULLIF</code> rejects as its first argument:
+              <code>NULLIF(TRIM('&amp;1'), '-')</code> raises ORA-00932 exactly when the argument is left
+              out (19.27). The report drivers ran that under <code>TERMOUT OFF</code>, so
+              <span class="inline">@report/report.sql 40</span> printed the top 10.
+              <span class="inline">test/lint_nullif_args.sh</span> fails on a <code>NULLIF</code> over a
+              function of a substitution variable in any tracked <code>.sql</code> file; write
+              <code>DECODE(TRIM('&amp;1'), '-', NULL, TRIM('&amp;1'))</code>.
+              <span class="inline">test/snapshot_parity.sh</span> proves the argument on the database: its
+              unscoped LIVE runs pass <code>top_n</code> alone and both spools must show it. Standalone:
+              <span class="inline">test/lint_nullif_args.sh</span> from the repo root.</p>
+            </div>
+            <div class="callout tip">
+              <span class="ico">▸</span>
               <p><strong>Other levers.</strong>
               <span class="inline">test/scope_plan.sql</span> EXPLAINs every view of the schema and
               counts the seam reads whose predicates lack the session scope; the count must be 0, and

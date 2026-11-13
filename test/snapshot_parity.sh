@@ -14,6 +14,11 @@
 #      the HTML data block must match without its source / generated /
 #      file / run / seconds fields, the briefing without its generated line
 #      and file name.
+#      The unscoped runs pass top_n 12: LIVE as the only argument
+#      (@report/report.sql 12), SNAPSHOT with '-' for the arguments between.
+#      Both spools must say "top 12" and the HTML data "topN":12, so an
+#      argument list with omitted arguments is honoured (a lone top_n was
+#      once ignored: test/lint_nullif_args.sh).
 #   4. Every SQL statement the SNAPSHOT runs executed (V$SQL by MODULE
 #      AWRCAP/report/%, active since the first SNAPSHOT run) and the objects
 #      in its plan: none may read a CAP_FIXTURE_* seam source except
@@ -98,6 +103,11 @@ EXIT
 SQL
 }
 
+# top_args <LIVE|SNAPSHOT>: the unscoped argument list. LIVE passes top_n
+# alone, the form that leaves every later argument empty.
+TOPN=12
+top_args() { if [ "$1" = LIVE ]; then echo "$TOPN"; else echo "$TOPN - - - - $1"; fi; }
+
 for src in LIVE SNAPSHOT; do
   # V$SQL.LAST_ACTIVE_TIME has whole seconds: keep the LIVE runs' last
   # cursors out of the SNAPSHOT window.
@@ -105,9 +115,11 @@ for src in LIVE SNAPSHOT; do
   for scope in - 42424242; do
     tag=$(echo "$scope" | tr -d -)
     l=text_${src}_${tag:-all}
+    args="- - - $scope - $src"
+    [ "$scope" = - ] && args=$(top_args $src)
     sq "$l" <<SQL
 DEFINE timing = Y
-@report/report.sql - - - $scope - $src
+@report/report.sql $args
 SQL
     f=$(written "$l" 'Report written to:')
     if [ -n "$f" ] && [ -f "$f" ]; then mv "$f" "$OUT/$l.txt"; else echo "ERROR $l: no spool"; rc=1; fi
@@ -122,7 +134,7 @@ SQL
     l=${drv}_${src}_all
     f=report/report_html.sql; [ $drv = brief ] && f=report/report_brief.sql
     sq "$l" <<SQL
-@$f - - - - - $src
+@$f $(top_args $src)
 SQL
     p=$(written "$l" 'Report written to:')
     if [ -n "$p" ] && [ -f "$p" ]; then
@@ -132,6 +144,15 @@ SQL
       echo "ERROR $l: no spool"; rc=1
     fi
   done
+done
+
+for src in LIVE SNAPSHOT; do
+  if grep -q "top $TOPN) ==" "$OUT/text_${src}_all.txt" 2>/dev/null \
+     && grep -q "\"topN\":$TOPN," "$OUT/html_${src}_all.html" 2>/dev/null; then
+    echo "SAME args $src: top_n $TOPN in the text and HTML reports ($(top_args $src))"
+  else
+    echo "DIFF args $src: top_n $TOPN not honoured by report.sql or report_html.sql ($(top_args $src))"; rc=1
+  fi
 done
 
 strip() { grep -v -E '^ *(Generated|Source) *:|^timing for:|^Elapsed:' "$1"; }

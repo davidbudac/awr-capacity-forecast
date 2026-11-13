@@ -64,12 +64,13 @@ COLUMN 6 NEW_VALUE 6 NOPRINT
 SELECT NULL AS "1", NULL AS "2", NULL AS "3",
        NULL AS "4", NULL AS "5", NULL AS "6" FROM dual WHERE 1 = 0;
 
+-- DECODE, not NULLIF: see report/report.sql (ORA-00932 on an empty argument).
 COLUMN eff_top_n NEW_VALUE top_n        NOPRINT
 COLUMN eff_anom  NEW_VALUE anomaly_days NOPRINT
 COLUMN eff_esm   NEW_VALUE show_esm     NOPRINT
-SELECT NVL(NULLIF(TRIM('&1'), '-'), '&top_n')                  AS eff_top_n,
-       NVL(NULLIF(TRIM('&2'), '-'), '&anomaly_days')           AS eff_anom,
-       NVL(NULLIF(UPPER(TRIM('&3')), '-'), UPPER('&show_esm')) AS eff_esm
+SELECT NVL(DECODE(TRIM('&1'), '-', NULL, TRIM('&1')), '&top_n')                      AS eff_top_n,
+       NVL(DECODE(TRIM('&2'), '-', NULL, TRIM('&2')), '&anomaly_days')               AS eff_anom,
+       NVL(DECODE(TRIM('&3'), '-', NULL, UPPER(TRIM('&3'))), UPPER('&show_esm'))     AS eff_esm
 FROM   dual;
 
 -- Scope and identity: cap_sdbid / cap_scon, cap_db / cap_host / cap_user /
