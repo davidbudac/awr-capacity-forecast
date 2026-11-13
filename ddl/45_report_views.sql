@@ -112,15 +112,23 @@ WITH pt AS (
         WHERE  a.anomaly_flag IS NOT NULL
           AND  a.kind_last_day IS NOT NULL
      ),
+     -- How a scored value reads, by its unit: value / div in format fmt,
+     -- then sfx. One row per CAPA_OBS unit. A unit without a row prints
+     -- the plain number and the unit's own name, so a new series needs a
+     -- row here only for a nicer label.
+     ut AS (
+        SELECT 'BYTES_PER_DAY' AS unit, 1048576 AS div, 'FM999999990.0' AS fmt, ' MiB/day' AS sfx FROM dual
+        UNION ALL SELECT 'PCT',         1, 'FM9999990.0',   '%'        FROM dual
+        UNION ALL SELECT 'COUNT',       1, 'FM99999999990', NULL       FROM dual
+        UNION ALL SELECT 'GIB',         1, 'FM9999990.00',  ' GiB'     FROM dual
+        UNION ALL SELECT 'GIB_PER_DAY', 1, 'FM9999990.00',  ' GiB/day' FROM dual
+        UNION ALL SELECT 'IO_PER_SEC',  1, 'FM99999999990', ' IO/s'    FROM dual
+        UNION ALL SELECT 'MB_PER_SEC',  1, 'FM9999990.0',   ' MB/s'    FROM dual
+     ),
      fmt AS (
         SELECT p.*,
-               CASE p.unit
-                   WHEN 'BYTES_PER_DAY' THEN TO_CHAR(p.expected / 1048576, 'FM999999990.0') || ' MiB/day'
-                   WHEN 'PCT'           THEN TO_CHAR(p.expected, 'FM9999990.0') || '%'
-                   WHEN 'COUNT'         THEN TO_CHAR(p.expected, 'FM99999999990')
-                   WHEN 'GIB'           THEN TO_CHAR(p.expected, 'FM9999990.00') || ' GiB'
-                   ELSE                      TO_CHAR(p.expected, 'FM9999990.00') || ' GiB/day'
-               END                                                            AS expected_txt,
+               TO_CHAR(p.expected / NVL(u.div, 1), NVL(u.fmt, 'FM9999990.00'))
+                 || CASE WHEN u.unit IS NULL THEN ' ' || LOWER(p.unit) ELSE u.sfx END AS expected_txt,
                CASE p.anomaly_kind
                    WHEN 'TBSPC_GROWTH' THEN
                        'Tablespace ' || p.series
@@ -137,9 +145,8 @@ WITH pt AS (
                    WHEN 'CPU_BUSY'   THEN 'Host CPU ' || TO_CHAR(p.value, 'FM990.0') || '% busy'
                    WHEN 'DBCPU_BUSY' THEN 'DB CPU ' || TO_CHAR(p.value, 'FM990.0') || '% of logical CPUs'
                    ELSE p.series || ' at '
-                        || CASE p.unit WHEN 'COUNT' THEN TO_CHAR(p.value, 'FM99999999990')
-                                       WHEN 'GIB'   THEN TO_CHAR(p.value, 'FM9999990.00') || ' GiB'
-                                       ELSE TO_CHAR(p.value, 'FM9999990.00') || ' GiB/day' END
+                        || TO_CHAR(p.value / NVL(u.div, 1), NVL(u.fmt, 'FM9999990.00'))
+                        || CASE WHEN u.unit IS NULL THEN ' ' || LOWER(p.unit) ELSE u.sfx END
                END                                                            AS subject,
                CASE p.baseline_mode
                    WHEN 'TRAILING' THEN 'over the last ' || TO_CHAR(p.mad_window_days, 'FM9990') || ' days'
@@ -147,6 +154,7 @@ WITH pt AS (
                    ELSE 'for ' || p.dy || ' ' || TO_CHAR(p.ts, 'HH24') || ':00'
                END                                                            AS phrase
         FROM   pt p
+        LEFT   JOIN ut u ON u.unit = p.unit
      ),
      ev AS (
         SELECT f.dbid, f.con_dbid, f.ts, f.kind, f.series, f.anomaly_kind, f.anomaly_flag,

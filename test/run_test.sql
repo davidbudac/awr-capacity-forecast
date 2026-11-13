@@ -5300,6 +5300,119 @@ BEGIN
             chk_int('unit spikes: CAPR_ANOM_VOLUME rows (5 shipped + 4 series + 2 HOUR_OF_WEEK)', v_rows, 11);
             chk_int('unit spikes: rows matched by key', v_seen, 5);
             chk_int('unit spikes: floor knobs suggested for (all seven)', v_max.COUNT, 7);
+
+            -- ---- U22 begin: anomaly text and alert unit ---------------------
+            -- CAPR_ANOMALIES words a value in its series' unit and
+            -- CAPR_ALERTS carries that unit: the I/O series read IO/s and
+            -- MB/s (they read GiB/day, alert unit GIB). Day 112 as spiked
+            -- above, each value against the median of its 28 days before,
+            -- 14.5 daily steps back:
+            --   IOPS         1950 + 9.5 x 112 + 9500 = 12514, usual 2876.25
+            --   IO_MBPS      48.5 + 95 = 143.5, usual 48.5
+            --   PROCESSES    150 + 100, usual 150
+            --   PGA_ALLOC_GB 1 + 112 / 1200 + 1 = 2.093, usual 1.081 GiB
+            -- and from the shipped fixture FIX_SPIKE (+2 GiB on its 5
+            -- MiB/day), DB_SIZE_GB on that day, the host's injected Tuesday.
+            DECLARE
+                d_c     DATE := d_base + c_day;
+                v_io    VARCHAR2(4000);
+                v_hit   PLS_INTEGER := 0;
+                TYPE t_unit IS TABLE OF VARCHAR2(30) INDEX BY VARCHAR2(256);
+                v_unit  t_unit;
+                v_got   t_unit;
+                PROCEDURE chk_text(p_tag VARCHAR2, p_unit VARCHAR2, p_msg VARCHAR2,
+                                   e_unit VARCHAR2, e_head VARCHAR2) IS
+                BEGIN
+                    v_hit := v_hit + 1;
+                    chk_str(p_tag || ' unit', p_unit, e_unit);
+                    chk_true(p_tag || ' message starts "' || e_head || '" (got ' || p_msg || ')',
+                             SUBSTR(p_msg, 1, LENGTH(e_head)) = e_head);
+                    chk_true(p_tag || ' message ends in the robust z and the percent vs median',
+                             REGEXP_LIKE(SUBSTR(p_msg, LENGTH(e_head) + 1),
+                                         '^(off-scale|[+-][0-9.]+)( \([+-][0-9]+% vs median\))?(, [+-][0-9]+% vs [0-9]+-day avg rate)?$'));
+                END;
+            BEGIN
+                DBMS_OUTPUT.PUT_LINE('=== anomaly text and alert unit follow the series'' unit ===');
+                FOR r IN (SELECT kind, series, obs_day, unit, message
+                          FROM   capr_anomalies
+                          WHERE  dbid = v_dbid AND con_dbid = v_dbid AND grain = 'DAY'
+                            AND  ((kind = 'SERIES' AND baseline_mode = 'TRAILING' AND obs_day IN (d_c, d_spike))
+                               OR (kind = 'TBSPC' AND series = 'FIX_SPIKE' AND baseline_mode = 'TRAILING'
+                                   AND obs_day = d_spike)
+                               OR (kind = 'CPU' AND series = 'BUSY_PCT' AND baseline_mode = 'SAME_DOW'
+                                   AND obs_day = d_inj))) LOOP
+                    IF r.series = 'IOPS' THEN
+                        v_io := r.message;
+                        chk_text('IOPS anomaly', r.unit, r.message, 'io_per_sec',
+                                 'IOPS at ' || TO_CHAR(1950 + 9.5 * c_day + 0.95 * 10000) || ' IO/s on '
+                                 || TO_CHAR(d_c, 'YYYY-MM-DD') || ' vs usual '
+                                 || TO_CHAR(ROUND(1950 + 9.5 * (c_day - 14.5))) || ' IO/s over the last 28 days, robust z ');
+                    ELSIF r.series = 'IO_MBPS' THEN
+                        chk_text('IO_MBPS anomaly', r.unit, r.message, 'mb_per_sec',
+                                 'IO_MBPS at 143.5 MB/s on ' || TO_CHAR(d_c, 'YYYY-MM-DD')
+                                 || ' vs usual 48.5 MB/s over the last 28 days, robust z ');
+                    ELSIF r.series = 'PROCESSES' THEN
+                        chk_text('PROCESSES anomaly', r.unit, r.message, 'count',
+                                 'PROCESSES at 250 on ' || TO_CHAR(d_c, 'YYYY-MM-DD')
+                                 || ' vs usual 150 over the last 28 days, robust z ');
+                    ELSIF r.series = 'PGA_ALLOC_GB' THEN
+                        chk_text('PGA_ALLOC_GB anomaly', r.unit, r.message, 'gib',
+                                 'PGA_ALLOC_GB at ' || TO_CHAR(2 + c_day / 1200, 'FM990.00') || ' GiB on '
+                                 || TO_CHAR(d_c, 'YYYY-MM-DD') || ' vs usual '
+                                 || TO_CHAR(1 + (c_day - 14.5) / 1200, 'FM990.00')
+                                 || ' GiB over the last 28 days, robust z ');
+                    ELSIF r.series = 'DB_SIZE_GB' THEN
+                        v_hit := v_hit + 1;
+                        chk_str('DB_SIZE_GB anomaly unit', r.unit, 'gib_per_day');
+                        chk_true('DB_SIZE_GB anomaly message in GiB and GiB/day (got ' || r.message || ')',
+                                 REGEXP_LIKE(r.message, '^DB_SIZE_GB grew [0-9]+\.[0-9]{2} GiB on '
+                                     || TO_CHAR(d_spike, 'YYYY-MM-DD')
+                                     || ' vs usual [0-9]+\.[0-9]{2} GiB/day over the last 28 days, robust z '));
+                    ELSIF r.series = 'FIX_SPIKE' THEN
+                        chk_text('FIX_SPIKE anomaly', r.unit, r.message, 'bytes_per_day',
+                                 'Tablespace FIX_SPIKE grew 2.00 GiB on ' || TO_CHAR(d_spike, 'YYYY-MM-DD')
+                                 || ' vs usual 5.0 MiB/day over the last 28 days, robust z ');
+                    ELSIF r.series = 'BUSY_PCT' THEN
+                        chk_text('BUSY_PCT anomaly', r.unit, r.message, 'pct',
+                                 'Host CPU 70.0% busy on ' || TO_CHAR(d_inj, 'YYYY-MM-DD')
+                                 || ' vs usual 40.0% for that weekday, robust z ');
+                    END IF;
+                END LOOP;
+                chk_int('anomaly text: the seven series were found', v_hit, 7);
+                chk_true('anomaly text: no I/O message names GiB',
+                         v_io IS NOT NULL AND INSTR(v_io, 'GiB') = 0);
+
+                v_unit('IOPS') := 'IO_PER_SEC';  v_unit('IO_MBPS') := 'MB_PER_SEC';
+                v_unit('PROCESSES') := 'COUNT';  v_unit('PGA_ALLOC_GB') := 'GIB';
+                v_unit('DB_SIZE_GB') := 'GIB';   v_unit('FIX_SPIKE') := 'BYTES';
+                v_unit('FIX_GAP') := 'BYTES';    v_unit('BUSY_PCT') := 'PCT';
+                FOR r IN (SELECT kind, series_key, unit, value, message, n_days, baseline_mode
+                          FROM   capr_alerts
+                          WHERE  dbid = v_dbid AND con_dbid = v_dbid
+                            AND  kind IN ('TBSPC_ANOM', 'CPU_ANOM', 'SERIES_ANOM')) LOOP
+                    chk_true('alert ' || r.kind || ' ' || r.series_key || ' ' || r.baseline_mode || ' unit '
+                             || r.unit, v_unit.EXISTS(r.series_key) AND r.unit = v_unit(r.series_key));
+                    v_got(r.series_key) := r.unit;
+                    IF r.series_key = 'IOPS' THEN
+                        chk_close('alert IOPS value', r.value, 1950 + 9.5 * c_day + 0.95 * 10000, 0.000000001);
+                        chk_true('alert IOPS: one day, the message is the anomaly''s', r.n_days = 1 AND r.message = v_io);
+                    END IF;
+                END LOOP;
+                chk_int('alert units: anomaly alerts of all eight series', v_got.COUNT, v_unit.COUNT);
+                -- cap_results.refresh stores the unit in CAP_ALERT_STATE:
+                -- the column must hold whatever the view can give (it was
+                -- 8 characters, IO_PER_SEC is 10).
+                SELECT MAX(CASE WHEN table_name = 'CAPR_ALERTS' THEN char_length END),
+                       MAX(CASE WHEN table_name = 'CAP_ALERT_STATE' THEN char_length END)
+                  INTO v_a, v_b
+                  FROM all_tab_columns
+                 WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+                   AND ((table_name = 'CAPR_ALERTS' AND column_name = 'UNIT')
+                     OR (table_name = 'CAP_ALERT_STATE' AND column_name = 'LAST_UNIT'));
+                chk_true('CAP_ALERT_STATE.last_unit (' || v_b || ') holds CAPR_ALERTS.unit (' || v_a
+                         || ') and IO_PER_SEC', v_b >= v_a AND v_b >= LENGTH('IO_PER_SEC'));
+            END;
+            -- ---- U22 end: anomaly text and alert unit -----------------------
             knob('series_floor_count', 100);
             SELECT MAX(flagged_days), MAX(suggested_floor) INTO v_a, v_b FROM capr_anom_volume
               WHERE series = 'PROCESSES';

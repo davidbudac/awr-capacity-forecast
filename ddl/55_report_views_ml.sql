@@ -416,7 +416,10 @@ LEFT   JOIN capr_container c
 --              ends ' (level shift active)': the CPU_SHIFT row is the one
 --              alert for that step.
 --   value, unit       the number that crossed (DAYS, PCT, HOURS, COUNT, BYTES,
---                     GIB)
+--                     GIB, IO_PER_SEC, MB_PER_SEC). An anomaly row carries
+--                     its series' unit (CAPR_ANOMALIES.unit in upper case),
+--                     with BYTES for a tablespace's bytes a day and GIB for
+--                     both GiB and GiB a day.
 --   threshold         the level it crossed: on the forecast kinds the CRIT
 --                     threshold on a CRIT row and the WARN one otherwise; on
 --                     an anomaly kind the bound crossed (expected +/- the
@@ -620,8 +623,8 @@ WITH alerts AS (
                e.obs_day,
                e.value,
                e.expected + SIGN(e.value - e.expected) * e.threshold,
-               CASE e.unit WHEN 'bytes_per_day' THEN 'BYTES' WHEN 'pct' THEN 'PCT'
-                           WHEN 'count' THEN 'COUNT' ELSE 'GIB' END,
+               CASE e.unit WHEN 'bytes_per_day' THEN 'BYTES' WHEN 'gib_per_day' THEN 'GIB'
+                           ELSE UPPER(e.unit) END,
                CASE WHEN e.n_days > 1
                     THEN e.n_days || ' consecutive days, latest ' || TO_CHAR(e.obs_day, 'YYYY-MM-DD')
                          || ', peak robust z ' || NVL(TO_CHAR(e.max_z, 'FMS999999990.0'), 'off-scale')

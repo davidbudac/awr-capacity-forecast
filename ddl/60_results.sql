@@ -164,7 +164,10 @@ BEGIN
     add_col('cap_alert_state', 'last_threshold  NUMBER');
     add_col('cap_alert_state', 'last_alarm      NUMBER');
     add_col('cap_alert_state', 'last_direction  VARCHAR2(3)');
-    add_col('cap_alert_state', 'last_unit       VARCHAR2(8)');
+    add_col('cap_alert_state', 'last_unit       VARCHAR2(32)');
+    -- Created as VARCHAR2(8). An anomaly alert carries its series' unit
+    -- (IO_PER_SEC), which refresh could not store. Widening is idempotent.
+    EXECUTE IMMEDIATE 'ALTER TABLE cap_alert_state MODIFY (last_unit VARCHAR2(32))';
     add_col('cap_alert_state', 'last_message    VARCHAR2(4000)');
     add_col('cap_alert_state', 'last_first_day  DATE');
     add_col('cap_alert_state', 'last_n_days     NUMBER');
