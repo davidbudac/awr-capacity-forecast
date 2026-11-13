@@ -268,8 +268,9 @@ LEFT   JOIN capr_container c
 --   mode_knob / mode_bit  the alert_modes knob of the family and the bit of
 --                 this mode: clearing it stops the mode alerting for the
 --                 whole family.
---   noisy         'Y' when episodes >= noise_episodes or flagged_pct >=
---                 noise_flag_pct.
+--   noisy         'Y' when episodes >= noise_episodes, or flagged_pct >=
+--                 noise_flag_pct on at least noise_min_days scored days (one
+--                 flagged day of one scored is 100%, and says nothing).
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_anom_volume AS
 WITH fk AS (
@@ -348,7 +349,8 @@ SELECT s.dbid,
        m.mode_knob,
        s.mode_bit,
        CASE WHEN s.episodes >= cfg.noise_episodes
-              OR 100 * s.flagged_days / s.scored_days >= cfg.noise_flag_pct
+              OR (s.scored_days >= cfg.noise_min_days
+                  AND 100 * s.flagged_days / s.scored_days >= cfg.noise_flag_pct)
             THEN 'Y' ELSE 'N' END                                     AS noisy
 FROM   s
 CROSS  JOIN cap_cfg cfg

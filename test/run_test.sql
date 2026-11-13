@@ -5237,6 +5237,57 @@ BEGIN
             SELECT COUNT(*) INTO v_n FROM cap_cfg WHERE noise_episodes = 3 AND noise_flag_pct = 10;
             chk_int('CAP_CFG noise_episodes 3, noise_flag_pct 10', v_n, 1);
 
+            -- ---- U22 begin: noise_min_days ---------------------------------
+            -- The share rule (noise_flag_pct) needs noise_min_days scored
+            -- days. Shipped 7, and every fixture series is scored on all 14
+            -- days of the window, so the two noisy series above stand. At
+            -- 15 no series has the days and none reaches noise_episodes 3;
+            -- at 14 both are back. The episode rule needs no days.
+            DBMS_OUTPUT.PUT_LINE('=== alert volume: noise_min_days ===');
+            SELECT COUNT(*) INTO v_n FROM cap_cfg WHERE noise_min_days = 7;
+            chk_int('CAP_CFG noise_min_days 7', v_n, 1);
+            SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'noise_min_days';
+            chk_str('CAP_CFG_CHECK noise_min_days as shipped', v_str, 'OK');
+            knob('noise_min_days', 15);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END), COUNT(*) INTO v_a, v_b FROM capr_anom_volume;
+            chk_true('noise_min_days 15 (window 14): no noisy series, the 5 rows stay (got ' || v_a || ' / ' || v_b || ')',
+                     v_a = 0 AND v_b = 5);
+            knob('noise_min_days', 14);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END),
+                   COUNT(CASE WHEN noisy = 'Y' AND series IN ('FIX_GAP', 'DB_CPU_PCT') THEN 1 END)
+              INTO v_a, v_b FROM capr_anom_volume;
+            chk_true('noise_min_days 14: FIX_GAP (3 of 14) and FIXPDB1 DB_CPU_PCT (7 of 14) are noisy (got '
+                     || v_a || ' / ' || v_b || ')', v_a = 2 AND v_b = 2);
+            knob('noise_min_days', 15);
+            knob('noise_episodes', 1);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END) INTO v_a FROM capr_anom_volume;
+            chk_int('noise_min_days 15, noise_episodes 1: the episode rule needs no scored days', v_a, 5);
+            ROLLBACK TO SAVEPOINT u14_floor;
+            -- One scored day: anomaly_report_days 1 keeps the last day only,
+            -- and FIXPDB1's DB_CPU_PCT flags on it (its step covers the last
+            -- 7 days). 1 of 1 is 100 percent, above noise_flag_pct 10, and
+            -- read noisy before the knob. It does at noise_min_days 1.
+            knob('anomaly_report_days', 1);
+            SELECT MAX(scored_days), MAX(flagged_days), MAX(flagged_pct), MAX(episodes), MAX(noisy), COUNT(*)
+              INTO v_a, v_b, v_c, v_num, v_str, v_n
+              FROM capr_anom_volume
+             WHERE alert_kind = 'DBCPU_ANOM' AND series = 'DB_CPU_PCT' AND con_dbid = n_pdb;
+            chk_true('anomaly_report_days 1: DB_CPU_PCT 1 scored, 1 flagged, 100 percent, 1 episode (got ' || v_n
+                     || ' row: ' || v_a || ' / ' || v_b || ' / ' || v_c || ' / ' || v_num || ')',
+                     v_n = 1 AND v_a = 1 AND v_b = 1 AND v_c = 100 AND v_num = 1);
+            chk_str('1 of 1 scored days flagged, noise_min_days 7: not noisy', v_str, 'N');
+            knob('noise_min_days', 1);
+            SELECT MAX(noisy) INTO v_str FROM capr_anom_volume
+             WHERE alert_kind = 'DBCPU_ANOM' AND series = 'DB_CPU_PCT' AND con_dbid = n_pdb;
+            chk_str('1 of 1 scored days flagged, noise_min_days 1: noisy (the rule before the knob)', v_str, 'Y');
+            FOR k IN (SELECT 0 AS v FROM dual UNION ALL SELECT 2.5 FROM dual) LOOP
+                knob('noise_min_days', k.v);
+                SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'noise_min_days';
+                chk_str('CAP_CFG_CHECK noise_min_days ' || k.v, v_str, 'BAD');
+            END LOOP;
+            ROLLBACK TO SAVEPOINT u14_floor;
+            -- ---- U22 end: noise_min_days -----------------------------------
+
             -- Every unit and grain has its floor knob. Day 112 gets a spike
             -- in the four families the shipped fixture never flags, and
             -- alert_modes_cpu 6 adds the hour grain:

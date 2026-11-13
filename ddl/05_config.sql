@@ -136,6 +136,7 @@ USING (
     UNION ALL SELECT 'alert_modes_series',      1,        'M15 BITMASK of baseline modes raising SERIES_ANOM: 1=TRAILING 2=SAME_DOW (4 has no effect: day grain only).' FROM dual
     UNION ALL SELECT 'noise_episodes',          3,        'CAPR_ANOM_VOLUME: a series and baseline mode with at least this many anomaly episodes inside anomaly_report_days reads noisy = Y (doctor.sql section 12 suggests a floor).' FROM dual
     UNION ALL SELECT 'noise_flag_pct',         10,        'CAPR_ANOM_VOLUME: a series and baseline mode with at least this percent of its scored days flagged inside anomaly_report_days reads noisy = Y.' FROM dual
+    UNION ALL SELECT 'noise_min_days',          7,        'CAPR_ANOM_VOLUME: the noise_flag_pct rule needs at least this many scored days inside anomaly_report_days (1 flagged of 1 scored is 100 percent). noise_episodes applies at any count.' FROM dual
     UNION ALL SELECT 'stale_hours',            36,        'CAPR_ALERTS raises DATA_STALE for a dbid whose newest AWR snapshot ended at least this many hours before SYSDATE (the dead-man check).' FROM dual
     UNION ALL SELECT 'data_stale_max_days',    14,        'A dbid whose newest AWR snapshot is at least this many days old is retired: no DATA_STALE alert, listed in CAPR_COVERAGE with retired = Y.' FROM dual
     UNION ALL SELECT 'resolve_grace_runs',      2,        'Results layer: consecutive refresh runs an OPEN alert must be missing from CAPR_ALERTS before CAP_RESULTS.refresh marks it RESOLVED.' FROM dual
@@ -260,6 +261,7 @@ SELECT MAX(CASE WHEN cfg_name = 'train_days'             THEN cfg_value END) AS 
        MAX(CASE WHEN cfg_name = 'alert_modes_series'     THEN cfg_value END) AS alert_modes_series,
        MAX(CASE WHEN cfg_name = 'noise_episodes'         THEN cfg_value END) AS noise_episodes,
        MAX(CASE WHEN cfg_name = 'noise_flag_pct'         THEN cfg_value END) AS noise_flag_pct,
+       MAX(CASE WHEN cfg_name = 'noise_min_days'         THEN cfg_value END) AS noise_min_days,
        MAX(CASE WHEN cfg_name = 'stale_hours'            THEN cfg_value END) AS stale_hours,
        MAX(CASE WHEN cfg_name = 'data_stale_max_days'    THEN cfg_value END) AS data_stale_max_days,
        MAX(CASE WHEN cfg_name = 'resolve_grace_runs'     THEN cfg_value END) AS resolve_grace_runs,
@@ -357,7 +359,7 @@ WITH u AS (
                series_floor_count, series_floor_gib, series_floor_iops,
                series_floor_mbps, alert_modes_tbspc,
                alert_modes_cpu, alert_modes_series,
-               noise_episodes, noise_flag_pct,
+               noise_episodes, noise_flag_pct, noise_min_days,
                stale_hours,
                data_stale_max_days, resolve_grace_runs, refresh_stale_hours,
                digest_days, accuracy_horizon_days, accuracy_window_days,
@@ -405,6 +407,8 @@ WITH u AS (
                         THEN 'must be a whole number >= 1: anomaly episodes inside anomaly_report_days'
                    WHEN u.knob = 'noise_flag_pct'      AND (u.value <= 0 OR u.value > 100)
                         THEN 'must be > 0 and <= 100 (percent of the scored days)'
+                   WHEN u.knob = 'noise_min_days'      AND (u.value <> TRUNC(u.value) OR u.value < 1)
+                        THEN 'must be a whole number >= 1: scored days the noise_flag_pct rule needs'
                    WHEN u.knob = 'shift_days'          AND u.value > c.shift_baseline_days
                         THEN 'must be <= shift_baseline_days (' || c.shift_baseline_days || ')'
                    WHEN u.knob = 'esm_prediction_step' AND u.value NOT BETWEEN 1 AND 30

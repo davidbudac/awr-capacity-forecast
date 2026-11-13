@@ -35,8 +35,9 @@
 --
 -- Section 12 reads CAPR_ALERT_VOLUME once, live (no refresh run needed):
 -- the alerts the knobs raise now per kind, and for every noisy anomaly
--- series (noise_episodes, noise_flag_pct) the two ways to quiet it as
--- UPDATE cap_config statements. Its verdict is PASS or WARN, never FAIL.
+-- series (noise_episodes, noise_flag_pct, noise_min_days) the two ways to
+-- quiet it as UPDATE cap_config statements. Its verdict is PASS or WARN,
+-- never FAIL.
 --
 -- It leaves one SQL*Plus variable behind for callers: cap_doctor_fail, the
 -- number of FAIL lines ("1" if the block did not finish). quickstart.sql stops
@@ -1084,11 +1085,13 @@ BEGIN
             IF v_n = 0 THEN
                 emit('PASS', 'alert volume', 'OK: ' || v_rows || ' alerting series, none noisy'
                      || ' (noise_episodes ' || num(knob_raw('noise_episodes'))
-                     || ', noise_flag_pct ' || num(knob_raw('noise_flag_pct')) || ')');
+                     || ', noise_flag_pct ' || num(knob_raw('noise_flag_pct'))
+                     || ', noise_min_days ' || num(knob_raw('noise_min_days')) || ')');
             ELSE
                 emit('WARN', 'alert volume', v_n || ' noisy series of ' || v_rows || ' alerting'
                      || ' (noise_episodes ' || num(knob_raw('noise_episodes'))
                      || ', noise_flag_pct ' || num(knob_raw('noise_flag_pct'))
+                     || ', noise_min_days ' || num(knob_raw('noise_min_days'))
                      || '): tuning advice above, not a fault');
             END IF;
         EXCEPTION

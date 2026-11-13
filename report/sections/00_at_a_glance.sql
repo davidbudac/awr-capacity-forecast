@@ -74,7 +74,8 @@ ORDER  BY grp, stale_first, sev_rank, kind, db_pdb, series_key, day_dt;
 COLUMN noise_line FORMAT A160 WORD_WRAPPED HEADING 'NOISY SERIES'
 
 SELECT COUNT(*) || ' anomaly series alert often (' || MAX(window_days) || '-day window, knobs noise_episodes / '
-       || 'noise_flag_pct). Run @doctor.sql: section 12 lists them with the knob change that quiets each.'
+       || 'noise_flag_pct / noise_min_days). Run @doctor.sql: section 12 lists them with the knob change that '
+       || 'quiets each.'
        AS noise_line
 FROM   capr_anom_volume&cap_s
 WHERE  noisy = 'Y'
