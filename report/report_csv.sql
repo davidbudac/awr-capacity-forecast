@@ -7,9 +7,10 @@
 -- capr_tbspc_forecast, capr_tbspc_anomalies, capr_cpu_trend,
 -- capr_cpu_anomalies, capr_cpu_shifts, capr_series, capr_fit,
 -- capr_anomalies, and the memory sizing views capr_mem_verdict,
--- capr_mem_evidence, capr_mem_components, capr_mem_comp_points, and the
--- forecast track record capr_fit_track, and the tablespace families
--- capr_tbspc_family, capr_tbspc_family_members. Every column of the view, every row in the scope (no top_n
+-- capr_mem_evidence, capr_mem_components, capr_mem_comp_points, the
+-- forecast track record capr_fit_track, the tablespace families
+-- capr_tbspc_family, capr_tbspc_family_members, and capr_disk
+-- (the shared disk of each database). Every column of the view, every row in the scope (no top_n
 -- bound), so a spreadsheet or a script gets what the reports format. A view
 -- with no rows in the scope leaves an empty file: SQL*Plus prints no header
 -- without a row.
@@ -240,6 +241,15 @@ FROM   capr_tbspc_family_members&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, con_dbid, family_name, member_seq;
+SPOOL OFF
+
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_disk')
+SPOOL &cap_dir/capr_disk.csv
+SELECT *
+FROM   capr_disk&cap_s
+WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
+ORDER  BY dbid, disk_name;
 SPOOL OFF
 
 SET MARKUP CSV OFF

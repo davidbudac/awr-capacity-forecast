@@ -987,6 +987,9 @@ h1 {
       out.push({ l: 'Growth', v: m.unit.rate(f.slope), s: f.accel != null && f.accel >= 1.5 ? 'accelerating \u00d7' + num(f.accel, 1) : 'fit over ' + (f.n || '\u2013') + ' d' + since });
     }
     out.push(dtfFact(f, 'Full in'));
+    // The disk the tablespaces share stops it before its own limit (CAPR_FIT.dtf_shared).
+    if (f.dtfSh != null && (f.dtf == null || f.dtfSh < f.dtf))
+      out.push({ l: 'On the shared disk', v: fDays(f.dtfSh), s: 'stuck at ' + num(f.limSh, 1) + ' GiB' + (f.disk ? ', disk ' + esc(f.disk) : '') });
     if (f.need90 > 0) out.push({ l: 'Add for 90 d', v: num(f.need90, 1) + '<small>GiB</small>', s: f.addBy ? 'by ' + fDay(dayN(f.addBy)) : '' });
     if (f.below) out.push({ l: 'Limit', v: 'below used', tone: 'crit' });
     return out;
@@ -1054,6 +1057,7 @@ h1 {
     var u = m ? m.unit : unitFor(a.u);
     switch (a.kind) {
       case 'TBSPC_FULL': return 'full in <b>' + fDays(a.v) + '</b>';
+      case 'DISK_FULL': return 'shared disk full in <b>' + fDays(a.v) + '</b>';
       case 'CPU_SAT': case 'DBCPU_SAT': return CPU_SAT + '% busy in <b>' + fDays(a.v) + '</b>';
       case 'SERIES_LIMIT': return SERIES_SAT + '% of limit in <b>' + fDays(a.v) + '</b>';
       case 'TBSPC_NEARFULL': return '<b>' + num(a.v, 1) + '%</b> used';
@@ -1535,6 +1539,22 @@ h1 {
       ' at ' + first.unit.rate(fillRate(f)) + ', ' + num(f.pct, 1) + '% used now</a>';
   }
 
+  /* The disk the datafiles of a database share (CAPR_DISK): one sentence each. */
+  function diskHtml() {
+    var ds = D.disks || [];
+    if (!ds.length) return '';
+    return '<h3>Shared disk</h3>' + ds.map(function (d) {
+      var head = '<div class="lead">' + esc(d.db) + ' <span>' + esc(d.disk) + '</span>: ';
+      if (d.free == null) return head + 'free space not known. Set it in CAP_DISK_OVERRIDE to forecast the disk.</div>';
+      var tone = d.sev === 'CRIT' ? 'crit' : d.sev === 'WARN' ? 'warn' : '';
+      return head + '<b>' + num(d.free, 1) + ' GiB</b> free (' +
+        (d.src === 'OVERRIDE' ? 'set by the operator' : 'from the live tablespace ceilings') + (d.asOf ? ', ' + fDay(dayN(d.asOf)) : '') + '), ' +
+        (d.dtf != null ? 'full in <b class="' + tone + '">' + fDays(d.dtf) + '</b>' + (d.fullDay ? ' (by ' + fDayY(dayN(d.fullDay)) + (d.dtfW != null ? ', worst case ' + fDays(d.dtfW) : '') + ')' : '')
+          : 'does <b>not fill</b> at the fitted rates') +
+        '. ' + (d.nGrow || 0) + ' growing tablespaces take ' + num(d.grow, 1) + ' MiB a day' + (d.top ? ': ' + esc(d.top) + ' MiB/day' : '') + '</div>';
+    }).join('');
+  }
+
   function spaceHtml() {
     var ts = famMetrics('tablespaces'), dbs = famMetrics('db-size');
     if (!ts.length && !dbs.length) return '';
@@ -1561,6 +1581,7 @@ h1 {
         var f = m.f, r = fillRate(f);
         out.push(spaceRow(m, [num(f.pct, 1) + '%', m.unit.rate(r), sign(r) + fBytes(Math.abs(r) * 30), dtfFact(f, '').v]));
       });
+      out.push(diskHtml());
     }
     out.push('</div>');
     return out.join('');

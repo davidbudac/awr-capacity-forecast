@@ -272,6 +272,33 @@ try {
   check(false, 'render with a track block throws: ' + e.message);
 }
 
+// The shared disk (CAPR_DISK, block "disks") and the tablespace fact it
+// feeds: the demo page has no such block, so one is built here. A disk with
+// free space reads as one sentence, one without says how to supply it, and a
+// tablespace the disk stops before its own limit gets the fact.
+try {
+  const ts = d.fits.filter(f => f.k === 'TBSPC' && f.dtf != null)[0];
+  const disks = [
+    { dbid: ts.dbid, con: ts.dbid, db: 'ECOMPRD', disk: '/u02', src: 'OVERRIDE', asOf: d.meta.lastDay, free: 1.38, alloc: 3.2,
+      dtf: 50, dtfW: 41, fullDay: d.meta.lastDay, nTs: 4, nGrow: 3, grow: 36, top: 'C 16.0, A 10.0, B 10.0', sev: 'WARN', gate: null },
+    { dbid: ts.dbid + 1, con: ts.dbid + 1, db: 'OTHER', disk: 'DATAFILES', src: 'NONE', asOf: null, free: null, alloc: 9,
+      dtf: null, dtfW: null, fullDay: null, nTs: 2, nGrow: 0, grow: 0, top: null, sev: 'OK', gate: null }
+  ];
+  const withDisk = Object.assign({}, d, {
+    disks,
+    fits: d.fits.map(f => f === ts ? Object.assign({}, f, { dtfSh: Math.max(0, f.dtf - 5), dtfShW: 1, limSh: 12.34, disk: '/u02' }) : f)
+  });
+  const h = render(JSON.stringify(withDisk));
+  check(!h.includes('undefined') && !h.includes('NaN') && !h.includes('>null<'), 'render with a disks block is clean');
+  check(h.includes('<h3>Shared disk</h3>') && h.includes('<b>1.4 GiB</b> free (set by the operator'), 'the shared disk reads its free space and source');
+  check(h.includes('<b class="warn">') && h.includes('worst case') && h.includes('3 growing tablespaces take 36.0 MiB a day: C 16.0, A 10.0, B 10.0 MiB/day'), 'the shared disk reads its fill day and growers');
+  check(h.includes('free space not known. Set it in CAP_DISK_OVERRIDE'), 'a disk without free space says how to supply it');
+  check(h.includes('On the shared disk') && h.includes('stuck at 12.3 GiB, disk /u02'), 'a tablespace the disk stops first shows the shared-disk fact');
+  check(!html.includes('<h3>Shared disk</h3>') || (d.disks || []).length > 0, 'no shared-disk heading without a disks block');
+} catch (e) {
+  check(false, 'render with a disks block throws: ' + e.message);
+}
+
 if (failures) process.exit(1);
 console.log('OK   report_html: ' + metrics + ' metrics rendered, ' + count(html, /<article class="card mem"/g) + ' memory cards of the page, memory fixture ' +
   count(mh, /<article class="card mem"/g) + ' cards / ' + count(mh, /<div class="mrow /g) + ' verdicts / ' + count(mh, /<li class="(pr|sl|nu)">/g) + ' evidence lines, every block optional');

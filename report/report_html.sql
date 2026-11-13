@@ -345,7 +345,7 @@ BEGIN
                      r2, quality, days_to_full, days_to_full_lo, days_to_full_hi, accel, train_n, sev,
                      limit_source, last_day, is_current, limit_below_used, cycle_n, cycle_days,
                      cycle_peak_pct, peak_slope_per_day, slope_sig, hot_now, need_gib_90, add_by_day,
-                     restart_reason, restart_day
+                     restart_reason, restart_day, dtf_shared, dtf_shared_worst, limit_shared_gb, disk_name
               FROM   capr_fit&cap_s
               ORDER  BY 1, 2, 3, 4, 6) LOOP
       IF in_scope(r.dbid, r.con_dbid) THEN
@@ -360,7 +360,9 @@ BEGIN
           || ',"cycN":' || jn(r.cycle_n) || ',"cycD":' || jn(r.cycle_days) || ',"cycPk":' || jn(r.cycle_peak_pct)
           || ',"pkSlope":' || jn(r.peak_slope_per_day) || ',"sig":' || jn(r.slope_sig)
           || ',"hot":' || jn(r.hot_now) || ',"need90":' || jn(r.need_gib_90) || ',"addBy":' || jd(r.add_by_day)
-          || ',"rst":' || js(r.restart_reason) || ',"rstDay":' || jd(r.restart_day) || '}');
+          || ',"rst":' || js(r.restart_reason) || ',"rstDay":' || jd(r.restart_day)
+          || ',"dtfSh":' || jn(r.dtf_shared) || ',"dtfShW":' || jn(r.dtf_shared_worst)
+          || ',"limSh":' || jn(r.limit_shared_gb) || ',"disk":' || js(r.disk_name) || '}');
         v_sep := ',';
       END IF;
     END LOOP;
@@ -393,6 +395,33 @@ BEGIN
     w(']');
     flush_block('track');
   EXCEPTION WHEN OTHERS THEN fail_block('track', SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
+  -- disks (U09): the disk the datafiles of a database share, one row per
+  -- database (CAPR_DISK). Database level, so con_dbid = dbid and a PDB
+  -- scope leaves the block empty.
+  ----------------------------------------------------------------------
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, db, disk_name, disk_source, disk_as_of, disk_free_gb, alloc_gb,
+                     disk_dtf, disk_dtf_worst, disk_full_day, n_tbspc, n_growing, grow_mb,
+                     top_growers, sev, gated_by
+              FROM   capr_disk&cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+              ORDER  BY dbid, disk_name) LOOP
+      w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"db":' || js(r.db)
+        || ',"disk":' || js(r.disk_name) || ',"src":' || js(r.disk_source) || ',"asOf":' || jd(r.disk_as_of)
+        || ',"free":' || jn(r.disk_free_gb) || ',"alloc":' || jn(r.alloc_gb)
+        || ',"dtf":' || jn(r.disk_dtf) || ',"dtfW":' || jn(r.disk_dtf_worst) || ',"fullDay":' || jd(r.disk_full_day)
+        || ',"nTs":' || jn(r.n_tbspc) || ',"nGrow":' || jn(r.n_growing) || ',"grow":' || jn(r.grow_mb)
+        || ',"top":' || js(r.top_growers) || ',"sev":' || js(r.sev) || ',"gate":' || js(r.gated_by) || '}');
+      v_sep := ',';
+    END LOOP;
+    w(']');
+    flush_block('disks');
+  EXCEPTION WHEN OTHERS THEN fail_block('disks', SQLERRM);
   END;
 
   ----------------------------------------------------------------------

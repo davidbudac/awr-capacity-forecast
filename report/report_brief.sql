@@ -208,7 +208,7 @@ DECLARE
   t_beh ix_tab;
 
   c_act_kinds CONSTANT VARCHAR2(200) := ',TBSPC_FULL,TBSPC_NEARFULL,CPU_SAT,DBCPU_SAT,CPU_HOT,DBCPU_HOT,'
-                                        || 'SERIES_LIMIT,SERIES_NEARLIMIT,DATA_STALE,MODEL_HEALTH,';
+                                        || 'SERIES_LIMIT,SERIES_NEARLIMIT,DATA_STALE,MODEL_HEALTH,DISK_FULL,';
   c_beh_kinds CONSTANT VARCHAR2(100) := ',TBSPC_ANOM,CPU_ANOM,DBCPU_ANOM,SERIES_ANOM,CPU_SHIFT,';
   c_gib CONSTANT NUMBER := 1073741824;
   c_mib CONSTANT NUMBER := 1048576;
@@ -446,6 +446,14 @@ DECLARE
       f   := t_fit(a.fit_ix);
       ts  := '<code>' || esc(f.series) || '</code>';
       con := esc(f.con_name);
+    ELSIF a.kind = 'DISK_FULL' THEN
+      -- U09: the disk the datafiles share. No fit row: the alert carries the
+      -- day count (value, from day_dt) and CAPR_DISK's sentence.
+      a.by_day := al.day_dt + al.value;
+      a.sent   := 'Add storage to disk <code>' || esc(SUBSTR(al.series_key, 6)) || '</code> of '
+                  || esc(al.db_pdb) || ', or free space on it.';
+      a.detail := esc(al.message) || '.';
+      RETURN;
     ELSIF a.kind NOT IN ('DATA_STALE', 'MODEL_HEALTH') THEN
       a.sent := esc(al.message) || '.';
       RETURN;
@@ -592,6 +600,7 @@ DECLARE
     IF t_act(j).fit_ix IS NOT NULL THEN RETURN lbl_t(t_act(j).fit_ix); END IF;
     RETURN CASE t_act(j).kind WHEN 'DATA_STALE' THEN 'AWR snapshots'
                               WHEN 'MODEL_HEALTH' THEN 'the Tier 2 models'
+                              WHEN 'DISK_FULL' THEN 'disk ' || SUBSTR(t_al(t_act(j).al_ix).series_key, 6)
                               ELSE t_al(t_act(j).al_ix).series_key END;
   END act_lbl;
 

@@ -36,6 +36,9 @@ PROMPT     NEED_90_GIB = space to add so the worst case (upper 95% band) stays u
 PROMPT     limit for 90 days. ADD_BY = the worst-case fill date (last day + WORST).
 PROMPT     RESTART = why the fit uses less than the whole window: PURGE (since a purge
 PROMPT     cliff), START (since growth began). Section 2 lists the stopped ones (STOP).
+PROMPT     SHARED = days until the tablespace is stuck when all tablespaces grow on the one
+PROMPT     disk they share (1c): its own limit, or the first day it has to extend after the
+PROMPT     disk is full. Below DAYS_FULL, BY reads DISK. SHARED_GIB = its size on that day.
 
 COLUMN db_pdb          FORMAT A20           HEADING 'DB/PDB'
 COLUMN tablespace_name FORMAT A18           HEADING 'TABLESPACE'
@@ -55,6 +58,9 @@ COLUMN cycle_peak_pct  FORMAT 990.0         HEADING 'PEAK%'
 COLUMN need_gib_90     FORMAT 9999990.00    HEADING 'NEED_90_GIB'
 COLUMN add_by          FORMAT A10           HEADING 'ADD_BY'
 COLUMN restart_reason  FORMAT A7            HEADING 'RESTART'
+COLUMN dtf_shared      FORMAT 99999990      HEADING 'SHARED'
+COLUMN stopped_by      FORMAT A5            HEADING 'BY'
+COLUMN limit_shared_gb FORMAT 99990.00      HEADING 'SHARED_GIB'
 
 SELECT db_pdb,
        tablespace_name,
@@ -73,7 +79,10 @@ SELECT db_pdb,
        cycle_peak_pct,
        need_gib_90,
        TO_CHAR(add_by_day, 'YYYY-MM-DD') AS add_by,
-       restart_reason
+       restart_reason,
+       dtf_shared,
+       stopped_by,
+       limit_shared_gb
 FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_dtf) AS s_rank
        FROM   capr_tbspc_days_to_full&cap_s t
        WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)
@@ -102,3 +111,48 @@ FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_nearfu
 WHERE  pct_used IS NOT NULL
   AND  s_rank <= &top_n
 ORDER  BY dbid, s_rank;
+
+-- 1c (U09): the disk the datafiles share, one row per database. FORMAT ONLY:
+-- CAPR_DISK owns every number and the DISK_FULL severity. A row is filed
+-- under the database (con_dbid = dbid), so a PDB scope lists none.
+PROMPT
+PROMPT == 1c. SHARED DISK (all tablespaces of a database on one disk) ==
+PROMPT     FREE_GIB = free space on the disk now. SOURCE: OVERRIDE = CAP_DISK_OVERRIDE,
+PROMPT     LIVE = derived from the live tablespace ceilings at AS_OF, NONE = not known.
+PROMPT     DAYS_FULL = days until the growing tablespaces have used it (WORST = all at
+PROMPT     their worst-case rate at once). Empty = it does not fill, or FREE_GIB is not known.
+PROMPT     SEV: CRIT<=&dtf_crit days, WARN<=&dtf_warn days, the DISK_FULL alert. GATE no-ok = no
+PROMPT     growing tablespace has an OK fit. FASTEST = the three fastest growing, MiB/day.
+
+COLUMN db              FORMAT A20           HEADING 'DB'
+COLUMN disk_name       FORMAT A16           HEADING 'DISK'
+COLUMN disk_source     FORMAT A8            HEADING 'SOURCE'
+COLUMN as_of           FORMAT A16           HEADING 'AS_OF'
+COLUMN disk_free_gb    FORMAT 9999990.00    HEADING 'FREE_GIB'
+COLUMN alloc_gb        FORMAT 9999990.00    HEADING 'ALLOC_GIB'
+COLUMN grow_mb         FORMAT 999990.000    HEADING 'MIB/DAY'
+COLUMN disk_dtf        FORMAT 99999990      HEADING 'DAYS_FULL'
+COLUMN disk_dtf_worst  FORMAT 99999990      HEADING 'WORST'
+COLUMN full_on         FORMAT A10           HEADING 'FULL_ON'
+COLUMN disk_gate       FORMAT A5            HEADING 'GATE'
+COLUMN n_growing       FORMAT 99990         HEADING 'GROW'
+COLUMN top_growers     FORMAT A60           HEADING 'FASTEST'
+
+SELECT db,
+       disk_name,
+       disk_source,
+       TO_CHAR(disk_as_of, 'YYYY-MM-DD HH24:MI') AS as_of,
+       disk_free_gb,
+       alloc_gb,
+       grow_mb,
+       disk_dtf,
+       disk_dtf_worst,
+       TO_CHAR(disk_full_day, 'YYYY-MM-DD')      AS full_on,
+       sev,
+       CASE WHEN gated_by IS NOT NULL THEN 'no-ok' END AS disk_gate,
+       n_growing,
+       top_growers
+FROM   capr_disk&cap_s
+WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
+ORDER  BY dbid, disk_name;
