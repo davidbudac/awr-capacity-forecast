@@ -1305,6 +1305,29 @@ tables. (Fixed later: the stubs are opaque, see M27.)
       boards, a storage ceiling to forecast against (AWR has none),
       `suite_version` (left at 26.4 for the release that lands this).
 
+## M28 — Forecast track record (done)
+
+- [x] **M28.1 `CAPR_FIT_TRACK`.** `cap_results.refresh` stores each fit's +30
+      projection and 95% band in `CAP_FIT_HIST` (`proj_30`, `proj_30_lo`,
+      `proj_30_hi`). The view pairs every stored fit with the stored value
+      `accuracy_horizon_days` (30) later and gives per series: forecasts
+      checked, median error, bias, band hits, `band_factor` (what the issued
+      half-width needed to hold `calib_quantile_pct` of the errors, never
+      below 1, from `calib_min_forecasts` banded forecasts), calibrated +30
+      bounds and a `reliability` grade (UNKNOWN / BIASED / WIDE / GOOD, a rule
+      table). It reads the results tables only. Text section 9, a line on
+      each HTML card, a briefing line for a BIASED / WIDE series a forecast
+      alert names, `capr_fit_track.csv`. Not done, on purpose: the calibrated
+      band replaces no band and feeds no alert, `days_to_full` range or need
+      figure; the track record does not choose `slope_method`; one horizon
+      (the band test uses the +30 band at any `accuracy_horizon_days`); no
+      dashboard panel (ELK / Grafana / APEX); the demo reports carry no
+      track record (the demo story has no run history).
+- [x] **M28.2 Acknowledged alerts stay quiet.** `CAPR_ALERT_EVENTS.acked`
+      (last column, the state now); `report/alert_events.sql` argument 7 and
+      `report/notify.sh --include-acked`. By default the events of an
+      acknowledged alert are skipped and the position moves past them.
+
 ## v2 (unchanged)
 
 - [ ] Memory follow-ups to M26: grading AMM instances, verdicts for the

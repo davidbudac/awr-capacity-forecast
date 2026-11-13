@@ -115,6 +115,15 @@ The maintainer chose not to plan these yet; they remain open findings.
   instead of `^ (g - 1)`, in both files. The lever was red on exactly these
   cases before the change. START keeps `g - 1`.
 
+- **Nothing read `CAPR_FORECAST_ACCURACY`; the stored fits had no band**:
+  closed 2026-11-13 (improve program unit U11). `CAP_FIT_HIST` keeps each
+  fit's +30 projection and band, `CAPR_FIT_TRACK` grades every series'
+  earlier forecasts (error, bias, band hits, band factor, reliability), and
+  the four report drivers print it. `PLAN.md` M28 lists what it does not do.
+- **`report/notify.sh` delivered the events of acknowledged alerts**: closed
+  2026-11-13 (U11). `CAPR_ALERT_EVENTS.acked`, skipped by default,
+  `--include-acked` sends them.
+
 ## Direction options (not planned; the maintainer said "none for now")
 
 - Port the standalone STOP / START window restart into the suite's

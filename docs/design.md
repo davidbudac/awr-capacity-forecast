@@ -1794,7 +1794,7 @@ installs and reports.
 | table | one row per | key |
 | --- | --- | --- |
 | `CAP_RUN` | `refresh` call | `run_id` = `YYYYMMDDHH24MISSFF3` of the start (bumped past the max on a clash) |
-| `CAP_FIT_HIST` | run × `CAPR_FIT` row | `(run_id, kind, dbid, con_dbid, series)`, plus `as_of_day` and every `CAPR_FIT` column |
+| `CAP_FIT_HIST` | run × `CAPR_FIT` row | `(run_id, kind, dbid, con_dbid, series)`, plus `as_of_day`, every `CAPR_FIT` column, and the fit's +30 point and band (`proj_30`, `proj_30_lo`, `proj_30_hi`, from `CAPR_FORECAST_POINTS`) |
 | `CAP_ALERT_STATE` | `CAPR_ALERTS.state_key` ever seen | `state_key` |
 | `CAP_ALERT_EVENT` | state change | `event_id` = `run_id * 100000 + n` (no sequence, so no extra privilege) |
 
@@ -1858,12 +1858,13 @@ keeps the newest run and the newest OK live run. `reset` forgets everything.
 | view | answers |
 | --- | --- |
 | `CAPR_ALERTS_LATEST` | OPEN, not acked states. The first columns mirror `CAPR_ALERTS` (values of the last run that saw the key), then `max_severity`, `first_seen`, `last_seen`, `age_days`, `reopen_count`, `run_id`, `events_since` (events since it last opened), `last_event`, `last_event_at` |
-| `CAPR_ALERT_EVENTS` | every event, newest first, with the run's `as_of_day` and the state's kind and keys |
+| `CAPR_ALERT_EVENTS` | every event, newest first, with the run's `as_of_day` and the state's kind and keys; `acked` (last column) is `Y` while the alert is acknowledged now |
 | `CAPR_RUNS` | every run with `duration_sec`, `is_last`, `last_ok_run_id`, `last_ok_age_hours` and `stale_run` (`Y` when the last OK live run ended `refresh_stale_hours` (36) or more ago, or never ran), plus a one-line `summary` |
 | `CAPR_COVERAGE` | per dbid, live: newest snapshot and its age, `history_days`, series by quality, `n_stale` (not current), `retired` (`data_stale_max_days`) and a one-line `summary` |
 | `CAPR_FIT_HISTORY` | `CAP_FIT_HIST` of the OK runs |
 | `CAPR_WEEKLY_DIGEST` | the latest OK run against the latest OK run at least `digest_days` (7) older: per series `days_to_full`, `pct`, quality and severity then and now, a `change` verdict, and the alert events in between (`n_new`, `n_resolved`, `n_reopened`, `n_sev_changes`, and `events`, the counts per kind) |
 | `CAPR_FORECAST_ACCURACY` | every snapshot row whose series has newer data today: `projected` = `value_then + slope_then * elapsed_days` (the anchored formula), `actual` = `CAPR_FIT.value` now, `error`, `error_pct`. Filter `elapsed_days` for a horizon |
+| `CAPR_FIT_TRACK` | per series of the newest OK run, from the results tables only: every stored fit checked against the stored value `accuracy_horizon_days` (30) later (nearest within 2 days, inside `accuracy_window_days`). `n_forecasts`, `abs_err_pct`, `bias_pct`, `band_hits` / `n_banded`, `band_factor` (the `calib_quantile_pct` percentile of error / issued half-width, never below 1, NULL below `calib_min_forecasts`), `proj_30_lo_cal` / `proj_30_hi_cal`, `reliability` (UNKNOWN, BIASED, WIDE, GOOD from a rule table), `summary`. Advice: no fit, alert or slope method reads it |
 
 **Poller recipe.** Enable `CAP_NIGHTLY_JOB` (its `REFRESH` step), then poll
 `SELECT * FROM capr_alert_events WHERE run_id > :last_seen_run_id`, remember

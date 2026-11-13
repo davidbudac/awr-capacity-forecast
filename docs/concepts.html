@@ -328,7 +328,7 @@
         <div class="layer out">
           <span class="layer__tag">report/</span>
           <div class="layer__body">
-            <h5>Read-only reports: text (sections 0–8), HTML, one-page brief, CSV</h5>
+            <h5>Read-only reports: text (sections 0–9), HTML, one-page brief, CSV</h5>
             <p>Every driver reads the <code>CAPR_*</code> views (plus <code>CAP_CFG</code> and the
               Tier 2 health summary), so they can't drift apart. Scope and identity come from
               <code>report/scope.sql</code>: the targets in scope from <code>CAPV_TARGET</code>, not
@@ -1078,7 +1078,10 @@
         <span class="inline">CAPR_WEEKLY_DIGEST</span> compares the latest run with the one
         <span class="inline">digest_days</span> (7) earlier: days to full then and now, alerts opened
         or resolved. <span class="inline">CAPR_FORECAST_ACCURACY</span> compares each stored fit's
-        projection with what happened. <span class="inline">CAPR_RUNS</span> lists the runs and
+        projection with what happened. <span class="inline">CAPR_FIT_TRACK</span> turns the stored
+        fits into a track record per series: how far the forecasts of 30 days ago were off, whether
+        they lean one way, how often the value stayed inside the band issued then, and the factor
+        that band needed (<a href="usage.html#track">in the reports</a>). <span class="inline">CAPR_RUNS</span> lists the runs and
         how fresh the last one is, <span class="inline">CAPR_COVERAGE</span> what the suite can see
         per database, and <span class="inline">CAPR_FIT_HISTORY</span> the stored fits of the OK
         runs. Every report driver can read the last run instead of the live

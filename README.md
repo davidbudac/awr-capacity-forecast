@@ -170,11 +170,20 @@ SELECT severity, kind, db_pdb, message FROM capr_alerts ORDER BY sev_rank;
 SELECT * FROM capr_alerts_latest;       -- open, not acknowledged
 EXEC cap_results.ack('<state_key>', SYSDATE + 7, 'disk ordered')
 SELECT * FROM capr_weekly_digest;
+SELECT * FROM capr_fit_track;           -- how each series' earlier forecasts fared
 ```
+
+`CAPR_FIT_TRACK` checks every stored forecast against the value stored 30 days
+later: forecasts checked, median error, bias, how often the value stayed
+inside the band issued then, the factor that band needed, and a `reliability`
+grade (`GOOD`, `WIDE`, `BIASED`, `UNKNOWN`). The reports print it (text section
+9, one line per HTML card, the briefing, a CSV). It needs about a month of
+nightly `cap_results.refresh` runs, and it changes no forecast and no alert.
 
 `report/notify.sh` delivers the changes from cron: one mail or webhook message
 per run that lists the new, escalated and reopened alerts by target. It keeps
 the position of the last delivery in a state file, so an event is sent once.
+Events of an alert you acknowledged are skipped (`--include-acked` sends them).
 
 ```sh
 report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run   # print, send nothing

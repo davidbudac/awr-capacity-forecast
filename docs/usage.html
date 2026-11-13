@@ -115,8 +115,9 @@
       <!-- ===================== HTML REPORT ===================== -->
       <h3>CSV and cron</h3>
       <p><span class="inline">@report/report_csv.sql [dbid] [con_dbid] [source]</span> writes one CSV per CAPR
-        section view (alerts, days to full, forecast, anomalies, CPU trend and shifts, series, fit, and
-        the four memory views: verdicts, evidence, components and component points) into
+        section view (alerts, days to full, forecast, anomalies, CPU trend and shifts, series, fit,
+        the four memory views: verdicts, evidence, components and component points, and the forecast
+        track record <span class="inline">capr_fit_track</span>) into
         <span class="inline">reports/cap_csv_&lt;target&gt;_&lt;ts&gt;/</span>: every column and row in
         scope, a header line, every value quoted.
         <span class="inline">report/run_report.sh [connect] [--html] [--brief] [--csv] [--scope D[:C]] [--target NAME]
@@ -194,10 +195,22 @@
         <span class="inline">CAPR_MEM_EVIDENCE</span> and <span class="inline">CAPR_MEM_COMP_POINTS</span>.
         The verdicts are advice: they are not counted in the alert totals or the banner.</p>
 
+      <p id="track"><b>Track record.</b> Each card ends with one line on how the earlier forecasts of
+        its series fared, from <span class="inline">CAPR_FIT_TRACK</span>
+        (<a href="#sections">section 9</a>): forecasts checked, median error, bias and how many actual
+        values fell inside the 95% band issued then. A card whose record grades
+        <code>BIASED</code> or <code>WIDE</code> carries a tag and, when the band factor is above 1,
+        the +30 band at that factor. The line needs stored
+        <span class="inline">cap_results.refresh</span> runs: without about a month of nightly runs it
+        reads "No 30-day forecast is old enough to check yet", and without any run it is absent. It is
+        advice, like the memory verdicts: no alert, no count.</p>
+
       <p><span class="inline">report/report_brief.sql</span> is a one-page briefing: one sentence (what
         fills, when, how much to add), a 12-month timeline of the date each limit is reached, the
         actions in date order with worst-case dates, the memory sizing advice (one line per verdict
-        that advises a change, and a count of the areas that could not be judged), the evidence chart
+        that advises a change, and a count of the areas that could not be judged), a track record
+        line for each series a forecast alert names whose earlier forecasts graded
+        <code>BIASED</code> or <code>WIDE</code>, the evidence chart
         for the first few, and one fill bar per tablespace for today and +90 days. Same arguments, read-only, printable;
         <span class="inline">run_report.sh --brief</span> writes it from cron.
         <a href="demo/cap_brief_demo.html" target="_blank" rel="noopener">Sample briefing</a>.</p>
@@ -217,7 +230,7 @@
       </div>
       <div class="tablewrap">
         <table>
-          <caption>Sections 0–8 and the views behind each</caption>
+          <caption>Sections 0–9 and the views behind each</caption>
           <thead><tr><th class="num" scope="col">#</th><th scope="col">Section</th><th scope="col">What to read</th></tr></thead>
           <tbody>
             <tr>
@@ -255,6 +268,10 @@
             <tr>
               <td class="num">8</td><td><b>Instance memory</b><br><span class="small"><span class="inline">CAPR_MEM_VERDICT</span> · <span class="inline">CAPR_MEM_EVIDENCE</span> · <span class="inline">CAPR_MEM_COMPONENTS</span></span></td>
               <td class="def">One grade per instance and memory area (SGA total, buffer cache, shared pool, SGA balance, PGA target, PGA limit), judged on the last <span class="inline">mem_window_days</span> (30) of AWR. <code>UNDERSIZED</code>: Oracle's advisor estimates a material gain at a larger size <b>and</b> a pressure symptom was observed; either one alone grades <code>OK</code> and the reason says which. <code>OVERSIZED</code>: the advisor estimates almost no cost at a smaller size, no pressure was observed and enough days were sampled. <code>INSUFFICIENT_EVIDENCE</code>: the reason says what is missing (advisor history, AMM, memory history not collected). SGA balance reads <code>THRASHING</code> when ASMM keeps moving memory between the buffer cache and the shared pool, <code>DRIFTING</code> when it squeezed one of them. <code>SUGGESTED</code> is a size the advisor evaluated, at most <span class="inline">mem_max_step</span> times (or one over it) the current size: one step, then judge again. Under ASMM a buffer cache or shared pool suggestion is a floor. <code>HOST</code> = Y: the suggestion plus the rest of the instance passes <span class="inline">mem_host_ram_pct</span> of the host's memory (other instances on the host are not seen); <code>SGA</code> = Y: a pool floor that does not fit in <code>sga_target</code>. Under the table each verdict is one sentence with its reason. <b>8b</b>: every signal behind the verdicts, with its value and threshold (<code>ADVISOR</code>, <code>SYMPTOM</code>, <code>USAGE</code>, <code>CONTEXT</code>; <code>PRESSURE</code> / <code>SLACK</code> / <code>NEUTRAL</code>). <b>8c</b>: the SGA components with their current, smallest and largest size in the window and their resizes. The rows are instance level, so a report scoped to a PDB shows none. Advice only: no alert is raised and the suite never changes a parameter. <span class="inline">report/drill_mem.sql</span> shows the arithmetic.</td>
+            </tr>
+            <tr>
+              <td class="num">9</td><td><b>Forecast track record</b><br><span class="small"><span class="inline">CAPR_FIT_TRACK</span></span></td>
+              <td class="def">How the earlier forecasts fared. Every refresh run stores each fit with its +30 projection and 95% band; a stored forecast is checked against the value stored <span class="inline">accuracy_horizon_days</span> (30) later, over the last <span class="inline">accuracy_window_days</span> (180). <b>9a</b> lists the series with a checked forecast, least reliable first: <code>N</code> forecasts checked, <code>ERR%</code> the median error as a percent of the actual value, <code>BIAS%</code> the median signed error (+ = it grew faster than forecast), <code>IN_BAND</code> how many actual values fell inside the band issued then, <code>FACTOR</code> what that band's half-width had to be multiplied by to hold <span class="inline">calib_quantile_pct</span> (90) percent of the errors, never below 1, and <code>CAL_LO</code> / <code>CAL_HI</code> today's +30 band at that factor. <code>RELIABILITY</code>: <code>BIASED</code> (bias beyond <span class="inline">calib_bias_pct</span>, 10), <code>WIDE</code> (factor above <span class="inline">calib_wide_factor</span>, 1.5), <code>GOOD</code>, or <code>UNKNOWN</code> below <span class="inline">calib_min_forecasts</span> (8) checked forecasts. <b>9b</b> counts the grades per database. The section reads the stored runs, so it says the same under LIVE and SNAPSHOT and is empty until about a month of nightly refresh runs exists. Limits: the calibrated band is shown beside the statistical one and replaces nothing; no alert, <code>days_to_full</code> range or need figure uses it; the track record does not choose the slope method; at an <span class="inline">accuracy_horizon_days</span> other than 30 the band test still uses the +30 band.</td>
             </tr>
           </tbody>
         </table>
@@ -467,6 +484,7 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
             <tr><td><code>--webhook-format</code></td><td class="def"><code>generic</code></td><td class="def"><code>generic</code>: <code>subject</code>, <code>text</code>, <code>counts</code>, <code>position</code> and one object per event with every field. <code>slack</code>: <code>{"text": …}</code> only, for Slack and other endpoints that take that shape.</td></tr>
             <tr><td><code>--min-severity</code></td><td class="def"><code>WARN</code></td><td class="def"><code>INFO</code>, <code>WARN</code> or <code>CRIT</code>. An event passes when its severity or its previous severity is at least this.</td></tr>
             <tr><td><code>--transitions LIST</code>, <code>--include-resolved</code></td><td class="def"><code>NEW,ESCALATED,REOPENED</code></td><td class="def">Which events. <code>--include-resolved</code> adds <code>RESOLVED</code>.</td></tr>
+            <tr><td><code>--include-acked</code></td><td class="def">off</td><td class="def">Also send the events of alerts that are acknowledged now (<span class="inline">cap_results.ack</span>, <span class="inline">CAPR_ALERT_EVENTS.acked</span>). By default they are skipped and the position moves past them, so a later <span class="inline">unack</span> does not send them.</td></tr>
             <tr><td><code>--target NAME</code>, <code>--scope D[:C]</code></td><td class="def">every database</td><td class="def">One target, dbid or container, as in <span class="inline">run_report.sh</span>.</td></tr>
             <tr><td><code>--state-file F</code></td><td class="def"><span class="inline">reports/notify.state</span></td><td class="def">Holds the <code>event_id</code> of the last delivery. One file per job: two jobs with different selections or channels need two files.</td></tr>
             <tr><td><code>--since-hours N</code></td><td class="def">24</td><td class="def">Only without a state file, so on the first run: events older than this are not sent, and a new job does not mail the whole history.</td></tr>
@@ -480,7 +498,9 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         failing webhook therefore repeats the mail: use one job per channel, each with its own state
         file, to keep them independent. Exit status: 0 delivered or nothing to send, 1 a failure,
         2 a usage error. An acknowledgement hides an alert from
-        <span class="inline">CAPR_ALERTS_LATEST</span> but an escalation or a reopen clears it, so
+        <span class="inline">CAPR_ALERTS_LATEST</span> and keeps its later events
+        (<code>DEESCALATED</code>, <code>RESOLVED</code>) out of the message unless
+        <code>--include-acked</code> is given. An escalation or a reopen clears the acknowledgement, so
         those events are delivered. <span class="inline">test/notify_sh_test.sh</span> tests the script
         without a database.</p>
 

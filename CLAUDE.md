@@ -122,8 +122,8 @@ for making changes safely.
   substitutes with `~` because its HTML entities use `&`); `cap_alerts` names
   the alert list's source (CAPR_ALERTS / CAPR_ALERTS_LATEST).
   `test/lint_snapshot_reads.sh` enforces it; the cheap table-backed reads it
-  allows live are CAP_CFG, CAPR_RUNS, CAPR_ALERTS_LATEST and
-  CAPR_FIT_HISTORY. The reports still only SELECT; refresh is the writer.
+  allows live are CAP_CFG, CAPR_RUNS, CAPR_ALERTS_LATEST,
+  CAPR_FIT_HISTORY and CAPR_FIT_TRACK. The reports still only SELECT; refresh is the writer.
   `test/snapshot_parity.sh <SCHEMA>` (or the harness's `--parity`) diffs
   LIVE and SNAPSHOT reports on the fixture and lists what a SNAPSHOT run's
   plans read.
@@ -186,7 +186,8 @@ ESM views, CAPF_COMPARE, CAPF_BACKTEST, CAPF_ESM_HEALTH[_SUMMARY]) →
 CAPR_FORECAST_POINTS and CAPR_ALERTS, which reads the Tier 2 health views for
 MODEL_HEALTH) → `60_results` (the results tables, package CAP_RESULTS and the
 CAPR_ALERTS_LATEST / CAPR_ALERT_EVENTS / CAPR_RUNS / CAPR_COVERAGE /
-CAPR_FIT_HISTORY / CAPR_WEEKLY_DIGEST / CAPR_FORECAST_ACCURACY views), and
+CAPR_FIT_HISTORY / CAPR_WEEKLY_DIGEST / CAPR_FORECAST_ACCURACY /
+CAPR_FIT_TRACK views), and
 last `cap_results.build_snap_tables`, which re-creates the SNAPSHOT cache
 `<view>_S` of every view in `cap_results.snap_views` (M24.13).
 `docs/reference.html` "Object index" lists every object (`test/docs_lint.sh`
@@ -276,7 +277,8 @@ past, ORA-20080 at the end; where package CAP_REPO exists also
 CAP_COLLECT_JOB hourly :05),
 `report/report_csv.sql` (one CSV per CAPR section view), `report/report_brief.sql`
 (one-page "Runway" briefing from CAPR_FIT + the alert list, plus one line per
-actionable CAPR_MEM_VERDICT row; demo
+actionable CAPR_MEM_VERDICT row and per BIASED / WIDE CAPR_FIT_TRACK series
+that a forecast alert names; demo
 `docs/demo/cap_brief_demo.html`), `report/run_report.sh`
 (cron wrapper: text / --html / --brief / --csv, --scope, --target, --snapshot, non-zero exit on a
 non-zero sqlplus exit or a line starting ORA-/SP2- (an alert message quoting
@@ -290,7 +292,10 @@ sendmail, `AWRCAP_MAIL_CMD` / `AWRCAP_SENDMAIL_CMD`) and / or webhook (curl,
 URL on stdin, never printed; `AWRCAP_WEBHOOK_URL` or `--webhook-file`). The
 position, `event_id` = `run_id * 100000 + n` in commit order, lives in
 `reports/notify.state` and moves only after every channel succeeded; no
-state file = only the last `--since-hours`. Its awk uses no `gsub`: awks
+state file = only the last `--since-hours`. Events of alerts that are
+acknowledged now (`CAPR_ALERT_EVENTS.acked`, last column: the state today,
+not at the event) are skipped unless `--include-acked` (alert_events.sql
+argument 7); the position moves past them. Its awk uses no `gsub`: awks
 disagree on backslashes in the replacement. `test/notify_sh_test.sh` is its
 offline test: mock sqlplus, mail and curl), `report/report_html.sql` (one section per
 metric, one card per series: it spools the point-feed views as one JSON block
@@ -696,6 +701,24 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   (`first_day`, `n_days`, `max_z`) and downgrades a per-day CPU anomaly inside
   an active CPU_SHIFT window to INFO. DATA_STALE is the one deliberate SYSDATE
   test (`stale_hours`); a dbid older than `data_stale_max_days` is retired.
+- **Forecast track record (ddl/60, `CAPR_FIT_TRACK`).** `refresh` stores each
+  fit's +30 point and band in `CAP_FIT_HIST` (`proj_30`, `proj_30_lo`,
+  `proj_30_hi`: not CAPR_FIT columns, MERGEd from `CAPR_FORECAST_POINTS_S`
+  REGR horizon 30 after the fit insert; NULL on older runs). The view reads
+  `CAP_FIT_HIST` / `CAP_RUN` only (table scan, same rows LIVE and SNAPSHOT,
+  no rows without an OK run) and pairs every stored fit (one per series and
+  `last_day`, newest run) with the fit `accuracy_horizon_days` later, else
+  the nearest within 2 days (earlier on a tie), outcome day inside
+  `accuracy_window_days`. The pair is picked first, the window applied after
+  (filtering candidates first paired a forecast with a non-nearest day).
+  Join the outcome by equality on `last_day + horizon + offset` (five
+  offsets), never by a day range (series x runs squared). `band_factor` =
+  `GREATEST(1, PERCENTILE_CONT(calib_quantile_pct))` of |error| / half-width,
+  2 decimals, NULL below `calib_min_forecasts` banded forecasts; a band of
+  width 0 (FLAT) or none is not judged. `reliability` is the first matching
+  row of the view's `rule` (UNKNOWN, BIASED, WIDE, GOOD): a new grade is a
+  row. Advice only: no alert, fit or slope method reads it. The reports read
+  it live in both modes (text section 9, HTML card line, briefing, CSV).
 - **M15 hour grain.** `hour_ts = TRUNC(end_time - 5/1440, 'HH24') + 1/24`: the
   bucket is labelled by the interval's END hour, with 5 min of AWR flush
   grace (09:59:58 and 10:00:03 both land in 10:00). `day_dt` stays

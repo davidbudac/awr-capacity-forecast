@@ -2,7 +2,8 @@
 -- report/report.sql -- read-only text capacity report.
 -- =====================================================================
 -- Spools a plain-text capacity + anomaly report from the CAPF_/CAPA_ views,
--- and the instance memory sizing verdicts (section 8), to
+-- the instance memory sizing verdicts (section 8) and the forecast track
+-- record of the stored refresh runs (section 9), to
 -- reports/cap_report_<db>_<ts>.txt. READ-ONLY: only SELECTs (the CAPF_ESM
 -- views call a pipelined function, which writes nothing). Creates/modifies no
 -- database object.
