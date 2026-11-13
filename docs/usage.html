@@ -795,9 +795,14 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
           <tbody>
             <tr><td><span class="k">observation</span></td><td class="def">container × series × day, with <code>cap.anomaly = true</code> on days the <span class="inline">CAPA_</span> layer flagged</td><td class="def">the observed line; flagged days as a red bar under it</td></tr>
             <tr><td><span class="k">forecast</span></td><td class="def">container × series × method × horizon (REGR anchors, the ESM point at the model's furthest step) with its band</td><td class="def">the line to the right of today, plus low/high</td></tr>
-            <tr><td><span class="k">fit</span></td><td class="def">container × series × export day: slope, R², quality, days to full/limit/saturation, severity</td><td class="def">the days-to-full and trend tables, colour-coded</td></tr>
+            <tr><td><span class="k">fit</span></td><td class="def">container × series × export day: slope, R², quality, days to full/limit/saturation, severity, a tablespace fit's restart reason and day, and the series' forecast track record (<span class="inline">CAPR_FIT_TRACK</span>)</td><td class="def">the days-to-full and trend tables, colour-coded</td></tr>
             <tr><td><span class="k">anomaly</span></td><td class="def">flagged event: growth outlier, CPU or DB CPU outlier, series outlier (one per baseline mode), or a CPU level shift, with a one-line explanation</td><td class="def">the fleet anomaly board and per-board anomaly tables</td></tr>
             <tr><td><span class="k">alert</span></td><td class="def"><span class="inline">CAPR_ALERTS</span> row × export day</td><td class="def">a compact alerts table on every board</td></tr>
+            <tr><td><span class="k">alert_volume</span></td><td class="def">alert series × export day (<span class="inline">CAPR_ALERT_VOLUME</span>): alerts in the window, flagged of scored days, the floor knob and the floor that would quiet it</td><td class="def">the alert volume table of the fleet board</td></tr>
+            <tr><td><span class="k">tbspc_shared</span></td><td class="def">container × tablespace × export day (<span class="inline">CAPR_TBSPC_SHARED</span>): days alone, days on the shared disk, what stops it</td><td class="def">the shared-disk tablespace table</td></tr>
+            <tr><td><span class="k">disk</span></td><td class="def">database × shared disk × export day (<span class="inline">CAPR_DISK</span>): free space and its source, days until full, the fastest growers</td><td class="def">the shared-disk table of the tablespaces board</td></tr>
+            <tr><td><span class="k">family</span></td><td class="def">container × tablespace family × export day (<span class="inline">CAPR_TBSPC_FAMILY</span>): the next member's size, the filling member against its ceiling</td><td class="def">the families table</td></tr>
+            <tr><td><span class="k">family_member</span></td><td class="def">container × member tablespace × export day (<span class="inline">CAPR_TBSPC_FAMILY_MEMBERS</span>): state, final size, fill window</td><td class="def">the family members table</td></tr>
             <tr><td><span class="k">mem_verdict</span></td><td class="def">database × instance × memory area × export day (<span class="inline">CAPR_MEM_VERDICT</span>): grade, reason, current and suggested size, headline</td><td class="def">the verdict table of the memory board</td></tr>
             <tr><td><span class="k">mem_evidence</span></td><td class="def">database × instance × area × signal × export day (<span class="inline">CAPR_MEM_EVIDENCE</span>)</td><td class="def">the evidence table of the memory board</td></tr>
             <tr><td><span class="k">mem_component</span></td><td class="def">database × instance × SGA component × day of the evidence window (<span class="inline">CAPR_MEM_COMP_POINTS</span>)</td><td class="def">the stacked component chart of the memory board</td></tr>
@@ -805,11 +810,13 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         </table>
       </div>
 
-      <p>Dashboards: <b>Tablespaces</b> (days to full, observed + forecast + band, daily growth,
-        growth anomalies), <b>CPU and workload series</b> (host CPU against the saturation line, DB CPU
+      <p>Dashboards: <b>Tablespaces</b> (days to full with the restart reason and the track record,
+        observed + forecast + band, daily growth, growth anomalies, the shared disk and every growing
+        tablespace against it, the tablespace families and their members), <b>CPU and workload
+        series</b> (host CPU against the saturation line, DB CPU
         level shifts, sessions / processes / DB size / redo against their limits, I/O requests and
         throughput), <b>Fleet anomalies</b> (anomalies only, across every database, newest first;
-        drills into the first two) and <b>Memory sizing</b> (one verdict per instance and memory area
+        drills into the first two; the alert volume per series) and <b>Memory sizing</b> (one verdict per instance and memory area
         with its evidence and the SGA components per day; verdicts never raise an alert). Every
         document carries <code>cap.target_name</code>, the suite's name of the database, and every
         board has a Target control and a Target column.</p>
@@ -840,7 +847,7 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
       <div class="section-head" id="grafana">
         <span class="eyebrow">Integrate · optional</span>
         <h2>Grafana dashboards (ORDS, no Elastic)</h2>
-        <p>ORDS (Oracle REST Data Services) publishes twelve read-only views as JSON; Grafana's Infinity
+        <p>ORDS (Oracle REST Data Services) publishes seventeen read-only views as JSON; Grafana's Infinity
           data source queries them live. Nothing is copied. The module is protected: every endpoint
           needs a bearer token.</p>
       </div>
@@ -854,12 +861,17 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
             <tr><td><span class="k">targets</span></td><td class="def"><span class="inline">CAPR_TARGETS</span></td><td class="def">one row per target and DBID: feed, freshness, collect state</td></tr>
             <tr><td><span class="k">series</span></td><td class="def"><span class="inline">CAPR_SERIES_POINTS</span></td><td class="def">observed daily points with the <span class="inline">CAPA_</span> flag joined on (<code>anomaly = 1</code>)</td></tr>
             <tr><td><span class="k">forecast</span></td><td class="def"><span class="inline">CAPR_FORECAST_POINTS</span></td><td class="def">REGR anchors and the ESM point (furthest step, at most +30), with bands, dated past today</td></tr>
-            <tr><td><span class="k">fit</span></td><td class="def"><span class="inline">CAPR_FIT</span></td><td class="def">the current fit per series: days to full / limit / saturation, R², quality, severity</td></tr>
+            <tr><td><span class="k">fit</span></td><td class="def"><span class="inline">CAPR_FIT</span>, <span class="inline">CAPR_FIT_TRACK</span></td><td class="def">the current fit per series: days to full / limit / saturation, R², quality, severity, restart reason and day, and the grade of its earlier forecasts</td></tr>
             <tr><td><span class="k">anomalies</span></td><td class="def"><span class="inline">CAPR_ANOMALIES</span></td><td class="def">one row per flagged event (point and baseline mode) with its one-line explanation</td></tr>
             <tr><td><span class="k">hourly</span></td><td class="def"><span class="inline">CAPR_HOURLY_POINTS</span></td><td class="def">host busy% and DB CPU% per hour with the hour-of-week verdict (default: the last 14 days)</td></tr>
             <tr><td><span class="k">alerts</span></td><td class="def"><span class="inline">CAPR_ALERTS</span></td><td class="def">the pollable alert feed</td></tr>
-            <tr><td><span class="k">mem_verdicts</span></td><td class="def"><span class="inline">CAPR_MEM_VERDICT</span></td><td class="def">one memory sizing verdict per instance and area: grade, reason, current and suggested size, headline</td></tr>
-            <tr><td><span class="k">mem_evidence</span></td><td class="def"><span class="inline">CAPR_MEM_EVIDENCE</span></td><td class="def">the signals behind each verdict, one sentence each</td></tr>
+            <tr><td><span class="k">alert_volume</span></td><td class="def"><span class="inline">CAPR_ALERT_VOLUME</span></td><td class="def">alerts per series with the knobs as they are, and the floor that would quiet a noisy one</td></tr>
+            <tr><td><span class="k">tbspc_shared</span></td><td class="def"><span class="inline">CAPR_TBSPC_SHARED</span></td><td class="def">every tablespace against the disk its database's datafiles share: days alone, days once the disk is full</td></tr>
+            <tr><td><span class="k">disk</span></td><td class="def"><span class="inline">CAPR_DISK</span></td><td class="def">one row per database and disk: free space, days until full, the fastest growers, the DISK_FULL verdict</td></tr>
+            <tr><td><span class="k">families</span></td><td class="def"><span class="inline">CAPR_TBSPC_FAMILY</span></td><td class="def">one row per tablespace family: the next member's size, the filling member against its ceiling</td></tr>
+            <tr><td><span class="k">family_members</span></td><td class="def"><span class="inline">CAPR_TBSPC_FAMILY_MEMBERS</span></td><td class="def">the members in period order: state, final size, fill window</td></tr>
+            <tr><td><span class="k">mem_verdicts</span></td><td class="def"><span class="inline">CAPR_MEM_VERDICT_S</span>, else <span class="inline">CAPR_MEM_VERDICT</span></td><td class="def">one memory sizing verdict per instance and area: grade, reason, current and suggested size, headline. As of the last refresh</td></tr>
+            <tr><td><span class="k">mem_evidence</span></td><td class="def"><span class="inline">CAPR_MEM_EVIDENCE_S</span>, else <span class="inline">CAPR_MEM_EVIDENCE</span></td><td class="def">the signals behind each verdict, one sentence each. As of the last refresh</td></tr>
             <tr><td><span class="k">mem_components</span></td><td class="def"><span class="inline">CAPR_MEM_COMPONENTS</span></td><td class="def">the SGA components now, with their window range and resize counts</td></tr>
             <tr><td><span class="k">mem_points</span></td><td class="def"><span class="inline">CAPR_MEM_COMP_POINTS</span></td><td class="def">the SGA component sizes per day of the evidence window</td></tr>
           </tbody>
@@ -869,7 +881,10 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
       <p>The ELK export reads the same views. The four boards mirror the Kibana ones; anomalies are
         red annotation markers (message on hover), red points on the observed line, and a shaded span
         for a DB CPU level shift. Every row carries <code>target_name</code>; the boards have a Target
-        variable that narrows the Database variable, and a Target column in their tables.</p>
+        variable that narrows the Database variable, and a Target column in their tables. The two
+        memory endpoints answer from the snapshot tables of the last
+        <span class="inline">cap_results.refresh</span> (the live verdict views take minutes on a busy
+        host) and from the live views only while no refresh has run.</p>
 
       <figure class="figure">
         <img src="assets/grafana-tablespaces.png" alt="The Grafana tablespaces dashboard: days-to-full table, used space with dashed forecasts and red anomaly markers, daily growth, anomaly and alert tables" loading="lazy">
@@ -915,9 +930,13 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         <p>An APEX application on the suite's schema reads the <span class="inline">CAPR_</span> views
           with Oracle JET charts and Interactive Reports. No Elastic, Grafana or REST module. Each view
           loads once per session into an APEX collection. Beside the six point-feed views it reads
-          <span class="inline">CAPR_TARGETS</span> and the memory views
+          <span class="inline">CAPR_TARGETS</span>, the memory views
           <span class="inline">CAPR_MEM_VERDICT</span>, <span class="inline">CAPR_MEM_EVIDENCE</span> and
-          <span class="inline">CAPR_MEM_COMP_POINTS</span>.</p>
+          <span class="inline">CAPR_MEM_COMP_POINTS</span>, the track record
+          <span class="inline">CAPR_FIT_TRACK</span>, the shared disk
+          (<span class="inline">CAPR_DISK</span>, <span class="inline">CAPR_TBSPC_SHARED</span>) and the
+          tablespace families (<span class="inline">CAPR_TBSPC_FAMILY</span>,
+          <span class="inline">CAPR_TBSPC_FAMILY_MEMBERS</span>).</p>
       </div>
 
       <div class="tablewrap">
@@ -927,7 +946,7 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
           <tbody>
             <tr><td><span class="k">Overview</span></td><td class="def">alert counts by severity, the live alert list, worst days to full, total database size, data freshness</td><td class="def">target, database</td></tr>
             <tr><td><span class="k">Targets</span></td><td class="def">one row per target and DBID: feed, host, newest snapshot and its age, stale flag, collect state, last collect and last error, its critical and warning alerts, worst days to full. A target name opens the Overview for that target</td><td class="def">none</td></tr>
-            <tr><td><span class="k">Tablespaces</span></td><td class="def">days-to-full ranking; used space with the dashed REGR projection, its band, the ceiling and red anomaly days; daily growth; growth anomalies; tablespace alerts</td><td class="def">target, database, tablespace, date range</td></tr>
+            <tr><td><span class="k">Tablespaces</span></td><td class="def">days-to-full ranking with the restart reason and the track record; used space with the dashed REGR projection, its band, the ceiling and red anomaly days; daily growth; growth anomalies; the shared disk and the growing tablespaces against it; the tablespace families and their members; tablespace and disk alerts</td><td class="def">target, database, tablespace, date range</td></tr>
             <tr><td><span class="k">CPU and workload</span></td><td class="def">host busy % and p95 against the saturation line, DB CPU per container with level-shift windows, the fixed-ceiling series against their limits, I/O requests and MB per second (<span class="inline">IOPS</span>, <span class="inline">IO_MBPS</span>), fits, alerts</td><td class="def">target, database, date range</td></tr>
             <tr><td><span class="k">Memory sizing</span></td><td class="def">the verdict per instance and area (grade, current and suggested size, headline, reason), the SGA components over time, PGA allocated against its limit, the evidence behind each verdict. Instance level: a PDB selection shows its CDB's rows. No alert counts them</td><td class="def">target, database, date range</td></tr>
             <tr><td><span class="k">Fleet anomalies</span></td><td class="def">anomalies per day by kind, most anomalous series, the per-series timeline, the anomaly list with drill-downs, every alert</td><td class="def">target, database, kind, severity, date range</td></tr>

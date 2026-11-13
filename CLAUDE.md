@@ -146,7 +146,9 @@ for making changes safely.
   `CAPR_CONTAINER` by named column. Only ADD columns to these six views; never
   rename or drop one. The app also reads, by named column, `CAPR_TARGETS`
   (Targets page), `CAPR_MEM_VERDICT`, `CAPR_MEM_EVIDENCE` and
-  `CAPR_MEM_COMP_POINTS` (Memory sizing page): a column `COLLECTIONS` in
+  `CAPR_MEM_COMP_POINTS` (Memory sizing page), and `CAPR_FIT_TRACK`,
+  `CAPR_TBSPC_SHARED`, `CAPR_DISK`, `CAPR_TBSPC_FAMILY` and
+  `CAPR_TBSPC_FAMILY_MEMBERS` (Tablespaces page): a column `COLLECTIONS` in
   build.py names must stay. `apex/test/apex_probe.sql` proves it on any
   install of the suite with no APEX (`AWRCAP_PROBE_COLL` stands in for
   `APEX_COLLECTIONS`), `apex/test/apex_smoke.sql` inside an APEX session.
@@ -333,7 +335,27 @@ chapter (M26.4) fills PGASTAT and the ten memory tables: ASMM on a 128 GiB
 host, sga_target 48 GiB, PGA target 10 / limit 20 GiB; PGA_TARGET UNDERSIZED
 (14 GiB), SGA_TOTAL and BUFFER_CACHE OVERSIZED (42 and 30 GiB), the rest OK,
 one deferred 1 GiB move from the cache to the shared pool on the release
-day, and a PGA_ALLOC_GB series with no alert. A stub is opaque (`WHERE
+day, and a PGA_ALLOC_GB series with no alert. Three more chapters (U20), all
+in SHOP_PDB, closed forms in the file's header. I/O: `IOPS` = the business
+hours' level, 5200 x (1 + 0.40 i/150) requests/s with a 1.5% ripple (OK,
+about 7300 on the last day), 1.25 x on the runaway CPU day (one SERIES_ANOM;
+1.55 x graded the fit LOW_CONFIDENCE);
+`IO_MBPS` = the batch, 260 MB/s on every day (FLAT). The family
+`TAX_DOCS_#`: six monthly tablespaces named after the calendar (the filling
+one carries the month of day 139), 2800 MiB maxsize, fill windows 30 days
+apart with 28 growth days; four DONE (finals 1340 / 1490 / 1880 / 2510 MiB,
+trend 390 a member: next 2780, cautious 2900; the last three restart STOP,
+the newest on day 137, exactly `quiet_days` back), one FILLING for 12 days
+at 2760 / P MiB a day (P = the days of its month): below 13 growth days the
+START rule cannot fire, so its own fit is LOW_CONFIDENCE and only the family
+speaks, expected 2773 MiB, cautious 2845 MiB (P = 30), the one TBSPC_FAMILY
+alert; one EMPTY. No member grows 100 MiB a day (`abs_floor_bytes`), so the
+family adds no anomaly. Shared disk: `CAP_FIXTURE_TBSPC_LIVE` gives every
+tablespace the ceiling `LEAST(maxsize, allocated + 180 GiB)`; ANALYTICS_STAGE
+and SESSION_STORE sit under their maxsize, so the disk reads LIVE, 180 GiB
+free, and fills in about 62 days: the one DISK_FULL alert (WARN). The demo
+has no run history: every `CAPR_FIT_TRACK` row reads UNKNOWN (a backdated
+refresh stores today's fits, so history cannot be seeded). A stub is opaque (`WHERE
 ROWNUM < 1`, never `WHERE 1 = 0`): merged into its reader, a stub's
 constants made `NULLIF(<outer-joined stub column>, 0)` raise ORA-00932 at
 parse (19.27; CAPD_SERIES_DAILY's PGA_ALLOC_GB branch over the PGASTAT and
@@ -359,7 +381,15 @@ its FROM with the define `tgt` (the dbid's target from `CAPR_CONTAINER`),
 which the shared `ident` define names. The memory records (`mem_verdict`,
 `mem_evidence`, `mem_component`, `cap.kind` MEM, fields under `cap.mem.*`)
 come from the CAPR_MEM_ views; verdicts and evidence are stamped with the
-export day, like fits. Kibana 9.4 answers the settings call of `setup.sh`
+export day, like fits. So are the U20 records: `tbspc_shared` (`cap.shared.*`,
+CAPR_TBSPC_SHARED), `disk` (`cap.kind` DISK, `cap.disk.*`, CAPR_DISK),
+`family` / `family_member` (`cap.family.*`) and `alert_volume`
+(`cap.volume.*`, CAPR_ALERT_VOLUME). A fit document carries `restart_reason`
+/ `restart_day` and, joined in the export, its CAPR_FIT_TRACK row under
+`cap.track.*`. The shared-disk columns are a record of their own because
+CAPR_FIT joined to CAPR_TBSPC_SHARED parses for minutes ("Shared disk"
+below). A DISK_FULL alert document has `cap.kind` DISK: the tablespaces
+board lists `cap.kind:(TBSPC or DISK)`. Kibana 9.4 answers the settings call of `setup.sh`
 only with the header `x-elastic-internal-origin`.
 See `elk/README.md`.
 `LAB.md` is the workstation runbook (Tailscale URLs, start order, VM facts)
@@ -373,7 +403,15 @@ ELK export selects from the same views, so change the view, not the
 consumers), `CAPR_TARGETS` and the four CAPR_MEM_ views (`mem_*` handlers),
 and `grafana/build_*.py` generate the four provisioned Grafana boards. A
 handler with a dbid drives from alias `t` and ends its FROM with `c_tgt`,
-which gives it `target_name` and the `target=` filter.
+which gives it `target_name` and the `target=` filter. U20 handlers:
+`tbspc_shared`, `disk`, `families`, `family_members`, `alert_volume`; `fit`
+selects `restart_reason` / `restart_day` and joins CAPR_FIT_TRACK
+(`reliability` ...). `mem_verdicts` / `mem_evidence` read
+`CAPR_MEM_VERDICT_S` / `CAPR_MEM_EVIDENCE_S` (the last refresh,
+`snap_run_id` in the response) UNION ALL the live view under `NOT EXISTS
+(SELECT NULL FROM capr_fit_s)`: one static statement, the live branch does
+not run once a refresh has filled the snapshot. A new string column of an
+endpoint joins `STRING_COLS`, a date `TIME_COLS`, in `grafana/dash_lib.py`.
 **The module is protected** (U15): the ORDS privilege `awrcap.read` covers
 it and requires the ORDS role `awrcap_reader`, so every handler, `metrics`
 too, answers 401 without a bearer token. `grafana/ords/awrcap_client.sql`
@@ -398,11 +436,15 @@ shell default of a password variable, after `IDENTIFIED BY`, in a `connect`
 `apex/` is the third optional path (nothing outside the database): `apex/build.py`
 generates `apex/awrcap_app.sql`, an APEX 26.2 application export (Oracle JET
 charts + Interactive Reports, no external JS) that reads the same CAPR point
-feeds plus `CAPR_TARGETS`, three `CAPR_MEM_*` views and `CAP_CONFIG` from its
+feeds plus `CAPR_TARGETS`, three `CAPR_MEM_*` views, `CAPR_FIT_TRACK`,
+`CAPR_TBSPC_SHARED`, `CAPR_DISK`, `CAPR_TBSPC_FAMILY`,
+`CAPR_TBSPC_FAMILY_MEMBERS` and `CAP_CONFIG` from its
 parsing schema, loading each view once per session into `AWRCAP_*` APEX
-collections. Pages: Overview, Targets, Tablespaces, CPU and workload (with
+collections. Pages: Overview, Targets, Tablespaces (with the restart reason,
+the shared disk and the families), CPU and workload (with
 `IOPS` / `IO_MBPS`), Memory sizing, Fleet anomalies; a Target filter and a
-Target column (`CAPR_CONTAINER.target_name`) on every listing.
+Target column (`CAPR_CONTAINER.target_name`) on every listing, a track
+record column on the three fit tables.
 `build.py --smoke` also writes `apex/test/apex_smoke.sql` (needs an APEX
 session) and `apex/test/apex_probe.sql` (needs none: the loader queries fill
 a table shaped like `APEX_COLLECTIONS`, then every region query, LOV and
@@ -412,7 +454,7 @@ apex/test/apex_probe.sql`). `test/check.sh` runs `apex/build.py --check`
 (the three generated files are current) and `apex/test/export_check.py`
 (the export parsed on its own against the builder's registries). No APEX
 instance exists in the lab since 2026-11: the import and the rendered pages
-of the Targets and Memory sizing pages are unverified. `apex/install.sql` imports it into
+of the Targets and Memory sizing pages and of the U20 regions are unverified. `apex/install.sql` imports it into
 a given workspace/schema/app id; `apex/workspace.sql` creates the workspace
 and accounts; `apex/publish.sh` is the lab wrapper for the `23cfree` docker
 instance (see `LAB.md`). Edit the builder, never the generated export.

@@ -143,13 +143,12 @@ The maintainer chose not to plan these yet; they remain open findings.
 - Port the standalone STOP / START window restart into the suite's
   tablespace forecast. Done (2026-11-12), on by default (`quiet_days` 14, 0 =
   off): `restart_reason` / `restart_day` on `CAPF_TBSPC_FORECAST` and
-  `CAPR_FIT`. The dashboards (ELK, Grafana, APEX) do not show them yet.
+  `CAPR_FIT`. The dashboards show them since U20 (below).
 - Tablespace families (one tablespace per month, quarter or year judged as a
   group). Done (2026-11-13, improve program unit U10, PLAN.md M9.7):
   `ddl/32_tbspc_family.sql`, operator table `CAP_TBSPC_FAMILY`, alert kind
   `TBSPC_FAMILY`. Open: `TBSPC_FULL` still fires for a filling member whose
-  family says it fits; no mirror in the standalone queries; the dashboards
-  do not read the family views.
+  family says it fits; no mirror in the standalone queries.
 - Port the standalone shared-disk forecast (`dtf_shared`, `disk_dtf`) into
   the suite. Done (2026-11-13): `ddl/33_shared_disk.sql`, the live source
   `CAPV_TBSPC_LIVE`, the operator table `CAP_DISK_OVERRIDE` and the
@@ -162,6 +161,17 @@ The maintainer chose not to plan these yet; they remain open findings.
   `IO_MBPS` charts. Every APEX query runs on the fixture without APEX
   (`apex/test/apex_probe.sql`); the import into APEX and the rendered pages
   are unverified, because the lab has no APEX instance.
+- The second dashboard pass. Done 2026-11-13 (improve program unit U20):
+  the ELK export, the ORDS module with its Grafana boards and the APEX app
+  show the restart reason and day, the forecast track record
+  (`CAPR_FIT_TRACK`), the shared disk (`CAPR_DISK`, `CAPR_TBSPC_SHARED`),
+  the tablespace families and the alert volume (`CAPR_ALERT_VOLUME`; not in
+  APEX). The ORDS memory handlers read the snapshot tables. The demo story
+  (`test/demo_fixture.sql`) gained I/O statistics, the monthly family
+  `TAX_DOCS_#` and live ceilings on a disk with 180 GiB free, so
+  `TBSPC_FAMILY`, `DISK_FULL`, STOP restarts and the I/O panels show data;
+  `docs/demo/` is regenerated from it. The demo has no run history, so every
+  track record there reads UNKNOWN. APEX stays unverified in APEX itself.
 - A persisted memory verdict history (`CAPR_MEM_VERDICT_S` is already filled
   on every refresh; `CAP_FIT_HIST` is the pattern).
 

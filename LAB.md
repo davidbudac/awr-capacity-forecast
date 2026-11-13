@@ -11,7 +11,7 @@ Tailscale address of this workstation, **100.108.246.57**, not on localhost.
 |---|---|---|
 | Grafana (route B) | http://100.108.246.57:3001 | admin / (see grafana/.env: GF_ADMIN_PASSWORD); anonymous = viewer |
 | Grafana boards | /d/awrcap-tablespaces, /d/awrcap-cpu-series, /d/awrcap-fleet-anomalies, /d/awrcap-memory | |
-| ORDS module (route B) | http://100.108.246.57:8181/ords/capdemo/awrcap/{containers,targets,series,hourly,forecast,fit,anomalies,alerts,mem_verdicts,mem_evidence,mem_components,mem_points,metrics} | bearer token of the OAuth2 client in grafana/.env (ORDS_CLIENT_ID / ORDS_CLIENT_SECRET); 401 without |
+| ORDS module (route B) | http://100.108.246.57:8181/ords/capdemo/awrcap/{containers,targets,series,hourly,forecast,fit,anomalies,alerts,alert_volume,tbspc_shared,disk,families,family_members,mem_verdicts,mem_evidence,mem_components,mem_points,metrics} | bearer token of the OAuth2 client in grafana/.env (ORDS_CLIENT_ID / ORDS_CLIENT_SECRET); 401 without |
 | ORDS token | http://100.108.246.57:8181/ords/capdemo/oauth/token (`grant_type=client_credentials`, HTTP Basic) | the same client |
 | APEX app (route C) | http://100.108.246.57:8023/ords/r/awrcap/awrcap/overview | AWRCAP_VIEWER (password: ask the maintainer; not in the repo); App Builder: ADMIN |
 | APEX workspace sign-in | http://100.108.246.57:8023/ords/r/apex/workspace-sign-in/ (workspace AWRCAP) | ADMIN |
@@ -38,18 +38,22 @@ from the checkout that stays.
 
 The dbmint VM (`ssh -p 2200 oracle@dbmint`, VirtualBox, host-only IP
 192.168.56.111, cdb1 19.27, PDB1). Two schemas hold the suite with fixture
-data: **CAPDEMO** (demo_fixture, "ECOMPRD", re-anchored to 2026-11-13) and
+data: **CAPDEMO** (demo_fixture, "ECOMPRD", re-anchored to 2026-11-13 with
+the I/O, family and shared-disk chapters, one refresh run) and
 **CAPTEST** (fixture_install, "FIXCDB", anchored to 2026-10-17). Both feed
 ELK; only CAPDEMO has the ORDS module. The CAPTEST documents in the index
-predate `cap.target_name` and the memory records. Every sqlplus call needs the oraenv preamble:
+predate `cap.target_name`, the memory records and the U20 records (shared
+disk, families, alert volume, track record). Every sqlplus call needs the oraenv preamble:
 `export ORACLE_SID=cdb1; export ORAENV_ASK=NO; . oraenv >/dev/null 2>&1; sqlplus -S -L / as sysdba`
 then `ALTER SESSION SET CONTAINER = PDB1; ALTER SESSION SET CURRENT_SCHEMA = CAPDEMO;`.
 To re-anchor the fixtures to today: from `~/awr-capacity-forecast` on the
 VM run `@test/demo_fixture.sql` (CAPDEMO) or `@test/fixture_install.sql`
 (CAPTEST), then `DEFINE deploy_mode = fixture`, `@install.sql`,
-`EXEC cap_forecast_ml.train_all`, then `@grafana/ords/awrcap_module.sql CAPDEMO`
-if the schema was recreated (the module is protected; the role and the
-client survive a re-run). A new client, or a first one, goes straight into
+`EXEC cap_forecast_ml.train_all`, `EXEC cap_results.refresh` (the memory
+board and the track record read the last refresh), then
+`@grafana/ords/awrcap_module.sql CAPDEMO`
+if the schema was recreated or a handler changed (the module is protected;
+the role and the client survive a re-run). A new client, or a first one, goes straight into
 `grafana/.env` with step 6b of `grafana/ords/README.md`, then
 `docker compose -f grafana/docker-compose.yml up -d` so Grafana reads it.
 One harness at a time.
@@ -144,7 +148,9 @@ reset it as SYSTEM if needed (`alter user awrcap identified by ...`).
 - ORDS throttles beyond ~10 concurrent requests (429/555); the forecast and
   anomalies endpoints take 5-7 s each on the fixture. `mem_verdicts` took
   130 s and `mem_evidence` 75 s on the demo fixture while two harnesses ran
-  on the VM (2026-11-13); the data source waits 300 s.
+  on the VM (2026-11-13), read live; since U20 both read the snapshot
+  tables of the last `cap_results.refresh` and need a refresh to be fast.
+  The data source waits 300 s.
 - `elk/setup.sh` on Kibana 9.4 needs the internal-origin header on its
   settings call (it sends it).
 - Kibana "latest export" memory tables read the last two days, like the fit
