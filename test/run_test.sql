@@ -745,8 +745,12 @@ BEGIN
     chk_int  ('STARTED raises no CAPR_ALERTS (200 days is past dtf_warn)', v_n, 0);
     -- No other series restarts for STOP / START, PURGE names the two purged
     -- ones, and restart_day is the first fitted day wherever a reason is set.
+    -- Two members of the FIXM_# family (ddl/32) restart by construction:
+    -- FIXM_202309 filled on days 50 .. 79 (STOP), FIXM_202310 on days 80 ..
+    -- 110 (START, 10 quiet days are no STOP). Asserted in the family block.
     SELECT COUNT(CASE WHEN restart_reason IN ('STOP', 'START')
-                       AND tablespace_name NOT IN ('FIX_STOPPED', 'FIX_STARTED') THEN 1 END),
+                       AND tablespace_name NOT IN ('FIX_STOPPED', 'FIX_STARTED',
+                                                   'FIXM_202309', 'FIXM_202310') THEN 1 END),
            COUNT(CASE WHEN restart_reason = 'PURGE' THEN 1 END),
            COUNT(CASE WHEN restart_reason = 'PURGE'
                        AND tablespace_name IN ('FIX_PURGE', 'FIX_PURGE2') AND restart_day = reset_day THEN 1 END),
@@ -756,11 +760,11 @@ BEGIN
            COUNT(CASE WHEN restart_reason IS NULL THEN 1 END), COUNT(*)
       INTO v_n, v_num, v_num2, v_num3, v_r2, n_aux
       FROM capf_tbspc_forecast;
-    chk_int('no other tablespace restarts for STOP / START', v_n, 0);
+    chk_int('no other tablespace restarts for STOP / START (FIX_STOPPED, FIX_STARTED, FIXM_202309, FIXM_202310)', v_n, 0);
     chk_int('restart_reason PURGE rows', v_num, 2);
     chk_int('restart_reason PURGE = FIX_PURGE and FIX_PURGE2, restart_day = reset_day', v_num2, 2);
     chk_int('restart_day set with a reason only, and equal to train_start', v_num3, 0);
-    chk_int('rows with no restart = all but the four', v_r2, n_aux - 4);
+    chk_int('rows with no restart = all but the six (2 PURGE, 2 + 2 STOP / START)', v_r2, n_aux - 6);
     -- The report views pass both columns through, CAPR_FIT for TBSPC only.
     SELECT COUNT(*) INTO v_n
       FROM capf_tbspc_forecast t
@@ -778,7 +782,7 @@ BEGIN
       WHERE kind <> 'TBSPC' AND (restart_reason IS NOT NULL OR restart_day IS NOT NULL);
     chk_int('CAPR_FIT restart columns NULL for CPU and SERIES', v_n, 0);
     SELECT COUNT(*) INTO v_n FROM capr_fit WHERE kind = 'TBSPC' AND restart_reason IN ('STOP', 'START');
-    chk_int('CAPR_FIT rows with restart STOP / START', v_n, 2);
+    chk_int('CAPR_FIT rows with restart STOP / START (FIX_STOPPED, FIX_STARTED, FIXM_202309, FIXM_202310)', v_n, 4);
     -- quiet_days = 0: no STOP / START. Both fits are the whole window again,
     -- OLS through ramp + flat: the stopped tablespace gets a slope, grade OK
     -- and a full date inside dtf_warn, so a TBSPC_FULL alert. The started one
@@ -5951,7 +5955,7 @@ BEGIN
             ON f.kind = h.kind AND f.dbid = h.dbid AND f.con_dbid = h.con_dbid AND f.series = h.series
          WHERE h.run_id = run_2;
         chk_int ('R2 snapshot restart_reason / restart_day mismatches', v_n, 0);
-        chk_int ('R2 snapshot rows with restart STOP / START', v_num, 2);
+        chk_int ('R2 snapshot rows with restart STOP / START', v_num, 4);
         -- Every run keeps CAPR_COVERAGE on its CAP_RUN row (the backdated one
         -- too): the fixture is one current dbid. R1 and R2 ran on the restored
         -- data, so their summary is the view's now.
@@ -6017,14 +6021,14 @@ BEGIN
         -- The fixture's alerts: TBSPC_FULL 2 (FILLING, OVERRIDE), TBSPC_NEARFULL
         -- 2 (NEARFULL, OVERFULL), SERIES_LIMIT 2 (SESSIONS, ASM_DG:+DATA),
         -- SERIES_NEARLIMIT 1 (TEMP_PEAK), DBCPU_HOT 1 (FIXPDB2), CPU_SHIFT 1,
-        -- and 5 anomaly rows: TBSPC_ANOM 2 (spike, FIX_GAP burst), CPU_ANOM 1,
+        -- TBSPC_FAMILY 1 (FIXM_#), and 5 anomaly rows: TBSPC_ANOM 2 (spike, FIX_GAP burst), CPU_ANOM 1,
         -- DBCPU_ANOM 1 (the step episode), SERIES_ANOM 1. One row per key.
         SELECT COUNT(*), COUNT(DISTINCT state_key), COUNT(DISTINCT alert_key),
                COUNT(CASE WHEN kind IN ('TBSPC_ANOM', 'CPU_ANOM', 'DBCPU_ANOM', 'SERIES_ANOM') THEN 1 END)
           INTO n_rows, n_state, v_n, v_a FROM capr_alerts;
-        chk_true('CAPR_ALERTS: 14 rows, 14 state_keys, 14 alert_keys, 5 anomaly rows (got ' || n_rows || '/'
+        chk_true('CAPR_ALERTS: 15 rows, 15 state_keys, 15 alert_keys, 5 anomaly rows (got ' || n_rows || '/'
                  || n_state || '/' || v_n || '/' || v_a || ')',
-                 n_rows = 14 AND n_state = 14 AND v_n = 14 AND v_a = 5);
+                 n_rows = 15 AND n_state = 15 AND v_n = 15 AND v_a = 5);
         SELECT COUNT(*), COUNT(CASE WHEN state = 'OPEN' THEN 1 END) INTO v_a, v_b FROM cap_alert_state;
         chk_true('CAP_ALERT_STATE = the distinct CAPR_ALERTS state_keys, every one OPEN (got ' || v_a || '/' || v_b || ')',
                  v_a = n_state AND v_b = n_state);
@@ -6041,8 +6045,8 @@ BEGIN
         chk_int ('R2 events in total (nothing changed)', n_ev(run_2, 'ANY'), 0);
         chk_int ('R0 events (backdated: no alert state)', n_ev(run_0, 'ANY'), 0);
         SELECT n_alert, n_anom, n_event INTO v_a, v_b, v_c FROM cap_run WHERE run_id = run_1;
-        chk_true('R1 n_alert 14, n_anom 5, n_event 14 (got ' || v_a || '/' || v_b || '/' || v_c || ')',
-                 v_a = 14 AND v_b = 5 AND v_c = 14);
+        chk_true('R1 n_alert 15, n_anom 5, n_event 15 (got ' || v_a || '/' || v_b || '/' || v_c || ')',
+                 v_a = 15 AND v_b = 5 AND v_c = 15);
         SELECT COUNT(*) INTO v_n FROM cap_alert_event
          WHERE run_id = run_1 AND event_id NOT BETWEEN run_1 * 100000 + 1 AND run_1 * 100000 + n_state;
         chk_int ('R1 event_id = run_id * 100000 + 1 .. n', v_n, 0);
@@ -6052,8 +6056,8 @@ BEGIN
           INTO v_n, v_a, v_b, v_c1, v_s1, v_s2 FROM capr_runs;
         chk_true('CAPR_RUNS: 3 rows, is_last = R2, last_ok_run_id = R2, stale_run N (got ' || v_n || ' '
                  || v_a || ' ' || v_b || ' ' || v_c1 || ')', v_n = 3 AND v_a = run_2 AND v_b = run_2 AND v_c1 = 'N');
-        chk_true('CAPR_RUNS summary "refresh run <R2> at <time> (14 alerts, <n> fits)" (got: ' || v_s1 || ')',
-                 v_s1 LIKE 'refresh run ' || run_2 || ' at % (14 alerts, ' || n_fit || ' fits)');
+        chk_true('CAPR_RUNS summary "refresh run <R2> at <time> (15 alerts, <n> fits)" (got: ' || v_s1 || ')',
+                 v_s1 LIKE 'refresh run ' || run_2 || ' at % (15 alerts, ' || n_fit || ' fits)');
         chk_true('CAPR_RUNS R0 summary says backdated (got: ' || v_s2 || ')',
                  v_s2 LIKE '% (backdated as of ' || TO_CHAR(TRUNC(SYSDATE) - 7, 'YYYY-MM-DD') || ', ' || n_fit
                            || ' fits, no alert state)');
@@ -6083,8 +6087,15 @@ BEGIN
         DBMS_OUTPUT.PUT_LINE('=== results layer: CAPR_WEEKLY_DIGEST (R2 vs R0) ===');
         SELECT COUNT(*), MIN(run_then), MIN(run_now), SUM(n_new), SUM(n_resolved), SUM(n_reopened), SUM(n_sev_changes)
           INTO v_n, v_a, v_b, v_c, v_d, v_num, v_num2 FROM capr_weekly_digest;
-        chk_true('digest: one row per series, R0 vs R2 (got ' || v_n || ' rows, ' || v_a || ' vs ' || v_b || ')',
-                 v_n = n_fit AND v_a = run_0 AND v_b = run_2);
+        -- The TBSPC_FAMILY alert is keyed on the family FIXM_#, which is no
+        -- fit series: its event has a digest row of its own, kind OTHER.
+        chk_true('digest: one row per series and one for the family alert, R0 vs R2 (got ' || v_n || ' rows, '
+                 || v_a || ' vs ' || v_b || ')',
+                 v_n = n_fit + 1 AND v_a = run_0 AND v_b = run_2);
+        SELECT COUNT(*), MAX(n_new), MAX(events) INTO v_n, v_a, v_s1 FROM capr_weekly_digest
+         WHERE kind = 'OTHER' AND series = 'FIXM_#';
+        chk_true('digest: the one OTHER row is FIXM_#, "TBSPC_FAMILY NEW 1" (got ' || v_n || ' ' || v_a || ' ' || v_s1 || ')',
+                 v_n = 1 AND v_a = 1 AND v_s1 = 'TBSPC_FAMILY NEW 1');
         chk_true('digest: NEW = the state count, nothing resolved / reopened / re-graded (got ' || v_c || '/' || v_d
                  || '/' || v_num || '/' || v_num2 || ')',
                  v_c = n_state AND v_d = 0 AND v_num = 0 AND v_num2 = 0);
