@@ -63,7 +63,8 @@ Enumerations:
   `series`, `forecast` and `fit` share one limit convention: `limit_value` is
   the saturation line `cpu_sat_pct` (not 100) and `pct` is `value` as a
   percent of it, and `CAPR_ALERTS` (the view behind `alerts`) now also has
-  the kinds `CPU_HOT`, `DBCPU_HOT`, `DATA_STALE`, `MODEL_HEALTH` and the
+  the kinds `CPU_HOT`, `DBCPU_HOT`, `DATA_STALE`, `MODEL_HEALTH`,
+  `TBSPC_FAMILY` (unit `GIB`) and `DISK_FULL` (unit `DAYS`) and the
   columns `state_key` (stable across days), `direction` (LE/GE/ABS),
   `alarm_threshold` (the WARN level) and `is_current`, which the ORDS handler
   does not select yet. Likewise `CAPR_FIT` (the view behind `fit`) appends
