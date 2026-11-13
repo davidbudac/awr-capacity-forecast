@@ -18,6 +18,8 @@ PROMPT ==== mem_timing: capm_advice ====
 SELECT COUNT(*) AS capm_advice_rows FROM capm_advice;
 PROMPT ==== mem_timing: capm_area ====
 SELECT COUNT(*) AS capm_area_rows FROM capm_area;
+PROMPT ==== mem_timing: capm_evidence ====
+SELECT COUNT(*) AS capm_evidence_rows FROM capm_evidence;
 PROMPT ==== mem_timing: capm_verdict ====
 SELECT COUNT(*) AS capm_verdict_rows FROM capm_verdict;
 PROMPT ==== mem_timing: capr_mem_verdict ====

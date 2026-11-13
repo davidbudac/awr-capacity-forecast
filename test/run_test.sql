@@ -2437,6 +2437,9 @@ BEGIN
         a_thin   VARCHAR2(1);
         a_ref    NUMBER;
         a_fb     VARCHAR2(1);
+        a_gdir   VARCHAR2(10);
+        a_sdir   VARCHAR2(10);
+        a_odir   VARCHAR2(10);
         v_xsga   VARCHAR2(1);
         v_exp    NUMBER;
         v_d      DATE;
@@ -2488,8 +2491,9 @@ BEGIN
         PROCEDURE area(p_area VARCHAR2) IS
         BEGIN
             SELECT cover_hours, n_days, best_gain, best_bytes, grow_bytes, slack_bytes, current_bytes,
-                   advisor_thin, reference_bytes, reference_fallback
-              INTO a_cover, a_days, a_best, a_bestb, a_grow, a_slack, a_cur, a_thin, a_ref, a_fb
+                   advisor_thin, reference_bytes, reference_fallback, gain_dir, shrink_dir, overalloc_dir
+              INTO a_cover, a_days, a_best, a_bestb, a_grow, a_slack, a_cur, a_thin, a_ref, a_fb,
+                   a_gdir, a_sdir, a_odir
               FROM capm_area
              WHERE dbid = v_dbid AND instance_number = 1 AND area = p_area;
         END;
@@ -2651,6 +2655,22 @@ BEGIN
         chk_int  ('CAPM_AREA SGA_TOTAL best_bytes: the smallest size reaching it', a_bestb, 6144 * n_mib);
         SELECT COUNT(*) INTO v_n FROM capm_area WHERE dbid = v_dbid;
         chk_int('CAPM_AREA four advisor areas', v_n, 4);
+        -- The directions of the three ADVISOR signals. PGA: a gain of 10
+        -- points against the knob's 2, a loss of 10 at the nearest smaller
+        -- size (no slack size), 180 over-allocations. Cache: 0.2% under the
+        -- knob's 1%, 0.45% lost at the slack size. Shared pool: 1.5% gained,
+        -- 0.6% lost above the knob's 0.5%. SGA: 0.3% and 1%. Only the PGA
+        -- advisor counts over-allocations.
+        FOR r IN (SELECT 'PGA_TARGET' AS a, 'PRESSURE' AS g, 'NEUTRAL' AS s, 'PRESSURE' AS o FROM dual
+                  UNION ALL SELECT 'BUFFER_CACHE', 'NEUTRAL',  'SLACK',   NULL FROM dual
+                  UNION ALL SELECT 'SHARED_POOL',  'PRESSURE', 'NEUTRAL', NULL FROM dual
+                  UNION ALL SELECT 'SGA_TOTAL',    'NEUTRAL',  'NEUTRAL', NULL FROM dual) LOOP
+            area(r.a);
+            chk_str ('CAPM_AREA ' || r.a || ' gain_dir', a_gdir, r.g);
+            chk_str ('CAPM_AREA ' || r.a || ' shrink_dir', a_sdir, r.s);
+            chk_true('CAPM_AREA ' || r.a || ' overalloc_dir (got ' || a_odir || ')',
+                     a_odir = r.o OR (a_odir IS NULL AND r.o IS NULL));
+        END LOOP;
         SELECT n_days, n_ops, n_reversals, cache_grows, shpool_forced_grows, sga_forced_grows,
                cache_bytes, shpool_bytes, floor_bytes
           INTO v_days, v_num, v_num2, v_num3, v_r2, n_aux, v_cur, v_sug, v_exp
@@ -2770,6 +2790,18 @@ BEGIN
         chk_true('SGA_BALANCE exceeds_host_ram NULL', v_xram IS NULL);
         chk_true('SGA_BALANCE exceeds_sga NULL', v_xsga IS NULL);
         chk_int('SGA_BALANCE n_days', v_days, 30);
+        -- The verdict counts an area's ADVISOR signals from CAPM_AREA's
+        -- directions and the others from CAPM_EVIDENCE: together every
+        -- evidence row of the area, as counted above.
+        FOR r IN (SELECT 'PGA_TARGET' AS a, 8 AS n, 4 AS p FROM dual
+                  UNION ALL SELECT 'BUFFER_CACHE', 4, 0 FROM dual
+                  UNION ALL SELECT 'SHARED_POOL',  7, 1 FROM dual
+                  UNION ALL SELECT 'SGA_TOTAL',    4, 0 FROM dual
+                  UNION ALL SELECT 'SGA_BALANCE',  3, 0 FROM dual) LOOP
+            verdict(r.a);
+            chk_int('CAPM_VERDICT ' || r.a || ' n_evidence = its CAPM_EVIDENCE rows', v_nev, r.n);
+            chk_int('CAPM_VERDICT ' || r.a || ' n_pressure', v_npr, r.p);
+        END LOOP;
 
         DBMS_OUTPUT.PUT_LINE('=== M26.4 CAPR_MEM_* report views (shipped knobs) ===');
         SELECT COUNT(*), COUNT(CASE WHEN rank_mem = area_rank THEN 1 END),
@@ -2897,6 +2929,9 @@ BEGIN
             chk_int('mem_min_uptime_hours 721: PGA_TARGET symptoms still count (multi-pass, over-allocations)', v_npr, 2);
             chk_int('mem_min_uptime_hours 721: PGA_TARGET has no ADVISOR row left', v_nev, 5);
             chk_int('mem_min_uptime_hours 721: PGA_TARGET current_bytes stays', v_cur, n_gib);
+            area('PGA_TARGET');
+            chk_true('mem_min_uptime_hours 721: CAPM_AREA PGA_TARGET has no ADVISOR direction',
+                     a_gdir IS NULL AND a_sdir IS NULL AND a_odir IS NULL);
             chk_v('mem_min_uptime_hours 721', 'BUFFER_CACHE', 'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);
             chk_v('mem_min_uptime_hours 721', 'SHARED_POOL',  'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);
             chk_v('mem_min_uptime_hours 721', 'SGA_TOTAL',    'INSUFFICIENT_EVIDENCE', 'ADVISOR_THIN', NULL);

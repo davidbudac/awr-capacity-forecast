@@ -419,13 +419,15 @@ WITH latest AS (
           AND  a.advice_on = 'Y'
      ),
      dl AS (
+        -- The metric list is a conjunct of its own: metric is a partition key
+        -- of every window in CAPM_DELTA, so the filter reaches its sources
+        -- and the symptom sources are not read here.
         SELECT dbid, instance_number, snap_id, prev_snap_id, metric, key, key_num,
                delta, end_time, ivl_hours
         FROM   capm_delta
         WHERE  in_win = 'Y'
-          AND  (metric = 'DBTIME'
-                OR (seg_ok = 'Y'
-                    AND metric IN ('SGA_TOTAL', 'BUFFER_CACHE', 'SHARED_POOL', 'PGA_TARGET')))
+          AND  metric IN ('DBTIME', 'SGA_TOTAL', 'BUFFER_CACHE', 'SHARED_POOL', 'PGA_TARGET')
+          AND  (metric = 'DBTIME' OR seg_ok = 'Y')
      ),
      adv AS (
         SELECT dbid, instance_number, snap_id, prev_snap_id, metric AS area, key_num AS size_bytes,
@@ -773,6 +775,13 @@ LEFT   JOIN over_days o ON o.dbid = l.dbid AND o.instance_number = l.instance_nu
 --                  shown when no candidate qualifies as slack.
 --   cur_overalloc  PGA_TARGET: the advisor's over-allocation increments at
 --                  the reference size, NULL while the advisor is thin.
+--   gain_dir / shrink_dir / overalloc_dir  the direction of the area's three
+--                  ADVISOR signals, NULL for a signal that has no row:
+--                  best_gain at or above the gain knob is PRESSURE, a loss at
+--                  slack_bytes SLACK (at near_bytes NEUTRAL), cur_overalloc
+--                  of 1 or more PRESSURE. CAPM_EVIDENCE writes the rows from
+--                  them and CAPM_VERDICT counts them, so the verdict reads
+--                  this view once.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capm_area AS
 WITH def AS (
@@ -876,7 +885,16 @@ SELECT i.dbid,
        i.pga_target_bytes,
        i.host_ram_bytes,
        f.reference_bytes,
-       CAST(NVL(f.reference_fallback, 'N') AS VARCHAR2(1)) AS reference_fallback
+       CAST(NVL(f.reference_fallback, 'N') AS VARCHAR2(1)) AS reference_fallback,
+       CAST(CASE WHEN f.best_gain IS NULL        THEN NULL
+                 WHEN f.best_gain >= d.gain_thr  THEN 'PRESSURE' ELSE 'NEUTRAL' END
+            AS VARCHAR2(10))                    AS gain_dir,
+       CAST(CASE WHEN NVL(f.slack_loss, f.near_loss) IS NULL THEN NULL
+                 WHEN f.slack_bytes IS NOT NULL  THEN 'SLACK' ELSE 'NEUTRAL' END
+            AS VARCHAR2(10))                    AS shrink_dir,
+       CAST(CASE WHEN f.reference_bytes IS NULL OR f.cur_overalloc IS NULL THEN NULL
+                 WHEN f.cur_overalloc >= 1       THEN 'PRESSURE' ELSE 'NEUTRAL' END
+            AS VARCHAR2(10))                    AS overalloc_dir
 FROM   capm_inst i
 CROSS  JOIN def d
 LEFT   JOIN f   ON f.dbid = i.dbid AND f.instance_number = i.instance_number AND f.area = d.area
@@ -1092,6 +1110,8 @@ LEFT   JOIN rev r ON r.dbid = i.dbid AND r.instance_number = i.instance_number;
 --   <sig>_ADV_SHRINK_LOSS_DBTIME_PCT / PGA_ADV_SHRINK_LOSS_PTS   the loss at
 --       slack_bytes, SLACK; without one the loss at near_bytes, NEUTRAL.
 --   PGA_ADV_OVERALLOC     cur_overalloc; PRESSURE at 1 or more.
+-- Which of the three has a row, and its direction, are CAPM_AREA's gain_dir /
+-- shrink_dir / overalloc_dir.
 -- Under a fallback reference (CAPM_AREA.reference_fallback = Y) each of
 -- these sentences names the reference size in place of "the current" one
 -- and says which size is current, every size in whole MiB (the sizes are
@@ -1128,7 +1148,11 @@ LEFT   JOIN rev r ON r.dbid = i.dbid AND r.instance_number = i.instance_number;
 --       pool size. SLACK at or above mem_shpool_free_pct.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capm_evidence AS
-WITH lim AS (
+WITH inst AS (
+        SELECT dbid, instance_number, window_end
+        FROM   capm_inst
+     ),
+     lim AS (
         SELECT l.dbid, l.instance_number, l.limit_bytes,
                CASE k.n WHEN 1 THEN 'PGA_HWM_PEAK_PCT' ELSE 'PGA_SAMPLED_PEAK_PCT' END AS signal,
                CASE k.n WHEN 1 THEN l.hwm_peak_bytes ELSE l.sampled_peak_bytes END    AS peak_bytes,
@@ -1199,10 +1223,7 @@ WITH lim AS (
                         ELSE a.cur_overalloc END AS value,
                CASE k.n WHEN 3 THEN 'COUNT' ELSE a.gain_unit END AS unit,
                CASE k.n WHEN 1 THEN a.gain_thr WHEN 2 THEN a.shrink_thr ELSE 1 END AS threshold,
-               CASE k.n WHEN 1 THEN CASE WHEN a.best_gain >= a.gain_thr THEN 'PRESSURE' ELSE 'NEUTRAL' END
-                        WHEN 2 THEN CASE WHEN a.slack_bytes IS NOT NULL THEN 'SLACK' ELSE 'NEUTRAL' END
-                        ELSE CASE WHEN a.cur_overalloc >= 1 THEN 'PRESSURE' ELSE 'NEUTRAL' END
-               END AS direction,
+               CASE k.n WHEN 1 THEN a.gain_dir WHEN 2 THEN a.shrink_dir ELSE a.overalloc_dir END AS direction,
                a.window_end AS observed_at,
                CASE WHEN k.n = 3 THEN 'The PGA advisor counted '
                     WHEN a.gain_unit = 'PTS'
@@ -1218,9 +1239,9 @@ WITH lim AS (
                END AS tail
         FROM   art a
         CROSS  JOIN (SELECT LEVEL AS n FROM dual CONNECT BY LEVEL <= 3) k
-        WHERE  (k.n = 1 AND a.best_gain IS NOT NULL)
-           OR  (k.n = 2 AND NVL(a.slack_loss, a.near_loss) IS NOT NULL)
-           OR  (k.n = 3 AND a.cur_overalloc IS NOT NULL)
+        WHERE  (k.n = 1 AND a.gain_dir IS NOT NULL)
+           OR  (k.n = 2 AND a.shrink_dir IS NOT NULL)
+           OR  (k.n = 3 AND a.overalloc_dir IS NOT NULL)
      ),
      thr AS (
         SELECT LOWER(knob) AS knob, value
@@ -1295,7 +1316,7 @@ WITH lim AS (
         FROM   sig g
         JOIN   (SELECT DISTINCT dbid, instance_number, metric FROM sums) h
           ON   h.metric = g.src
-        JOIN   (SELECT DISTINCT dbid, instance_number, window_end FROM ar) i
+        JOIN   inst i
           ON   i.dbid = h.dbid AND i.instance_number = h.instance_number
         LEFT   JOIN ratio r
           ON   r.dbid = h.dbid AND r.instance_number = h.instance_number
@@ -1398,7 +1419,7 @@ WITH lim AS (
                CAST(NULL AS VARCHAR2(1)) AS lead,
                ' of the buffer cache and the shared pool show a pressure symptom in the window' AS tail
         FROM   measured m
-        JOIN   (SELECT DISTINCT dbid, instance_number, window_end FROM ar) i
+        JOIN   inst i
           ON   i.dbid = m.dbid AND i.instance_number = m.instance_number
         WHERE  m.area IN ('BUFFER_CACHE', 'SHARED_POOL')
         GROUP  BY m.dbid, m.instance_number
@@ -1516,6 +1537,11 @@ FROM   ev e;
 --     no_limit   PGA_LIMIT: pga_aggregate_limit is 0
 --   CONTEXT rows never decide a grade: no flag reads them alone, and none is
 --   ever PRESSURE.
+--   CAPM_AREA is read once (ar), for the facts and for the ADVISOR signals,
+--   which are counted from its three directions. The other kinds come from
+--   CAPM_EVIDENCE under kind <> 'ADVISOR', a filter that takes the advisor
+--   branch, and with it a second evaluation of CAPM_AREA and the advisor
+--   curves, out of that view's plan (19.27).
 --   current_bytes      the size in force now: the advisor's current size,
 --                      pga_aggregate_limit for PGA_LIMIT, sga_target for
 --                      SGA_BALANCE.
@@ -1552,7 +1578,11 @@ FROM   ev e;
 --   n_days             the area's sampled days in the window.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capm_verdict AS
-WITH ev AS (
+WITH ar AS (
+        SELECT *
+        FROM   capm_area
+     ),
+     ev AS (
         SELECT dbid, instance_number, area,
                COUNT(*)                                                                AS n_evidence,
                COUNT(CASE WHEN direction = 'PRESSURE' THEN 1 END)                      AS n_pressure,
@@ -1564,7 +1594,13 @@ WITH ev AS (
                           THEN 1 END)                                                  AS n_churn_pressure,
                COUNT(CASE WHEN direction = 'PRESSURE' AND signal = 'SGA_POOL_SHIFT_PCT'
                           THEN 1 END)                                                  AS n_shift_pressure
-        FROM   capm_evidence
+        FROM  ( SELECT dbid, instance_number, area, signal, kind, direction
+                FROM   capm_evidence
+                WHERE  kind <> 'ADVISOR'
+                UNION  ALL
+                SELECT dbid, instance_number, area, what, 'ADVISOR', dir
+                FROM   ar
+                UNPIVOT (dir FOR what IN (gain_dir, shrink_dir, overalloc_dir)) )
         GROUP  BY dbid, instance_number, area
      ),
      bal AS (
@@ -1605,7 +1641,7 @@ WITH ev AS (
                a.host_ram_bytes,
                CASE WHEN a.mem_mode = 'ASMM' AND a.area IN ('BUFFER_CACHE', 'SHARED_POOL')
                     THEN b.cache_bytes + b.shpool_bytes END
-        FROM   capm_area a
+        FROM   ar a
         CROSS  JOIN cap_cfg cfg
         LEFT   JOIN bal b
           ON   b.dbid = a.dbid AND b.instance_number = a.instance_number
