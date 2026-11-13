@@ -18,6 +18,9 @@
 -- panels all read t_act. t_beh is the unusual-behaviour list.
 -- CAPR_MEM_VERDICT is read once, by the memory section alone: a verdict is
 -- advice, raises no alert and changes no headline, action or count.
+-- CAPR_FIT_TRACK (the forecast track record, from the stored refresh runs)
+-- is read once, for its own lines under the advice: a series a forecast alert
+-- names whose earlier forecasts graded BIASED or WIDE. It changes no action.
 --
 -- Run from the REPO ROOT so the @@report/defaults.sql include resolves:
 --   SQL> @report/report_brief.sql
@@ -1356,6 +1359,51 @@ BEGIN
     END IF;
   EXCEPTION
     WHEN OTHERS THEN sec_failed('memory sizing', SQLERRM);
+  END;
+
+  -- Forecast track record, under the advice: one line per series that a
+  -- forecast alert names (TBSPC_FULL, CPU_SAT, DBCPU_SAT, SERIES_LIMIT) and
+  -- whose earlier forecasts graded BIASED or WIDE (CAPR_FIT_TRACK, the stored
+  -- refresh runs; the same under LIVE and SNAPSHOT). A good or unknown record
+  -- prints nothing, and the action list above does not change.
+  DECLARE
+    n_trk PLS_INTEGER := 0;
+    fi    PLS_INTEGER;
+    hit   BOOLEAN;
+  BEGIN
+    IF v_load_err IS NULL THEN
+      FOR r IN (SELECT dbid, con_dbid, kind, series, reliability, bias_pct, summary
+                FROM   capr_fit_track
+                WHERE  reliability IN ('BIASED', 'WIDE')
+                  AND  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+                ORDER  BY dbid, rank_track) LOOP
+        hit := FALSE;
+        FOR i IN 1 .. t_al.COUNT LOOP
+          hit := hit OR (kprio(t_al(i).kind) = 1 AND fam(t_al(i).kind) = r.kind AND t_al(i).dbid = r.dbid
+                         AND t_al(i).con_dbid = r.con_dbid AND t_al(i).series_key = r.series);
+        END LOOP;
+        IF hit THEN
+          n_trk := n_trk + 1;
+          IF n_trk = 1 THEN
+            p('<h3>Forecast track record</h3>');
+            p('<ul class="beh">');
+          END IF;
+          fi := find_fit(r.dbid, r.con_dbid, r.kind, r.series);
+          p('<li><span class="by">' || CASE r.reliability WHEN 'BIASED' THEN 'Biased' ELSE 'Too narrow' END
+            || '</span><span>' || esc(CASE WHEN fi IS NOT NULL THEN lbl_t(fi) ELSE lbl(r.kind, r.series) END) || ': '
+            || esc(r.summary)
+            || CASE WHEN r.reliability = 'WIDE' THEN ' Its dates are less certain than the 95% band says.'
+                    WHEN r.bias_pct > 0 THEN ' It grew faster than forecast: its date may come sooner.'
+                    ELSE ' It grew slower than forecast: its date may come later.' END
+            || '</span></li>');
+        END IF;
+      END LOOP;
+      IF n_trk > 0 THEN
+        p('</ul>');
+      END IF;
+    END IF;
+  EXCEPTION
+    WHEN OTHERS THEN sec_failed('forecast track record', SQLERRM);
   END;
 
   -- A load failure already has its box under "What to do".

@@ -370,6 +370,32 @@ BEGIN
   END;
 
   ----------------------------------------------------------------------
+  -- track: the forecast track record per series (CAPR_FIT_TRACK). It
+  -- reads the stored refresh runs only, so LIVE and SNAPSHOT send the
+  -- same rows: the series of the newest OK run. No run, an empty block.
+  ----------------------------------------------------------------------
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT kind, dbid, con_dbid, series, n_forecasts, abs_err_pct, bias_pct, n_banded,
+                     band_hits, band_factor, proj_30_lo_cal, proj_30_hi_cal, reliability, summary
+              FROM   capr_fit_track
+              ORDER  BY 1, 2, 3, 4) LOOP
+      IF in_scope(r.dbid, r.con_dbid) THEN
+        w(v_sep || CHR(10) || '{"k":' || js(r.kind) || ',"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid)
+          || ',"s":' || js(r.series) || ',"n":' || jn(r.n_forecasts) || ',"err":' || jn(r.abs_err_pct)
+          || ',"bias":' || jn(r.bias_pct) || ',"nb":' || jn(r.n_banded) || ',"hits":' || jn(r.band_hits)
+          || ',"f":' || jn(r.band_factor) || ',"lo":' || jn(r.proj_30_lo_cal) || ',"hi":' || jn(r.proj_30_hi_cal)
+          || ',"rel":' || js(r.reliability) || ',"txt":' || js(r.summary) || '}');
+        v_sep := ',';
+      END IF;
+    END LOOP;
+    w(']');
+    flush_block('track');
+  EXCEPTION WHEN OTHERS THEN fail_block('track', SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
   -- points: the daily history of every charted series, one object per
   -- series: t0 + [day offset, value, limit, anomaly (1 high, -1 low,
   -- 0 scored, null unscored), gap].

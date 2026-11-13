@@ -318,6 +318,11 @@ EXEC DBMS_APPLICATION_INFO.SET_ACTION('s8 memory')
 @@&cap_tm_start
 @@report/sections/08_memory.sql
 @@&cap_tm_stop
+DEFINE cap_tm_lbl = s9
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('s9 track record')
+@@&cap_tm_start
+@@report/sections/09_track.sql
+@@&cap_tm_stop
 
 PROMPT
 PROMPT ================================================================================

@@ -7,7 +7,8 @@
 -- capr_tbspc_forecast, capr_tbspc_anomalies, capr_cpu_trend,
 -- capr_cpu_anomalies, capr_cpu_shifts, capr_series, capr_fit,
 -- capr_anomalies, and the memory sizing views capr_mem_verdict,
--- capr_mem_evidence, capr_mem_components, capr_mem_comp_points. Every column of the view, every row in the scope (no top_n
+-- capr_mem_evidence, capr_mem_components, capr_mem_comp_points, and the
+-- forecast track record capr_fit_track. Every column of the view, every row in the scope (no top_n
 -- bound), so a spreadsheet or a script gets what the reports format. A view
 -- with no rows in the scope leaves an empty file: SQL*Plus prints no header
 -- without a row.
@@ -209,6 +210,16 @@ FROM   capr_mem_comp_points&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
 ORDER  BY dbid, instance_number, component, ts;
+SPOOL OFF
+
+-- Table-backed (CAP_FIT_HIST, CAP_RUN): the same rows under LIVE and SNAPSHOT.
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('capr_fit_track')
+SPOOL &cap_dir/capr_fit_track.csv
+SELECT *
+FROM   capr_fit_track
+WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
+ORDER  BY dbid, rank_track;
 SPOOL OFF
 
 SET MARKUP CSV OFF

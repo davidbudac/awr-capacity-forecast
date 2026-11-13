@@ -160,6 +160,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  var FC = groupBy(D.forecast, function (r) { return key(r.k, r.dbid, r.con, r.s); });~');
   DBMS_OUTPUT.PUT_LINE(q'~  var AN = groupBy(D.anomalies, function (r) { return key(r.dbid, r.con, r.s); });~');
   DBMS_OUTPUT.PUT_LINE(q'~  var AL = groupBy(D.alerts, function (r) { return key(r.dbid, r.con, r.s); });~');
+  DBMS_OUTPUT.PUT_LINE(q'~  var TRK = {};~');
+  DBMS_OUTPUT.PUT_LINE(q'~  (D.track || []).forEach(function (t) { TRK[key(t.k, t.dbid, t.con, t.s)] = t; });~');
+  DBMS_OUTPUT.PUT_LINE(q'~  var REL_TAG = { BIASED: 'forecasts biased', WIDE: 'band too narrow' };~');
   DBMS_OUTPUT.PUT_LINE(q'~  var HOURS = {};~');
   DBMS_OUTPUT.PUT_LINE(q'~  (D.hours || []).forEach(function (h) { HOURS[key(h.dbid, h.con, h.s)] = h; });~');
   DBMS_OUTPUT.PUT_LINE(NULL);
@@ -225,7 +228,8 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      id: fam.id + '-' + String(f.dbid) + '-' + String(f.con) + '-' + f.s.replace(/[^A-Za-z0-9]+/g, '_'),~');
   DBMS_OUTPUT.PUT_LINE(q'~      name: fam.name(f), ctr: conLabel(f.dbid, f.con),~');
   DBMS_OUTPUT.PUT_LINE(q'~      pts: PTS[key(f.k, f.dbid, f.con, f.s)] || [],~');
-  DBMS_OUTPUT.PUT_LINE(q'~      fc: FC[key(f.k, f.dbid, f.con, f.s)] || []~');
+  DBMS_OUTPUT.PUT_LINE(q'~      fc: FC[key(f.k, f.dbid, f.con, f.s)] || [],~');
+  DBMS_OUTPUT.PUT_LINE(q'~      trk: TRK[key(f.k, f.dbid, f.con, f.s)]~');
   DBMS_OUTPUT.PUT_LINE(q'~    };~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (fam.perContainer) m.ctr = conKind(f.dbid, f.con);~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (fam.id === 'host-cpu') m.ctr = 'host';~');
@@ -695,7 +699,18 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    if (QUALITY_TAG[m.f.q]) t.push(QUALITY_TAG[m.f.q]);~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (m.f.cur === 0) t.push('no longer reported');~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (m.f.limSrc && m.f.limSrc !== 'MAXBYTES' && m.f.limSrc !== 'AUTOEXTEND' && m.fam.id === 'tablespaces') t.push('limit: ' + m.f.limSrc.toLowerCase());~');
-  DBMS_OUTPUT.PUT_LINE(q'~    return t.map(function (x) { return '<span class="tag">' + esc(x) + '</span>'; }).join('');~');
+  DBMS_OUTPUT.PUT_LINE(q'~    return t.map(function (x) { return '<span class="tag">' + esc(x) + '</span>'; }).join('') +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      (m.trk && REL_TAG[m.trk.rel] ? '<span class="tag rel">' + REL_TAG[m.trk.rel] + '</span>' : '');~');
+  DBMS_OUTPUT.PUT_LINE(q'~  }~');
+  DBMS_OUTPUT.PUT_LINE(NULL);
+  DBMS_OUTPUT.PUT_LINE(q'~  /* The forecast track record of the series (CAPR_FIT_TRACK): the view's~');
+  DBMS_OUTPUT.PUT_LINE(q'~     sentence, and the +30 band at its factor when that widens the band. */~');
+  DBMS_OUTPUT.PUT_LINE(q'~  function trackHtml(m) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var t = m.trk, cal = '';~');
+  DBMS_OUTPUT.PUT_LINE(q'~    if (t.f > 1 && t.lo != null && t.hi != null) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~      cal = ' <span class="cal">+30 d band at that factor: ' + m.unit.fmt(t.lo) + ' \u2013 ' + m.unit.fmt(t.hi) + '</span>';~');
+  DBMS_OUTPUT.PUT_LINE(q'~    }~');
+  DBMS_OUTPUT.PUT_LINE(q'~    return '<p class="trk' + (REL_TAG[t.rel] ? ' off' : t.rel === 'UNKNOWN' ? ' unk' : '') + '"><span class="tl">Track record</span>' + esc(t.txt) + cal + '</p>';~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  function cardHtml(m) {~');
@@ -714,6 +729,7 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    o.push(legendHtml(spec) + '</div>');~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (m.fam.heat) o.push(heatSvg(m));~');
   DBMS_OUTPUT.PUT_LINE(q'~    o.push('</div>');~');
+  DBMS_OUTPUT.PUT_LINE(q'~    if (m.trk) o.push(trackHtml(m));~');
   DBMS_OUTPUT.PUT_LINE(q'~    var shifts = m.anoms.filter(function (a) { return a.ak === 'CPU_SHIFT'; });~');
   DBMS_OUTPUT.PUT_LINE(q'~    var evs = anomalyEvents(m);~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (shifts.length || evs.length) {~');
@@ -793,6 +809,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      var p = pts[i];~');
   DBMS_OUTPUT.PUT_LINE(q'~      if (p.y == null) continue;~');
   DBMS_OUTPUT.PUT_LINE(q'~      if (last == null) last = p;~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      if (p.x >= last.x - days) first = p; else break;~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    return last && first && last.x > first.x ? { d: last.y - first.y, n: last.x - first.x } : null;~');
@@ -1196,6 +1215,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  Array.prototype.forEach.call(document.querySelectorAll('.chart'), function (el) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var spec = CHARTS[+el.getAttribute('data-chart')];~');
   DBMS_OUTPUT.PUT_LINE(q'~    var svg = el.querySelector('svg'), tip = el.querySelector('.tip');~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    var hx = svg.querySelector('.hx'), hd = svg.querySelector('.hd'), hit = svg.querySelector('.hit');~');
   DBMS_OUTPUT.PUT_LINE(q'~    function hide() { tip.classList.remove('on'); hx.setAttribute('visibility', 'hidden'); hd.setAttribute('visibility', 'hidden'); }~');
   DBMS_OUTPUT.PUT_LINE(q'~    hit.addEventListener('mouseleave', hide);~');

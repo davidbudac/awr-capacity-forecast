@@ -191,6 +191,35 @@ try {
   check(false, 'render with IOPS / IO_MBPS throws: ' + e.message);
 }
 
+// The forecast track record (block "track", CAPR_FIT_TRACK): one line on
+// every card whose series has a row, a tag on the card only for BIASED and
+// WIDE, the band at the factor only when the factor widens it. Advice, like
+// the memory verdicts: the alert tally does not move. The page's own data
+// may carry no block.
+try {
+  const cards = h => count(h, /<article class="card (?!mem)/g);
+  check((d.track || []).length > 0 || !html.includes('<p class="trk'), 'no track block: no track line');
+  const withTrack = (rel, f) => render(JSON.stringify(Object.assign({}, d, {
+    track: d.fits.map(x => ({ k: x.k, dbid: x.dbid, con: x.con, s: x.s, n: 12, err: 3.2, bias: 1.1, nb: 12, hits: 10,
+      f: f, lo: f ? 1 : null, hi: f ? 2 : null, rel: rel, txt: 'TRACK-' + rel + ' <b>' }))
+  })));
+  const wide = withTrack('WIDE', 1.4), biased = withTrack('BIASED', 1), good = withTrack('GOOD', 1), unk = withTrack('UNKNOWN', null);
+  const n = cards(html);
+  for (const [h, what] of [[wide, 'WIDE'], [biased, 'BIASED'], [good, 'GOOD'], [unk, 'UNKNOWN']]) {
+    check(!h.includes('undefined') && !h.includes('NaN') && !h.includes('>null<'), 'track ' + what + ': render is clean');
+    check(cards(h) === n && count(h, /<p class="trk/g) === n, 'track ' + what + ': one line per card (' + n + ')');
+    check(h.includes('TRACK-' + what + ' &lt;b&gt;') && !h.includes('TRACK-' + what + ' <b>'), 'track ' + what + ': the sentence is escaped');
+    check(between(h, '<div class="tally">', '<h3>') === between(html, '<div class="tally">', '<h3>'), 'track ' + what + ': the alert tally is unchanged');
+  }
+  check(n > 0 && count(wide, /<p class="trk off">/g) === n && count(wide, /<span class="tag rel">band too narrow<\/span>/g) === n, 'track WIDE: marked line and tag on every card');
+  check(count(wide, /<span class="cal">/g) === n, 'track WIDE: the band at the factor is shown');
+  check(count(biased, /<p class="trk off">/g) === n && count(biased, /<span class="tag rel">forecasts biased<\/span>/g) === n && !biased.includes('<span class="cal">'), 'track BIASED: marked line and tag, no band at factor 1');
+  check(count(good, /<p class="trk">/g) === n && !good.includes('class="tag rel"') && !good.includes('<span class="cal">'), 'track GOOD: a plain line, no tag');
+  check(count(unk, /<p class="trk unk">/g) === n && !unk.includes('class="tag rel"') && !unk.includes('<span class="cal">'), 'track UNKNOWN: a muted line, no tag');
+} catch (e) {
+  check(false, 'render with a track block throws: ' + e.message);
+}
+
 if (failures) process.exit(1);
 console.log('OK   report_html: ' + metrics + ' metrics rendered, ' + count(html, /<article class="card mem"/g) + ' memory cards of the page, memory fixture ' +
   count(mh, /<article class="card mem"/g) + ' cards / ' + count(mh, /<div class="mrow /g) + ' verdicts / ' + count(mh, /<li class="(pr|sl|nu)">/g) + ' evidence lines, every block optional');

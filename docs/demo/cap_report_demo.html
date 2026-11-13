@@ -277,6 +277,12 @@ h1 {
 .legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--data); vertical-align: middle; margin-right: 8px; }
 .legend i.l2 { border-top-color: var(--data-2); }
 
+.trk { margin: 12px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.trk .tl { font: 11.5px var(--mono); color: var(--ink-3); margin-right: 8px; }
+.trk .cal { color: var(--ink-3); }
+.trk.unk { color: var(--ink-3); }
+.trk.off { border-left: 3px solid var(--warn); padding-left: 12px; color: var(--ink); }
+.tag.rel { color: var(--warn); border-color: var(--warn); }
 .issues { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
 .iss { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 13px; color: var(--ink-2); }
 .iss b { color: var(--ink); font-weight: 600; font-family: var(--mono); }
@@ -848,6 +854,9 @@ h1 {
   var FC = groupBy(D.forecast, function (r) { return key(r.k, r.dbid, r.con, r.s); });
   var AN = groupBy(D.anomalies, function (r) { return key(r.dbid, r.con, r.s); });
   var AL = groupBy(D.alerts, function (r) { return key(r.dbid, r.con, r.s); });
+  var TRK = {};
+  (D.track || []).forEach(function (t) { TRK[key(t.k, t.dbid, t.con, t.s)] = t; });
+  var REL_TAG = { BIASED: 'forecasts biased', WIDE: 'band too narrow' };
   var HOURS = {};
   (D.hours || []).forEach(function (h) { HOURS[key(h.dbid, h.con, h.s)] = h; });
 
@@ -913,7 +922,8 @@ h1 {
       id: fam.id + '-' + String(f.dbid) + '-' + String(f.con) + '-' + f.s.replace(/[^A-Za-z0-9]+/g, '_'),
       name: fam.name(f), ctr: conLabel(f.dbid, f.con),
       pts: PTS[key(f.k, f.dbid, f.con, f.s)] || [],
-      fc: FC[key(f.k, f.dbid, f.con, f.s)] || []
+      fc: FC[key(f.k, f.dbid, f.con, f.s)] || [],
+      trk: TRK[key(f.k, f.dbid, f.con, f.s)]
     };
     if (fam.perContainer) m.ctr = conKind(f.dbid, f.con);
     if (fam.id === 'host-cpu') m.ctr = 'host';
@@ -1380,7 +1390,18 @@ h1 {
     if (QUALITY_TAG[m.f.q]) t.push(QUALITY_TAG[m.f.q]);
     if (m.f.cur === 0) t.push('no longer reported');
     if (m.f.limSrc && m.f.limSrc !== 'MAXBYTES' && m.f.limSrc !== 'AUTOEXTEND' && m.fam.id === 'tablespaces') t.push('limit: ' + m.f.limSrc.toLowerCase());
-    return t.map(function (x) { return '<span class="tag">' + esc(x) + '</span>'; }).join('');
+    return t.map(function (x) { return '<span class="tag">' + esc(x) + '</span>'; }).join('') +
+      (m.trk && REL_TAG[m.trk.rel] ? '<span class="tag rel">' + REL_TAG[m.trk.rel] + '</span>' : '');
+  }
+
+  /* The forecast track record of the series (CAPR_FIT_TRACK): the view's
+     sentence, and the +30 band at its factor when that widens the band. */
+  function trackHtml(m) {
+    var t = m.trk, cal = '';
+    if (t.f > 1 && t.lo != null && t.hi != null) {
+      cal = ' <span class="cal">+30 d band at that factor: ' + m.unit.fmt(t.lo) + ' \u2013 ' + m.unit.fmt(t.hi) + '</span>';
+    }
+    return '<p class="trk' + (REL_TAG[t.rel] ? ' off' : t.rel === 'UNKNOWN' ? ' unk' : '') + '"><span class="tl">Track record</span>' + esc(t.txt) + cal + '</p>';
   }
 
   function cardHtml(m) {
@@ -1399,6 +1420,7 @@ h1 {
     o.push(legendHtml(spec) + '</div>');
     if (m.fam.heat) o.push(heatSvg(m));
     o.push('</div>');
+    if (m.trk) o.push(trackHtml(m));
     var shifts = m.anoms.filter(function (a) { return a.ak === 'CPU_SHIFT'; });
     var evs = anomalyEvents(m);
     if (shifts.length || evs.length) {

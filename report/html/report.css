@@ -269,6 +269,12 @@ h1 {
 .legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--data); vertical-align: middle; margin-right: 8px; }
 .legend i.l2 { border-top-color: var(--data-2); }
 
+.trk { margin: 12px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.trk .tl { font: 11.5px var(--mono); color: var(--ink-3); margin-right: 8px; }
+.trk .cal { color: var(--ink-3); }
+.trk.unk { color: var(--ink-3); }
+.trk.off { border-left: 3px solid var(--warn); padding-left: 12px; color: var(--ink); }
+.tag.rel { color: var(--warn); border-color: var(--warn); }
 .issues { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
 .iss { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 13px; color: var(--ink-2); }
 .iss b { color: var(--ink); font-weight: 600; font-family: var(--mono); }

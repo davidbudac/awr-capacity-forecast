@@ -16,7 +16,7 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 . test/repo_files.sh
-LIVE_OK='cap_cfg capr_runs capr_alerts_latest capr_fit_history dual'
+LIVE_OK='cap_cfg capr_runs capr_alerts_latest capr_fit_history capr_fit_track dual'
 python3 - "$LIVE_OK" $(repo_only report/sections/*.sql) <<'EOF'
 import re, sys
 live_ok = set(sys.argv[1].split())
