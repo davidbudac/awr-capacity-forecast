@@ -130,7 +130,9 @@ SELECT f.dbid,
        f.rank_report,
        f.rank_chart,
        e.esm_horizon_days,
-       e.model_age_days                    AS esm_age_days
+       e.model_age_days                    AS esm_age_days,
+       f.restart_reason,
+       f.restart_day
 FROM   f
 LEFT   JOIN capr_container cn
   ON   cn.dbid = f.dbid AND cn.con_dbid = f.con_dbid

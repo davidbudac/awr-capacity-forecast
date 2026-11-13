@@ -134,6 +134,8 @@ BEGIN
     add_col('cap_fit_hist', 'need_gib_90        NUMBER');
     add_col('cap_fit_hist', 'need_gib_180       NUMBER');
     add_col('cap_fit_hist', 'add_by_day         DATE');
+    add_col('cap_fit_hist', 'restart_reason     VARCHAR2(5)');
+    add_col('cap_fit_hist', 'restart_day        DATE');
     add_ix('CREATE INDEX cap_fit_hist_day_ix ON cap_fit_hist (as_of_day)');
 
     -- ---- CAP_ALERT_STATE ----
@@ -437,7 +439,8 @@ SELECT h.run_id,
        h.days_to_full, h.days_to_full_lo, h.days_to_full_hi, h.accel, h.train_n,
        h.sev, h.sev_rank, h.limit_source, h.last_day, h.is_current, h.limit_below_used,
        h.cycle_n, h.cycle_days, h.cycle_peak_pct, h.peak_slope_per_day, h.slope_sig, h.hot_now,
-       h.need_gib_30, h.need_gib_90, h.need_gib_180, h.add_by_day
+       h.need_gib_30, h.need_gib_90, h.need_gib_180, h.add_by_day,
+       h.restart_reason, h.restart_day
 FROM   cap_fit_hist h
 JOIN   cap_run r ON r.run_id = h.run_id
 WHERE  r.status = 'OK';
@@ -976,13 +979,15 @@ CREATE OR REPLACE PACKAGE BODY cap_results AS
                     value, limit_value, pct, slope_per_day, r2, quality, days_to_full, days_to_full_lo,
                     days_to_full_hi, accel, train_n, sev, sev_rank, limit_source, last_day, is_current,
                     limit_below_used, cycle_n, cycle_days, cycle_peak_pct, peak_slope_per_day, slope_sig,
-                    hot_now, need_gib_30, need_gib_90, need_gib_180, add_by_day)
+                    hot_now, need_gib_30, need_gib_90, need_gib_180, add_by_day,
+                    restart_reason, restart_day)
                 SELECT :r, :a, f.dbid, f.con_dbid, f.db, f.db_name, f.con_name, f.kind, f.series,
                        f.unit, f.method, f.value, f.limit_value, f.pct, f.slope_per_day, f.r2, f.quality,
                        f.days_to_full, f.days_to_full_lo, f.days_to_full_hi, f.accel, f.train_n, f.sev,
                        f.sev_rank, f.limit_source, f.last_day, f.is_current, f.limit_below_used,
                        f.cycle_n, f.cycle_days, f.cycle_peak_pct, f.peak_slope_per_day, f.slope_sig,
-                       f.hot_now, f.need_gib_30, f.need_gib_90, f.need_gib_180, f.add_by_day
+                       f.hot_now, f.need_gib_30, f.need_gib_90, f.need_gib_180, f.add_by_day,
+                       f.restart_reason, f.restart_day
                 FROM   capr_fit_s f'
                 USING l_run, l_asof;
             l_fit := SQL%ROWCOUNT;

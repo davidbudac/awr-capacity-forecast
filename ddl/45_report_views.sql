@@ -618,6 +618,7 @@ FROM   gated g;
 -- peak in GiB and the peak slope in MiB/day like cur_gb / slope_mb. And the
 -- sizing ask: need_gib_30 / _90 / _180 (GiB to add so the worst case stays
 -- under the ceiling through +h) and add_by_day (the worst-case fill date).
+-- Last: restart_reason / restart_day, as on CAPF_TBSPC_FORECAST.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_tbspc_days_to_full AS
 SELECT f.dbid,
@@ -663,7 +664,9 @@ SELECT f.dbid,
        s.eff_dtf_warn,
        s.eff_dtf_crit,
        s.eff_nearfull_warn_pct,
-       s.eff_nearfull_crit_pct
+       s.eff_nearfull_crit_pct,
+       f.restart_reason,
+       f.restart_day
 FROM   capf_tbspc_forecast f
 LEFT   JOIN (SELECT dbid, con_dbid, series_key,
                     MAX(CASE WHEN kind = 'TBSPC_FULL'     THEN sev            END) AS sev_dtf,
@@ -1272,7 +1275,9 @@ GROUP  BY dbid, con_dbid;
 -- cycle_peak_pct, peak_slope_per_day in bytes/day), and the CPU flags
 -- slope_sig (every CPU row) and hot_now (BUSY_P95 / DB_CPU_P95 only) as 1/0.
 -- Then the TBSPC sizing ask (need_gib_30 / _90 / _180, add_by_day), NULL for
--- CPU and SERIES.
+-- CPU and SERIES. Then restart_reason (PURGE / STOP / START: why the TBSPC
+-- fit window is shorter than train_days) and restart_day (its first day),
+-- NULL for CPU and SERIES and for a window that was not restarted.
 -- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW capr_fit AS
 SELECT f.dbid,
@@ -1310,7 +1315,9 @@ SELECT f.dbid,
        f.need_gib_30,
        f.need_gib_90,
        f.need_gib_180,
-       f.add_by_day
+       f.add_by_day,
+       f.restart_reason,
+       f.restart_day
 FROM  (
         SELECT t.dbid, t.con_dbid, 'TBSPC' AS kind, t.tablespace_name AS series,
                'bytes' AS unit, t.slope_method AS method,
@@ -1325,7 +1332,8 @@ FROM  (
                t.peak_slope_bpd                                   AS peak_slope_per_day,
                CAST(NULL AS NUMBER)                               AS slope_sig,
                CAST(NULL AS NUMBER)                               AS hot_now,
-               t.need_gib_30, t.need_gib_90, t.need_gib_180, t.add_by_day
+               t.need_gib_30, t.need_gib_90, t.need_gib_180, t.add_by_day,
+               t.restart_reason, t.restart_day
         FROM   capf_tbspc_forecast t
         UNION ALL
         SELECT t.dbid, t.con_dbid, 'CPU', t.metric,
@@ -1342,7 +1350,8 @@ FROM  (
                NULL, NULL, NULL, NULL,
                CASE t.slope_sig WHEN 'Y' THEN 1 ELSE 0 END,
                CASE t.hot_now WHEN 'Y' THEN 1 WHEN 'N' THEN 0 END,
-               NULL, NULL, NULL, CAST(NULL AS DATE)
+               NULL, NULL, NULL, CAST(NULL AS DATE),
+               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE)
         FROM   capf_cpu_trend t
         CROSS  JOIN cap_cfg cfg
         UNION ALL
@@ -1355,7 +1364,8 @@ FROM  (
                NULL, t.last_day,
                CASE t.is_current WHEN 'Y' THEN 1 ELSE 0 END, NULL,
                NULL, NULL, NULL, NULL, NULL, NULL,
-               NULL, NULL, NULL, CAST(NULL AS DATE)
+               NULL, NULL, NULL, CAST(NULL AS DATE),
+               CAST(NULL AS VARCHAR2(5)), CAST(NULL AS DATE)
         FROM   capf_series_forecast t
       ) f
 LEFT   JOIN (SELECT fit_kind, dbid, con_dbid, series_key, MIN(sev_rank) AS sev_rank

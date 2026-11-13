@@ -37,6 +37,14 @@
 --                  (cliff_merge_days 1): reset on day 81, 40 post-purge days,
 --                  10 MiB/day, OK. With cliff_merge_days 0 it is two cliffs,
 --                  CYCLIC.
+--   FIX_STOPPED  : a month's tablespace: 1 GiB + 16 MiB/day until day 90,
+--                  then flat at 2464 MiB of a 3000 MiB maxsize. Restart STOP on
+--                  day 91: 30 flat days, FLAT, no days_to_full, no alert. With
+--                  quiet_days 0 the whole window reads 11.7 MiB/day, OK, full in
+--                  45 days: a TBSPC_FULL WARN for a tablespace that stopped.
+--   FIX_STARTED  : flat at 1 GiB until day 95, then 16 MiB/day. Restart START
+--                  on day 95: 26 days, exactly 16 MiB/day, OK, days_to_full 200
+--                  (200.5). With quiet_days 0: 3.1 MiB/day, LOW_CONFIDENCE.
 --   FIX_OVERFULL : flat 1.5 GiB used of ~1.6 GiB allocated, with a
 --                  CAP_TBSPC_OVERRIDE ceiling of 1 GiB: the limit is under the
 --                  usage (limit_below_used = Y, pct_used 150, FLAT so
@@ -277,6 +285,15 @@ DECLARE
     -- headroom / slope quotient ends in .5 (no FLOOR on a last digit).
     c_p2     CONSTANT PLS_INTEGER := 80;
     c_p2b    CONSTANT NUMBER      := 38720;
+    -- FIX_STOPPED / FIX_STARTED: base c_gb1 blocks (1 GiB), c_ramp blocks
+    -- (16 MiB) a day. FIX_STOPPED grows through day c_stop, FIX_STARTED from
+    -- day c_start + 1. 16 MiB a day stays under every anomaly floor.
+    c_gb1    CONSTANT NUMBER      := 131072;
+    c_ramp   CONSTANT NUMBER      := 2048;
+    c_stop   CONSTANT PLS_INTEGER := 90;
+    c_stopmx CONSTANT NUMBER      := 384000;      -- 3000 MiB
+    c_start  CONSTANT PLS_INTEGER := 95;
+    c_startmx CONSTANT NUMBER     := 592896;      -- 4632 MiB: 200.5 days at 16 MiB/day
     -- FIX_DROPPED's usage rows stop this many days before the last day, so
     -- its last_day is c_drop days behind the newest day of the dbid: stale
     -- under the default stale_days (3), current once stale_days >= c_drop.
@@ -502,6 +519,10 @@ BEGIN
     INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 23, 'FIX_CYCLIC_UP','PERMANENT', c_bs);
     INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 30, 'FIX_PURGE2',   'PERMANENT', c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 30, c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 31, 'FIX_STOPPED',  'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 32, 'FIX_STARTED',  'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 31, c_bs);
+    INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 32, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 10, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 11, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 12, c_bs);
@@ -631,6 +652,15 @@ BEGIN
         v_used := 1280 * i + 12800 - c_p2b * LEAST(GREATEST(i - c_p2 + 1, 0), 2);
         INSERT INTO cap_fixture_tbspc_usage
         VALUES (c_dbid, c_con, 2001 + 2 * i, 30, v_used, v_max50g, v_used);
+
+        -- FIX_STOPPED : ramp, then flat (a tablespace per month, after its
+        -- month). FIX_STARTED : flat, then ramp.
+        v_used := c_gb1 + c_ramp * LEAST(i, c_stop);
+        INSERT INTO cap_fixture_tbspc_usage
+        VALUES (c_dbid, c_con, 2001 + 2 * i, 31, v_used, c_stopmx, v_used);
+        v_used := c_gb1 + c_ramp * GREATEST(i - c_start, 0);
+        INSERT INTO cap_fixture_tbspc_usage
+        VALUES (c_dbid, c_con, 2001 + 2 * i, 32, v_used, c_startmx, v_used);
 
         -- FIX_OVERFULL : constant, so FLAT (slope 0, days_to_full NULL). Its
         -- 1 GiB override ceiling (inserted after this block) sits under the
@@ -903,6 +933,56 @@ BEGIN
     -- apart: CYCLIC, judged on the window's peak, the day before the purge.
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE2_PEAK',
         (1280 * (c_p2 - 1) + 12800) * c_bs);
+
+    -- ---- STOP / START expectations (FIX_STOPPED / FIX_STARTED) ----------
+    -- The forecast window is i = c_nd - 89 .. c_nd (31 .. 120), row 1 = day 31.
+    -- FIX_STOPPED: growth days 32 .. 90 (59 of them, 58 days apart), then 30
+    -- quiet days: (58 / 88) ^ 59 is far under quiet_chance. The fit starts on
+    -- day 91 and is flat. FIX_STARTED: 64 quiet days, growth days 96 .. 120
+    -- (25, 24 days apart): (24 / 88) ^ 24. The fit starts on day 95, the last
+    -- day before the first growth day, and is the ramp alone.
+    -- The *_Q0_* values are the same series with quiet_days = 0: OLS over the
+    -- whole window from the sums written out, as for FIX_ZIGZAG.
+    DECLARE
+        n NUMBER; sx NUMBER; sy NUMBER; sxx NUMBER; sxy NUMBER; syy NUMBER;
+        bxx NUMBER; bxy NUMBER; byy NUMBER; y NUMBER; slope NUMBER; r2 NUMBER;
+        cur NUMBER; lim NUMBER;
+    BEGIN
+        FOR k IN 1 .. 2 LOOP
+            n := 0; sx := 0; sy := 0; sxx := 0; sxy := 0; syy := 0;
+            FOR i IN c_nd - 89 .. c_nd LOOP
+                y := c_bs * CASE k WHEN 1 THEN c_gb1 + c_ramp * LEAST(i, c_stop)
+                                   ELSE c_gb1 + c_ramp * GREATEST(i - c_start, 0) END;
+                n := n + 1; sx := sx + i; sy := sy + y;
+                sxx := sxx + i * i; sxy := sxy + i * y; syy := syy + y * y;
+            END LOOP;
+            bxx := sxx - sx * sx / n; bxy := sxy - sx * sy / n; byy := syy - sy * sy / n;
+            slope := bxy / bxx;
+            r2    := bxy * bxy / (bxx * byy);
+            IF k = 1 THEN
+                cur := (c_gb1 + c_ramp * c_stop) * c_bs;
+                lim := c_stopmx * c_bs;
+                INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('STOPPED_DAY', v_base + c_stop + 1, c_stop + 1);
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STOPPED_TRAIN_N', c_nd - c_stop);          -- 30
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STOPPED_CUR', cur);
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STOPPED_Q0_SLOPE', slope);                 -- 11.73 MiB/day
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STOPPED_Q0_R2', r2);                       -- 0.92
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STOPPED_Q0_DTF', FLOOR((lim - cur) / slope));  -- 45
+            ELSE
+                cur := (c_gb1 + c_ramp * (c_nd - c_start)) * c_bs;
+                lim := c_startmx * c_bs;
+                INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('STARTED_DAY', v_base + c_start, c_start);
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_TRAIN_N', c_nd - c_start + 1);     -- 26
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_CUR', cur);
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_SLOPE', c_ramp * c_bs);            -- 16 MiB/day
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_DTF',
+                    FLOOR((lim - cur) / (c_ramp * c_bs)));                                                  -- 200 (200.5)
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_Q0_SLOPE', slope);                 -- 3.12 MiB/day
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_Q0_R2', r2);                       -- 0.53
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_Q0_DTF', FLOOR((lim - cur) / slope));  -- 1026
+            END IF;
+        END LOOP;
+    END;
 
     -- ---- clamp / staleness expectations ---------------------------------
     -- FIX_OVERFULL: limit 1 GiB under 1.5 GiB used.

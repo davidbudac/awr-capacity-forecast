@@ -45,6 +45,7 @@ DECLARE
     v_dbid  NUMBER;
     d_spike DATE; d_restart DATE; d_inj DATE; d_probe DATE;
     d_purge DATE; d_reset DATE; d_tstart DATE;
+    d_rsd   DATE;                -- a reset_day read (d_purge stays the FIX_PURGE day)
     n_slope NUMBER; n_dtf NUMBER;
 
     v_n     PLS_INTEGER;
@@ -697,6 +698,155 @@ BEGIN
     ROLLBACK TO SAVEPOINT u05_merge;
     SELECT status INTO v_str FROM cap_cfg_check WHERE knob = 'cliff_merge_days';
     chk_str('CAP_CFG_CHECK cliff_merge_days default', v_str, 'OK');
+
+    DBMS_OUTPUT.PUT_LINE('=== STOP / START: growth that stopped or began (FIX_STOPPED / FIX_STARTED) ===');
+    SELECT COUNT(*) INTO v_n FROM cap_config
+      WHERE (cfg_name = 'quiet_days'   AND cfg_value = 14)
+         OR (cfg_name = 'quiet_ratio'  AND cfg_value = 2)
+         OR (cfg_name = 'quiet_chance' AND cfg_value = 0.01)
+         OR (cfg_name = 'growth_floor' AND cfg_value = 0.001);
+    chk_int('knobs quiet_days 14 / quiet_ratio 2 / quiet_chance 0.01 / growth_floor 0.001', v_n, 4);
+    SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+      WHERE knob IN ('quiet_days', 'quiet_ratio', 'quiet_chance', 'growth_floor') AND status = 'OK';
+    chk_int('CAP_CFG_CHECK: the four STOP / START knobs OK', v_n, 4);
+    -- FIX_STOPPED: the fit is the 30 flat days after the last growth day.
+    SELECT restart_reason, restart_day, train_start, reset_day, train_n, slope_bpd, quality,
+           days_to_full, days_to_full_lo, cur_used, proj_90_bytes
+      INTO v_str, d_reset, d_tstart, d_rsd, v_n, v_num, v_str2, v_num2, v_num3, v_r2, n_aux
+      FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STOPPED';
+    chk_str  ('STOPPED restart_reason', v_str, 'STOP');
+    chk_int  ('STOPPED restart_day - the day after the last growth day', d_reset - meta_d('STOPPED_DAY'), 0);
+    chk_int  ('STOPPED train_start - restart_day', d_tstart - d_reset, 0);
+    chk_true ('STOPPED reset_day IS NULL (no purge)', d_rsd IS NULL);
+    chk_int  ('STOPPED train_n (the quiet days)', v_n, meta_n('STOPPED_TRAIN_N'));
+    chk_int  ('STOPPED slope_bpd', v_num, 0);
+    chk_str  ('STOPPED quality', v_str2, 'FLAT');
+    chk_true ('STOPPED days_to_full / _lo NULL', v_num2 IS NULL AND v_num3 IS NULL);
+    chk_int  ('STOPPED cur_used', v_r2, meta_n('STOPPED_CUR'));
+    chk_int  ('STOPPED proj_90_bytes = cur_used', n_aux, meta_n('STOPPED_CUR'));
+    SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE series_key = 'FIX_STOPPED';
+    chk_int  ('STOPPED raises no CAPR_ALERTS', v_n, 0);
+    -- FIX_STARTED: the fit is the ramp, from the last day before it.
+    SELECT restart_reason, restart_day, train_start, reset_day, train_n, slope_bpd, quality,
+           days_to_full, r2, cur_used
+      INTO v_str, d_reset, d_tstart, d_rsd, v_n, v_num, v_str2, v_num2, v_num3, v_r2
+      FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STARTED';
+    chk_str  ('STARTED restart_reason', v_str, 'START');
+    chk_int  ('STARTED restart_day - the last day before the first growth day', d_reset - meta_d('STARTED_DAY'), 0);
+    chk_int  ('STARTED train_start - restart_day', d_tstart - d_reset, 0);
+    chk_true ('STARTED reset_day IS NULL (no purge)', d_rsd IS NULL);
+    chk_int  ('STARTED train_n', v_n, meta_n('STARTED_TRAIN_N'));
+    chk_close('STARTED slope_bpd = 16 MiB/day', v_num, meta_n('STARTED_SLOPE'), 0.000001);
+    chk_close('STARTED r2', v_num3, 1, 0.000001);
+    chk_str  ('STARTED quality', v_str2, 'OK');
+    chk_int  ('STARTED cur_used', v_r2, meta_n('STARTED_CUR'));
+    chk_int  ('STARTED days_to_full', v_num2, meta_n('STARTED_DTF'));
+    SELECT COUNT(*) INTO v_n FROM cap_fixture_alerts_snap WHERE series_key = 'FIX_STARTED';
+    chk_int  ('STARTED raises no CAPR_ALERTS (200 days is past dtf_warn)', v_n, 0);
+    -- No other series restarts for STOP / START, PURGE names the two purged
+    -- ones, and restart_day is the first fitted day wherever a reason is set.
+    SELECT COUNT(CASE WHEN restart_reason IN ('STOP', 'START')
+                       AND tablespace_name NOT IN ('FIX_STOPPED', 'FIX_STARTED') THEN 1 END),
+           COUNT(CASE WHEN restart_reason = 'PURGE' THEN 1 END),
+           COUNT(CASE WHEN restart_reason = 'PURGE'
+                       AND tablespace_name IN ('FIX_PURGE', 'FIX_PURGE2') AND restart_day = reset_day THEN 1 END),
+           COUNT(CASE WHEN (restart_reason IS NULL AND restart_day IS NOT NULL)
+                        OR (restart_reason IS NOT NULL AND (restart_day IS NULL OR restart_day <> train_start))
+                        OR NVL(restart_reason, 'PURGE') NOT IN ('PURGE', 'STOP', 'START') THEN 1 END),
+           COUNT(CASE WHEN restart_reason IS NULL THEN 1 END), COUNT(*)
+      INTO v_n, v_num, v_num2, v_num3, v_r2, n_aux
+      FROM capf_tbspc_forecast;
+    chk_int('no other tablespace restarts for STOP / START', v_n, 0);
+    chk_int('restart_reason PURGE rows', v_num, 2);
+    chk_int('restart_reason PURGE = FIX_PURGE and FIX_PURGE2, restart_day = reset_day', v_num2, 2);
+    chk_int('restart_day set with a reason only, and equal to train_start', v_num3, 0);
+    chk_int('rows with no restart = all but the four', v_r2, n_aux - 4);
+    -- The report views pass both columns through, CAPR_FIT for TBSPC only.
+    SELECT COUNT(*) INTO v_n
+      FROM capf_tbspc_forecast t
+      JOIN capr_fit f ON f.kind = 'TBSPC' AND f.dbid = t.dbid AND f.con_dbid = t.con_dbid
+                     AND f.series = t.tablespace_name
+      JOIN capr_tbspc_forecast r ON r.dbid = t.dbid AND r.con_dbid = t.con_dbid
+                                AND r.tablespace_name = t.tablespace_name
+      JOIN capr_tbspc_days_to_full d ON d.dbid = t.dbid AND d.con_dbid = t.con_dbid
+                                    AND d.tablespace_name = t.tablespace_name
+     WHERE DECODE(f.restart_reason, t.restart_reason, 0, 1) + DECODE(f.restart_day, t.restart_day, 0, 1)
+         + DECODE(r.restart_reason, t.restart_reason, 0, 1) + DECODE(r.restart_day, t.restart_day, 0, 1)
+         + DECODE(d.restart_reason, t.restart_reason, 0, 1) + DECODE(d.restart_day, t.restart_day, 0, 1) > 0;
+    chk_int('CAPR_FIT / CAPR_TBSPC_FORECAST / CAPR_TBSPC_DAYS_TO_FULL restart columns differ from CAPF', v_n, 0);
+    SELECT COUNT(*) INTO v_n FROM capr_fit
+      WHERE kind <> 'TBSPC' AND (restart_reason IS NOT NULL OR restart_day IS NOT NULL);
+    chk_int('CAPR_FIT restart columns NULL for CPU and SERIES', v_n, 0);
+    SELECT COUNT(*) INTO v_n FROM capr_fit WHERE kind = 'TBSPC' AND restart_reason IN ('STOP', 'START');
+    chk_int('CAPR_FIT rows with restart STOP / START', v_n, 2);
+    -- quiet_days = 0: no STOP / START. Both fits are the whole window again,
+    -- OLS through ramp + flat: the stopped tablespace gets a slope, grade OK
+    -- and a full date inside dtf_warn, so a TBSPC_FULL alert. The started one
+    -- reads slow and LOW_CONFIDENCE. Uncommitted, then rolled back.
+    SAVEPOINT u05_quiet;
+    BEGIN
+        knob('quiet_days', 0);
+        SELECT restart_reason, train_n, slope_bpd, r2, quality, days_to_full
+          INTO v_str, v_n, v_num, v_num2, v_str2, v_num3
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STOPPED';
+        chk_true ('quiet_days = 0: STOPPED restart_reason IS NULL', v_str IS NULL);
+        chk_int  ('quiet_days = 0: STOPPED train_n', v_n, 90);
+        chk_close('quiet_days = 0: STOPPED slope_bpd (OLS over ramp + flat)', v_num, meta_n('STOPPED_Q0_SLOPE'), 0.000001);
+        chk_close('quiet_days = 0: STOPPED r2', v_num2, meta_n('STOPPED_Q0_R2'), 0.000001);
+        chk_str  ('quiet_days = 0: STOPPED quality', v_str2, 'OK');
+        chk_int  ('quiet_days = 0: STOPPED days_to_full (a full date it never reaches)', v_num3, meta_n('STOPPED_Q0_DTF'));
+        SELECT COUNT(*), MAX(severity) INTO v_n, v_str FROM capr_alerts
+          WHERE kind = 'TBSPC_FULL' AND series_key = 'FIX_STOPPED';
+        chk_int  ('quiet_days = 0: STOPPED raises TBSPC_FULL', v_n, 1);
+        chk_str  ('quiet_days = 0: STOPPED TBSPC_FULL severity (45 days)', v_str, 'WARN');
+        SELECT restart_reason, train_n, slope_bpd, r2, quality, days_to_full
+          INTO v_str, v_n, v_num, v_num2, v_str2, v_num3
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STARTED';
+        chk_true ('quiet_days = 0: STARTED restart_reason IS NULL', v_str IS NULL);
+        chk_int  ('quiet_days = 0: STARTED train_n', v_n, 90);
+        chk_close('quiet_days = 0: STARTED slope_bpd (OLS over flat + ramp)', v_num, meta_n('STARTED_Q0_SLOPE'), 0.000001);
+        chk_close('quiet_days = 0: STARTED r2', v_num2, meta_n('STARTED_Q0_R2'), 0.000001);
+        chk_str  ('quiet_days = 0: STARTED quality', v_str2, 'LOW_CONFIDENCE');
+        chk_int  ('quiet_days = 0: STARTED days_to_full', v_num3, meta_n('STARTED_Q0_DTF'));
+        SELECT COUNT(CASE WHEN restart_reason IN ('STOP', 'START') THEN 1 END),
+               COUNT(CASE WHEN restart_reason = 'PURGE' THEN 1 END)
+          INTO v_n, v_num FROM capf_tbspc_forecast;
+        chk_int  ('quiet_days = 0: no STOP / START row', v_n, 0);
+        chk_int  ('quiet_days = 0: the two PURGE rows stay', v_num, 2);
+        -- Just under the pause: 30 quiet days against quiet_days 31 is no STOP.
+        -- START still holds (64 quiet days before the ramp).
+        knob('quiet_days', 31);
+        SELECT COUNT(CASE WHEN tablespace_name = 'FIX_STOPPED' AND restart_reason IS NULL THEN 1 END),
+               COUNT(CASE WHEN tablespace_name = 'FIX_STARTED' AND restart_reason = 'START' THEN 1 END)
+          INTO v_n, v_num FROM capf_tbspc_forecast;
+        chk_int  ('quiet_days = 31: STOPPED not restarted (30 quiet days)', v_n, 1);
+        chk_int  ('quiet_days = 31: STARTED still START', v_num, 1);
+        knob('quiet_days', 30);
+        SELECT restart_reason INTO v_str FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STOPPED';
+        chk_str  ('quiet_days = 30: STOPPED restart_reason', v_str, 'STOP');
+        -- START needs min_train_days days left: 26 are, 27 are not.
+        knob('quiet_days', 14);
+        knob('min_train_days', 27);
+        SELECT restart_reason, train_n INTO v_str, v_n
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STARTED';
+        chk_true ('min_train_days = 27: STARTED not restarted (26 days left)', v_str IS NULL AND v_n = 90);
+        knob('min_train_days', 26);
+        SELECT restart_reason, train_n, quality INTO v_str, v_n, v_str2
+          FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STARTED';
+        chk_true ('min_train_days = 26: STARTED START, 26 days, OK (got ' || v_str || ' ' || v_n || ' ' || v_str2 || ')',
+                  v_str = 'START' AND v_n = 26 AND v_str2 = 'OK');
+        knob('min_train_days', 14);
+        knob('quiet_chance', 2);
+        knob('growth_floor', 1);
+        SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+          WHERE knob IN ('quiet_chance', 'growth_floor') AND status = 'BAD';
+        chk_int  ('CAP_CFG_CHECK quiet_chance = 2 / growth_floor = 1', v_n, 2);
+    EXCEPTION
+        WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u05_quiet; RAISE;
+    END;
+    ROLLBACK TO SAVEPOINT u05_quiet;
+    SELECT restart_reason INTO v_str FROM capf_tbspc_forecast WHERE tablespace_name = 'FIX_STOPPED';
+    chk_str('quiet_days restored: STOPPED restart_reason', v_str, 'STOP');
 
     DBMS_OUTPUT.PUT_LINE('=== clamp + limit_below_used (FIX_OVERFULL) ===');
     -- Flat at 1.5 GiB under a 1 GiB override: FLAT, so days_to_full is NULL
@@ -5396,6 +5546,15 @@ BEGIN
                 + DECODE(h.quality, f.quality, 0, 1) + DECODE(h.sev, f.sev, 0, 1)
                 + DECODE(h.last_day, f.last_day, 0, 1) + DECODE(h.add_by_day, f.add_by_day, 0, 1)) > 0;
         chk_int ('R2 snapshot = CAPR_FIT now (value, days_to_full, quality, sev, last_day, add_by_day mismatches)', v_n, 0);
+        SELECT COUNT(CASE WHEN DECODE(h.restart_reason, f.restart_reason, 0, 1)
+                             + DECODE(h.restart_day, f.restart_day, 0, 1) > 0 THEN 1 END),
+               COUNT(CASE WHEN h.restart_reason IN ('STOP', 'START') THEN 1 END)
+          INTO v_n, v_num
+          FROM cap_fit_hist h JOIN capr_fit f
+            ON f.kind = h.kind AND f.dbid = h.dbid AND f.con_dbid = h.con_dbid AND f.series = h.series
+         WHERE h.run_id = run_2;
+        chk_int ('R2 snapshot restart_reason / restart_day mismatches', v_n, 0);
+        chk_int ('R2 snapshot rows with restart STOP / START', v_num, 2);
         -- Every run keeps CAPR_COVERAGE on its CAP_RUN row (the backdated one
         -- too): the fixture is one current dbid. R1 and R2 ran on the restored
         -- data, so their summary is the view's now.
