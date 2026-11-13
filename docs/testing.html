@@ -989,8 +989,9 @@ All fixture assertions passed.</pre>
               <span class="ico">▸</span>
               <p><strong>Offline checks in one run.</strong>
               <span class="inline">test/check.sh [-v] [NAME...]</span> runs every check that needs no database:
-              <span class="inline">repository/build.py --check</span> and <span class="inline">report/html/build.py --check</span>
-              (the generated files are current), every <span class="inline">test/lint_*.sh</span> (found by name, so a
+              <span class="inline">repository/build.py --check</span>, <span class="inline">report/html/build.py --check</span>
+              and <span class="inline">apex/build.py --check</span> (the generated files are current),
+              <span class="inline">apex/test/export_check.py</span> (the APEX export parsed against its builder), every <span class="inline">test/lint_*.sh</span> (found by name, so a
               new lint joins by existing), <span class="inline">test/docs_lint.sh</span> and the four offline
               tests (<span class="inline">test/run_report_sh_test.sh</span>: the exit rules of
               <span class="inline">report/run_report.sh</span> under a mock sqlplus;

@@ -136,8 +136,14 @@ for making changes safely.
 - **APEX contract.** `apex/build.py` selects `CAPR_SERIES_POINTS`,
   `CAPR_FORECAST_POINTS`, `CAPR_FIT`, `CAPR_ANOMALIES`, `CAPR_ALERTS` and
   `CAPR_CONTAINER` by named column. Only ADD columns to these six views; never
-  rename or drop one. `apex/test/apex_smoke.sql` proves it. ORDS, the ELK
-  export and `report/report_html.sql` select from the same views.
+  rename or drop one. The app also reads, by named column, `CAPR_TARGETS`
+  (Targets page), `CAPR_MEM_VERDICT`, `CAPR_MEM_EVIDENCE` and
+  `CAPR_MEM_COMP_POINTS` (Memory sizing page): a column `COLLECTIONS` in
+  build.py names must stay. `apex/test/apex_probe.sql` proves it on any
+  install of the suite with no APEX (`AWRCAP_PROBE_COLL` stands in for
+  `APEX_COLLECTIONS`), `apex/test/apex_smoke.sql` inside an APEX session.
+  ORDS, the ELK export and `report/report_html.sql` select from the same
+  views.
 - **The baseline mode is part of every anomaly key.** `CAPA_ANOM` holds one row
   per observation AND `baseline_mode` (2 per day, TRAILING + SAME_DOW; 1 per
   CPU hour, HOUR_OF_WEEK). Read it only with `baseline_mode = ...` or GROUP BY
@@ -200,7 +206,8 @@ valid snapshot interval; the daily views GROUP BY them) and `CAPD_CPU_HOURLY`
 (read by `CAPR_ALERTS` in ddl/55), `CAPR_SERIES_ANOMALIES`, `CAPR_HOURLY_POINTS`.
 `CAPA_TBSPC_ANOM` / `CAPA_CPU_ANOM` are gone (still in `00_drop` so an upgrade
 removes them). `test/check.sh [-v] [NAME...]` runs every check that needs no
-database: build.py --check of repository/ and report/html/, every
+database: build.py --check of repository/, report/html/ and apex/,
+`apex/test/export_check.py`, every
 `test/lint_*.sh` (found by name: a new lint joins by existing),
 `test/docs_lint.sh` and the offline tests in its `OFFLINE_TESTS` list
 (`run_report_sh_test`, `report_html_test`, `notify_sh_test`, `oem_test`; a
@@ -374,8 +381,21 @@ shell default of a password variable, after `IDENTIFIED BY`, in a `connect`
 `apex/` is the third optional path (nothing outside the database): `apex/build.py`
 generates `apex/awrcap_app.sql`, an APEX 26.2 application export (Oracle JET
 charts + Interactive Reports, no external JS) that reads the same CAPR point
-feeds plus `CAP_CONFIG` from its parsing schema, loading each view once per
-session into `AWRCAP_*` APEX collections. `apex/install.sql` imports it into
+feeds plus `CAPR_TARGETS`, three `CAPR_MEM_*` views and `CAP_CONFIG` from its
+parsing schema, loading each view once per session into `AWRCAP_*` APEX
+collections. Pages: Overview, Targets, Tablespaces, CPU and workload (with
+`IOPS` / `IO_MBPS`), Memory sizing, Fleet anomalies; a Target filter and a
+Target column (`CAPR_CONTAINER.target_name`) on every listing.
+`build.py --smoke` also writes `apex/test/apex_smoke.sql` (needs an APEX
+session) and `apex/test/apex_probe.sql` (needs none: the loader queries fill
+a table shaped like `APEX_COLLECTIONS`, then every region query, LOV and
+default runs with the items bound through DBMS_SQL; run it from the repo
+root, e.g. `test/dbmint_harness.sh <SCHEMA> --no-fixture --sql
+apex/test/apex_probe.sql`). `test/check.sh` runs `apex/build.py --check`
+(the three generated files are current) and `apex/test/export_check.py`
+(the export parsed on its own against the builder's registries). No APEX
+instance exists in the lab since 2026-11: the import and the rendered pages
+of the Targets and Memory sizing pages are unverified. `apex/install.sql` imports it into
 a given workspace/schema/app id; `apex/workspace.sql` creates the workspace
 and accounts; `apex/publish.sh` is the lab wrapper for the `23cfree` docker
 instance (see `LAB.md`). Edit the builder, never the generated export.

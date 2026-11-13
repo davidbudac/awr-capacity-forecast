@@ -869,7 +869,10 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         <h2>Oracle APEX application (nothing outside the database)</h2>
         <p>An APEX application on the suite's schema reads the <span class="inline">CAPR_</span> views
           with Oracle JET charts and Interactive Reports. No Elastic, Grafana or REST module. Each view
-          loads once per session into an APEX collection.</p>
+          loads once per session into an APEX collection. Beside the six point-feed views it reads
+          <span class="inline">CAPR_TARGETS</span> and the memory views
+          <span class="inline">CAPR_MEM_VERDICT</span>, <span class="inline">CAPR_MEM_EVIDENCE</span> and
+          <span class="inline">CAPR_MEM_COMP_POINTS</span>.</p>
       </div>
 
       <div class="tablewrap">
@@ -877,13 +880,19 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
           <caption>Pages and filters</caption>
           <thead><tr><th scope="col">Page</th><th scope="col">Shows</th><th scope="col">Filters</th></tr></thead>
           <tbody>
-            <tr><td><span class="k">Overview</span></td><td class="def">alert counts by severity, the live alert list, worst days to full, total database size, data freshness</td><td class="def">database</td></tr>
-            <tr><td><span class="k">Tablespaces</span></td><td class="def">days-to-full ranking; used space with the dashed REGR projection, its band, the ceiling and red anomaly days; daily growth; growth anomalies; tablespace alerts</td><td class="def">database, tablespace, date range</td></tr>
-            <tr><td><span class="k">CPU and workload</span></td><td class="def">host busy % and p95 against the saturation line, DB CPU per container with level-shift windows, the fixed-ceiling series against their limits, fits, alerts</td><td class="def">database, date range</td></tr>
-            <tr><td><span class="k">Fleet anomalies</span></td><td class="def">anomalies per day by kind, most anomalous series, the per-series timeline, the anomaly list with drill-downs, every alert</td><td class="def">database, kind, severity, date range</td></tr>
+            <tr><td><span class="k">Overview</span></td><td class="def">alert counts by severity, the live alert list, worst days to full, total database size, data freshness</td><td class="def">target, database</td></tr>
+            <tr><td><span class="k">Targets</span></td><td class="def">one row per target and DBID: feed, host, newest snapshot and its age, stale flag, collect state, last collect and last error, its critical and warning alerts, worst days to full. A target name opens the Overview for that target</td><td class="def">none</td></tr>
+            <tr><td><span class="k">Tablespaces</span></td><td class="def">days-to-full ranking; used space with the dashed REGR projection, its band, the ceiling and red anomaly days; daily growth; growth anomalies; tablespace alerts</td><td class="def">target, database, tablespace, date range</td></tr>
+            <tr><td><span class="k">CPU and workload</span></td><td class="def">host busy % and p95 against the saturation line, DB CPU per container with level-shift windows, the fixed-ceiling series against their limits, I/O requests and MB per second (<span class="inline">IOPS</span>, <span class="inline">IO_MBPS</span>), fits, alerts</td><td class="def">target, database, date range</td></tr>
+            <tr><td><span class="k">Memory sizing</span></td><td class="def">the verdict per instance and area (grade, current and suggested size, headline, reason), the SGA components over time, PGA allocated against its limit, the evidence behind each verdict. Instance level: a PDB selection shows its CDB's rows. No alert counts them</td><td class="def">target, database, date range</td></tr>
+            <tr><td><span class="k">Fleet anomalies</span></td><td class="def">anomalies per day by kind, most anomalous series, the per-series timeline, the anomaly list with drill-downs, every alert</td><td class="def">target, database, kind, severity, date range</td></tr>
           </tbody>
         </table>
       </div>
+
+      <p>Every table of series, fits, anomalies or alerts carries a <strong>Target</strong> column, the
+        <span class="inline">target_name</span> of <span class="inline">CAPR_CONTAINER</span>. The
+        Target filter narrows every page to one target and the Database list to its containers.</p>
 
       <figure class="figure">
         <img src="assets/apex-tablespaces.png" alt="The APEX Tablespaces page: filter bar and data-freshness badges, days-to-full ranking with severity badges, used space with the dashed projection, band, ceiling and red anomaly days, daily growth bars, growth anomalies and tablespace alerts" loading="lazy">
@@ -903,8 +912,10 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
 <span class="c-cmt"># 2. the application, from the apex/ directory (workspace, parsing schema, app id)</span>
 <span class="c-prompt">$</span> cd apex &amp;&amp; sqlplus awrcap@//host:1521/pdb @install.sql AWRCAP AWRCAP 110
 <span class="c-cmt"># 3. open http://&lt;ords-host&gt;/ords/r/awrcap/awrcap/overview and sign in as AWRCAP_VIEWER</span>
-<span class="c-cmt"># 4. optional: run every region query inside a scripted APEX session (about 90 s)</span>
-<span class="c-prompt">$</span> cd apex &amp;&amp; sqlplus awrcap@//host:1521/pdb @test/apex_smoke.sql 110</pre>
+<span class="c-cmt"># 4. optional: run every region query inside a scripted APEX session</span>
+<span class="c-prompt">$</span> cd apex &amp;&amp; sqlplus awrcap@//host:1521/pdb @test/apex_smoke.sql 110
+<span class="c-cmt"># without APEX: the same queries against the suite's schema, from the repository root</span>
+<span class="c-prompt">$</span> sqlplus awrcap@//host:1521/pdb @apex/test/apex_probe.sql</pre>
       </div>
 
       <p>The first page of a session loads its views (about 15 s on the demo schema, mostly the
@@ -922,7 +933,12 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         <span class="ico">i</span>
         <p><strong>Builder.</strong> <span class="inline">apex/build.py</span> writes the export; edit
         the builder, never the SQL. The export uses the APEX 26.2 import API; the region SQL keeps the
-        19c floor. Limits and the lab shortcut:
+        19c floor. <span class="inline">test/check.sh</span> checks that the export is current and well
+        formed (<span class="inline">apex/build.py --check</span>,
+        <span class="inline">apex/test/export_check.py</span>), and
+        <span class="inline">apex/test/apex_probe.sql</span> runs every query of the application on a
+        schema that holds the suite, with a table in place of the APEX collections. None of them
+        imports the export or renders a page: that needs an APEX instance. Limits and the lab shortcut:
         <a href="https://github.com/davidbudac/awr-capacity-forecast/blob/main/apex/README.md">apex/README.md</a>.</p>
       </div>
 

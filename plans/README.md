@@ -121,16 +121,21 @@ The maintainer chose not to plan these yet; they remain open findings.
   tablespace forecast. Done (2026-11-12), on by default (`quiet_days` 14, 0 =
   off): `restart_reason` / `restart_day` on `CAPF_TBSPC_FORECAST` and
   `CAPR_FIT`. The dashboards (ELK, Grafana, APEX) do not show them yet.
-- `target_name` and the memory verdicts in the APEX path. The ELK and ORDS /
-  Grafana paths carry both since 2026-11-13 (U15), with the `IOPS` /
-  `IO_MBPS` series.
+- `target_name` and the memory verdicts in the dashboards. Done 2026-11-13:
+  the ELK and ORDS / Grafana paths carry both (U15), with the `IOPS` /
+  `IO_MBPS` series. APEX (U17): target filter and column, a Targets page
+  (`CAPR_TARGETS`), a Memory sizing page (`CAPR_MEM_*`) and the `IOPS` /
+  `IO_MBPS` charts. Every APEX query runs on the fixture without APEX
+  (`apex/test/apex_probe.sql`); the import into APEX and the rendered pages
+  are unverified, because the lab has no APEX instance.
 - A persisted memory verdict history (`CAPR_MEM_VERDICT_S` is already filled
   on every refresh; `CAP_FIT_HIST` is the pattern).
 
 ## Not audited
 
 `doctor.sql` and `target/check.sql` line by line; the generated pull
-statements in `ddl/13_seam_repository.sql`; the generated APEX export; the
+statements in `ddl/13_seam_repository.sql`; the generated APEX export (since
+checked by `apex/test/export_check.py` and `apex/test/apex_probe.sql`); the
 ELK / Grafana dashboard builders' internals; `docs/*.html` beyond spot
 checks; any runtime behaviour (no database was connected during the audit).
 The nine offline checks all passed at `d91e3f8`.

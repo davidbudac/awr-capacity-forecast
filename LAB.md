@@ -106,7 +106,15 @@ ssh -p 2200 oracle@dbmint 'pgrep -x filebeat; ls -t /u01/app/oracle/filebeat/gen
 
 ## APEX app (route C)
 
-Lives in the docker container `23cfree` on this workstation (Oracle 23ai Free
+**2026-11-13: the `23cfree` container and its image are gone from this
+workstation, so the URLs above answer nothing.** Until an APEX 26.2 instance
+exists again, check the app with `test/check.sh` (export current and well
+formed) and `apex/test/apex_probe.sql` on the dbmint VM (every query of the
+app, no APEX needed; see `apex/README.md`). The Targets and Memory sizing
+pages and the Target filter have never been imported or rendered. The rest
+of this section describes the lab as it was and how to rebuild it.
+
+Lived in the docker container `23cfree` on this workstation (Oracle 23ai Free
 + APEX 26.2 + ORDS, built per Matt Mulvaney's single-step 23c/APEX container;
 host port 8023, PDB `FREEPDB1`). It shares the instance with the
 `orastats_gather_dashboard` project (workspace MONITORING, apps 100/101): do
