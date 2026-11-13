@@ -3126,6 +3126,45 @@ BEGIN
             chk_int('cache advisor reset: the shared pool advisor keeps its 720 hours', a_cover, 720);
             ROLLBACK TO SAVEPOINT m25_mem;
 
+            -- A snapshot without buffer cache advisor rows (day 115 18:00,
+            -- snapshot n_latest - 10): the next increment spans two snapshots,
+            -- 24 hours, and is compared with the DB time of both. 59 intervals
+            -- carry the 60 increments over the window's DB time, so no figure
+            -- moves but n_intervals.
+            DELETE FROM cap_fixture_cache_advice WHERE bpid = 3 AND snap_id = n_latest - 10;
+            chk_int('advisor gap: the ten pool 3 rows of one snapshot removed', SQL%ROWCOUNT, 10);
+            SELECT n_intervals, cover_hours, est_cost, cur_cost, dbtime_sec, gain
+              INTO v_n, v_num, v_num2, v_num3, v_r2, n_aux
+              FROM capm_advice WHERE dbid = v_dbid AND area = 'BUFFER_CACHE' AND size_bytes = 1536 * n_mib;
+            chk_int  ('advisor gap: n_intervals', v_n, 59);
+            chk_int  ('advisor gap: cover_hours = 58 x 12 h + 24 h', v_num, 720);
+            chk_close('advisor gap: est_cost = 60 x 2.45 u', v_num2, 60 * 2.45 * n_u, 0.000001);
+            chk_close('advisor gap: cur_cost = 60 x 2 u', v_num3, 60 * 2 * n_u, 0.000001);
+            chk_close('advisor gap: dbtime_sec = the window''s DB time, the skipped snapshot''s included',
+                      v_r2, n_dbt, 0.000001);
+            chk_close('advisor gap: cache 1536 MiB gain -0.45 u in percent of DB time, as without the gap',
+                      n_aux, -pct(60, 0.45, n_dbt), 0.000001);
+            chk_e('advisor gap', 'CACHE_ADV_SHRINK_LOSS_DBTIME_PCT', pct(60, 0.45, n_dbt), 'SLACK');
+            chk_v('advisor gap', 'BUFFER_CACHE', 'OVERSIZED', 'SHRINK_COSTS_LITTLE', 1536);
+            ROLLBACK TO SAVEPOINT m25_mem;
+
+            -- The same gap on the last snapshot before the window (day 90
+            -- 18:00, n_latest - 60): the first window interval starts before
+            -- the window, where no DB time is read. It keeps the DB time of
+            -- its last snapshot beside two increments, the window-edge
+            -- approximation.
+            DELETE FROM cap_fixture_cache_advice WHERE bpid = 3 AND snap_id = n_latest - 60;
+            SELECT n_intervals, cover_hours, est_cost, dbtime_sec, gain
+              INTO v_n, v_num, v_num2, v_r2, n_aux
+              FROM capm_advice WHERE dbid = v_dbid AND area = 'BUFFER_CACHE' AND size_bytes = 1536 * n_mib;
+            chk_int  ('advisor gap before the window: n_intervals', v_n, 60);
+            chk_int  ('advisor gap before the window: cover_hours = 59 x 12 h + 24 h', v_num, 732);
+            chk_close('advisor gap before the window: est_cost = 61 x 2.45 u', v_num2, 61 * 2.45 * n_u, 0.000001);
+            chk_close('advisor gap before the window: dbtime_sec = the window''s DB time', v_r2, n_dbt, 0.000001);
+            chk_close('advisor gap before the window: gain -61 x 0.45 u over the window''s DB time',
+                      n_aux, -pct(61, 0.45, n_dbt), 0.000001);
+            ROLLBACK TO SAVEPOINT m25_mem;
+
             -- The shared pool advisor's list changes mid-window. Every size is
             -- compared over the current size's 60 intervals, and where the
             -- advisor did not list it the next smaller listed size stands in.

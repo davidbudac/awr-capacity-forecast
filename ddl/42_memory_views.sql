@@ -388,6 +388,15 @@ WHERE  prev_snap_id IS NOT NULL
 --                  DBTIME_PCT  100 x (cur_cost - est_cost) / the instance's
 --                              DB time, over the intervals that have DB time
 --                              (dbtime_sec);
+--                              The DB time of an interval is that of every
+--                              snapshot between the reference size's previous
+--                              present row and this one (a running total,
+--                              differenced inside the interval, never across
+--                              a restart), so a size that left the list for a
+--                              snapshot is still compared with the DB time of
+--                              its whole increment. An interval that starts
+--                              before the window, or on a snapshot without DB
+--                              time, keeps the DB time of its last snapshot.
 --                  HIT_PTS     PGA: est_hit_pct - cur_hit_pct, the estimated
 --                              cache hit 100 x work / (work + cost).
 --   overalloc      PGA: X's over-allocation increments.
@@ -434,6 +443,12 @@ WITH latest AS (
         FROM   dl
         WHERE  metric = 'DBTIME'
         GROUP  BY dbid, instance_number, snap_id
+     ),
+     dbc AS (
+        SELECT t.dbid, t.instance_number, t.snap_id, t.dbtime_sec,
+               SUM(t.dbtime_sec) OVER (PARTITION BY t.dbid, t.instance_number
+                                       ORDER BY t.snap_id) AS cum_sec
+        FROM   dbt t
      ),
      own AS (
         SELECT dbid, instance_number, area, size_bytes, SUM(ivl_hours) AS own_hours
@@ -495,7 +510,7 @@ WITH latest AS (
         WHERE  a.cost IS NOT NULL
      ),
      filled AS (
-        SELECT x.dbid, x.instance_number, x.area, x.size_bytes, x.snap_id, x.probe,
+        SELECT x.dbid, x.instance_number, x.area, x.size_bytes, x.snap_id, x.prev_snap_id, x.probe,
                x.cur_cost, x.ivl_hours, x.end_time,
                LAST_VALUE(x.cost IGNORE NULLS)
                    OVER (PARTITION BY x.dbid, x.instance_number, x.area, x.snap_id, x.prev_snap_id
@@ -526,11 +541,14 @@ WITH latest AS (
      pair AS (
         SELECT x.dbid, x.instance_number, x.area, x.size_bytes,
                x.ivl_hours, x.end_time, x.cost, x.cur_cost, x.work, x.overalloc,
-               t.dbtime_sec
+               t.cum_sec - NVL(p.cum_sec, t.cum_sec - t.dbtime_sec) AS dbtime_sec
         FROM   filled x
-        LEFT   JOIN dbt t
+        LEFT   JOIN dbc t
           ON   t.dbid = x.dbid AND t.instance_number = x.instance_number
          AND   t.snap_id = x.snap_id
+        LEFT   JOIN dbc p
+          ON   p.dbid = x.dbid AND p.instance_number = x.instance_number
+         AND   p.snap_id = x.prev_snap_id
         WHERE  x.probe = 1 AND x.cost IS NOT NULL
      ),
      agg AS (
