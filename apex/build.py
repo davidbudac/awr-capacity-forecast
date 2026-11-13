@@ -76,7 +76,44 @@ COLLECTIONS = {
         ('last_day', 'd1'),
         ('value', 'n1'), ('limit_value', 'n2'), ('pct', 'n3'), ('days_to_full', 'n4'), ('sev_rank', 'n5'),
         ('slope_per_day', 'c9:num'), ('r2', 'c10:num'), ('days_to_full_lo', 'c11:num'),
-        ('days_to_full_hi', 'c12:num'), ('accel', 'c13:num'), ('train_n', 'c14:num')]),
+        ('days_to_full_hi', 'c12:num'), ('accel', 'c13:num'), ('train_n', 'c14:num'),
+        ('restart_reason', 'c15'), ('restart_day', 'd2')]),
+    # The forecast track record of the newest refresh run (stored rows; empty before the first run).
+    'AWRCAP_TRACK': ('c_track', 'select * from capr_fit_track', [
+        ('db', 'c1'), ('kind', 'c2'), ('series', 'c3'), ('reliability', 'c4'), ('summary', 'c5'),
+        ('n_forecasts', 'n1'), ('abs_err_pct', 'n2'), ('bias_pct', 'n3'), ('band_factor', 'n4'),
+        ('reliability_rank', 'n5'), ('band_hit_pct', 'c6:num')]),
+    # The shared disk (ddl/33): one row per tablespace, one per database and disk.
+    'AWRCAP_SHARED': ('c_shared', 'select * from capr_tbspc_shared', [
+        ('db_pdb', 'c1'), ('tablespace_name', 'c2'), ('disk_name', 'c3'), ('quality', 'c4'),
+        ('limit_live', 'c5'), ('stopped_by', 'c6'), ('is_current', 'c7'),
+        ('cur_gb', 'n1'), ('alloc_gb', 'n2'), ('limit_own_gb', 'n3'), ('dtf_shared', 'n4'),
+        ('rank_shared', 'n5'),
+        ('grow_mb', 'c8:num'), ('dtf_own', 'c9:num'), ('dtf_shared_worst', 'c10:num'),
+        ('limit_shared_gb', 'c11:num'), ('days_to_full', 'c12:num'), ('limit_gb', 'c13:num'),
+        ('grow_worst_mb', 'c14:num')]),
+    'AWRCAP_DISK': ('c_disk', 'select * from capr_disk', [
+        ('db', 'c1'), ('disk_name', 'c2'), ('disk_source', 'c3'), ('top_growers', 'c4'), ('sev', 'c5'),
+        ('gated_by', 'c6'), ('message', 'c7'),
+        ('disk_as_of', 'd1'), ('disk_full_day', 'd2'),
+        ('disk_free_gb', 'n1'), ('alloc_gb', 'n2'), ('disk_dtf', 'n3'), ('disk_dtf_worst', 'n4'),
+        ('sev_rank', 'n5'),
+        ('n_tbspc', 'c8:num'), ('n_growing', 'c9:num'), ('grow_mb', 'c10:num')]),
+    # Tablespace families (ddl/32): one row per family, one per member.
+    'AWRCAP_FAMILY': ('c_fam', 'select * from capr_tbspc_family', [
+        ('db_pdb', 'c1'), ('family_name', 'c2'), ('period', 'c3'), ('filling_member', 'c4'), ('fits', 'c5'),
+        ('sev', 'c6'), ('headline', 'c7'), ('trend_sig', 'c8'), ('next_over_limit', 'c9'),
+        ('period_end_day', 'd1'),
+        ('next_member_gb', 'n1'), ('next_member_hi_gb', 'n2'), ('expected_final_gb', 'n3'),
+        ('expected_final_hi_gb', 'n4'), ('filling_limit_gb', 'n5'),
+        ('n_members', 'c10:num'), ('n_done', 'c11:num'), ('n_filling', 'c12:num'), ('n_empty', 'c13:num'),
+        ('days_left', 'c14:num'), ('used_gb', 'c15:num'), ('rank_family', 'c16:num')]),
+    'AWRCAP_FAMILY_MEMBERS': ('c_famm', 'select * from capr_tbspc_family_members', [
+        ('db_pdb', 'c1'), ('family_name', 'c2'), ('tablespace_name', 'c3'), ('state', 'c4'),
+        ('quality', 'c5'), ('restart_reason', 'c6'),
+        ('fill_from', 'd1'), ('fill_to', 'd2'),
+        ('member_seq', 'n1'), ('used_gb', 'n2'), ('limit_gb', 'n3'), ('pct_used', 'n4'), ('final_gb', 'n5'),
+        ('fill_days', 'c7:num')]),
     'AWRCAP_ANOMALIES': ('c_anom', 'select * from capr_anomalies', [
         ('db', 'c1'), ('kind', 'c2'), ('series', 'c3'), ('anomaly_kind', 'c4'), ('anomaly_flag', 'c5'),
         ('unit', 'c6'), ('sev', 'c7'), ('message', 'c8'),
@@ -285,6 +322,12 @@ def link_cols(alias, expr, heading, href):
 
 
 ALERT_ORDER = 'order by a.sev_rank, a.day_dt desc'
+
+
+def track_col(f='f'):
+    """The grade of the series' earlier forecasts (CAPR_FIT_TRACK); empty before a refresh run."""
+    return Col('TRACK', f'(select max(t.reliability) from c_track t where t.db = {f}.db '
+                        f'and t.kind = {f}.kind and t.series = {f}.series)', 'Track record')
 
 
 def alert_cols(series_heading='Series'):
@@ -502,6 +545,10 @@ TABLESPACES = Page(P_TBSPC, 'Tablespaces', 'TABLESPACES', 'fa-database', [
         Col('R2', 'round(f.r2, 3)', 'R2', 'NUMBER'),
         Col('QUALITY', 'f.quality', 'Quality'),
         Col('LIMIT_SOURCE', 'f.limit_source', 'Ceiling source'),
+        # Why the fit window is shorter than train_days (PURGE / STOP / START) and its first day.
+        Col('RESTART', 'f.restart_reason', 'Restart'),
+        Col('RESTART_DAY', 'f.restart_day', 'Fitted since', 'DATE'),
+        track_col(),
     ], source=f"from c_fit f where f.kind = 'TBSPC' and {in_db('f.db')}"),
     Chart('Used space', 'line', y_title='GiB', height=420,
           no_data='No tablespace in scope. Pick a database or a tablespace in the filters.', series=[
@@ -548,8 +595,83 @@ TABLESPACES = Page(P_TBSPC, 'Tablespaces', 'TABLESPACES', 'fa-database', [
         Col('MESSAGE', 'a.message', 'Message'),
     ], source=f"from c_anom a where a.kind = 'TBSPC' and {in_db('a.db')} and {in_range('a.ts')}",
        no_data='No tablespace anomalies in the date range.'),
-    Report('Tablespace alerts', cols=alert_cols('Tablespace'), no_data='No tablespace alerts in scope.',
-           source=f"from c_alert a where a.kind like 'TBSPC%' and {in_db('a.db_pdb')}\n{ALERT_ORDER}"),
+    # The shared disk (ddl/33). The disk row is database level, filed under the CDB root.
+    Report('Shared disk', cols=[
+        Col('TARGET', target_of('d.db'), 'Target'),
+        Col('DB', 'd.db', 'Database'),
+        Col('DISK', 'd.disk_name', 'Disk'),
+        *sev_cols('d.sev'),
+        Col('SOURCE', 'd.disk_source', 'Free space from'),
+        Col('FREE_GIB', 'round(d.disk_free_gb, 1)', 'Free GiB', 'NUMBER'),
+        Col('ALLOC_GIB', 'round(d.alloc_gb, 1)', 'Allocated GiB', 'NUMBER'),
+        Col('DTF', 'd.disk_dtf', 'Days to full', 'NUMBER'),
+        Col('DTF_WORST', 'd.disk_dtf_worst', 'Worst case', 'NUMBER'),
+        Col('FULL_DAY', 'd.disk_full_day', 'Full on', 'DATE'),
+        Col('GROWING', 'd.n_growing', 'Growing tablespaces', 'NUMBER'),
+        Col('GROW_MIB', 'round(d.grow_mb, 1)', 'They take MiB/day', 'NUMBER'),
+        Col('TOP_GROWERS', 'd.top_growers', 'Fastest growing (MiB/day)'),
+        Col('GATE', 'd.gated_by', 'Gate'),
+    ], source=f"from c_disk d where {host_scope('d.db')}\norder by d.sev_rank, d.disk_dtf nulls last, d.db",
+       no_data='No shared disk in scope.'),
+    IR('Tablespaces on the shared disk', sort=(('RANK_SHARED', 'ASC'),), cols=[
+        Col('RANK_SHARED', 's.rank_shared', kind='NUMBER'),
+        Col('TARGET', target_of('s.db_pdb'), 'Target'),
+        Col('DB', 's.db_pdb', 'Database'),
+        Col('TABLESPACE', 's.tablespace_name', 'Tablespace'),
+        Col('QUALITY', 's.quality', 'Quality'),
+        Col('USED_GIB', 'round(s.cur_gb, 2)', 'Used GiB', 'NUMBER'),
+        Col('ALLOC_GIB', 'round(s.alloc_gb, 2)', 'Allocated GiB', 'NUMBER'),
+        Col('OWN_LIMIT_GIB', 'round(s.limit_own_gb, 2)', 'Own limit GiB', 'NUMBER'),
+        Col('LIMIT_LIVE', 's.limit_live', 'Live ceiling'),
+        Col('GROWTH_MIB', 'round(s.grow_mb, 1)', 'Growth MiB/day', 'NUMBER'),
+        Col('DTF_OWN', 's.dtf_own', 'Days, alone', 'NUMBER'),
+        Col('DTF_SHARED', 's.dtf_shared', 'Days, shared disk', 'NUMBER'),
+        Col('DTF_WORST', 's.dtf_shared_worst', 'Worst case', 'NUMBER'),
+        Col('STUCK_GIB', 'round(s.limit_shared_gb, 2)', 'Size when stuck GiB', 'NUMBER'),
+        Col('STOPPED_BY', 's.stopped_by', 'Stopped by'),
+    ], source=f"from c_shared s where s.grow_mb is not null and {in_db('s.db_pdb')}",
+       no_data='No growing tablespace in scope.'),
+    # Tablespace families (ddl/32): one tablespace per period.
+    Report('Tablespace families', cols=[
+        Col('TARGET', target_of('g.db_pdb'), 'Target'),
+        Col('DB', 'g.db_pdb', 'Database'),
+        Col('FAMILY', 'g.family_name', 'Family'),
+        *sev_cols('g.sev'),
+        Col('PERIOD', 'g.period', 'Period'),
+        Col('MEMBERS', "g.n_done || ' done, ' || g.n_filling || ' filling, ' || g.n_empty || ' empty'", 'Members'),
+        Col('NEXT_GIB', 'round(g.next_member_gb, 2)', 'Next member GiB', 'NUMBER'),
+        Col('NEXT_HI_GIB', 'round(g.next_member_hi_gb, 2)', 'Cautious GiB', 'NUMBER'),
+        Col('FILLING', 'g.filling_member', 'Filling member'),
+        Col('PERIOD_END', 'g.period_end_day', 'Period ends', 'DATE'),
+        Col('DAYS_LEFT', 'g.days_left', 'Days left', 'NUMBER'),
+        Col('EXPECTED_GIB', 'round(g.expected_final_gb, 2)', 'Expected final GiB', 'NUMBER'),
+        Col('EXPECTED_HI_GIB', 'round(g.expected_final_hi_gb, 2)', 'Cautious final GiB', 'NUMBER'),
+        Col('CEILING_GIB', 'round(g.filling_limit_gb, 2)', 'Ceiling GiB', 'NUMBER'),
+        Col('FITS', 'g.fits', 'Fits'),
+        Col('HEADLINE', 'g.headline', 'In words'),
+    ], source=f"from c_fam g where {in_db('g.db_pdb')}\norder by g.db_pdb, g.rank_family",
+       no_data='No tablespace family in scope.'),
+    IR('Family members', sort=(('DB', 'ASC'), ('FAMILY', 'ASC'), ('SEQ', 'ASC')), cols=[
+        Col('TARGET', target_of('m.db_pdb'), 'Target'),
+        Col('DB', 'm.db_pdb', 'Database'),
+        Col('FAMILY', 'm.family_name', 'Family'),
+        Col('SEQ', 'm.member_seq', 'Seq', 'NUMBER'),
+        Col('TABLESPACE', 'm.tablespace_name', 'Tablespace'),
+        Col('STATE', 'm.state', 'State'),
+        Col('USED_GIB', 'round(m.used_gb, 2)', 'Used GiB', 'NUMBER'),
+        Col('CEILING_GIB', 'round(m.limit_gb, 2)', 'Ceiling GiB', 'NUMBER'),
+        Col('USED_PCT', 'round(m.pct_used, 1)', 'Used %', 'NUMBER'),
+        Col('FINAL_GIB', 'round(m.final_gb, 2)', 'Final size GiB', 'NUMBER'),
+        Col('FILL_FROM', 'm.fill_from', 'Filled from', 'DATE'),
+        Col('FILL_TO', 'm.fill_to', 'Filled to', 'DATE'),
+        Col('FILL_DAYS', 'm.fill_days', 'Fill days', 'NUMBER'),
+        Col('QUALITY', 'm.quality', 'Quality'),
+        Col('RESTART', 'm.restart_reason', 'Restart'),
+    ], source=f"from c_famm m where {in_db('m.db_pdb')}", no_data='No tablespace family in scope.'),
+    # DISK_FULL is filed under the CDB root: a PDB filter keeps its database's disk alert.
+    Report('Tablespace and disk alerts', cols=alert_cols('Tablespace'), no_data='No tablespace alerts in scope.',
+           source=f"from c_alert a where (a.kind like 'TBSPC%' and {in_db('a.db_pdb')} "
+                  f"or a.kind = 'DISK_FULL' and {host_scope('a.db_pdb')})\n{ALERT_ORDER}"),
 ])
 
 def series_chart(key, title, y_title, scope=in_db):
@@ -609,6 +731,7 @@ CPU = Page(P_CPU, 'CPU and workload', 'CPU', 'fa-area-chart', [
         Col('DTS_HI', 'f.days_to_full_hi', 'High', 'NUMBER'),
         Col('R2', 'round(f.r2, 3)', 'R2', 'NUMBER'),
         Col('QUALITY', 'f.quality', 'Quality'),
+        track_col(),
     ], source=f"from c_fit f where f.kind = 'CPU' and (f.series in {HOST_SERIES} and {host_scope('f.db')} "
               f"or f.series not in {HOST_SERIES} and {in_db('f.db')})"),
     *[series_chart(key, title, y_title) for key, title, y_title in WORKLOAD],
@@ -625,9 +748,10 @@ CPU = Page(P_CPU, 'CPU and workload', 'CPU', 'fa-area-chart', [
         Col('SLOPE', 'round(f.slope_per_day, 3)', 'Slope/day', 'NUMBER'),
         Col('R2', 'round(f.r2, 3)', 'R2', 'NUMBER'),
         Col('QUALITY', 'f.quality', 'Quality'),
+        track_col(),
     ], source=f"from c_fit f where f.kind = 'SERIES' and {in_db('f.db')}"),
     Report('CPU and series alerts', cols=alert_cols(), no_data='No CPU or workload alerts in scope.',
-           source="from c_alert a where a.kind not like 'TBSPC%' "
+           source="from c_alert a where a.kind not like 'TBSPC%' and a.kind <> 'DISK_FULL' "
                   f"and ({in_db('a.db_pdb')} or {host_scope('a.db_pdb')})\n{ALERT_ORDER}"),
 ])
 

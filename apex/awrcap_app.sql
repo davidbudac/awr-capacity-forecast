@@ -205,6 +205,11 @@ wwv_flow_imp_shared.create_flow_process(
 '    if apex_collection.collection_exists(''AWRCAP_SERIES'') then apex_collection.delete_collection(''AWRCAP_SERIES''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_FORECAST'') then apex_collection.delete_collection(''AWRCAP_FORECAST''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_FIT'') then apex_collection.delete_collection(''AWRCAP_FIT''); end if;',
+'    if apex_collection.collection_exists(''AWRCAP_TRACK'') then apex_collection.delete_collection(''AWRCAP_TRACK''); end if;',
+'    if apex_collection.collection_exists(''AWRCAP_SHARED'') then apex_collection.delete_collection(''AWRCAP_SHARED''); end if;',
+'    if apex_collection.collection_exists(''AWRCAP_DISK'') then apex_collection.delete_collection(''AWRCAP_DISK''); end if;',
+'    if apex_collection.collection_exists(''AWRCAP_FAMILY'') then apex_collection.delete_collection(''AWRCAP_FAMILY''); end if;',
+'    if apex_collection.collection_exists(''AWRCAP_FAMILY_MEMBERS'') then apex_collection.delete_collection(''AWRCAP_FAMILY_MEMBERS''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_ANOMALIES'') then apex_collection.delete_collection(''AWRCAP_ANOMALIES''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_ALERTS'') then apex_collection.delete_collection(''AWRCAP_ALERTS''); end if;',
 '    if apex_collection.collection_exists(''AWRCAP_MEM_VERDICT'') then apex_collection.delete_collection(''AWRCAP_MEM_VERDICT''); end if;',
@@ -232,11 +237,40 @@ wwv_flow_imp_shared.create_flow_process(
 ||'s date) d005, db c001, kind c002, series c003, unit c004, method c005, quality c006, to_char(round(pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c007 from (select * from capr_forecast_points)~'');',
 '  end if;',
 '  if :APP_PAGE_ID in (1, 5, 2, 3, 6) then',
-'    load(''AWRCAP_FIT'', q''~select value n001, limit_value n002, pct n003, days_to_full n004, sev_rank n005, last_day d001, cast(null as date) d002, cast(null as date) d003, cast(null as date) d004, cas'
-||'t(null as date) d005, db c001, kind c002, series c003, unit c004, method c005, quality c006, sev c007, limit_source c008, to_char(round(slope_per_day, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c009'
-||', to_char(round(r2, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c010, to_char(round(days_to_full_lo, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c011, to_char(round(days_to_full_hi, 10), ''TM9'', ''NLS'
-||'_NUMERIC_CHARACTERS=''''.,'''''') c012, to_char(round(accel, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c013, to_char(round(train_n, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c014 from (select * from '
-||'capr_fit)~'');',
+'    load(''AWRCAP_FIT'', q''~select value n001, limit_value n002, pct n003, days_to_full n004, sev_rank n005, last_day d001, restart_day d002, cast(null as date) d003, cast(null as date) d004, cast(null '
+||'as date) d005, db c001, kind c002, series c003, unit c004, method c005, quality c006, sev c007, limit_source c008, to_char(round(slope_per_day, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c009, to_ch'
+||'ar(round(r2, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c010, to_char(round(days_to_full_lo, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c011, to_char(round(days_to_full_hi, 10), ''TM9'', ''NLS_NUMERI'
+||'C_CHARACTERS=''''.,'''''') c012, to_char(round(accel, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c013, to_char(round(train_n, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c014, restart_reason c015 from ('
+||'select * from capr_fit)~'');',
+'  end if;',
+'  if :APP_PAGE_ID in (2, 3) then',
+'    load(''AWRCAP_TRACK'', q''~select n_forecasts n001, abs_err_pct n002, bias_pct n003, band_factor n004, reliability_rank n005, cast(null as date) d001, cast(null as date) d002, cast(null as date) d003'
+||', cast(null as date) d004, cast(null as date) d005, db c001, kind c002, series c003, reliability c004, summary c005, to_char(round(band_hit_pct, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c006 from '
+||'(select * from capr_fit_track)~'');',
+'  end if;',
+'  if :APP_PAGE_ID in (2) then',
+'    load(''AWRCAP_SHARED'', q''~select cur_gb n001, alloc_gb n002, limit_own_gb n003, dtf_shared n004, rank_shared n005, cast(null as date) d001, cast(null as date) d002, cast(null as date) d003, cast(nu'
+||'ll as date) d004, cast(null as date) d005, db_pdb c001, tablespace_name c002, disk_name c003, quality c004, limit_live c005, stopped_by c006, is_current c007, to_char(round(grow_mb, 10), ''TM9'', ''NLS_N'
+||'UMERIC_CHARACTERS=''''.,'''''') c008, to_char(round(dtf_own, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c009, to_char(round(dtf_shared_worst, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c010, to_char(ro'
+||'und(limit_shared_gb, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c011, to_char(round(days_to_full, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c012, to_char(round(limit_gb, 10), ''TM9'', ''NLS_NUMERIC_'
+||'CHARACTERS=''''.,'''''') c013, to_char(round(grow_worst_mb, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c014 from (select * from capr_tbspc_shared)~'');',
+'  end if;',
+'  if :APP_PAGE_ID in (2) then',
+'    load(''AWRCAP_DISK'', q''~select disk_free_gb n001, alloc_gb n002, disk_dtf n003, disk_dtf_worst n004, sev_rank n005, disk_as_of d001, disk_full_day d002, cast(null as date) d003, cast(null as date) '
+||'d004, cast(null as date) d005, db c001, disk_name c002, disk_source c003, top_growers c004, sev c005, gated_by c006, message c007, to_char(round(n_tbspc, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c'
+||'008, to_char(round(n_growing, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c009, to_char(round(grow_mb, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c010 from (select * from capr_disk)~'');',
+'  end if;',
+'  if :APP_PAGE_ID in (2) then',
+'    load(''AWRCAP_FAMILY'', q''~select next_member_gb n001, next_member_hi_gb n002, expected_final_gb n003, expected_final_hi_gb n004, filling_limit_gb n005, period_end_day d001, cast(null as date) d002,'
+||' cast(null as date) d003, cast(null as date) d004, cast(null as date) d005, db_pdb c001, family_name c002, period c003, filling_member c004, fits c005, sev c006, headline c007, trend_sig c008, next_ov'
+||'er_limit c009, to_char(round(n_members, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c010, to_char(round(n_done, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c011, to_char(round(n_filling, 10), ''TM9'','
+||' ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c012, to_char(round(n_empty, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c013, to_char(round(days_left, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c014, to_char(ro'
+||'und(used_gb, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c015, to_char(round(rank_family, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c016 from (select * from capr_tbspc_family)~'');',
+'  end if;',
+'  if :APP_PAGE_ID in (2) then',
+'    load(''AWRCAP_FAMILY_MEMBERS'', q''~select member_seq n001, used_gb n002, limit_gb n003, pct_used n004, final_gb n005, fill_from d001, fill_to d002, cast(null as date) d003, cast(null as date) d004, '
+||'cast(null as date) d005, db_pdb c001, family_name c002, tablespace_name c003, state c004, quality c005, restart_reason c006, to_char(round(fill_days, 10), ''TM9'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') c007 '
+||'from (select * from capr_tbspc_family_members)~'');',
 '  end if;',
 '  if :APP_PAGE_ID in (1, 2, 3, 4) then',
 '    load(''AWRCAP_ANOMALIES'', q''~select value n001, expected n002, threshold n003, z n004, sev_rank n005, ts d001, obs_day d002, cast(null as date) d003, cast(null as date) d004, cast(null as date) d00'
@@ -303,7 +337,7 @@ wwv_flow_imp_shared.create_flow_process(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select max(f.db || ''|'' || f.series) keep (dense_rank first order by case when f.db || ''|'' || f.series = v(''P0_TBSPC'') then 0 else 1 end, f.days_to_full nulls last, f.pct desc nulls last) val',
 'from c_fit f where f.kind = ''TBSPC'' and ((v(''P0_DB'') is null or f.db = v(''P0_DB'')) and (v(''P0_TARGET'') is null or f.db in (select t.db_pdb from c_cont t where t.target_name = v(''P0_TARGET''))))) loop',
 '      apex_util.set_session_state(''P0_TBSPC'', r.val);',
@@ -330,6 +364,11 @@ wwv_flow_imp_shared.create_flow_process(
 '  if apex_collection.collection_exists(''AWRCAP_SERIES'') then apex_collection.delete_collection(''AWRCAP_SERIES''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_FORECAST'') then apex_collection.delete_collection(''AWRCAP_FORECAST''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_FIT'') then apex_collection.delete_collection(''AWRCAP_FIT''); end if;',
+'  if apex_collection.collection_exists(''AWRCAP_TRACK'') then apex_collection.delete_collection(''AWRCAP_TRACK''); end if;',
+'  if apex_collection.collection_exists(''AWRCAP_SHARED'') then apex_collection.delete_collection(''AWRCAP_SHARED''); end if;',
+'  if apex_collection.collection_exists(''AWRCAP_DISK'') then apex_collection.delete_collection(''AWRCAP_DISK''); end if;',
+'  if apex_collection.collection_exists(''AWRCAP_FAMILY'') then apex_collection.delete_collection(''AWRCAP_FAMILY''); end if;',
+'  if apex_collection.collection_exists(''AWRCAP_FAMILY_MEMBERS'') then apex_collection.delete_collection(''AWRCAP_FAMILY_MEMBERS''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_ANOMALIES'') then apex_collection.delete_collection(''AWRCAP_ANOMALIES''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_ALERTS'') then apex_collection.delete_collection(''AWRCAP_ALERTS''); end if;',
 '  if apex_collection.collection_exists(''AWRCAP_MEM_VERDICT'') then apex_collection.delete_collection(''AWRCAP_MEM_VERDICT''); end if;',
@@ -587,7 +626,7 @@ wwv_flow_imp_page.create_page_item(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select f.series || case when :P0_DB is null then '' ('' || f.db || '')'' end d, f.db || ''|'' || f.series r from c_fit f where f.kind = ''TBSPC'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null'
 ||' or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) order by 1'))
 ,p_lov_display_null=>'YES'
@@ -779,7 +818,7 @@ wwv_flow_imp_page.create_report_region(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT''),',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT''),',
 'c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 z, n0'
 ||'05 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
 ||''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES''),',
@@ -1086,7 +1125,7 @@ wwv_flow_imp_page.create_report_region(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select (select max(t.target_name) from c_cont t where t.db_pdb = f.db) TARGET, f.db DB, f.series TABLESPACE, apex_page.get_url(p_page => 2, p_items => ''P0_DB,P0_TBSPC'', p_values => f.db || '','' || f.db'
 ||' || ''|'' || f.series) TABLESPACE_URL, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, '
 ||'round(f.pct, 1) USED_PCT, f.days_to_full DTF',
@@ -1248,7 +1287,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select case when :P0_DB is null then f.db || '' '' || f.series else f.series end label, round(f.pct, 1) value from c_fit f where f.kind = ''TBSPC'' and f.sev = ''CRIT'' and ((:P0_DB is null or f.db = :P0_DB'
 ||') and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) order by f.pct desc'))
 ,p_location=>'LOCAL'
@@ -1274,7 +1313,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select case when :P0_DB is null then f.db || '' '' || f.series else f.series end label, round(f.pct, 1) value from c_fit f where f.kind = ''TBSPC'' and f.sev = ''WARN'' and ((:P0_DB is null or f.db = :P0_DB'
 ||') and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) order by f.pct desc'))
 ,p_location=>'LOCAL'
@@ -1300,7 +1339,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select case when :P0_DB is null then f.db || '' '' || f.series else f.series end label, round(f.pct, 1) value from c_fit f where f.kind = ''TBSPC'' and f.sev not in (''CRIT'', ''WARN'') and ((:P0_DB is null o'
 ||'r f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) order by f.pct desc'))
 ,p_location=>'LOCAL'
@@ -1476,7 +1515,7 @@ wwv_flow_imp_page.create_page_plug(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT''),',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT''),',
 'c_alert as (select c001 severity, c002 kind, c003 db_pdb, c004 series_key, c005 unit, c006 message, d001 day_dt, n001 sev_rank, n002 value, n003 threshold from apex_collections where collection_name ='
 ||' ''AWRCAP_ALERTS'')',
 'select t.target_name TARGET, apex_page.get_url(p_page => 1, p_items => ''P0_TARGET,P0_DB,P0_TBSPC'', p_values => t.target_name || '',,'') TARGET_URL, to_char(t.dbid) DBID, t.db_name DB_NAME, t.host_name H'
@@ -1921,7 +1960,7 @@ wwv_flow_imp_page.create_report_region(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT''),',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT''),',
 'c_anom as (select c001 db, c002 kind, c003 series, c004 anomaly_kind, c005 anomaly_flag, c006 unit, c007 sev, c008 message, d001 ts, d002 obs_day, n001 value, n002 expected, n003 threshold, n004 z, n0'
 ||'05 sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') shift_pct, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''
 ||''''') rate_bpd from apex_collections where collection_name = ''AWRCAP_ANOMALIES'')',
@@ -2007,11 +2046,14 @@ wwv_flow_imp_page.create_page_plug(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT''),',
+'c_track as (select c001 db, c002 kind, c003 series, c004 reliability, c005 summary, n001 n_forecasts, n002 abs_err_pct, n003 bias_pct, n004 band_factor, n005 reliability_rank, to_number(c006, ''9999999'
+||'9999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') band_hit_pct from apex_collections where collection_name = ''AWRCAP_TRACK'')',
 'select (select max(t.target_name) from c_cont t where t.db_pdb = f.db) TARGET, f.db DB, f.series TABLESPACE, apex_page.get_url(p_page => 2, p_items => ''P0_TBSPC'', p_values => f.db || ''|'' || f.series) '
 ||'TABLESPACE_URL, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, round(f.pct, 1) USED_'
 ||'PCT, round(f.value / 1073741824, 2) USED_GIB, round(f.limit_value / 1073741824, 2) CEILING_GIB, round(f.slope_per_day / 1048576, 1) GROWTH_MIB, f.days_to_full DTF, f.days_to_full_lo DTF_LO, f.days_to_'
-||'full_hi DTF_HI, round(f.r2, 3) R2, f.quality QUALITY, f.limit_source LIMIT_SOURCE',
+||'full_hi DTF_HI, round(f.r2, 3) R2, f.quality QUALITY, f.limit_source LIMIT_SOURCE, f.restart_reason RESTART, f.restart_day RESTART_DAY, (select max(t.reliability) from c_track t where t.db = f.db and '
+||'t.kind = f.kind and t.series = f.series) TRACK',
 'from c_fit f where f.kind = ''TBSPC'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))'))
 ,p_include_rowid_column=>false
 );
@@ -2219,22 +2261,57 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_use_as_row_header=>'N'
 ,p_available_clientside=>'N'
 );
-wwv_flow_imp_page.create_worksheet_rpt(
+wwv_flow_imp_page.create_worksheet_column(
  p_id=>wwv_flow_imp.id(110000000000132)
+,p_db_column_name=>'RESTART'
+,p_display_order=>170
+,p_column_identifier=>'Q'
+,p_column_label=>'Restart'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000133)
+,p_db_column_name=>'RESTART_DAY'
+,p_display_order=>180
+,p_column_identifier=>'R'
+,p_column_label=>'Fitted since'
+,p_column_type=>'DATE'
+,p_format_mask=>'YYYY-MM-DD'
+,p_heading_alignment=>'LEFT'
+,p_tz_dependent=>'N'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000134)
+,p_db_column_name=>'TRACK'
+,p_display_order=>190
+,p_column_identifier=>'S'
+,p_column_label=>'Track record'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_rpt(
+ p_id=>wwv_flow_imp.id(110000000000135)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'days-to-full'
 ,p_status=>'PUBLIC'
 ,p_is_default=>'Y'
 ,p_display_rows=>15
-,p_report_columns=>'TARGET:DB:TABLESPACE:SEV:USED_PCT:USED_GIB:CEILING_GIB:GROWTH_MIB:DTF:DTF_LO:DTF_HI:R2:QUALITY:LIMIT_SOURCE'
+,p_report_columns=>'TARGET:DB:TABLESPACE:SEV:USED_PCT:USED_GIB:CEILING_GIB:GROWTH_MIB:DTF:DTF_LO:DTF_HI:R2:QUALITY:LIMIT_SOURCE:RESTART:RESTART_DAY:TRACK'
 ,p_sort_column_1=>'DTF'
 ,p_sort_direction_1=>'ASC'
 ,p_sort_column_2=>'USED_PCT'
 ,p_sort_direction_2=>'DESC'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000133)
+ p_id=>wwv_flow_imp.id(110000000000136)
 ,p_plug_name=>'Used space'
 ,p_static_id=>'used-space'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -2244,8 +2321,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000134)
-,p_region_id=>wwv_flow_imp.id(110000000000133)
+ p_id=>wwv_flow_imp.id(110000000000137)
+,p_region_id=>wwv_flow_imp.id(110000000000136)
 ,p_chart_type=>'line'
 ,p_height=>'420'
 ,p_animation_on_display=>'none'
@@ -2271,8 +2348,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No tablespace in scope. Pick a database or a tablespace in the filters.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000135)
-,p_chart_id=>wwv_flow_imp.id(110000000000134)
+ p_id=>wwv_flow_imp.id(110000000000138)
+,p_chart_id=>wwv_flow_imp.id(110000000000137)
 ,p_static_id=>'used'
 ,p_seq=>10
 ,p_name=>'Used'
@@ -2303,8 +2380,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000136)
-,p_chart_id=>wwv_flow_imp.id(110000000000134)
+ p_id=>wwv_flow_imp.id(110000000000139)
+,p_chart_id=>wwv_flow_imp.id(110000000000137)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
@@ -2328,8 +2405,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000137)
-,p_chart_id=>wwv_flow_imp.id(110000000000134)
+ p_id=>wwv_flow_imp.id(110000000000140)
+,p_chart_id=>wwv_flow_imp.id(110000000000137)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
@@ -2354,8 +2431,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000138)
-,p_chart_id=>wwv_flow_imp.id(110000000000134)
+ p_id=>wwv_flow_imp.id(110000000000141)
+,p_chart_id=>wwv_flow_imp.id(110000000000137)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
@@ -2380,8 +2457,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000139)
-,p_chart_id=>wwv_flow_imp.id(110000000000134)
+ p_id=>wwv_flow_imp.id(110000000000142)
+,p_chart_id=>wwv_flow_imp.id(110000000000137)
 ,p_static_id=>'ceiling'
 ,p_seq=>50
 ,p_name=>'Ceiling'
@@ -2391,7 +2468,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||' sev_rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
 ||','''''') r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
 ||'.,'''''') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTER'
-||'S=''''.,'''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||'S=''''.,'''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select e.ts, l.value from (select round(f.limit_value / 1073741824, 2) value from c_fit f where f.kind = ''TBSPC'' and f.db || ''|'' || f.series = :P0_TBSPC) l cross join (select to_date(:P0_FROM default '
 ||'null on conversion error, ''YYYY-MM-DD'') ts from dual union all select to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null orde'
 ||'r by e.ts'))
@@ -2410,8 +2487,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000140)
-,p_chart_id=>wwv_flow_imp.id(110000000000134)
+ p_id=>wwv_flow_imp.id(110000000000143)
+,p_chart_id=>wwv_flow_imp.id(110000000000137)
 ,p_static_id=>'esm-30'
 ,p_seq=>60
 ,p_name=>'ESM +30'
@@ -2435,8 +2512,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000141)
-,p_chart_id=>wwv_flow_imp.id(110000000000134)
+ p_id=>wwv_flow_imp.id(110000000000144)
+,p_chart_id=>wwv_flow_imp.id(110000000000137)
 ,p_static_id=>'anomaly'
 ,p_seq=>70
 ,p_name=>'Anomaly'
@@ -2465,8 +2542,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000142)
-,p_chart_id=>wwv_flow_imp.id(110000000000134)
+ p_id=>wwv_flow_imp.id(110000000000145)
+,p_chart_id=>wwv_flow_imp.id(110000000000137)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -2481,8 +2558,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000143)
-,p_chart_id=>wwv_flow_imp.id(110000000000134)
+ p_id=>wwv_flow_imp.id(110000000000146)
+,p_chart_id=>wwv_flow_imp.id(110000000000137)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -2497,7 +2574,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000144)
+ p_id=>wwv_flow_imp.id(110000000000147)
 ,p_plug_name=>'Daily growth'
 ,p_static_id=>'daily-growth'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -2507,8 +2584,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000145)
-,p_region_id=>wwv_flow_imp.id(110000000000144)
+ p_id=>wwv_flow_imp.id(110000000000148)
+,p_region_id=>wwv_flow_imp.id(110000000000147)
 ,p_chart_type=>'combo'
 ,p_height=>'360'
 ,p_animation_on_display=>'none'
@@ -2534,8 +2611,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'Pick a single tablespace to see its daily growth.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000146)
-,p_chart_id=>wwv_flow_imp.id(110000000000145)
+ p_id=>wwv_flow_imp.id(110000000000149)
+,p_chart_id=>wwv_flow_imp.id(110000000000148)
 ,p_static_id=>'growth'
 ,p_seq=>10
 ,p_name=>'Growth'
@@ -2559,8 +2636,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000147)
-,p_chart_id=>wwv_flow_imp.id(110000000000145)
+ p_id=>wwv_flow_imp.id(110000000000150)
+,p_chart_id=>wwv_flow_imp.id(110000000000148)
 ,p_static_id=>'anomalous-growth'
 ,p_seq=>20
 ,p_name=>'Anomalous growth'
@@ -2584,8 +2661,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000148)
-,p_chart_id=>wwv_flow_imp.id(110000000000145)
+ p_id=>wwv_flow_imp.id(110000000000151)
+,p_chart_id=>wwv_flow_imp.id(110000000000148)
 ,p_static_id=>'median-rate'
 ,p_seq=>30
 ,p_name=>'Median rate'
@@ -2613,8 +2690,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000149)
-,p_chart_id=>wwv_flow_imp.id(110000000000145)
+ p_id=>wwv_flow_imp.id(110000000000152)
+,p_chart_id=>wwv_flow_imp.id(110000000000148)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -2629,8 +2706,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000150)
-,p_chart_id=>wwv_flow_imp.id(110000000000145)
+ p_id=>wwv_flow_imp.id(110000000000153)
+,p_chart_id=>wwv_flow_imp.id(110000000000148)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -2645,7 +2722,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000151)
+ p_id=>wwv_flow_imp.id(110000000000154)
 ,p_plug_name=>'Growth anomalies'
 ,p_static_id=>'growth-anomalies'
 ,p_region_template_options=>'#DEFAULT#'
@@ -2668,7 +2745,7 @@ wwv_flow_imp_page.create_page_plug(
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000152)
+ p_id=>wwv_flow_imp.id(110000000000155)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No tablespace anomalies in the date range.'
 ,p_allow_save_rpt_public=>'Y'
@@ -2681,10 +2758,10 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000152
+,p_internal_uid=>110000000000155
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000153)
+ p_id=>wwv_flow_imp.id(110000000000156)
 ,p_db_column_name=>'DAY'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
@@ -2697,7 +2774,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000154)
+ p_id=>wwv_flow_imp.id(110000000000157)
 ,p_db_column_name=>'TARGET'
 ,p_display_order=>20
 ,p_column_identifier=>'B'
@@ -2708,7 +2785,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000155)
+ p_id=>wwv_flow_imp.id(110000000000158)
 ,p_db_column_name=>'DB'
 ,p_display_order=>30
 ,p_column_identifier=>'C'
@@ -2719,7 +2796,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000156)
+ p_id=>wwv_flow_imp.id(110000000000159)
 ,p_db_column_name=>'TABLESPACE'
 ,p_display_order=>40
 ,p_column_identifier=>'D'
@@ -2731,7 +2808,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000157)
+ p_id=>wwv_flow_imp.id(110000000000160)
 ,p_db_column_name=>'TABLESPACE_URL'
 ,p_display_order=>50
 ,p_column_identifier=>'E'
@@ -2743,7 +2820,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000158)
+ p_id=>wwv_flow_imp.id(110000000000161)
 ,p_db_column_name=>'ANOMALY_KIND'
 ,p_display_order=>60
 ,p_column_identifier=>'F'
@@ -2754,7 +2831,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000159)
+ p_id=>wwv_flow_imp.id(110000000000162)
 ,p_db_column_name=>'SEV'
 ,p_display_order=>70
 ,p_column_identifier=>'G'
@@ -2766,7 +2843,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000160)
+ p_id=>wwv_flow_imp.id(110000000000163)
 ,p_db_column_name=>'SEV_CSS'
 ,p_display_order=>80
 ,p_column_identifier=>'H'
@@ -2778,7 +2855,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000161)
+ p_id=>wwv_flow_imp.id(110000000000164)
 ,p_db_column_name=>'GROWTH_GIB'
 ,p_display_order=>90
 ,p_column_identifier=>'I'
@@ -2790,7 +2867,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000162)
+ p_id=>wwv_flow_imp.id(110000000000165)
 ,p_db_column_name=>'RATE_MIB'
 ,p_display_order=>100
 ,p_column_identifier=>'J'
@@ -2802,7 +2879,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000163)
+ p_id=>wwv_flow_imp.id(110000000000166)
 ,p_db_column_name=>'MEDIAN_MIB'
 ,p_display_order=>110
 ,p_column_identifier=>'K'
@@ -2814,7 +2891,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000164)
+ p_id=>wwv_flow_imp.id(110000000000167)
 ,p_db_column_name=>'THRESHOLD_MIB'
 ,p_display_order=>120
 ,p_column_identifier=>'L'
@@ -2826,7 +2903,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000165)
+ p_id=>wwv_flow_imp.id(110000000000168)
 ,p_db_column_name=>'Z'
 ,p_display_order=>130
 ,p_column_identifier=>'M'
@@ -2838,7 +2915,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000166)
+ p_id=>wwv_flow_imp.id(110000000000169)
 ,p_db_column_name=>'FLAG'
 ,p_display_order=>140
 ,p_column_identifier=>'N'
@@ -2849,7 +2926,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000167)
+ p_id=>wwv_flow_imp.id(110000000000170)
 ,p_db_column_name=>'MESSAGE'
 ,p_display_order=>150
 ,p_column_identifier=>'O'
@@ -2860,7 +2937,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000168)
+ p_id=>wwv_flow_imp.id(110000000000171)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'growth-anomalies'
@@ -2872,11 +2949,902 @@ wwv_flow_imp_page.create_worksheet_rpt(
 ,p_sort_direction_1=>'DESC'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000169)
-,p_name=>'Tablespace alerts'
-,p_static_id=>'tablespace-alerts'
+ p_id=>wwv_flow_imp.id(110000000000172)
+,p_name=>'Shared disk'
+,p_static_id=>'shared-disk'
 ,p_template=>4075786578761660127
 ,p_display_sequence=>60
+,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
+,p_component_template_options=>'#DEFAULT#:t-Report--stretch:t-Report--altRowsDefault:t-Report--rowHighlight'
+,p_source_type=>'NATIVE_SQL_REPORT'
+,p_query_type=>'SQL'
+,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_disk as (select c001 db, c002 disk_name, c003 disk_source, c004 top_growers, c005 sev, c006 gated_by, c007 message, d001 disk_as_of, d002 disk_full_day, n001 disk_free_gb, n002 alloc_gb, n003 disk_d'
+||'tf, n004 disk_dtf_worst, n005 sev_rank, to_number(c008, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_tbspc, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS'
+||'_NUMERIC_CHARACTERS=''''.,'''''') n_growing, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') grow_mb from apex_collections where collection_name = ''AWRCAP_DISK'')',
+'select (select max(t.target_name) from c_cont t where t.db_pdb = d.db) TARGET, d.db DB, d.disk_name DISK, d.sev SEV, case d.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' w'
+||'hen ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, d.disk_source SOURCE, round(d.disk_free_gb, 1) FREE_GIB, round(d.alloc_gb, 1) ALLOC_GIB, d.disk_dtf DTF, d.disk_dtf_worst DTF_WORST'
+||', d.disk_full_day FULL_DAY, d.n_growing GROWING, round(d.grow_mb, 1) GROW_MIB, d.top_growers TOP_GROWERS, d.gated_by GATE',
+'from c_disk d where ((:P0_DB is null or d.db in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or d.db in (selec'
+||'t t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))',
+'order by d.sev_rank, d.disk_dtf nulls last, d.db'))
+,p_ajax_enabled=>'Y'
+,p_lazy_loading=>false
+,p_query_row_template=>2542081983073888486
+,p_query_num_rows=>15
+,p_query_num_rows_type=>'ROWS_X_TO_Y'
+,p_query_no_data_found=>'No shared disk in scope.'
+,p_pagination_display_position=>'BOTTOM_RIGHT'
+,p_csv_output=>'N'
+,p_prn_output=>'N'
+,p_sort_null=>'L'
+,p_plug_query_strip_html=>'N'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000173)
+,p_query_column_id=>1
+,p_column_alias=>'TARGET'
+,p_column_display_sequence=>10
+,p_column_heading=>'Target'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000174)
+,p_query_column_id=>2
+,p_column_alias=>'DB'
+,p_column_display_sequence=>20
+,p_column_heading=>'Database'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000175)
+,p_query_column_id=>3
+,p_column_alias=>'DISK'
+,p_column_display_sequence=>30
+,p_column_heading=>'Disk'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000176)
+,p_query_column_id=>4
+,p_column_alias=>'SEV'
+,p_column_display_sequence=>40
+,p_column_heading=>'Severity'
+,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #SEV_CSS#">#SEV#</span>'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000177)
+,p_query_column_id=>5
+,p_column_alias=>'SEV_CSS'
+,p_column_display_sequence=>50
+,p_heading_alignment=>'LEFT'
+,p_hidden_column=>'Y'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000178)
+,p_query_column_id=>6
+,p_column_alias=>'SOURCE'
+,p_column_display_sequence=>60
+,p_column_heading=>'Free space from'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000179)
+,p_query_column_id=>7
+,p_column_alias=>'FREE_GIB'
+,p_column_display_sequence=>70
+,p_column_heading=>'Free GiB'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000180)
+,p_query_column_id=>8
+,p_column_alias=>'ALLOC_GIB'
+,p_column_display_sequence=>80
+,p_column_heading=>'Allocated GiB'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000181)
+,p_query_column_id=>9
+,p_column_alias=>'DTF'
+,p_column_display_sequence=>90
+,p_column_heading=>'Days to full'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000182)
+,p_query_column_id=>10
+,p_column_alias=>'DTF_WORST'
+,p_column_display_sequence=>100
+,p_column_heading=>'Worst case'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000183)
+,p_query_column_id=>11
+,p_column_alias=>'FULL_DAY'
+,p_column_display_sequence=>110
+,p_column_heading=>'Full on'
+,p_column_format=>'YYYY-MM-DD'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000184)
+,p_query_column_id=>12
+,p_column_alias=>'GROWING'
+,p_column_display_sequence=>120
+,p_column_heading=>'Growing tablespaces'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000185)
+,p_query_column_id=>13
+,p_column_alias=>'GROW_MIB'
+,p_column_display_sequence=>130
+,p_column_heading=>'They take MiB/day'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000186)
+,p_query_column_id=>14
+,p_column_alias=>'TOP_GROWERS'
+,p_column_display_sequence=>140
+,p_column_heading=>'Fastest growing (MiB/day)'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000187)
+,p_query_column_id=>15
+,p_column_alias=>'GATE'
+,p_column_display_sequence=>150
+,p_column_heading=>'Gate'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_page_plug(
+ p_id=>wwv_flow_imp.id(110000000000188)
+,p_plug_name=>'Tablespaces on the shared disk'
+,p_static_id=>'tablespaces-on-the-shared-disk'
+,p_region_template_options=>'#DEFAULT#'
+,p_plug_template=>2103954283454391425
+,p_plug_display_sequence=>70
+,p_plug_item_display_point=>'ABOVE'
+,p_plug_source_type=>'NATIVE_IR'
+,p_query_type=>'SQL'
+,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_shared as (select c001 db_pdb, c002 tablespace_name, c003 disk_name, c004 quality, c005 limit_live, c006 stopped_by, c007 is_current, n001 cur_gb, n002 alloc_gb, n003 limit_own_gb, n004 dtf_shared, '
+||'n005 rank_shared, to_number(c008, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') grow_mb, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS='''''
+||'.,'''''') dtf_own, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') dtf_shared_worst, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARAC'
+||'TERS=''''.,'''''') limit_shared_gb, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUM'
+||'ERIC_CHARACTERS=''''.,'''''') limit_gb, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') grow_worst_mb from apex_collections where collection_name = ''AWRCAP_SHARED'''
+||')',
+'select s.rank_shared RANK_SHARED, (select max(t.target_name) from c_cont t where t.db_pdb = s.db_pdb) TARGET, s.db_pdb DB, s.tablespace_name TABLESPACE, s.quality QUALITY, round(s.cur_gb, 2) USED_GIB,'
+||' round(s.alloc_gb, 2) ALLOC_GIB, round(s.limit_own_gb, 2) OWN_LIMIT_GIB, s.limit_live LIMIT_LIVE, round(s.grow_mb, 1) GROWTH_MIB, s.dtf_own DTF_OWN, s.dtf_shared DTF_SHARED, s.dtf_shared_worst DTF_WOR'
+||'ST, round(s.limit_shared_gb, 2) STUCK_GIB, s.stopped_by STOPPED_BY',
+'from c_shared s where s.grow_mb is not null and ((:P0_DB is null or s.db_pdb = :P0_DB) and (:P0_TARGET is null or s.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))'))
+,p_include_rowid_column=>false
+);
+wwv_flow_imp_page.create_worksheet(
+ p_id=>wwv_flow_imp.id(110000000000189)
+,p_max_row_count=>'100000'
+,p_no_data_found_message=>'No growing tablespace in scope.'
+,p_allow_save_rpt_public=>'Y'
+,p_show_nulls_as=>'-'
+,p_pagination_type=>'ROWS_X_TO_Y'
+,p_pagination_display_pos=>'BOTTOM_RIGHT'
+,p_report_list_mode=>'TABS'
+,p_lazy_loading=>false
+,p_show_detail_link=>'N'
+,p_show_notify=>'N'
+,p_download_formats=>'CSV:HTML:XLSX'
+,p_enable_mail_download=>'N'
+,p_internal_uid=>110000000000189
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000190)
+,p_db_column_name=>'RANK_SHARED'
+,p_display_order=>10
+,p_column_identifier=>'A'
+,p_column_label=>'RANK_SHARED'
+,p_column_type=>'NUMBER'
+,p_display_text_as=>'HIDDEN_ESCAPE_SC'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000191)
+,p_db_column_name=>'TARGET'
+,p_display_order=>20
+,p_column_identifier=>'B'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000192)
+,p_db_column_name=>'DB'
+,p_display_order=>30
+,p_column_identifier=>'C'
+,p_column_label=>'Database'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000193)
+,p_db_column_name=>'TABLESPACE'
+,p_display_order=>40
+,p_column_identifier=>'D'
+,p_column_label=>'Tablespace'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000194)
+,p_db_column_name=>'QUALITY'
+,p_display_order=>50
+,p_column_identifier=>'E'
+,p_column_label=>'Quality'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000195)
+,p_db_column_name=>'USED_GIB'
+,p_display_order=>60
+,p_column_identifier=>'F'
+,p_column_label=>'Used GiB'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000196)
+,p_db_column_name=>'ALLOC_GIB'
+,p_display_order=>70
+,p_column_identifier=>'G'
+,p_column_label=>'Allocated GiB'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000197)
+,p_db_column_name=>'OWN_LIMIT_GIB'
+,p_display_order=>80
+,p_column_identifier=>'H'
+,p_column_label=>'Own limit GiB'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000198)
+,p_db_column_name=>'LIMIT_LIVE'
+,p_display_order=>90
+,p_column_identifier=>'I'
+,p_column_label=>'Live ceiling'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000199)
+,p_db_column_name=>'GROWTH_MIB'
+,p_display_order=>100
+,p_column_identifier=>'J'
+,p_column_label=>'Growth MiB/day'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000200)
+,p_db_column_name=>'DTF_OWN'
+,p_display_order=>110
+,p_column_identifier=>'K'
+,p_column_label=>'Days, alone'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000201)
+,p_db_column_name=>'DTF_SHARED'
+,p_display_order=>120
+,p_column_identifier=>'L'
+,p_column_label=>'Days, shared disk'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000202)
+,p_db_column_name=>'DTF_WORST'
+,p_display_order=>130
+,p_column_identifier=>'M'
+,p_column_label=>'Worst case'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000203)
+,p_db_column_name=>'STUCK_GIB'
+,p_display_order=>140
+,p_column_identifier=>'N'
+,p_column_label=>'Size when stuck GiB'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000204)
+,p_db_column_name=>'STOPPED_BY'
+,p_display_order=>150
+,p_column_identifier=>'O'
+,p_column_label=>'Stopped by'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_rpt(
+ p_id=>wwv_flow_imp.id(110000000000205)
+,p_application_user=>'APXWS_DEFAULT'
+,p_report_seq=>10
+,p_report_alias=>'tablespaces-on-the-shared-disk'
+,p_status=>'PUBLIC'
+,p_is_default=>'Y'
+,p_display_rows=>15
+,p_report_columns=>'TARGET:DB:TABLESPACE:QUALITY:USED_GIB:ALLOC_GIB:OWN_LIMIT_GIB:LIMIT_LIVE:GROWTH_MIB:DTF_OWN:DTF_SHARED:DTF_WORST:STUCK_GIB:STOPPED_BY'
+,p_sort_column_1=>'RANK_SHARED'
+,p_sort_direction_1=>'ASC'
+);
+wwv_flow_imp_page.create_report_region(
+ p_id=>wwv_flow_imp.id(110000000000206)
+,p_name=>'Tablespace families'
+,p_static_id=>'tablespace-families'
+,p_template=>4075786578761660127
+,p_display_sequence=>80
+,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
+,p_component_template_options=>'#DEFAULT#:t-Report--stretch:t-Report--altRowsDefault:t-Report--rowHighlight'
+,p_source_type=>'NATIVE_SQL_REPORT'
+,p_query_type=>'SQL'
+,p_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_fam as (select c001 db_pdb, c002 family_name, c003 period, c004 filling_member, c005 fits, c006 sev, c007 headline, c008 trend_sig, c009 next_over_limit, d001 period_end_day, n001 next_member_gb, n0'
+||'02 next_member_hi_gb, n003 expected_final_gb, n004 expected_final_hi_gb, n005 filling_limit_gb, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_members, to_'
+||'number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_done, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_filling, to_n'
+||'umber(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') n_empty, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_left, to_n'
+||'umber(c015, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') used_gb, to_number(c016, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') rank_family fro'
+||'m apex_collections where collection_name = ''AWRCAP_FAMILY'')',
+'select (select max(t.target_name) from c_cont t where t.db_pdb = g.db_pdb) TARGET, g.db_pdb DB, g.family_name FAMILY, g.sev SEV, case g.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge'
+||'--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, g.period PERIOD, g.n_done || '' done, '' || g.n_filling || '' filling, '' || g.n_empty || '' empty'' MEMBERS, round(g.next_me'
+||'mber_gb, 2) NEXT_GIB, round(g.next_member_hi_gb, 2) NEXT_HI_GIB, g.filling_member FILLING, g.period_end_day PERIOD_END, g.days_left DAYS_LEFT, round(g.expected_final_gb, 2) EXPECTED_GIB, round(g.expec'
+||'ted_final_hi_gb, 2) EXPECTED_HI_GIB, round(g.filling_limit_gb, 2) CEILING_GIB, g.fits FITS, g.headline HEADLINE',
+'from c_fam g where ((:P0_DB is null or g.db_pdb = :P0_DB) and (:P0_TARGET is null or g.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))',
+'order by g.db_pdb, g.rank_family'))
+,p_ajax_enabled=>'Y'
+,p_lazy_loading=>false
+,p_query_row_template=>2542081983073888486
+,p_query_num_rows=>15
+,p_query_num_rows_type=>'ROWS_X_TO_Y'
+,p_query_no_data_found=>'No tablespace family in scope.'
+,p_pagination_display_position=>'BOTTOM_RIGHT'
+,p_csv_output=>'N'
+,p_prn_output=>'N'
+,p_sort_null=>'L'
+,p_plug_query_strip_html=>'N'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000207)
+,p_query_column_id=>1
+,p_column_alias=>'TARGET'
+,p_column_display_sequence=>10
+,p_column_heading=>'Target'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000208)
+,p_query_column_id=>2
+,p_column_alias=>'DB'
+,p_column_display_sequence=>20
+,p_column_heading=>'Database'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000209)
+,p_query_column_id=>3
+,p_column_alias=>'FAMILY'
+,p_column_display_sequence=>30
+,p_column_heading=>'Family'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000210)
+,p_query_column_id=>4
+,p_column_alias=>'SEV'
+,p_column_display_sequence=>40
+,p_column_heading=>'Severity'
+,p_column_html_expression=>'<span class="t-Badge t-Badge--sm #SEV_CSS#">#SEV#</span>'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000211)
+,p_query_column_id=>5
+,p_column_alias=>'SEV_CSS'
+,p_column_display_sequence=>50
+,p_heading_alignment=>'LEFT'
+,p_hidden_column=>'Y'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000212)
+,p_query_column_id=>6
+,p_column_alias=>'PERIOD'
+,p_column_display_sequence=>60
+,p_column_heading=>'Period'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000213)
+,p_query_column_id=>7
+,p_column_alias=>'MEMBERS'
+,p_column_display_sequence=>70
+,p_column_heading=>'Members'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000214)
+,p_query_column_id=>8
+,p_column_alias=>'NEXT_GIB'
+,p_column_display_sequence=>80
+,p_column_heading=>'Next member GiB'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000215)
+,p_query_column_id=>9
+,p_column_alias=>'NEXT_HI_GIB'
+,p_column_display_sequence=>90
+,p_column_heading=>'Cautious GiB'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000216)
+,p_query_column_id=>10
+,p_column_alias=>'FILLING'
+,p_column_display_sequence=>100
+,p_column_heading=>'Filling member'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000217)
+,p_query_column_id=>11
+,p_column_alias=>'PERIOD_END'
+,p_column_display_sequence=>110
+,p_column_heading=>'Period ends'
+,p_column_format=>'YYYY-MM-DD'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000218)
+,p_query_column_id=>12
+,p_column_alias=>'DAYS_LEFT'
+,p_column_display_sequence=>120
+,p_column_heading=>'Days left'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000219)
+,p_query_column_id=>13
+,p_column_alias=>'EXPECTED_GIB'
+,p_column_display_sequence=>130
+,p_column_heading=>'Expected final GiB'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000220)
+,p_query_column_id=>14
+,p_column_alias=>'EXPECTED_HI_GIB'
+,p_column_display_sequence=>140
+,p_column_heading=>'Cautious final GiB'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000221)
+,p_query_column_id=>15
+,p_column_alias=>'CEILING_GIB'
+,p_column_display_sequence=>150
+,p_column_heading=>'Ceiling GiB'
+,p_column_alignment=>'RIGHT'
+,p_heading_alignment=>'RIGHT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000222)
+,p_query_column_id=>16
+,p_column_alias=>'FITS'
+,p_column_display_sequence=>160
+,p_column_heading=>'Fits'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_report_columns(
+ p_id=>wwv_flow_imp.id(110000000000223)
+,p_query_column_id=>17
+,p_column_alias=>'HEADLINE'
+,p_column_display_sequence=>170
+,p_column_heading=>'In words'
+,p_heading_alignment=>'LEFT'
+,p_disable_sort_column=>'Y'
+,p_derived_column=>'N'
+,p_include_in_export=>'Y'
+);
+wwv_flow_imp_page.create_page_plug(
+ p_id=>wwv_flow_imp.id(110000000000224)
+,p_plug_name=>'Family members'
+,p_static_id=>'family-members'
+,p_region_template_options=>'#DEFAULT#'
+,p_plug_template=>2103954283454391425
+,p_plug_display_sequence=>90
+,p_plug_item_display_point=>'ABOVE'
+,p_plug_source_type=>'NATIVE_IR'
+,p_query_type=>'SQL'
+,p_plug_source=>wwv_flow_string.join(wwv_flow_t_varchar2(
+'with c_cont as (select c001 db_pdb, c002 db_name, c003 con_name, c004 target_name, n001 dbid, n002 con_dbid from apex_collections where collection_name = ''AWRCAP_CONTAINER''),',
+'c_famm as (select c001 db_pdb, c002 family_name, c003 tablespace_name, c004 state, c005 quality, c006 restart_reason, d001 fill_from, d002 fill_to, n001 member_seq, n002 used_gb, n003 limit_gb, n004 p'
+||'ct_used, n005 final_gb, to_number(c007, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') fill_days from apex_collections where collection_name = ''AWRCAP_FAMILY_MEMBERS'')',
+'select (select max(t.target_name) from c_cont t where t.db_pdb = m.db_pdb) TARGET, m.db_pdb DB, m.family_name FAMILY, m.member_seq SEQ, m.tablespace_name TABLESPACE, m.state STATE, round(m.used_gb, 2)'
+||' USED_GIB, round(m.limit_gb, 2) CEILING_GIB, round(m.pct_used, 1) USED_PCT, round(m.final_gb, 2) FINAL_GIB, m.fill_from FILL_FROM, m.fill_to FILL_TO, m.fill_days FILL_DAYS, m.quality QUALITY, m.restar'
+||'t_reason RESTART',
+'from c_famm m where ((:P0_DB is null or m.db_pdb = :P0_DB) and (:P0_TARGET is null or m.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))'))
+,p_include_rowid_column=>false
+);
+wwv_flow_imp_page.create_worksheet(
+ p_id=>wwv_flow_imp.id(110000000000225)
+,p_max_row_count=>'100000'
+,p_no_data_found_message=>'No tablespace family in scope.'
+,p_allow_save_rpt_public=>'Y'
+,p_show_nulls_as=>'-'
+,p_pagination_type=>'ROWS_X_TO_Y'
+,p_pagination_display_pos=>'BOTTOM_RIGHT'
+,p_report_list_mode=>'TABS'
+,p_lazy_loading=>false
+,p_show_detail_link=>'N'
+,p_show_notify=>'N'
+,p_download_formats=>'CSV:HTML:XLSX'
+,p_enable_mail_download=>'N'
+,p_internal_uid=>110000000000225
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000226)
+,p_db_column_name=>'TARGET'
+,p_display_order=>10
+,p_column_identifier=>'A'
+,p_column_label=>'Target'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000227)
+,p_db_column_name=>'DB'
+,p_display_order=>20
+,p_column_identifier=>'B'
+,p_column_label=>'Database'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000228)
+,p_db_column_name=>'FAMILY'
+,p_display_order=>30
+,p_column_identifier=>'C'
+,p_column_label=>'Family'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000229)
+,p_db_column_name=>'SEQ'
+,p_display_order=>40
+,p_column_identifier=>'D'
+,p_column_label=>'Seq'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000230)
+,p_db_column_name=>'TABLESPACE'
+,p_display_order=>50
+,p_column_identifier=>'E'
+,p_column_label=>'Tablespace'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000231)
+,p_db_column_name=>'STATE'
+,p_display_order=>60
+,p_column_identifier=>'F'
+,p_column_label=>'State'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000232)
+,p_db_column_name=>'USED_GIB'
+,p_display_order=>70
+,p_column_identifier=>'G'
+,p_column_label=>'Used GiB'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000233)
+,p_db_column_name=>'CEILING_GIB'
+,p_display_order=>80
+,p_column_identifier=>'H'
+,p_column_label=>'Ceiling GiB'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000234)
+,p_db_column_name=>'USED_PCT'
+,p_display_order=>90
+,p_column_identifier=>'I'
+,p_column_label=>'Used %'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000235)
+,p_db_column_name=>'FINAL_GIB'
+,p_display_order=>100
+,p_column_identifier=>'J'
+,p_column_label=>'Final size GiB'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000236)
+,p_db_column_name=>'FILL_FROM'
+,p_display_order=>110
+,p_column_identifier=>'K'
+,p_column_label=>'Filled from'
+,p_column_type=>'DATE'
+,p_format_mask=>'YYYY-MM-DD'
+,p_heading_alignment=>'LEFT'
+,p_tz_dependent=>'N'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000237)
+,p_db_column_name=>'FILL_TO'
+,p_display_order=>120
+,p_column_identifier=>'L'
+,p_column_label=>'Filled to'
+,p_column_type=>'DATE'
+,p_format_mask=>'YYYY-MM-DD'
+,p_heading_alignment=>'LEFT'
+,p_tz_dependent=>'N'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000238)
+,p_db_column_name=>'FILL_DAYS'
+,p_display_order=>130
+,p_column_identifier=>'M'
+,p_column_label=>'Fill days'
+,p_column_type=>'NUMBER'
+,p_heading_alignment=>'RIGHT'
+,p_column_alignment=>'RIGHT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000239)
+,p_db_column_name=>'QUALITY'
+,p_display_order=>140
+,p_column_identifier=>'N'
+,p_column_label=>'Quality'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000240)
+,p_db_column_name=>'RESTART'
+,p_display_order=>150
+,p_column_identifier=>'O'
+,p_column_label=>'Restart'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
+wwv_flow_imp_page.create_worksheet_rpt(
+ p_id=>wwv_flow_imp.id(110000000000241)
+,p_application_user=>'APXWS_DEFAULT'
+,p_report_seq=>10
+,p_report_alias=>'family-members'
+,p_status=>'PUBLIC'
+,p_is_default=>'Y'
+,p_display_rows=>15
+,p_report_columns=>'TARGET:DB:FAMILY:SEQ:TABLESPACE:STATE:USED_GIB:CEILING_GIB:USED_PCT:FINAL_GIB:FILL_FROM:FILL_TO:FILL_DAYS:QUALITY:RESTART'
+,p_sort_column_1=>'DB'
+,p_sort_direction_1=>'ASC'
+,p_sort_column_2=>'FAMILY'
+,p_sort_direction_2=>'ASC'
+,p_sort_column_3=>'SEQ'
+,p_sort_direction_3=>'ASC'
+);
+wwv_flow_imp_page.create_report_region(
+ p_id=>wwv_flow_imp.id(110000000000242)
+,p_name=>'Tablespace and disk alerts'
+,p_static_id=>'tablespace-and-disk-alerts'
+,p_template=>4075786578761660127
+,p_display_sequence=>100
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
 ,p_component_template_options=>'#DEFAULT#:t-Report--stretch:t-Report--altRowsDefault:t-Report--rowHighlight'
 ,p_source_type=>'NATIVE_SQL_REPORT'
@@ -2888,7 +3856,9 @@ wwv_flow_imp_page.create_report_region(
 'select a.severity SEV, case a.severity when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, a.sev_rank SEV_RANK,'
 ||' a.kind KIND, (select max(t.target_name) from c_cont t where t.db_pdb = a.db_pdb) TARGET, a.db_pdb DB, a.series_key SERIES, a.day_dt DAY, round(a.value, 2) VALUE, round(a.threshold, 2) THRESHOLD, case'
 ||' lower(a.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else a.unit end UNIT, a.message MESSAGE',
-'from c_alert a where a.kind like ''TBSPC%'' and ((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))',
+'from c_alert a where (a.kind like ''TBSPC%'' and ((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) or a.kin'
+||'d = ''DISK_FULL'' and ((:P0_DB is null or a.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or a.db_pdb i'
+||'n (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))))',
 'order by a.sev_rank, a.day_dt desc'))
 ,p_ajax_enabled=>'Y'
 ,p_lazy_loading=>false
@@ -2903,7 +3873,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000170)
+ p_id=>wwv_flow_imp.id(110000000000243)
 ,p_query_column_id=>1
 ,p_column_alias=>'SEV'
 ,p_column_display_sequence=>10
@@ -2915,7 +3885,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000171)
+ p_id=>wwv_flow_imp.id(110000000000244)
 ,p_query_column_id=>2
 ,p_column_alias=>'SEV_CSS'
 ,p_column_display_sequence=>20
@@ -2926,7 +3896,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000172)
+ p_id=>wwv_flow_imp.id(110000000000245)
 ,p_query_column_id=>3
 ,p_column_alias=>'SEV_RANK'
 ,p_column_display_sequence=>30
@@ -2937,7 +3907,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000173)
+ p_id=>wwv_flow_imp.id(110000000000246)
 ,p_query_column_id=>4
 ,p_column_alias=>'KIND'
 ,p_column_display_sequence=>40
@@ -2948,7 +3918,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000174)
+ p_id=>wwv_flow_imp.id(110000000000247)
 ,p_query_column_id=>5
 ,p_column_alias=>'TARGET'
 ,p_column_display_sequence=>50
@@ -2959,7 +3929,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000175)
+ p_id=>wwv_flow_imp.id(110000000000248)
 ,p_query_column_id=>6
 ,p_column_alias=>'DB'
 ,p_column_display_sequence=>60
@@ -2970,7 +3940,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000176)
+ p_id=>wwv_flow_imp.id(110000000000249)
 ,p_query_column_id=>7
 ,p_column_alias=>'SERIES'
 ,p_column_display_sequence=>70
@@ -2981,7 +3951,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000177)
+ p_id=>wwv_flow_imp.id(110000000000250)
 ,p_query_column_id=>8
 ,p_column_alias=>'DAY'
 ,p_column_display_sequence=>80
@@ -2993,7 +3963,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000178)
+ p_id=>wwv_flow_imp.id(110000000000251)
 ,p_query_column_id=>9
 ,p_column_alias=>'VALUE'
 ,p_column_display_sequence=>90
@@ -3005,7 +3975,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000179)
+ p_id=>wwv_flow_imp.id(110000000000252)
 ,p_query_column_id=>10
 ,p_column_alias=>'THRESHOLD'
 ,p_column_display_sequence=>100
@@ -3017,7 +3987,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000180)
+ p_id=>wwv_flow_imp.id(110000000000253)
 ,p_query_column_id=>11
 ,p_column_alias=>'UNIT'
 ,p_column_display_sequence=>110
@@ -3028,7 +3998,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000181)
+ p_id=>wwv_flow_imp.id(110000000000254)
 ,p_query_column_id=>12
 ,p_column_alias=>'MESSAGE'
 ,p_column_display_sequence=>120
@@ -3039,7 +4009,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_branch(
- p_id=>wwv_flow_imp.id(110000000000182)
+ p_id=>wwv_flow_imp.id(110000000000255)
 ,p_branch_action=>'f?p=&APP_ID.:2:&SESSION.::&DEBUG.:::'
 ,p_branch_point=>'AFTER_PROCESSING'
 ,p_branch_type=>'REDIRECT_URL'
@@ -3061,7 +4031,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'C'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000183)
+ p_id=>wwv_flow_imp.id(110000000000256)
 ,p_plug_name=>'Host CPU busy %'
 ,p_static_id=>'host-cpu-busy'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -3071,8 +4041,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000184)
-,p_region_id=>wwv_flow_imp.id(110000000000183)
+ p_id=>wwv_flow_imp.id(110000000000257)
+,p_region_id=>wwv_flow_imp.id(110000000000256)
 ,p_chart_type=>'line'
 ,p_height=>'400'
 ,p_animation_on_display=>'none'
@@ -3098,8 +4068,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No host CPU in scope. Host CPU (OSSTAT) is recorded under the CDB root container; select the CDB, one of its PDBs, or all databases.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000185)
-,p_chart_id=>wwv_flow_imp.id(110000000000184)
+ p_id=>wwv_flow_imp.id(110000000000258)
+,p_chart_id=>wwv_flow_imp.id(110000000000257)
 ,p_static_id=>'busy'
 ,p_seq=>10
 ,p_name=>'Busy %'
@@ -3129,8 +4099,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000186)
-,p_chart_id=>wwv_flow_imp.id(110000000000184)
+ p_id=>wwv_flow_imp.id(110000000000259)
+,p_chart_id=>wwv_flow_imp.id(110000000000257)
 ,p_static_id=>'busy-hour-p95'
 ,p_seq=>20
 ,p_name=>'Busy-hour p95'
@@ -3159,8 +4129,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000187)
-,p_chart_id=>wwv_flow_imp.id(110000000000184)
+ p_id=>wwv_flow_imp.id(110000000000260)
+,p_chart_id=>wwv_flow_imp.id(110000000000257)
 ,p_static_id=>'forecast'
 ,p_seq=>30
 ,p_name=>'Forecast'
@@ -3187,8 +4157,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000188)
-,p_chart_id=>wwv_flow_imp.id(110000000000184)
+ p_id=>wwv_flow_imp.id(110000000000261)
+,p_chart_id=>wwv_flow_imp.id(110000000000257)
 ,p_static_id=>'forecast-low'
 ,p_seq=>40
 ,p_name=>'Forecast low'
@@ -3216,8 +4186,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000189)
-,p_chart_id=>wwv_flow_imp.id(110000000000184)
+ p_id=>wwv_flow_imp.id(110000000000262)
+,p_chart_id=>wwv_flow_imp.id(110000000000257)
 ,p_static_id=>'forecast-high'
 ,p_seq=>50
 ,p_name=>'Forecast high'
@@ -3245,8 +4215,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000190)
-,p_chart_id=>wwv_flow_imp.id(110000000000184)
+ p_id=>wwv_flow_imp.id(110000000000263)
+,p_chart_id=>wwv_flow_imp.id(110000000000257)
 ,p_static_id=>'saturation'
 ,p_seq=>60
 ,p_name=>'Saturation'
@@ -3272,8 +4242,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000191)
-,p_chart_id=>wwv_flow_imp.id(110000000000184)
+ p_id=>wwv_flow_imp.id(110000000000264)
+,p_chart_id=>wwv_flow_imp.id(110000000000257)
 ,p_static_id=>'anomaly'
 ,p_seq=>70
 ,p_name=>'Anomaly'
@@ -3302,8 +4272,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000192)
-,p_chart_id=>wwv_flow_imp.id(110000000000184)
+ p_id=>wwv_flow_imp.id(110000000000265)
+,p_chart_id=>wwv_flow_imp.id(110000000000257)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -3318,8 +4288,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000193)
-,p_chart_id=>wwv_flow_imp.id(110000000000184)
+ p_id=>wwv_flow_imp.id(110000000000266)
+,p_chart_id=>wwv_flow_imp.id(110000000000257)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -3335,7 +4305,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000194)
+ p_id=>wwv_flow_imp.id(110000000000267)
 ,p_plug_name=>'DB CPU % of host per container'
 ,p_static_id=>'db-cpu-of-host-per-container'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -3345,8 +4315,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000195)
-,p_region_id=>wwv_flow_imp.id(110000000000194)
+ p_id=>wwv_flow_imp.id(110000000000268)
+,p_region_id=>wwv_flow_imp.id(110000000000267)
 ,p_chart_type=>'line'
 ,p_height=>'360'
 ,p_animation_on_display=>'none'
@@ -3372,8 +4342,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000196)
-,p_chart_id=>wwv_flow_imp.id(110000000000195)
+ p_id=>wwv_flow_imp.id(110000000000269)
+,p_chart_id=>wwv_flow_imp.id(110000000000268)
 ,p_static_id=>'db-cpu'
 ,p_seq=>10
 ,p_name=>'DB CPU %'
@@ -3403,8 +4373,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000197)
-,p_chart_id=>wwv_flow_imp.id(110000000000195)
+ p_id=>wwv_flow_imp.id(110000000000270)
+,p_chart_id=>wwv_flow_imp.id(110000000000268)
 ,p_static_id=>'level-shift'
 ,p_seq=>20
 ,p_name=>'Level shift'
@@ -3434,8 +4404,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000198)
-,p_chart_id=>wwv_flow_imp.id(110000000000195)
+ p_id=>wwv_flow_imp.id(110000000000271)
+,p_chart_id=>wwv_flow_imp.id(110000000000268)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -3450,8 +4420,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000199)
-,p_chart_id=>wwv_flow_imp.id(110000000000195)
+ p_id=>wwv_flow_imp.id(110000000000272)
+,p_chart_id=>wwv_flow_imp.id(110000000000268)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -3466,7 +4436,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000200)
+ p_id=>wwv_flow_imp.id(110000000000273)
 ,p_plug_name=>'CPU trend'
 ,p_static_id=>'cpu-trend'
 ,p_region_template_options=>'#DEFAULT#'
@@ -3481,17 +4451,20 @@ wwv_flow_imp_page.create_page_plug(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT''),',
+'c_track as (select c001 db, c002 kind, c003 series, c004 reliability, c005 summary, n001 n_forecasts, n002 abs_err_pct, n003 bias_pct, n004 band_factor, n005 reliability_rank, to_number(c006, ''9999999'
+||'9999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') band_hit_pct from apex_collections where collection_name = ''AWRCAP_TRACK'')',
 'select (select max(t.target_name) from c_cont t where t.db_pdb = f.db) TARGET, f.db DB, f.series METRIC, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' wh'
 ||'en ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, round(f.value, 1) CURRENT_VALUE, case lower(f.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else f.unit en'
-||'d UNIT, round(f.slope_per_day, 3) SLOPE, f.days_to_full DTS, f.days_to_full_lo DTS_LO, f.days_to_full_hi DTS_HI, round(f.r2, 3) R2, f.quality QUALITY',
+||'d UNIT, round(f.slope_per_day, 3) SLOPE, f.days_to_full DTS, f.days_to_full_lo DTS_LO, f.days_to_full_hi DTS_HI, round(f.r2, 3) R2, f.quality QUALITY, (select max(t.reliability) from c_track t where t'
+||'.db = f.db and t.kind = f.kind and t.series = f.series) TRACK',
 'from c_fit f where f.kind = ''CPU'' and (f.series in (''BUSY_PCT'', ''BUSY_P95'', ''BUSY_PEAK'') and ((:P0_DB is null or f.db in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c'
 ||'.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) or f.series not in (''BUSY_PCT'', ''BUSY_P95'', ''BUSY_PEAK'') and ((:P0'
 ||'_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))))'))
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000201)
+ p_id=>wwv_flow_imp.id(110000000000274)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No rows in the current scope.'
 ,p_allow_save_rpt_public=>'Y'
@@ -3504,10 +4477,10 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000201
+,p_internal_uid=>110000000000274
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000202)
+ p_id=>wwv_flow_imp.id(110000000000275)
 ,p_db_column_name=>'TARGET'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
@@ -3518,7 +4491,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000203)
+ p_id=>wwv_flow_imp.id(110000000000276)
 ,p_db_column_name=>'DB'
 ,p_display_order=>20
 ,p_column_identifier=>'B'
@@ -3529,7 +4502,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000204)
+ p_id=>wwv_flow_imp.id(110000000000277)
 ,p_db_column_name=>'METRIC'
 ,p_display_order=>30
 ,p_column_identifier=>'C'
@@ -3540,7 +4513,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000205)
+ p_id=>wwv_flow_imp.id(110000000000278)
 ,p_db_column_name=>'SEV'
 ,p_display_order=>40
 ,p_column_identifier=>'D'
@@ -3552,7 +4525,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000206)
+ p_id=>wwv_flow_imp.id(110000000000279)
 ,p_db_column_name=>'SEV_CSS'
 ,p_display_order=>50
 ,p_column_identifier=>'E'
@@ -3564,7 +4537,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000207)
+ p_id=>wwv_flow_imp.id(110000000000280)
 ,p_db_column_name=>'CURRENT_VALUE'
 ,p_display_order=>60
 ,p_column_identifier=>'F'
@@ -3576,7 +4549,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000208)
+ p_id=>wwv_flow_imp.id(110000000000281)
 ,p_db_column_name=>'UNIT'
 ,p_display_order=>70
 ,p_column_identifier=>'G'
@@ -3587,7 +4560,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000209)
+ p_id=>wwv_flow_imp.id(110000000000282)
 ,p_db_column_name=>'SLOPE'
 ,p_display_order=>80
 ,p_column_identifier=>'H'
@@ -3599,7 +4572,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000210)
+ p_id=>wwv_flow_imp.id(110000000000283)
 ,p_db_column_name=>'DTS'
 ,p_display_order=>90
 ,p_column_identifier=>'I'
@@ -3611,7 +4584,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000211)
+ p_id=>wwv_flow_imp.id(110000000000284)
 ,p_db_column_name=>'DTS_LO'
 ,p_display_order=>100
 ,p_column_identifier=>'J'
@@ -3623,7 +4596,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000212)
+ p_id=>wwv_flow_imp.id(110000000000285)
 ,p_db_column_name=>'DTS_HI'
 ,p_display_order=>110
 ,p_column_identifier=>'K'
@@ -3635,7 +4608,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000213)
+ p_id=>wwv_flow_imp.id(110000000000286)
 ,p_db_column_name=>'R2'
 ,p_display_order=>120
 ,p_column_identifier=>'L'
@@ -3647,7 +4620,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000214)
+ p_id=>wwv_flow_imp.id(110000000000287)
 ,p_db_column_name=>'QUALITY'
 ,p_display_order=>130
 ,p_column_identifier=>'M'
@@ -3657,20 +4630,31 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_use_as_row_header=>'N'
 ,p_available_clientside=>'N'
 );
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000288)
+,p_db_column_name=>'TRACK'
+,p_display_order=>140
+,p_column_identifier=>'N'
+,p_column_label=>'Track record'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000215)
+ p_id=>wwv_flow_imp.id(110000000000289)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'cpu-trend'
 ,p_status=>'PUBLIC'
 ,p_is_default=>'Y'
 ,p_display_rows=>15
-,p_report_columns=>'TARGET:DB:METRIC:SEV:CURRENT_VALUE:UNIT:SLOPE:DTS:DTS_LO:DTS_HI:R2:QUALITY'
+,p_report_columns=>'TARGET:DB:METRIC:SEV:CURRENT_VALUE:UNIT:SLOPE:DTS:DTS_LO:DTS_HI:R2:QUALITY:TRACK'
 ,p_sort_column_1=>'DTS'
 ,p_sort_direction_1=>'ASC'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000216)
+ p_id=>wwv_flow_imp.id(110000000000290)
 ,p_plug_name=>'Sessions'
 ,p_static_id=>'sessions'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -3681,8 +4665,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000217)
-,p_region_id=>wwv_flow_imp.id(110000000000216)
+ p_id=>wwv_flow_imp.id(110000000000291)
+,p_region_id=>wwv_flow_imp.id(110000000000290)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -3708,8 +4692,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000218)
-,p_chart_id=>wwv_flow_imp.id(110000000000217)
+ p_id=>wwv_flow_imp.id(110000000000292)
+,p_chart_id=>wwv_flow_imp.id(110000000000291)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
@@ -3739,8 +4723,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000219)
-,p_chart_id=>wwv_flow_imp.id(110000000000217)
+ p_id=>wwv_flow_imp.id(110000000000293)
+,p_chart_id=>wwv_flow_imp.id(110000000000291)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
@@ -3767,8 +4751,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000220)
-,p_chart_id=>wwv_flow_imp.id(110000000000217)
+ p_id=>wwv_flow_imp.id(110000000000294)
+,p_chart_id=>wwv_flow_imp.id(110000000000291)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
@@ -3796,8 +4780,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000221)
-,p_chart_id=>wwv_flow_imp.id(110000000000217)
+ p_id=>wwv_flow_imp.id(110000000000295)
+,p_chart_id=>wwv_flow_imp.id(110000000000291)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
@@ -3825,8 +4809,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000222)
-,p_chart_id=>wwv_flow_imp.id(110000000000217)
+ p_id=>wwv_flow_imp.id(110000000000296)
+,p_chart_id=>wwv_flow_imp.id(110000000000291)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
@@ -3837,7 +4821,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''SESSIONS'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET'
 ||' is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all sel'
 ||'ect to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
@@ -3857,8 +4841,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000223)
-,p_chart_id=>wwv_flow_imp.id(110000000000217)
+ p_id=>wwv_flow_imp.id(110000000000297)
+,p_chart_id=>wwv_flow_imp.id(110000000000291)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -3873,8 +4857,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000224)
-,p_chart_id=>wwv_flow_imp.id(110000000000217)
+ p_id=>wwv_flow_imp.id(110000000000298)
+,p_chart_id=>wwv_flow_imp.id(110000000000291)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -3889,7 +4873,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000225)
+ p_id=>wwv_flow_imp.id(110000000000299)
 ,p_plug_name=>'Processes'
 ,p_static_id=>'processes'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -3901,8 +4885,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000226)
-,p_region_id=>wwv_flow_imp.id(110000000000225)
+ p_id=>wwv_flow_imp.id(110000000000300)
+,p_region_id=>wwv_flow_imp.id(110000000000299)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -3928,8 +4912,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000227)
-,p_chart_id=>wwv_flow_imp.id(110000000000226)
+ p_id=>wwv_flow_imp.id(110000000000301)
+,p_chart_id=>wwv_flow_imp.id(110000000000300)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
@@ -3959,8 +4943,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000228)
-,p_chart_id=>wwv_flow_imp.id(110000000000226)
+ p_id=>wwv_flow_imp.id(110000000000302)
+,p_chart_id=>wwv_flow_imp.id(110000000000300)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
@@ -3987,8 +4971,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000229)
-,p_chart_id=>wwv_flow_imp.id(110000000000226)
+ p_id=>wwv_flow_imp.id(110000000000303)
+,p_chart_id=>wwv_flow_imp.id(110000000000300)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
@@ -4016,8 +5000,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000230)
-,p_chart_id=>wwv_flow_imp.id(110000000000226)
+ p_id=>wwv_flow_imp.id(110000000000304)
+,p_chart_id=>wwv_flow_imp.id(110000000000300)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
@@ -4045,8 +5029,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000231)
-,p_chart_id=>wwv_flow_imp.id(110000000000226)
+ p_id=>wwv_flow_imp.id(110000000000305)
+,p_chart_id=>wwv_flow_imp.id(110000000000300)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
@@ -4057,7 +5041,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''PROCESSES'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGE'
 ||'T is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all se'
 ||'lect to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
@@ -4077,8 +5061,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000232)
-,p_chart_id=>wwv_flow_imp.id(110000000000226)
+ p_id=>wwv_flow_imp.id(110000000000306)
+,p_chart_id=>wwv_flow_imp.id(110000000000300)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -4093,8 +5077,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000233)
-,p_chart_id=>wwv_flow_imp.id(110000000000226)
+ p_id=>wwv_flow_imp.id(110000000000307)
+,p_chart_id=>wwv_flow_imp.id(110000000000300)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -4109,7 +5093,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000234)
+ p_id=>wwv_flow_imp.id(110000000000308)
 ,p_plug_name=>'Database size (GiB)'
 ,p_static_id=>'database-size-gib'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -4120,8 +5104,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000235)
-,p_region_id=>wwv_flow_imp.id(110000000000234)
+ p_id=>wwv_flow_imp.id(110000000000309)
+,p_region_id=>wwv_flow_imp.id(110000000000308)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -4147,8 +5131,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000236)
-,p_chart_id=>wwv_flow_imp.id(110000000000235)
+ p_id=>wwv_flow_imp.id(110000000000310)
+,p_chart_id=>wwv_flow_imp.id(110000000000309)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
@@ -4178,8 +5162,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000237)
-,p_chart_id=>wwv_flow_imp.id(110000000000235)
+ p_id=>wwv_flow_imp.id(110000000000311)
+,p_chart_id=>wwv_flow_imp.id(110000000000309)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
@@ -4206,8 +5190,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000238)
-,p_chart_id=>wwv_flow_imp.id(110000000000235)
+ p_id=>wwv_flow_imp.id(110000000000312)
+,p_chart_id=>wwv_flow_imp.id(110000000000309)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
@@ -4235,8 +5219,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000239)
-,p_chart_id=>wwv_flow_imp.id(110000000000235)
+ p_id=>wwv_flow_imp.id(110000000000313)
+,p_chart_id=>wwv_flow_imp.id(110000000000309)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
@@ -4264,8 +5248,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000240)
-,p_chart_id=>wwv_flow_imp.id(110000000000235)
+ p_id=>wwv_flow_imp.id(110000000000314)
+,p_chart_id=>wwv_flow_imp.id(110000000000309)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
@@ -4276,7 +5260,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''DB_SIZE_GB'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARG'
 ||'ET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all s'
 ||'elect to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
@@ -4296,8 +5280,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000241)
-,p_chart_id=>wwv_flow_imp.id(110000000000235)
+ p_id=>wwv_flow_imp.id(110000000000315)
+,p_chart_id=>wwv_flow_imp.id(110000000000309)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -4312,8 +5296,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000242)
-,p_chart_id=>wwv_flow_imp.id(110000000000235)
+ p_id=>wwv_flow_imp.id(110000000000316)
+,p_chart_id=>wwv_flow_imp.id(110000000000309)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -4328,7 +5312,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000243)
+ p_id=>wwv_flow_imp.id(110000000000317)
 ,p_plug_name=>'Redo (GiB/day)'
 ,p_static_id=>'redo-gib-day'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -4340,8 +5324,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000244)
-,p_region_id=>wwv_flow_imp.id(110000000000243)
+ p_id=>wwv_flow_imp.id(110000000000318)
+,p_region_id=>wwv_flow_imp.id(110000000000317)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -4367,8 +5351,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000245)
-,p_chart_id=>wwv_flow_imp.id(110000000000244)
+ p_id=>wwv_flow_imp.id(110000000000319)
+,p_chart_id=>wwv_flow_imp.id(110000000000318)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
@@ -4398,8 +5382,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000246)
-,p_chart_id=>wwv_flow_imp.id(110000000000244)
+ p_id=>wwv_flow_imp.id(110000000000320)
+,p_chart_id=>wwv_flow_imp.id(110000000000318)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
@@ -4426,8 +5410,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000247)
-,p_chart_id=>wwv_flow_imp.id(110000000000244)
+ p_id=>wwv_flow_imp.id(110000000000321)
+,p_chart_id=>wwv_flow_imp.id(110000000000318)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
@@ -4455,8 +5439,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000248)
-,p_chart_id=>wwv_flow_imp.id(110000000000244)
+ p_id=>wwv_flow_imp.id(110000000000322)
+,p_chart_id=>wwv_flow_imp.id(110000000000318)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
@@ -4484,8 +5468,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000249)
-,p_chart_id=>wwv_flow_imp.id(110000000000244)
+ p_id=>wwv_flow_imp.id(110000000000323)
+,p_chart_id=>wwv_flow_imp.id(110000000000318)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
@@ -4496,7 +5480,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''REDO_GB_DAY'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TAR'
 ||'GET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all '
 ||'select to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
@@ -4516,8 +5500,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000250)
-,p_chart_id=>wwv_flow_imp.id(110000000000244)
+ p_id=>wwv_flow_imp.id(110000000000324)
+,p_chart_id=>wwv_flow_imp.id(110000000000318)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -4532,8 +5516,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000251)
-,p_chart_id=>wwv_flow_imp.id(110000000000244)
+ p_id=>wwv_flow_imp.id(110000000000325)
+,p_chart_id=>wwv_flow_imp.id(110000000000318)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -4548,7 +5532,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000252)
+ p_id=>wwv_flow_imp.id(110000000000326)
 ,p_plug_name=>'I/O requests per second (daily p95)'
 ,p_static_id=>'i-o-requests-per-second-daily-p95'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -4559,8 +5543,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000253)
-,p_region_id=>wwv_flow_imp.id(110000000000252)
+ p_id=>wwv_flow_imp.id(110000000000327)
+,p_region_id=>wwv_flow_imp.id(110000000000326)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -4586,8 +5570,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000254)
-,p_chart_id=>wwv_flow_imp.id(110000000000253)
+ p_id=>wwv_flow_imp.id(110000000000328)
+,p_chart_id=>wwv_flow_imp.id(110000000000327)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
@@ -4617,8 +5601,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000255)
-,p_chart_id=>wwv_flow_imp.id(110000000000253)
+ p_id=>wwv_flow_imp.id(110000000000329)
+,p_chart_id=>wwv_flow_imp.id(110000000000327)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
@@ -4645,8 +5629,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000256)
-,p_chart_id=>wwv_flow_imp.id(110000000000253)
+ p_id=>wwv_flow_imp.id(110000000000330)
+,p_chart_id=>wwv_flow_imp.id(110000000000327)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
@@ -4674,8 +5658,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000257)
-,p_chart_id=>wwv_flow_imp.id(110000000000253)
+ p_id=>wwv_flow_imp.id(110000000000331)
+,p_chart_id=>wwv_flow_imp.id(110000000000327)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
@@ -4703,8 +5687,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000258)
-,p_chart_id=>wwv_flow_imp.id(110000000000253)
+ p_id=>wwv_flow_imp.id(110000000000332)
+,p_chart_id=>wwv_flow_imp.id(110000000000327)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
@@ -4715,7 +5699,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''IOPS'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is '
 ||'null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all select '
 ||'to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
@@ -4735,8 +5719,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000259)
-,p_chart_id=>wwv_flow_imp.id(110000000000253)
+ p_id=>wwv_flow_imp.id(110000000000333)
+,p_chart_id=>wwv_flow_imp.id(110000000000327)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -4751,8 +5735,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000260)
-,p_chart_id=>wwv_flow_imp.id(110000000000253)
+ p_id=>wwv_flow_imp.id(110000000000334)
+,p_chart_id=>wwv_flow_imp.id(110000000000327)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -4767,7 +5751,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000261)
+ p_id=>wwv_flow_imp.id(110000000000335)
 ,p_plug_name=>'I/O throughput MB/s (daily p95)'
 ,p_static_id=>'i-o-throughput-mb-s-daily-p95'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -4779,8 +5763,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000262)
-,p_region_id=>wwv_flow_imp.id(110000000000261)
+ p_id=>wwv_flow_imp.id(110000000000336)
+,p_region_id=>wwv_flow_imp.id(110000000000335)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -4806,8 +5790,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000263)
-,p_chart_id=>wwv_flow_imp.id(110000000000262)
+ p_id=>wwv_flow_imp.id(110000000000337)
+,p_chart_id=>wwv_flow_imp.id(110000000000336)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
@@ -4837,8 +5821,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000264)
-,p_chart_id=>wwv_flow_imp.id(110000000000262)
+ p_id=>wwv_flow_imp.id(110000000000338)
+,p_chart_id=>wwv_flow_imp.id(110000000000336)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
@@ -4865,8 +5849,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000265)
-,p_chart_id=>wwv_flow_imp.id(110000000000262)
+ p_id=>wwv_flow_imp.id(110000000000339)
+,p_chart_id=>wwv_flow_imp.id(110000000000336)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
@@ -4894,8 +5878,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000266)
-,p_chart_id=>wwv_flow_imp.id(110000000000262)
+ p_id=>wwv_flow_imp.id(110000000000340)
+,p_chart_id=>wwv_flow_imp.id(110000000000336)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
@@ -4923,8 +5907,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000267)
-,p_chart_id=>wwv_flow_imp.id(110000000000262)
+ p_id=>wwv_flow_imp.id(110000000000341)
+,p_chart_id=>wwv_flow_imp.id(110000000000336)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
@@ -4935,7 +5919,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''IO_MBPS'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET '
 ||'is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cross join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all sele'
 ||'ct to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.ts is not null and l.value is not null order by e.ts'))
@@ -4955,8 +5939,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000268)
-,p_chart_id=>wwv_flow_imp.id(110000000000262)
+ p_id=>wwv_flow_imp.id(110000000000342)
+,p_chart_id=>wwv_flow_imp.id(110000000000336)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -4971,8 +5955,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000269)
-,p_chart_id=>wwv_flow_imp.id(110000000000262)
+ p_id=>wwv_flow_imp.id(110000000000343)
+,p_chart_id=>wwv_flow_imp.id(110000000000336)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -4987,7 +5971,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000270)
+ p_id=>wwv_flow_imp.id(110000000000344)
 ,p_plug_name=>'Workload fits'
 ,p_static_id=>'workload-fits'
 ,p_region_template_options=>'#DEFAULT#'
@@ -5002,15 +5986,18 @@ wwv_flow_imp_page.create_page_plug(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT''),',
+'c_track as (select c001 db, c002 kind, c003 series, c004 reliability, c005 summary, n001 n_forecasts, n002 abs_err_pct, n003 bias_pct, n004 band_factor, n005 reliability_rank, to_number(c006, ''9999999'
+||'9999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') band_hit_pct from apex_collections where collection_name = ''AWRCAP_TRACK'')',
 'select (select max(t.target_name) from c_cont t where t.db_pdb = f.db) TARGET, f.db DB, f.series SERIES, f.sev SEV, case f.sev when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' wh'
 ||'en ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, round(f.value, 2) CURRENT_VALUE, case lower(f.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else f.unit en'
-||'d UNIT, round(f.limit_value, 2) LIMIT_VALUE, round(f.pct, 1) PCT, f.days_to_full DTL, round(f.slope_per_day, 3) SLOPE, round(f.r2, 3) R2, f.quality QUALITY',
+||'d UNIT, round(f.limit_value, 2) LIMIT_VALUE, round(f.pct, 1) PCT, f.days_to_full DTL, round(f.slope_per_day, 3) SLOPE, round(f.r2, 3) R2, f.quality QUALITY, (select max(t.reliability) from c_track t w'
+||'here t.db = f.db and t.kind = f.kind and t.series = f.series) TRACK',
 'from c_fit f where f.kind = ''SERIES'' and ((:P0_DB is null or f.db = :P0_DB) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))'))
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000271)
+ p_id=>wwv_flow_imp.id(110000000000345)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No rows in the current scope.'
 ,p_allow_save_rpt_public=>'Y'
@@ -5023,10 +6010,10 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000271
+,p_internal_uid=>110000000000345
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000272)
+ p_id=>wwv_flow_imp.id(110000000000346)
 ,p_db_column_name=>'TARGET'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
@@ -5037,7 +6024,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000273)
+ p_id=>wwv_flow_imp.id(110000000000347)
 ,p_db_column_name=>'DB'
 ,p_display_order=>20
 ,p_column_identifier=>'B'
@@ -5048,7 +6035,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000274)
+ p_id=>wwv_flow_imp.id(110000000000348)
 ,p_db_column_name=>'SERIES'
 ,p_display_order=>30
 ,p_column_identifier=>'C'
@@ -5059,7 +6046,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000275)
+ p_id=>wwv_flow_imp.id(110000000000349)
 ,p_db_column_name=>'SEV'
 ,p_display_order=>40
 ,p_column_identifier=>'D'
@@ -5071,7 +6058,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000276)
+ p_id=>wwv_flow_imp.id(110000000000350)
 ,p_db_column_name=>'SEV_CSS'
 ,p_display_order=>50
 ,p_column_identifier=>'E'
@@ -5083,7 +6070,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000277)
+ p_id=>wwv_flow_imp.id(110000000000351)
 ,p_db_column_name=>'CURRENT_VALUE'
 ,p_display_order=>60
 ,p_column_identifier=>'F'
@@ -5095,7 +6082,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000278)
+ p_id=>wwv_flow_imp.id(110000000000352)
 ,p_db_column_name=>'UNIT'
 ,p_display_order=>70
 ,p_column_identifier=>'G'
@@ -5106,7 +6093,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000279)
+ p_id=>wwv_flow_imp.id(110000000000353)
 ,p_db_column_name=>'LIMIT_VALUE'
 ,p_display_order=>80
 ,p_column_identifier=>'H'
@@ -5118,7 +6105,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000280)
+ p_id=>wwv_flow_imp.id(110000000000354)
 ,p_db_column_name=>'PCT'
 ,p_display_order=>90
 ,p_column_identifier=>'I'
@@ -5130,7 +6117,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000281)
+ p_id=>wwv_flow_imp.id(110000000000355)
 ,p_db_column_name=>'DTL'
 ,p_display_order=>100
 ,p_column_identifier=>'J'
@@ -5142,7 +6129,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000282)
+ p_id=>wwv_flow_imp.id(110000000000356)
 ,p_db_column_name=>'SLOPE'
 ,p_display_order=>110
 ,p_column_identifier=>'K'
@@ -5154,7 +6141,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000283)
+ p_id=>wwv_flow_imp.id(110000000000357)
 ,p_db_column_name=>'R2'
 ,p_display_order=>120
 ,p_column_identifier=>'L'
@@ -5166,7 +6153,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000284)
+ p_id=>wwv_flow_imp.id(110000000000358)
 ,p_db_column_name=>'QUALITY'
 ,p_display_order=>130
 ,p_column_identifier=>'M'
@@ -5176,20 +6163,31 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_use_as_row_header=>'N'
 ,p_available_clientside=>'N'
 );
+wwv_flow_imp_page.create_worksheet_column(
+ p_id=>wwv_flow_imp.id(110000000000359)
+,p_db_column_name=>'TRACK'
+,p_display_order=>140
+,p_column_identifier=>'N'
+,p_column_label=>'Track record'
+,p_column_type=>'STRING'
+,p_heading_alignment=>'LEFT'
+,p_use_as_row_header=>'N'
+,p_available_clientside=>'N'
+);
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000285)
+ p_id=>wwv_flow_imp.id(110000000000360)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'workload-fits'
 ,p_status=>'PUBLIC'
 ,p_is_default=>'Y'
 ,p_display_rows=>15
-,p_report_columns=>'TARGET:DB:SERIES:SEV:CURRENT_VALUE:UNIT:LIMIT_VALUE:PCT:DTL:SLOPE:R2:QUALITY'
+,p_report_columns=>'TARGET:DB:SERIES:SEV:CURRENT_VALUE:UNIT:LIMIT_VALUE:PCT:DTL:SLOPE:R2:QUALITY:TRACK'
 ,p_sort_column_1=>'DTL'
 ,p_sort_direction_1=>'ASC'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000286)
+ p_id=>wwv_flow_imp.id(110000000000361)
 ,p_name=>'CPU and series alerts'
 ,p_static_id=>'cpu-and-series-alerts'
 ,p_template=>4075786578761660127
@@ -5205,9 +6203,9 @@ wwv_flow_imp_page.create_report_region(
 'select a.severity SEV, case a.severity when ''CRIT'' then ''t-Badge--danger'' when ''WARN'' then ''t-Badge--warning'' when ''INFO'' then ''t-Badge--info'' else ''t-Badge--success'' end SEV_CSS, a.sev_rank SEV_RANK,'
 ||' a.kind KIND, (select max(t.target_name) from c_cont t where t.db_pdb = a.db_pdb) TARGET, a.db_pdb DB, a.series_key SERIES, a.day_dt DAY, round(a.value, 2) VALUE, round(a.threshold, 2) THRESHOLD, case'
 ||' lower(a.unit) when ''io_per_sec'' then ''requests/s'' when ''mb_per_sec'' then ''MB/s'' else a.unit end UNIT, a.message MESSAGE',
-'from c_alert a where a.kind not like ''TBSPC%'' and (((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))) or ('
-||'(:P0_DB is null or a.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb fr'
-||'om c_cont t where t.target_name = :P0_TARGET))))',
+'from c_alert a where a.kind not like ''TBSPC%'' and a.kind <> ''DISK_FULL'' and (((:P0_DB is null or a.db_pdb = :P0_DB) and (:P0_TARGET is null or a.db_pdb in (select t.db_pdb from c_cont t where t.target'
+||'_name = :P0_TARGET))) or ((:P0_DB is null or a.db_pdb in (select r.db_pdb from c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or a.db_'
+||'pdb in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET))))',
 'order by a.sev_rank, a.day_dt desc'))
 ,p_ajax_enabled=>'Y'
 ,p_lazy_loading=>false
@@ -5222,7 +6220,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000287)
+ p_id=>wwv_flow_imp.id(110000000000362)
 ,p_query_column_id=>1
 ,p_column_alias=>'SEV'
 ,p_column_display_sequence=>10
@@ -5234,7 +6232,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000288)
+ p_id=>wwv_flow_imp.id(110000000000363)
 ,p_query_column_id=>2
 ,p_column_alias=>'SEV_CSS'
 ,p_column_display_sequence=>20
@@ -5245,7 +6243,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000289)
+ p_id=>wwv_flow_imp.id(110000000000364)
 ,p_query_column_id=>3
 ,p_column_alias=>'SEV_RANK'
 ,p_column_display_sequence=>30
@@ -5256,7 +6254,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000290)
+ p_id=>wwv_flow_imp.id(110000000000365)
 ,p_query_column_id=>4
 ,p_column_alias=>'KIND'
 ,p_column_display_sequence=>40
@@ -5267,7 +6265,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000291)
+ p_id=>wwv_flow_imp.id(110000000000366)
 ,p_query_column_id=>5
 ,p_column_alias=>'TARGET'
 ,p_column_display_sequence=>50
@@ -5278,7 +6276,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000292)
+ p_id=>wwv_flow_imp.id(110000000000367)
 ,p_query_column_id=>6
 ,p_column_alias=>'DB'
 ,p_column_display_sequence=>60
@@ -5289,7 +6287,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000293)
+ p_id=>wwv_flow_imp.id(110000000000368)
 ,p_query_column_id=>7
 ,p_column_alias=>'SERIES'
 ,p_column_display_sequence=>70
@@ -5300,7 +6298,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000294)
+ p_id=>wwv_flow_imp.id(110000000000369)
 ,p_query_column_id=>8
 ,p_column_alias=>'DAY'
 ,p_column_display_sequence=>80
@@ -5312,7 +6310,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000295)
+ p_id=>wwv_flow_imp.id(110000000000370)
 ,p_query_column_id=>9
 ,p_column_alias=>'VALUE'
 ,p_column_display_sequence=>90
@@ -5324,7 +6322,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000296)
+ p_id=>wwv_flow_imp.id(110000000000371)
 ,p_query_column_id=>10
 ,p_column_alias=>'THRESHOLD'
 ,p_column_display_sequence=>100
@@ -5336,7 +6334,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000297)
+ p_id=>wwv_flow_imp.id(110000000000372)
 ,p_query_column_id=>11
 ,p_column_alias=>'UNIT'
 ,p_column_display_sequence=>110
@@ -5347,7 +6345,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000298)
+ p_id=>wwv_flow_imp.id(110000000000373)
 ,p_query_column_id=>12
 ,p_column_alias=>'MESSAGE'
 ,p_column_display_sequence=>120
@@ -5358,7 +6356,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_branch(
- p_id=>wwv_flow_imp.id(110000000000299)
+ p_id=>wwv_flow_imp.id(110000000000374)
 ,p_branch_action=>'f?p=&APP_ID.:3:&SESSION.::&DEBUG.:::'
 ,p_branch_point=>'AFTER_PROCESSING'
 ,p_branch_type=>'REDIRECT_URL'
@@ -5380,7 +6378,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'C'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000300)
+ p_id=>wwv_flow_imp.id(110000000000375)
 ,p_name=>'Memory summary'
 ,p_static_id=>'memory-summary'
 ,p_template=>4075786578761660127
@@ -5420,7 +6418,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000301)
+ p_id=>wwv_flow_imp.id(110000000000376)
 ,p_query_column_id=>1
 ,p_column_alias=>'AREAS'
 ,p_column_display_sequence=>10
@@ -5432,7 +6430,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000302)
+ p_id=>wwv_flow_imp.id(110000000000377)
 ,p_query_column_id=>2
 ,p_column_alias=>'ACTIONABLE'
 ,p_column_display_sequence=>20
@@ -5444,7 +6442,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000303)
+ p_id=>wwv_flow_imp.id(110000000000378)
 ,p_query_column_id=>3
 ,p_column_alias=>'UNDERSIZED'
 ,p_column_display_sequence=>30
@@ -5456,7 +6454,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000304)
+ p_id=>wwv_flow_imp.id(110000000000379)
 ,p_query_column_id=>4
 ,p_column_alias=>'OVERSIZED'
 ,p_column_display_sequence=>40
@@ -5468,7 +6466,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000305)
+ p_id=>wwv_flow_imp.id(110000000000380)
 ,p_query_column_id=>5
 ,p_column_alias=>'PRESSURE'
 ,p_column_display_sequence=>50
@@ -5480,7 +6478,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000306)
+ p_id=>wwv_flow_imp.id(110000000000381)
 ,p_plug_name=>'Memory verdicts'
 ,p_static_id=>'memory-verdicts'
 ,p_region_template_options=>'#DEFAULT#'
@@ -5506,7 +6504,7 @@ wwv_flow_imp_page.create_page_plug(
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000307)
+ p_id=>wwv_flow_imp.id(110000000000382)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No memory verdict in scope. The verdicts are instance level: select the CDB, one of its PDBs, or all databases.'
 ,p_allow_save_rpt_public=>'Y'
@@ -5519,10 +6517,10 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000307
+,p_internal_uid=>110000000000382
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000308)
+ p_id=>wwv_flow_imp.id(110000000000383)
 ,p_db_column_name=>'TARGET'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
@@ -5533,7 +6531,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000309)
+ p_id=>wwv_flow_imp.id(110000000000384)
 ,p_db_column_name=>'DB'
 ,p_display_order=>20
 ,p_column_identifier=>'B'
@@ -5544,7 +6542,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000310)
+ p_id=>wwv_flow_imp.id(110000000000385)
 ,p_db_column_name=>'INST'
 ,p_display_order=>30
 ,p_column_identifier=>'C'
@@ -5556,7 +6554,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000311)
+ p_id=>wwv_flow_imp.id(110000000000386)
 ,p_db_column_name=>'AREA'
 ,p_display_order=>40
 ,p_column_identifier=>'D'
@@ -5567,7 +6565,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000312)
+ p_id=>wwv_flow_imp.id(110000000000387)
 ,p_db_column_name=>'GRADE'
 ,p_display_order=>50
 ,p_column_identifier=>'E'
@@ -5579,7 +6577,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000313)
+ p_id=>wwv_flow_imp.id(110000000000388)
 ,p_db_column_name=>'GRADE_CSS'
 ,p_display_order=>60
 ,p_column_identifier=>'F'
@@ -5591,7 +6589,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000314)
+ p_id=>wwv_flow_imp.id(110000000000389)
 ,p_db_column_name=>'CURRENT_SIZE'
 ,p_display_order=>70
 ,p_column_identifier=>'G'
@@ -5602,7 +6600,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000315)
+ p_id=>wwv_flow_imp.id(110000000000390)
 ,p_db_column_name=>'SUGGESTED_SIZE'
 ,p_display_order=>80
 ,p_column_identifier=>'H'
@@ -5613,7 +6611,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000316)
+ p_id=>wwv_flow_imp.id(110000000000391)
 ,p_db_column_name=>'CHANGE_PCT'
 ,p_display_order=>90
 ,p_column_identifier=>'I'
@@ -5625,7 +6623,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000317)
+ p_id=>wwv_flow_imp.id(110000000000392)
 ,p_db_column_name=>'PARAM'
 ,p_display_order=>100
 ,p_column_identifier=>'J'
@@ -5636,7 +6634,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000318)
+ p_id=>wwv_flow_imp.id(110000000000393)
 ,p_db_column_name=>'HEADLINE'
 ,p_display_order=>110
 ,p_column_identifier=>'K'
@@ -5647,7 +6645,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000319)
+ p_id=>wwv_flow_imp.id(110000000000394)
 ,p_db_column_name=>'REASON'
 ,p_display_order=>120
 ,p_column_identifier=>'L'
@@ -5658,7 +6656,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000320)
+ p_id=>wwv_flow_imp.id(110000000000395)
 ,p_db_column_name=>'FLAGS'
 ,p_display_order=>130
 ,p_column_identifier=>'M'
@@ -5669,7 +6667,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000321)
+ p_id=>wwv_flow_imp.id(110000000000396)
 ,p_db_column_name=>'MEM_MODE'
 ,p_display_order=>140
 ,p_column_identifier=>'N'
@@ -5680,7 +6678,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000322)
+ p_id=>wwv_flow_imp.id(110000000000397)
 ,p_db_column_name=>'SIGNALS'
 ,p_display_order=>150
 ,p_column_identifier=>'O'
@@ -5692,7 +6690,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000323)
+ p_id=>wwv_flow_imp.id(110000000000398)
 ,p_db_column_name=>'PRESSURE'
 ,p_display_order=>160
 ,p_column_identifier=>'P'
@@ -5704,7 +6702,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000324)
+ p_id=>wwv_flow_imp.id(110000000000399)
 ,p_db_column_name=>'DAYS_SAMPLED'
 ,p_display_order=>170
 ,p_column_identifier=>'Q'
@@ -5716,7 +6714,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000325)
+ p_id=>wwv_flow_imp.id(110000000000400)
 ,p_db_column_name=>'WINDOW_START'
 ,p_display_order=>180
 ,p_column_identifier=>'R'
@@ -5729,7 +6727,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000326)
+ p_id=>wwv_flow_imp.id(110000000000401)
 ,p_db_column_name=>'WINDOW_END'
 ,p_display_order=>190
 ,p_column_identifier=>'S'
@@ -5742,7 +6740,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000327)
+ p_id=>wwv_flow_imp.id(110000000000402)
 ,p_db_column_name=>'RANK_MEM'
 ,p_display_order=>200
 ,p_column_identifier=>'T'
@@ -5754,7 +6752,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000328)
+ p_id=>wwv_flow_imp.id(110000000000403)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'memory-verdicts'
@@ -5768,7 +6766,7 @@ wwv_flow_imp_page.create_worksheet_rpt(
 ,p_sort_direction_2=>'ASC'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000329)
+ p_id=>wwv_flow_imp.id(110000000000404)
 ,p_plug_name=>'SGA components'
 ,p_static_id=>'sga-components'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -5779,8 +6777,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000330)
-,p_region_id=>wwv_flow_imp.id(110000000000329)
+ p_id=>wwv_flow_imp.id(110000000000405)
+,p_region_id=>wwv_flow_imp.id(110000000000404)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -5806,8 +6804,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No SGA component history in scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000331)
-,p_chart_id=>wwv_flow_imp.id(110000000000330)
+ p_id=>wwv_flow_imp.id(110000000000406)
+,p_chart_id=>wwv_flow_imp.id(110000000000405)
 ,p_static_id=>'component'
 ,p_seq=>10
 ,p_name=>'Component'
@@ -5834,8 +6832,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000332)
-,p_chart_id=>wwv_flow_imp.id(110000000000330)
+ p_id=>wwv_flow_imp.id(110000000000407)
+,p_chart_id=>wwv_flow_imp.id(110000000000405)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -5850,8 +6848,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000333)
-,p_chart_id=>wwv_flow_imp.id(110000000000330)
+ p_id=>wwv_flow_imp.id(110000000000408)
+,p_chart_id=>wwv_flow_imp.id(110000000000405)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -5866,7 +6864,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000334)
+ p_id=>wwv_flow_imp.id(110000000000409)
 ,p_plug_name=>'PGA allocated (GiB)'
 ,p_static_id=>'pga-allocated-gib'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -5878,8 +6876,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000335)
-,p_region_id=>wwv_flow_imp.id(110000000000334)
+ p_id=>wwv_flow_imp.id(110000000000410)
+,p_region_id=>wwv_flow_imp.id(110000000000409)
 ,p_chart_type=>'line'
 ,p_height=>'300'
 ,p_animation_on_display=>'none'
@@ -5905,8 +6903,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000336)
-,p_chart_id=>wwv_flow_imp.id(110000000000335)
+ p_id=>wwv_flow_imp.id(110000000000411)
+,p_chart_id=>wwv_flow_imp.id(110000000000410)
 ,p_static_id=>'observed'
 ,p_seq=>10
 ,p_name=>'Observed'
@@ -5936,8 +6934,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000337)
-,p_chart_id=>wwv_flow_imp.id(110000000000335)
+ p_id=>wwv_flow_imp.id(110000000000412)
+,p_chart_id=>wwv_flow_imp.id(110000000000410)
 ,p_static_id=>'forecast'
 ,p_seq=>20
 ,p_name=>'Forecast'
@@ -5964,8 +6962,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000338)
-,p_chart_id=>wwv_flow_imp.id(110000000000335)
+ p_id=>wwv_flow_imp.id(110000000000413)
+,p_chart_id=>wwv_flow_imp.id(110000000000410)
 ,p_static_id=>'forecast-low'
 ,p_seq=>30
 ,p_name=>'Forecast low'
@@ -5993,8 +6991,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000339)
-,p_chart_id=>wwv_flow_imp.id(110000000000335)
+ p_id=>wwv_flow_imp.id(110000000000414)
+,p_chart_id=>wwv_flow_imp.id(110000000000410)
 ,p_static_id=>'forecast-high'
 ,p_seq=>40
 ,p_name=>'Forecast high'
@@ -6022,8 +7020,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000340)
-,p_chart_id=>wwv_flow_imp.id(110000000000335)
+ p_id=>wwv_flow_imp.id(110000000000415)
+,p_chart_id=>wwv_flow_imp.id(110000000000410)
 ,p_static_id=>'limit'
 ,p_seq=>50
 ,p_name=>'Limit'
@@ -6034,7 +7032,7 @@ wwv_flow_imp_page.create_jet_chart_series(
 ||'rank, to_number(c009, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') slope_per_day, to_number(c010, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''')'
 ||' r2, to_number(c011, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') days_to_full_lo, to_number(c012, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''''
 ||') days_to_full_hi, to_number(c013, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.,'''''') accel, to_number(c014, ''99999999999999999999999999D9999999999'', ''NLS_NUMERIC_CHARACTERS=''''.'
-||','''''') train_n from apex_collections where collection_name = ''AWRCAP_FIT'')',
+||','''''') train_n, c015 restart_reason, d002 restart_day from apex_collections where collection_name = ''AWRCAP_FIT'')',
 'select e.ts, l.value, l.db || '' limit'' name from (select f.limit_value value, f.db from c_fit f where f.kind = ''SERIES'' and f.series = ''PGA_ALLOC_GB'' and ((:P0_DB is null or f.db in (select r.db_pdb f'
 ||'rom c_cont r, c_cont c where c.db_pdb = :P0_DB and r.dbid = c.dbid and r.con_dbid = r.dbid)) and (:P0_TARGET is null or f.db in (select t.db_pdb from c_cont t where t.target_name = :P0_TARGET)))) l cr'
 ||'oss join (select to_date(:P0_FROM default null on conversion error, ''YYYY-MM-DD'') ts from dual union all select to_date(:P0_TO default null on conversion error, ''YYYY-MM-DD'') ts from dual) e where e.t'
@@ -6055,8 +7053,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000341)
-,p_chart_id=>wwv_flow_imp.id(110000000000335)
+ p_id=>wwv_flow_imp.id(110000000000416)
+,p_chart_id=>wwv_flow_imp.id(110000000000410)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -6071,8 +7069,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000342)
-,p_chart_id=>wwv_flow_imp.id(110000000000335)
+ p_id=>wwv_flow_imp.id(110000000000417)
+,p_chart_id=>wwv_flow_imp.id(110000000000410)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -6087,7 +7085,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000343)
+ p_id=>wwv_flow_imp.id(110000000000418)
 ,p_plug_name=>'Memory evidence'
 ,p_static_id=>'memory-evidence'
 ,p_region_template_options=>'#DEFAULT#'
@@ -6108,7 +7106,7 @@ wwv_flow_imp_page.create_page_plug(
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000344)
+ p_id=>wwv_flow_imp.id(110000000000419)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No memory evidence in scope.'
 ,p_allow_save_rpt_public=>'Y'
@@ -6121,10 +7119,10 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000344
+,p_internal_uid=>110000000000419
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000345)
+ p_id=>wwv_flow_imp.id(110000000000420)
 ,p_db_column_name=>'TARGET'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
@@ -6135,7 +7133,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000346)
+ p_id=>wwv_flow_imp.id(110000000000421)
 ,p_db_column_name=>'DB'
 ,p_display_order=>20
 ,p_column_identifier=>'B'
@@ -6146,7 +7144,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000347)
+ p_id=>wwv_flow_imp.id(110000000000422)
 ,p_db_column_name=>'INST'
 ,p_display_order=>30
 ,p_column_identifier=>'C'
@@ -6158,7 +7156,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000348)
+ p_id=>wwv_flow_imp.id(110000000000423)
 ,p_db_column_name=>'AREA'
 ,p_display_order=>40
 ,p_column_identifier=>'D'
@@ -6169,7 +7167,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000349)
+ p_id=>wwv_flow_imp.id(110000000000424)
 ,p_db_column_name=>'KIND'
 ,p_display_order=>50
 ,p_column_identifier=>'E'
@@ -6180,7 +7178,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000350)
+ p_id=>wwv_flow_imp.id(110000000000425)
 ,p_db_column_name=>'SIGNAL'
 ,p_display_order=>60
 ,p_column_identifier=>'F'
@@ -6191,7 +7189,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000351)
+ p_id=>wwv_flow_imp.id(110000000000426)
 ,p_db_column_name=>'DIRECTION'
 ,p_display_order=>70
 ,p_column_identifier=>'G'
@@ -6203,7 +7201,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000352)
+ p_id=>wwv_flow_imp.id(110000000000427)
 ,p_db_column_name=>'DIRECTION_CSS'
 ,p_display_order=>80
 ,p_column_identifier=>'H'
@@ -6215,7 +7213,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000353)
+ p_id=>wwv_flow_imp.id(110000000000428)
 ,p_db_column_name=>'VALUE'
 ,p_display_order=>90
 ,p_column_identifier=>'I'
@@ -6227,7 +7225,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000354)
+ p_id=>wwv_flow_imp.id(110000000000429)
 ,p_db_column_name=>'UNIT'
 ,p_display_order=>100
 ,p_column_identifier=>'J'
@@ -6238,7 +7236,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000355)
+ p_id=>wwv_flow_imp.id(110000000000430)
 ,p_db_column_name=>'THRESHOLD'
 ,p_display_order=>110
 ,p_column_identifier=>'K'
@@ -6250,7 +7248,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000356)
+ p_id=>wwv_flow_imp.id(110000000000431)
 ,p_db_column_name=>'OBSERVED'
 ,p_display_order=>120
 ,p_column_identifier=>'L'
@@ -6261,7 +7259,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000357)
+ p_id=>wwv_flow_imp.id(110000000000432)
 ,p_db_column_name=>'EVIDENCE'
 ,p_display_order=>130
 ,p_column_identifier=>'M'
@@ -6272,7 +7270,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000358)
+ p_id=>wwv_flow_imp.id(110000000000433)
 ,p_db_column_name=>'RANK_EV'
 ,p_display_order=>140
 ,p_column_identifier=>'N'
@@ -6284,7 +7282,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000359)
+ p_id=>wwv_flow_imp.id(110000000000434)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'memory-evidence'
@@ -6298,7 +7296,7 @@ wwv_flow_imp_page.create_worksheet_rpt(
 ,p_sort_direction_2=>'ASC'
 );
 wwv_flow_imp_page.create_page_branch(
- p_id=>wwv_flow_imp.id(110000000000360)
+ p_id=>wwv_flow_imp.id(110000000000435)
 ,p_branch_action=>'f?p=&APP_ID.:6:&SESSION.::&DEBUG.:::'
 ,p_branch_point=>'AFTER_PROCESSING'
 ,p_branch_type=>'REDIRECT_URL'
@@ -6324,7 +7322,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'C'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000361)
+ p_id=>wwv_flow_imp.id(110000000000436)
 ,p_name=>'Anomaly summary'
 ,p_static_id=>'anomaly-summary'
 ,p_template=>4075786578761660127
@@ -6362,7 +7360,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000362)
+ p_id=>wwv_flow_imp.id(110000000000437)
 ,p_query_column_id=>1
 ,p_column_alias=>'ANOMALIES'
 ,p_column_display_sequence=>10
@@ -6374,7 +7372,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000363)
+ p_id=>wwv_flow_imp.id(110000000000438)
 ,p_query_column_id=>2
 ,p_column_alias=>'DATABASES'
 ,p_column_display_sequence=>20
@@ -6386,7 +7384,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000364)
+ p_id=>wwv_flow_imp.id(110000000000439)
 ,p_query_column_id=>3
 ,p_column_alias=>'SERIES'
 ,p_column_display_sequence=>30
@@ -6398,7 +7396,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000365)
+ p_id=>wwv_flow_imp.id(110000000000440)
 ,p_query_column_id=>4
 ,p_column_alias=>'SERIOUS'
 ,p_column_display_sequence=>40
@@ -6410,7 +7408,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000366)
+ p_id=>wwv_flow_imp.id(110000000000441)
 ,p_plug_name=>'Anomalies per day by kind'
 ,p_static_id=>'anomalies-per-day-by-kind'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -6421,8 +7419,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000367)
-,p_region_id=>wwv_flow_imp.id(110000000000366)
+ p_id=>wwv_flow_imp.id(110000000000442)
+,p_region_id=>wwv_flow_imp.id(110000000000441)
 ,p_chart_type=>'bar'
 ,p_height=>'320'
 ,p_animation_on_display=>'none'
@@ -6448,8 +7446,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000368)
-,p_chart_id=>wwv_flow_imp.id(110000000000367)
+ p_id=>wwv_flow_imp.id(110000000000443)
+,p_chart_id=>wwv_flow_imp.id(110000000000442)
 ,p_static_id=>'anomalies'
 ,p_seq=>10
 ,p_name=>'Anomalies'
@@ -6473,8 +7471,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000369)
-,p_chart_id=>wwv_flow_imp.id(110000000000367)
+ p_id=>wwv_flow_imp.id(110000000000444)
+,p_chart_id=>wwv_flow_imp.id(110000000000442)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -6489,8 +7487,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000370)
-,p_chart_id=>wwv_flow_imp.id(110000000000367)
+ p_id=>wwv_flow_imp.id(110000000000445)
+,p_chart_id=>wwv_flow_imp.id(110000000000442)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -6505,7 +7503,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000371)
+ p_id=>wwv_flow_imp.id(110000000000446)
 ,p_plug_name=>'Most anomalous series'
 ,p_static_id=>'most-anomalous-series'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -6517,8 +7515,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000372)
-,p_region_id=>wwv_flow_imp.id(110000000000371)
+ p_id=>wwv_flow_imp.id(110000000000447)
+,p_region_id=>wwv_flow_imp.id(110000000000446)
 ,p_chart_type=>'bar'
 ,p_height=>'320'
 ,p_animation_on_display=>'none'
@@ -6543,8 +7541,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_no_data_found_message=>'No data in the current scope.'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000373)
-,p_chart_id=>wwv_flow_imp.id(110000000000372)
+ p_id=>wwv_flow_imp.id(110000000000448)
+,p_chart_id=>wwv_flow_imp.id(110000000000447)
 ,p_static_id=>'anomalies'
 ,p_seq=>10
 ,p_name=>'Anomalies'
@@ -6567,8 +7565,8 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_threshold_display=>'onIndicator'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000374)
-,p_chart_id=>wwv_flow_imp.id(110000000000372)
+ p_id=>wwv_flow_imp.id(110000000000449)
+,p_chart_id=>wwv_flow_imp.id(110000000000447)
 ,p_static_id=>'x'
 ,p_axis=>'x'
 ,p_is_rendered=>'on'
@@ -6582,8 +7580,8 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_position=>'outside'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000375)
-,p_chart_id=>wwv_flow_imp.id(110000000000372)
+ p_id=>wwv_flow_imp.id(110000000000450)
+,p_chart_id=>wwv_flow_imp.id(110000000000447)
 ,p_static_id=>'y'
 ,p_axis=>'y'
 ,p_is_rendered=>'on'
@@ -6598,7 +7596,7 @@ wwv_flow_imp_page.create_jet_chart_axis(
 ,p_tick_label_rendered=>'on'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000376)
+ p_id=>wwv_flow_imp.id(110000000000451)
 ,p_plug_name=>'Anomaly timeline'
 ,p_static_id=>'anomaly-timeline'
 ,p_region_template_options=>'#DEFAULT#:t-Region--scrollBody'
@@ -6608,8 +7606,8 @@ wwv_flow_imp_page.create_page_plug(
 ,p_plug_source_type=>'NATIVE_JET_CHART'
 );
 wwv_flow_imp_page.create_jet_chart(
- p_id=>wwv_flow_imp.id(110000000000377)
-,p_region_id=>wwv_flow_imp.id(110000000000376)
+ p_id=>wwv_flow_imp.id(110000000000452)
+,p_region_id=>wwv_flow_imp.id(110000000000451)
 ,p_chart_type=>'gantt'
 ,p_height=>'480'
 ,p_animation_on_display=>'none'
@@ -6639,8 +7637,8 @@ wwv_flow_imp_page.create_jet_chart(
 ,p_gantt_axis_position=>'top'
 );
 wwv_flow_imp_page.create_jet_chart_series(
- p_id=>wwv_flow_imp.id(110000000000378)
-,p_chart_id=>wwv_flow_imp.id(110000000000377)
+ p_id=>wwv_flow_imp.id(110000000000453)
+,p_chart_id=>wwv_flow_imp.id(110000000000452)
 ,p_static_id=>'anomalies'
 ,p_seq=>10
 ,p_name=>'Anomalies'
@@ -6675,23 +7673,23 @@ wwv_flow_imp_page.create_jet_chart_series(
 ,p_task_label_position=>'none'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000379)
-,p_chart_id=>wwv_flow_imp.id(110000000000377)
+ p_id=>wwv_flow_imp.id(110000000000454)
+,p_chart_id=>wwv_flow_imp.id(110000000000452)
 ,p_static_id=>'major'
 ,p_axis=>'major'
 ,p_is_rendered=>'on'
 ,p_axis_scale=>'months'
 );
 wwv_flow_imp_page.create_jet_chart_axis(
- p_id=>wwv_flow_imp.id(110000000000380)
-,p_chart_id=>wwv_flow_imp.id(110000000000377)
+ p_id=>wwv_flow_imp.id(110000000000455)
+,p_chart_id=>wwv_flow_imp.id(110000000000452)
 ,p_static_id=>'minor'
 ,p_axis=>'minor'
 ,p_is_rendered=>'on'
 ,p_axis_scale=>'weeks'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000381)
+ p_id=>wwv_flow_imp.id(110000000000456)
 ,p_plug_name=>'Anomalies'
 ,p_static_id=>'anomalies'
 ,p_region_template_options=>'#DEFAULT#'
@@ -6716,7 +7714,7 @@ wwv_flow_imp_page.create_page_plug(
 ,p_include_rowid_column=>false
 );
 wwv_flow_imp_page.create_worksheet(
- p_id=>wwv_flow_imp.id(110000000000382)
+ p_id=>wwv_flow_imp.id(110000000000457)
 ,p_max_row_count=>'100000'
 ,p_no_data_found_message=>'No anomalies match the filters.'
 ,p_allow_save_rpt_public=>'Y'
@@ -6729,10 +7727,10 @@ wwv_flow_imp_page.create_worksheet(
 ,p_show_notify=>'N'
 ,p_download_formats=>'CSV:HTML:XLSX'
 ,p_enable_mail_download=>'N'
-,p_internal_uid=>110000000000382
+,p_internal_uid=>110000000000457
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000383)
+ p_id=>wwv_flow_imp.id(110000000000458)
 ,p_db_column_name=>'DAY'
 ,p_display_order=>10
 ,p_column_identifier=>'A'
@@ -6745,7 +7743,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000384)
+ p_id=>wwv_flow_imp.id(110000000000459)
 ,p_db_column_name=>'END_DAY'
 ,p_display_order=>20
 ,p_column_identifier=>'B'
@@ -6758,7 +7756,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000385)
+ p_id=>wwv_flow_imp.id(110000000000460)
 ,p_db_column_name=>'TARGET'
 ,p_display_order=>30
 ,p_column_identifier=>'C'
@@ -6769,7 +7767,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000386)
+ p_id=>wwv_flow_imp.id(110000000000461)
 ,p_db_column_name=>'DB'
 ,p_display_order=>40
 ,p_column_identifier=>'D'
@@ -6781,7 +7779,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000387)
+ p_id=>wwv_flow_imp.id(110000000000462)
 ,p_db_column_name=>'DB_URL'
 ,p_display_order=>50
 ,p_column_identifier=>'E'
@@ -6793,7 +7791,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000388)
+ p_id=>wwv_flow_imp.id(110000000000463)
 ,p_db_column_name=>'SERIES'
 ,p_display_order=>60
 ,p_column_identifier=>'F'
@@ -6805,7 +7803,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000389)
+ p_id=>wwv_flow_imp.id(110000000000464)
 ,p_db_column_name=>'SERIES_URL'
 ,p_display_order=>70
 ,p_column_identifier=>'G'
@@ -6817,7 +7815,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000390)
+ p_id=>wwv_flow_imp.id(110000000000465)
 ,p_db_column_name=>'ANOMALY_KIND'
 ,p_display_order=>80
 ,p_column_identifier=>'H'
@@ -6828,7 +7826,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000391)
+ p_id=>wwv_flow_imp.id(110000000000466)
 ,p_db_column_name=>'SEV'
 ,p_display_order=>90
 ,p_column_identifier=>'I'
@@ -6840,7 +7838,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000392)
+ p_id=>wwv_flow_imp.id(110000000000467)
 ,p_db_column_name=>'SEV_CSS'
 ,p_display_order=>100
 ,p_column_identifier=>'J'
@@ -6852,7 +7850,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000393)
+ p_id=>wwv_flow_imp.id(110000000000468)
 ,p_db_column_name=>'FLAG'
 ,p_display_order=>110
 ,p_column_identifier=>'K'
@@ -6863,7 +7861,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000394)
+ p_id=>wwv_flow_imp.id(110000000000469)
 ,p_db_column_name=>'VALUE'
 ,p_display_order=>120
 ,p_column_identifier=>'L'
@@ -6875,7 +7873,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000395)
+ p_id=>wwv_flow_imp.id(110000000000470)
 ,p_db_column_name=>'EXPECTED'
 ,p_display_order=>130
 ,p_column_identifier=>'M'
@@ -6887,7 +7885,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000396)
+ p_id=>wwv_flow_imp.id(110000000000471)
 ,p_db_column_name=>'THRESHOLD'
 ,p_display_order=>140
 ,p_column_identifier=>'N'
@@ -6899,7 +7897,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000397)
+ p_id=>wwv_flow_imp.id(110000000000472)
 ,p_db_column_name=>'Z'
 ,p_display_order=>150
 ,p_column_identifier=>'O'
@@ -6911,7 +7909,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000398)
+ p_id=>wwv_flow_imp.id(110000000000473)
 ,p_db_column_name=>'SHIFT_PCT'
 ,p_display_order=>160
 ,p_column_identifier=>'P'
@@ -6923,7 +7921,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000399)
+ p_id=>wwv_flow_imp.id(110000000000474)
 ,p_db_column_name=>'UNIT'
 ,p_display_order=>170
 ,p_column_identifier=>'Q'
@@ -6934,7 +7932,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_column(
- p_id=>wwv_flow_imp.id(110000000000400)
+ p_id=>wwv_flow_imp.id(110000000000475)
 ,p_db_column_name=>'MESSAGE'
 ,p_display_order=>180
 ,p_column_identifier=>'R'
@@ -6945,7 +7943,7 @@ wwv_flow_imp_page.create_worksheet_column(
 ,p_available_clientside=>'N'
 );
 wwv_flow_imp_page.create_worksheet_rpt(
- p_id=>wwv_flow_imp.id(110000000000401)
+ p_id=>wwv_flow_imp.id(110000000000476)
 ,p_application_user=>'APXWS_DEFAULT'
 ,p_report_seq=>10
 ,p_report_alias=>'anomalies'
@@ -6959,7 +7957,7 @@ wwv_flow_imp_page.create_worksheet_rpt(
 ,p_sort_direction_2=>'ASC'
 );
 wwv_flow_imp_page.create_report_region(
- p_id=>wwv_flow_imp.id(110000000000402)
+ p_id=>wwv_flow_imp.id(110000000000477)
 ,p_name=>'All alerts'
 ,p_static_id=>'all-alerts'
 ,p_template=>4075786578761660127
@@ -6991,7 +7989,7 @@ wwv_flow_imp_page.create_report_region(
 ,p_plug_query_strip_html=>'N'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000403)
+ p_id=>wwv_flow_imp.id(110000000000478)
 ,p_query_column_id=>1
 ,p_column_alias=>'SEV'
 ,p_column_display_sequence=>10
@@ -7003,7 +8001,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000404)
+ p_id=>wwv_flow_imp.id(110000000000479)
 ,p_query_column_id=>2
 ,p_column_alias=>'SEV_CSS'
 ,p_column_display_sequence=>20
@@ -7014,7 +8012,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000405)
+ p_id=>wwv_flow_imp.id(110000000000480)
 ,p_query_column_id=>3
 ,p_column_alias=>'SEV_RANK'
 ,p_column_display_sequence=>30
@@ -7025,7 +8023,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000406)
+ p_id=>wwv_flow_imp.id(110000000000481)
 ,p_query_column_id=>4
 ,p_column_alias=>'KIND'
 ,p_column_display_sequence=>40
@@ -7036,7 +8034,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000407)
+ p_id=>wwv_flow_imp.id(110000000000482)
 ,p_query_column_id=>5
 ,p_column_alias=>'TARGET'
 ,p_column_display_sequence=>50
@@ -7047,7 +8045,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000408)
+ p_id=>wwv_flow_imp.id(110000000000483)
 ,p_query_column_id=>6
 ,p_column_alias=>'DB'
 ,p_column_display_sequence=>60
@@ -7058,7 +8056,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000409)
+ p_id=>wwv_flow_imp.id(110000000000484)
 ,p_query_column_id=>7
 ,p_column_alias=>'SERIES'
 ,p_column_display_sequence=>70
@@ -7069,7 +8067,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000410)
+ p_id=>wwv_flow_imp.id(110000000000485)
 ,p_query_column_id=>8
 ,p_column_alias=>'DAY'
 ,p_column_display_sequence=>80
@@ -7081,7 +8079,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000411)
+ p_id=>wwv_flow_imp.id(110000000000486)
 ,p_query_column_id=>9
 ,p_column_alias=>'VALUE'
 ,p_column_display_sequence=>90
@@ -7093,7 +8091,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000412)
+ p_id=>wwv_flow_imp.id(110000000000487)
 ,p_query_column_id=>10
 ,p_column_alias=>'THRESHOLD'
 ,p_column_display_sequence=>100
@@ -7105,7 +8103,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000413)
+ p_id=>wwv_flow_imp.id(110000000000488)
 ,p_query_column_id=>11
 ,p_column_alias=>'UNIT'
 ,p_column_display_sequence=>110
@@ -7116,7 +8114,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_report_columns(
- p_id=>wwv_flow_imp.id(110000000000414)
+ p_id=>wwv_flow_imp.id(110000000000489)
 ,p_query_column_id=>12
 ,p_column_alias=>'MESSAGE'
 ,p_column_display_sequence=>120
@@ -7127,7 +8125,7 @@ wwv_flow_imp_page.create_report_columns(
 ,p_include_in_export=>'Y'
 );
 wwv_flow_imp_page.create_page_branch(
- p_id=>wwv_flow_imp.id(110000000000415)
+ p_id=>wwv_flow_imp.id(110000000000490)
 ,p_branch_action=>'f?p=&APP_ID.:4:&SESSION.::&DEBUG.:::'
 ,p_branch_point=>'AFTER_PROCESSING'
 ,p_branch_type=>'REDIRECT_URL'
@@ -7151,7 +8149,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'C'
 );
 wwv_flow_imp_page.create_page_plug(
- p_id=>wwv_flow_imp.id(110000000000416)
+ p_id=>wwv_flow_imp.id(110000000000491)
 ,p_plug_name=>'AWR Capacity'
 ,p_static_id=>'login'
 ,p_icon_css_classes=>'fa-area-chart'
@@ -7164,9 +8162,9 @@ wwv_flow_imp_page.create_page_plug(
   'output_as', 'HTML')).to_clob
 );
 wwv_flow_imp_page.create_page_button(
- p_id=>wwv_flow_imp.id(110000000000417)
+ p_id=>wwv_flow_imp.id(110000000000492)
 ,p_button_sequence=>40
-,p_button_plug_id=>wwv_flow_imp.id(110000000000416)
+,p_button_plug_id=>wwv_flow_imp.id(110000000000491)
 ,p_button_name=>'LOGIN'
 ,p_static_id=>'login-button'
 ,p_show_as_disabled=>false
@@ -7179,10 +8177,10 @@ wwv_flow_imp_page.create_page_button(
 ,p_grid_new_row=>'Y'
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000418)
+ p_id=>wwv_flow_imp.id(110000000000493)
 ,p_name=>'P9999_USERNAME'
 ,p_item_sequence=>10
-,p_item_plug_id=>wwv_flow_imp.id(110000000000416)
+,p_item_plug_id=>wwv_flow_imp.id(110000000000491)
 ,p_prompt=>'Username'
 ,p_placeholder=>'Username'
 ,p_source_type=>'ALWAYS_NULL'
@@ -7202,10 +8200,10 @@ wwv_flow_imp_page.create_page_item(
   'trim_spaces', 'BOTH')).to_clob
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000419)
+ p_id=>wwv_flow_imp.id(110000000000494)
 ,p_name=>'P9999_PASSWORD'
 ,p_item_sequence=>20
-,p_item_plug_id=>wwv_flow_imp.id(110000000000416)
+,p_item_plug_id=>wwv_flow_imp.id(110000000000491)
 ,p_prompt=>'Password'
 ,p_placeholder=>'Password'
 ,p_source_type=>'ALWAYS_NULL'
@@ -7222,10 +8220,10 @@ wwv_flow_imp_page.create_page_item(
   'submit_when_enter_pressed', 'Y')).to_clob
 );
 wwv_flow_imp_page.create_page_item(
- p_id=>wwv_flow_imp.id(110000000000420)
+ p_id=>wwv_flow_imp.id(110000000000495)
 ,p_name=>'P9999_REMEMBER'
 ,p_item_sequence=>30
-,p_item_plug_id=>wwv_flow_imp.id(110000000000416)
+,p_item_plug_id=>wwv_flow_imp.id(110000000000491)
 ,p_prompt=>'Remember username'
 ,p_source_type=>'ALWAYS_NULL'
 ,p_display_as=>'NATIVE_SINGLE_CHECKBOX'
@@ -7239,7 +8237,7 @@ wwv_flow_imp_page.create_page_item(
   'use_defaults', 'Y')).to_clob
 );
 wwv_flow_imp_page.create_page_process(
- p_id=>wwv_flow_imp.id(110000000000421)
+ p_id=>wwv_flow_imp.id(110000000000496)
 ,p_process_sequence=>10
 ,p_process_point=>'BEFORE_HEADER'
 ,p_process_type=>'NATIVE_PLSQL'
@@ -7251,7 +8249,7 @@ wwv_flow_imp_page.create_page_process(
 ,p_process_clob_language=>'PLSQL'
 );
 wwv_flow_imp_page.create_page_process(
- p_id=>wwv_flow_imp.id(110000000000422)
+ p_id=>wwv_flow_imp.id(110000000000497)
 ,p_process_sequence=>10
 ,p_process_point=>'AFTER_SUBMIT'
 ,p_process_type=>'NATIVE_INVOKE_API'
@@ -7264,8 +8262,8 @@ wwv_flow_imp_page.create_page_process(
 ,p_error_display_location=>'INLINE_IN_NOTIFICATION'
 );
 wwv_flow_imp_shared.create_invokeapi_comp_param(
- p_id=>wwv_flow_imp.id(110000000000423)
-,p_page_process_id=>wwv_flow_imp.id(110000000000422)
+ p_id=>wwv_flow_imp.id(110000000000498)
+,p_page_process_id=>wwv_flow_imp.id(110000000000497)
 ,p_page_id=>9999
 ,p_name=>'p_username'
 ,p_direction=>'IN'
@@ -7277,8 +8275,8 @@ wwv_flow_imp_shared.create_invokeapi_comp_param(
 ,p_value=>'lower( :P9999_USERNAME )'
 );
 wwv_flow_imp_shared.create_invokeapi_comp_param(
- p_id=>wwv_flow_imp.id(110000000000424)
-,p_page_process_id=>wwv_flow_imp.id(110000000000422)
+ p_id=>wwv_flow_imp.id(110000000000499)
+,p_page_process_id=>wwv_flow_imp.id(110000000000497)
 ,p_page_id=>9999
 ,p_name=>'p_consent'
 ,p_direction=>'IN'
@@ -7289,7 +8287,7 @@ wwv_flow_imp_shared.create_invokeapi_comp_param(
 ,p_value=>'P9999_REMEMBER'
 );
 wwv_flow_imp_page.create_page_process(
- p_id=>wwv_flow_imp.id(110000000000425)
+ p_id=>wwv_flow_imp.id(110000000000500)
 ,p_process_sequence=>20
 ,p_process_point=>'AFTER_SUBMIT'
 ,p_process_type=>'NATIVE_INVOKE_API'
@@ -7302,8 +8300,8 @@ wwv_flow_imp_page.create_page_process(
 ,p_error_display_location=>'INLINE_IN_NOTIFICATION'
 );
 wwv_flow_imp_shared.create_invokeapi_comp_param(
- p_id=>wwv_flow_imp.id(110000000000426)
-,p_page_process_id=>wwv_flow_imp.id(110000000000425)
+ p_id=>wwv_flow_imp.id(110000000000501)
+,p_page_process_id=>wwv_flow_imp.id(110000000000500)
 ,p_page_id=>9999
 ,p_name=>'p_username'
 ,p_direction=>'IN'
@@ -7314,8 +8312,8 @@ wwv_flow_imp_shared.create_invokeapi_comp_param(
 ,p_value=>'P9999_USERNAME'
 );
 wwv_flow_imp_shared.create_invokeapi_comp_param(
- p_id=>wwv_flow_imp.id(110000000000427)
-,p_page_process_id=>wwv_flow_imp.id(110000000000425)
+ p_id=>wwv_flow_imp.id(110000000000502)
+,p_page_process_id=>wwv_flow_imp.id(110000000000500)
 ,p_page_id=>9999
 ,p_name=>'p_password'
 ,p_direction=>'IN'
@@ -7326,8 +8324,8 @@ wwv_flow_imp_shared.create_invokeapi_comp_param(
 ,p_value=>'P9999_PASSWORD'
 );
 wwv_flow_imp_shared.create_invokeapi_comp_param(
- p_id=>wwv_flow_imp.id(110000000000428)
-,p_page_process_id=>wwv_flow_imp.id(110000000000425)
+ p_id=>wwv_flow_imp.id(110000000000503)
+,p_page_process_id=>wwv_flow_imp.id(110000000000500)
 ,p_page_id=>9999
 ,p_name=>'p_set_persistent_auth'
 ,p_direction=>'IN'
@@ -7337,7 +8335,7 @@ wwv_flow_imp_shared.create_invokeapi_comp_param(
 ,p_value_type=>'API_DEFAULT'
 );
 wwv_flow_imp_page.create_page_process(
- p_id=>wwv_flow_imp.id(110000000000429)
+ p_id=>wwv_flow_imp.id(110000000000504)
 ,p_process_sequence=>30
 ,p_process_point=>'AFTER_SUBMIT'
 ,p_process_type=>'NATIVE_SESSION_STATE'

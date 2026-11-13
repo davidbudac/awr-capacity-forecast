@@ -47,7 +47,7 @@ when the fleet is already in Elastic.
 |------|-------|--------------------|
 | Overview | alert counts by severity, the live alert list, worst days to full, total database size, data freshness | target, database |
 | Targets | one row per target and DBID from `CAPR_TARGETS`: feed, host, newest snapshot and its age, stale flag, collect state, last collect and last error, gaps, plus its critical and warning alerts and worst days to full; hours since the newest snapshot as a bar per target | none (it lists every target) |
-| Tablespaces | days-to-full ranking, used space with the REGR projection (dashed), its band (dotted), the ceiling (grey) and anomaly days (red); daily growth with flagged days in red; growth anomalies; tablespace alerts | target, database, tablespace, date range |
+| Tablespaces | days-to-full ranking with the fit's restart reason (`PURGE` / `STOP` / `START`) and day and the series' forecast track record; used space with the REGR projection (dashed), its band (dotted), the ceiling (grey) and anomaly days (red); daily growth with flagged days in red; growth anomalies; the shared disk of each database (`CAPR_DISK`) and every growing tablespace against it (`CAPR_TBSPC_SHARED`); the tablespace families and their members (`CAPR_TBSPC_FAMILY`, `CAPR_TBSPC_FAMILY_MEMBERS`); tablespace and disk alerts | target, database, tablespace, date range |
 | CPU and workload | host busy % and busy-hour p95 against the saturation line, DB CPU % per container with level-shift windows, CPU trend fits, SESSIONS / PROCESSES / DB size / redo against their limits with forecasts, I/O requests per second and I/O MB per second (`IOPS` / `IO_MBPS`, daily p95, no limit), workload fits, CPU and series alerts | target, database, date range |
 | Memory sizing | the verdict per instance and area (`CAPR_MEM_VERDICT`: grade, current and suggested size, parameter, headline, reason, flags), the SGA component sizes over time (`CAPR_MEM_COMP_POINTS`), PGA allocated against its limit with the forecast, and the evidence behind each verdict (`CAPR_MEM_EVIDENCE`) | target, database, date range (the charts) |
 | Fleet anomalies | anomalies per day by kind, most anomalous series, the anomaly timeline per series lane, the anomaly list with drill-downs, every alert | target, database, kind, severity, date range |
@@ -62,6 +62,11 @@ is dropped.
 The memory verdicts are instance level and filed under the CDB root, like
 host CPU: with a PDB selected the Memory sizing page shows its CDB's rows.
 They are report content. No alert count includes them.
+
+The shared disk row and the `DISK_FULL` alert are database level and filed
+under the CDB root the same way: a PDB filter keeps its database's disk. The
+track record column (`CAPR_FIT_TRACK`: GOOD, BIASED, WIDE, UNKNOWN) is on
+the three fit tables and stays empty until `cap_results.refresh` has run.
 
 The filter bar lives on the global page, so a selection carries across
 pages. A **Refresh data** button reloads the views; the **Data** badges next
@@ -180,7 +185,8 @@ adds about 4 s for the forecasts, and every later page view is 2 to 3 s.
 application process "Load data" (Before Header); it also fills the date
 range (last observed day minus and plus 120 days) and, on the Tablespaces
 page, picks the tablespace with the fewest days to full when none is
-selected. The three memory collections load on the Memory sizing page only.
+selected. The three memory collections load on the Memory sizing page only,
+the shared disk and family collections on the Tablespaces page only.
 The timings above were measured before that page and the Targets page
 existed. The memory views are the costly ones (`CAPM_VERDICT` took about 8 s
 on a real 30-day AWR), so expect the first Memory sizing page of a session
