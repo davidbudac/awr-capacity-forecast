@@ -5823,7 +5823,8 @@ BEGIN
         chk_true ('accuracy FIX_ZIGZAG error non-zero (got ' || v_c || ', ' || v_d || '%)', ABS(v_c) > 1000000);
 
         -- CAPR_FIT_TRACK over the same runs. Every fit of R2 carries the +30
-        -- point CAPR_FORECAST_POINTS shows. At the shipped horizon no stored
+        -- point CAPR_FORECAST_POINTS shows (at 12 decimals: two plans of the
+        -- view can differ in the 38th digit, see above). At the shipped horizon no stored
         -- forecast is 30 days old; at 7 days R0's two forecasts are checked
         -- against R2's values (the ones CAPR_FORECAST_ACCURACY scores above).
         DBMS_OUTPUT.PUT_LINE('=== results layer: CAPR_FIT_TRACK (R0 forecasts vs R2) ===');
@@ -5833,8 +5834,9 @@ BEGIN
             ON p.kind = h.kind AND p.dbid = h.dbid AND p.con_dbid = h.con_dbid AND p.series = h.series
            AND p.method = 'REGR' AND p.horizon_days = 30
          WHERE h.run_id = run_2
-           AND DECODE(h.proj_30, p.value, 0, 1) + DECODE(h.proj_30_lo, p.lo, 0, 1)
-               + DECODE(h.proj_30_hi, p.hi, 0, 1) > 0;
+           AND DECODE(ROUND(h.proj_30, 12), ROUND(p.value, 12), 0, 1)
+               + DECODE(ROUND(h.proj_30_lo, 12), ROUND(p.lo, 12), 0, 1)
+               + DECODE(ROUND(h.proj_30_hi, 12), ROUND(p.hi, 12), 0, 1) > 0;
         chk_int ('R2 fits carry the +30 point and band of CAPR_FORECAST_POINTS (mismatches)', v_n, 0);
         SELECT COUNT(h.proj_30), COUNT(CASE WHEN h.proj_30_hi > h.proj_30_lo THEN 1 END),
                MAX(CASE WHEN h.kind = 'TBSPC' AND h.series = 'FIX_LINEAR' THEN h.proj_30 END)
