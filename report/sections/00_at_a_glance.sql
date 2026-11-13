@@ -9,6 +9,8 @@
 -- the alerts from CAPR_ALERTS_LATEST (&cap_alerts: the OPEN, unacknowledged
 -- states of the last refresh run, so acks and the resolve grace show) and
 -- the coverage from CAPR_COVERAGE_S (&cap_s), the refresh run's rows.
+-- A closing line counts the noisy series of CAPR_ANOM_VOLUME (no line when
+-- there is none) and points to doctor.sql section 12.
 --
 PROMPT
 PROMPT == 0. AT A GLANCE (from CAPR_ALERTS, or CAPR_ALERTS_LATEST when the source is SNAPSHOT) ==
@@ -68,3 +70,14 @@ FROM  (SELECT CAST(NULL AS VARCHAR2(4)) AS severity, 'TOTAL' AS kind, CAST(NULL 
               1, CASE kind WHEN 'DATA_STALE' THEN 0 ELSE 1 END, sev_rank, series_key, day_dt
        FROM   a)
 ORDER  BY grp, stale_first, sev_rank, kind, db_pdb, series_key, day_dt;
+
+COLUMN noise_line FORMAT A160 WORD_WRAPPED HEADING 'NOISY SERIES'
+
+SELECT COUNT(*) || ' anomaly series alert often (' || MAX(window_days) || '-day window, knobs noise_episodes / '
+       || 'noise_flag_pct). Run @doctor.sql: section 12 lists them with the knob change that quiets each.'
+       AS noise_line
+FROM   capr_anom_volume&cap_s
+WHERE  noisy = 'Y'
+  AND  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
+  AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
+HAVING COUNT(*) > 0;

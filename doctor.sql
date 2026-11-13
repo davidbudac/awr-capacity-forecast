@@ -33,6 +33,11 @@
 -- over it: a private DB link resolves for the session user, so only the
 -- owner's definer's-rights code can use it when doctor runs as SYSDBA.
 --
+-- Section 12 reads CAPR_ALERT_VOLUME once, live (no refresh run needed):
+-- the alerts the knobs raise now per kind, and for every noisy anomaly
+-- series (noise_episodes, noise_flag_pct) the two ways to quiet it as
+-- UPDATE cap_config statements. Its verdict is PASS or WARN, never FAIL.
+--
 -- It leaves one SQL*Plus variable behind for callers: cap_doctor_fail, the
 -- number of FAIL lines ("1" if the block did not finish). quickstart.sql stops
 -- before install when it is not 0.
@@ -903,6 +908,176 @@ BEGIN
             WHEN OTHERS THEN
                 IF v_cur%ISOPEN THEN CLOSE v_cur; END IF;
                 emit('WARN', 'CAPR_TARGETS', 'cannot read: ' || err);
+        END;
+    END IF;
+
+    -- =================================================================
+    -- 12. Alert volume (installed only): what the knobs raise now, per
+    -- kind, and for each noisy anomaly series the two ways to quiet it.
+    -- One live read of CAPR_ALERT_VOLUME, so it needs no refresh run. Its
+    -- verdict is a WARN at most: a noisy series is tuning, not a fault.
+    -- =================================================================
+    IF v_installed THEN
+        hdr('12. Alert volume (CAPR_ALERT_VOLUME, evaluated now)');
+        DECLARE
+            c_max    CONSTANT PLS_INTEGER := 20;
+            TYPE t_cnt IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(30);
+            TYPE t_num IS TABLE OF NUMBER INDEX BY VARCHAR2(30);
+            v_alerts t_cnt;
+            v_series t_cnt;
+            v_noisy  t_cnt;
+            v_floor  t_num;      -- per floor knob: the largest suggestion
+            v_shared t_cnt;      -- per floor knob: its noisy series
+            v_cur    SYS_REFCURSOR;
+            v_db     VARCHAR2(512);
+            v_kind   VARCHAR2(30);
+            v_ser    VARCHAR2(256);
+            v_mode   VARCHAR2(12);
+            v_ep     NUMBER;
+            v_crit   NUMBER;
+            v_wrn    NUMBER;
+            v_inf    NUMBER;
+            v_scored NUMBER;
+            v_flag   NUMBER;
+            v_pct    NUMBER;
+            v_dev    NUMBER;
+            v_fknob  VARCHAR2(30);
+            v_fval   NUMBER;
+            v_sugg   NUMBER;
+            v_mknob  VARCHAR2(30);
+            v_bit    NUMBER;
+            v_is     VARCHAR2(1);
+            v_mval   NUMBER;
+            v_rows   PLS_INTEGER := 0;
+            v_n      PLS_INTEGER := 0;
+            v_k      VARCHAR2(30);
+            -- The noisy series' lines, printed after the per-kind table.
+            TYPE t_lines IS TABLE OF VARCHAR2(400);
+            v_lines  t_lines := t_lines();
+
+            PROCEDURE keep(p_text IN VARCHAR2) IS
+            BEGIN
+                v_lines.EXTEND;
+                v_lines(v_lines.LAST) := SUBSTR(p_text, 1, 400);
+            END keep;
+
+            PROCEDURE kept(p_text IN VARCHAR2) IS
+            BEGIN
+                keep('         ' || p_text);
+            END kept;
+
+            FUNCTION num(p IN NUMBER) RETURN VARCHAR2 IS
+            BEGIN
+                RETURN RTRIM(TO_CHAR(p, 'FM999999999999999990.999999'), '.');
+            END num;
+        BEGIN
+            OPEN v_cur FOR
+                'SELECT db_pdb, kind, series_key, baseline_mode, episodes, n_crit, n_warn, n_info,'
+                || ' scored_days, flagged_days, flagged_pct, max_dev, floor_knob, floor_value,'
+                || ' suggested_floor, mode_knob, mode_bit, noisy'
+                || ' FROM capr_alert_volume'
+                || ' ORDER BY noisy DESC, episodes DESC, flagged_pct DESC NULLS LAST,'
+                || ' kind, db_pdb, series_key, baseline_mode';
+            LOOP
+                FETCH v_cur INTO v_db, v_kind, v_ser, v_mode, v_ep, v_crit, v_wrn, v_inf,
+                                 v_scored, v_flag, v_pct, v_dev, v_fknob, v_fval,
+                                 v_sugg, v_mknob, v_bit, v_is;
+                EXIT WHEN v_cur%NOTFOUND;
+                v_rows := v_rows + 1;
+                IF NOT v_alerts.EXISTS(v_kind) THEN
+                    v_alerts(v_kind) := 0; v_series(v_kind) := 0; v_noisy(v_kind) := 0;
+                END IF;
+                v_alerts(v_kind) := v_alerts(v_kind) + v_ep;
+                v_series(v_kind) := v_series(v_kind) + 1;
+                CONTINUE WHEN v_is <> 'Y';
+                v_noisy(v_kind) := v_noisy(v_kind) + 1;
+                v_n := v_n + 1;
+                IF v_fknob IS NOT NULL THEN
+                    IF NOT v_floor.EXISTS(v_fknob) THEN
+                        v_floor(v_fknob) := v_sugg; v_shared(v_fknob) := 0;
+                    END IF;
+                    v_floor(v_fknob)  := GREATEST(v_floor(v_fknob), v_sugg);
+                    v_shared(v_fknob) := v_shared(v_fknob) + 1;
+                END IF;
+                CONTINUE WHEN v_n > c_max;
+                keep('  noisy: ' || v_kind || ' ' || v_ser || ' on ' || v_db || ', ' || v_mode);
+                kept(v_ep || ' episode(s) (' || v_crit || ' CRIT, ' || v_wrn || ' WARN, ' || v_inf || ' INFO), '
+                     || v_flag || ' of ' || v_scored || ' scored days flagged ('
+                     || TO_CHAR(v_pct, 'FM990.0') || '%)');
+                IF v_fknob IS NOT NULL THEN
+                    kept('largest deviation ' || num(ROUND(v_dev, 4)) || ' against the floor '
+                         || v_fknob || ' = ' || num(v_fval)
+                         || CASE WHEN v_fknob LIKE 'cpu_min_mad_pct%' THEN ' (both in sigma points: x mad_k = percent)'
+                                 WHEN v_fknob = 'abs_floor_bytes'
+                                 THEN ' (bytes a day; ' || num(ROUND(v_sugg / 1048576)) || ' MiB suggested)' END);
+                    kept('a) raise that floor, for every series of its unit:');
+                    kept('     UPDATE cap_config SET cfg_value = ' || num(v_sugg)
+                         || ' WHERE cfg_name = ''' || v_fknob || ''';');
+                END IF;
+                v_mval := knob_raw(v_mknob);
+                kept(CASE WHEN v_fknob IS NOT NULL THEN 'b) or ' ELSE 'a) ' END
+                     || 'stop ' || v_mode || ' alerts for the whole family (clear bit '
+                     || v_bit || ' of ' || v_mknob || '):');
+                kept('     UPDATE cap_config SET cfg_value = '
+                     || NVL(num(v_mval - BITAND(v_mval, v_bit)), 'cfg_value - ' || v_bit)
+                     || ' WHERE cfg_name = ''' || v_mknob || ''';');
+            END LOOP;
+            CLOSE v_cur;
+
+            IF v_rows > 0 THEN
+                DBMS_OUTPUT.PUT_LINE('  ' || RPAD('KIND', 18) || LPAD('ALERTS', 8) || LPAD('SERIES', 8)
+                                     || LPAD('NOISY', 7));
+                v_k := v_alerts.FIRST;
+                WHILE v_k IS NOT NULL LOOP
+                    DBMS_OUTPUT.PUT_LINE('  ' || RPAD(v_k, 18) || LPAD(v_alerts(v_k), 8)
+                                         || LPAD(v_series(v_k), 8) || LPAD(v_noisy(v_k), 7));
+                    v_k := v_alerts.NEXT(v_k);
+                END LOOP;
+            END IF;
+            IF v_n > 0 THEN
+                DBMS_OUTPUT.PUT_LINE(' ');
+                FOR i IN 1 .. v_lines.COUNT LOOP
+                    DBMS_OUTPUT.PUT_LINE(v_lines(i));
+                END LOOP;
+                IF v_n > c_max THEN
+                    note((v_n - c_max) || ' more noisy series not listed (CAPR_ALERT_VOLUME, noisy = Y).');
+                END IF;
+                v_k := v_floor.FIRST;
+                WHILE v_k IS NOT NULL LOOP
+                    IF v_shared(v_k) > 1 THEN
+                        note('One value quiets all ' || v_shared(v_k) || ' noisy series of ' || v_k
+                             || ': ' || num(v_floor(v_k)) || '.');
+                    END IF;
+                    IF v_k = 'abs_floor_bytes' THEN
+                        note('abs_floor_bytes is also the floor of the shrink-cliff rule (shrink_mad_k).');
+                    ELSIF v_k = 'cpu_min_mad_pct' THEN
+                        note('cpu_min_mad_pct is also the day threshold of the CPU level shift.');
+                    END IF;
+                    v_k := v_floor.NEXT(v_k);
+                END LOOP;
+                note('COMMIT after an UPDATE. Reports show the change at once, the stored alerts');
+                note('at the next cap_results.refresh. Undo: SET cfg_value = cfg_default.');
+                DBMS_OUTPUT.PUT_LINE(' ');
+            END IF;
+            IF v_n = 0 THEN
+                emit('PASS', 'alert volume', 'OK: ' || v_rows || ' alerting series, none noisy'
+                     || ' (noise_episodes ' || num(knob_raw('noise_episodes'))
+                     || ', noise_flag_pct ' || num(knob_raw('noise_flag_pct')) || ')');
+            ELSE
+                emit('WARN', 'alert volume', v_n || ' noisy series of ' || v_rows || ' alerting'
+                     || ' (noise_episodes ' || num(knob_raw('noise_episodes'))
+                     || ', noise_flag_pct ' || num(knob_raw('noise_flag_pct'))
+                     || '): tuning advice above, not a fault');
+            END IF;
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF v_cur%ISOPEN THEN CLOSE v_cur; END IF;
+                -- An install older than the view: the upgrade's own preflight.
+                IF SQLCODE = -942 THEN
+                    emit('INFO', 'alert volume', 'CAPR_ALERT_VOLUME is not installed here yet: install.sql creates it');
+                ELSE
+                    emit('WARN', 'alert volume', 'cannot read CAPR_ALERT_VOLUME: ' || err || ' (re-run install.sql)');
+                END IF;
         END;
     END IF;
 
