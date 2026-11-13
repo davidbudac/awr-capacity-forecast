@@ -74,6 +74,11 @@ AWR keeps 8 days by default, so the first report says `INSUFFICIENT_HISTORY`.
 The copies keep 400 days and grow with every collect, so schedule the hourly
 collect (`CAP_COLLECT_JOB`).
 
+A first report can also list several `*_ANOM` alerts for series that move a
+little every day. Run `@doctor.sql` as the owner: section 12 counts the
+alerts per kind, names each noisy series and prints the `UPDATE cap_config`
+that quiets it (a higher floor knob, or one baseline mode less).
+
 For a lasting install, `./install.sh --profile standalone` does the same,
 trains the Tier 2 models and creates the scheduler jobs (disabled).
 `./install.sh` alone runs a wizard.

@@ -177,14 +177,14 @@ names the upgrade path, M25) → `20_daily` →
 `25_series_daily` (CAPD_SERIES_DAILY) → `30_forecast` → `35_series_forecast`
 (CAPF_SERIES_FORECAST) → `40_anomaly` → `42_memory_views` (M26 verdicts, see
 "Memory verdicts" below) → `45_report_views` (CAPR_CONTAINER,
-CAPR_ANOMALIES, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
+CAPR_ANOMALIES, CAPR_ANOM_VOLUME, CAPR_FRESHNESS, CAPR_TARGETS, CAPR_SEVERITY, the section views, CAPR_SERIES,
 CAPR_SEGMENT_GROWTH, the point feeds CAPR_SERIES_POINTS / CAPR_HOURLY_POINTS,
 CAPR_FIT, and the memory report views CAPR_MEM_AREA / CAPR_MEM_VERDICT /
 CAPR_MEM_EVIDENCE / CAPR_MEM_COMPONENTS / CAPR_MEM_COMP_POINTS, M26.4) → `50_ml` (CAP_ML_MODEL, the temporary CAP_ML_INPUT, pulls `ml/cap_forecast_ml.pks/.pkb`, the
 ESM views, CAPF_COMPARE, CAPF_BACKTEST, CAPF_ESM_HEALTH[_SUMMARY]) →
 `55_report_views_ml` (the Tier-2-dependent CAPR_* section views,
 CAPR_FORECAST_POINTS and CAPR_ALERTS, which reads the Tier 2 health views for
-MODEL_HEALTH) → `60_results` (the results tables, package CAP_RESULTS and the
+MODEL_HEALTH, and CAPR_ALERT_VOLUME over it) → `60_results` (the results tables, package CAP_RESULTS and the
 CAPR_ALERTS_LATEST / CAPR_ALERT_EVENTS / CAPR_RUNS / CAPR_COVERAGE /
 CAPR_FIT_HISTORY / CAPR_WEEKLY_DIGEST / CAPR_FORECAST_ACCURACY /
 CAPR_FIT_TRACK views), and
@@ -492,7 +492,11 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   expiry (`cap_repo.reader_expiry`, WARN inside `reader_expiry_warn_days`,
   30), and leaves `cap_doctor_fail` (count of FAIL lines, "1" if the block
   did not finish). `quickstart.sql` stops before install on a FAIL unless
-  `DEFINE force_install = Y`.
+  `DEFINE force_install = Y`. Section 12 (the last) reads `CAPR_ALERT_VOLUME`
+  once, live: alerts per kind, and per noisy anomaly series the two
+  `UPDATE cap_config` statements that quiet it (the floor knob at
+  `suggested_floor`, or the mode's bit cleared in `alert_modes_*`). PASS or
+  one WARN, never a FAIL.
 - **Scheduler jobs.** `install_jobs.sql` creates jobs with unqualified names;
   DBMS_SCHEDULER resolves them in `CURRENT_SCHEMA`, so a SYSDBA +
   `CURRENT_SCHEMA` run creates them in the target schema, and the script lists
@@ -738,6 +742,20 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   4=HOUR_OF_WEEK, AND inside `anomaly_report_days`); `CAPR_ALERTS` has one
   branch over its `alerting = 'Y'` rows (TBSPC_ANOM, CPU_ANOM, DBCPU_ANOM,
   SERIES_ANOM), an HOUR_OF_WEEK day rolled up to its worst hour.
+- **Alert volume (U14).** `CAPR_ANOM_VOLUME` (ddl/45, because it reads
+  `CAPA_ANOM`, grouped by the mode; in the snapshot registry, read by the
+  text report's closing line of section 0) holds per series and alerting
+  baseline mode the scored and flagged days of the `anomaly_report_days`
+  window, the episodes, `floor_knob`, `max_dev`, `suggested_floor` and
+  `noisy` (`noise_episodes` 3, `noise_flag_pct` 10). Its `fk` CTE mirrors
+  `CAPA_OBS.ufloor` (unit, grain -> knob): a new unit needs a row in both.
+  `CAPR_ALERT_VOLUME` (ddl/55) counts `CAPR_ALERTS` per `state_key` and
+  joins it; only doctor reads it (two passes of the anomaly engine).
+  The engine's threshold floor is `mad_k x (thr_floor / mad_k)`, which
+  NUMBER division can leave a last digit below `thr_floor` (3 x (100 / 3)
+  reads 99.99...), so a floor equal to a deviation does not always silence
+  it: `suggested_floor` tests its candidate with that arithmetic and takes
+  the next step when it falls short (fixture: PROCESSES +100 suggests 101).
 - **Knob renames (M15):** `tbspc_min_hist` → `trailing_min_hist`,
   `cpu_min_dow_hist` → `weekly_min_hist`. A carry-over MERGE before the seed
   MERGE copies an operator's value to the new key, then the old keys are

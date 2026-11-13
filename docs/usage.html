@@ -235,7 +235,7 @@
           <tbody>
             <tr>
               <td class="num">0</td><td><b>At a glance</b><br><span class="small"><span class="inline">CAPR_ALERTS</span></span></td>
-              <td class="def">CRIT / WARN / INFO counts, then one line per current issue: severity, kind, DB/PDB, message. The HTML banner and external pollers read the same view. Anomaly kinds use the <span class="inline">anomaly_report_days</span> knob, <em>not</em> <span class="inline">anomaly_days</span>. Above the list: one coverage line per dbid (current / STALE / RETIRED, days of AWR, series by quality, from <span class="inline">CAPR_COVERAGE</span>) and the last refresh run. A <code>DATA_STALE</code> row comes first. With <code>SNAPSHOT</code> the list is the open, unacked states of the last refresh run.</td>
+              <td class="def">CRIT / WARN / INFO counts, then one line per current issue: severity, kind, DB/PDB, message. The HTML banner and external pollers read the same view. Anomaly kinds use the <span class="inline">anomaly_report_days</span> knob, <em>not</em> <span class="inline">anomaly_days</span>. Above the list: one coverage line per dbid (current / STALE / RETIRED, days of AWR, series by quality, from <span class="inline">CAPR_COVERAGE</span>) and the last refresh run. A <code>DATA_STALE</code> row comes first. With <code>SNAPSHOT</code> the list is the open, unacked states of the last refresh run. A closing line appears when anomaly series read noisy (<span class="inline">CAPR_ANOM_VOLUME</span>): see <a href="#noisy">A noisy first report</a>.</td>
             </tr>
             <tr>
               <td class="num">1</td><td><b>Days-to-full &amp; near-full</b><br><span class="small"><span class="inline">CAPR_TBSPC_DAYS_TO_FULL</span></span></td>
@@ -284,6 +284,22 @@
         <span class="pill warn">FLAT</span>: slope exactly zero.
         <span class="pill crit">INSUFFICIENT_HISTORY</span>: fewer than
         <span class="inline">min_train_days</span> daily points; raise AWR retention and wait.</p>
+      </div>
+
+      <div class="callout tip" id="noisy">
+        <span class="ico">▸</span>
+        <p><strong>A noisy first report.</strong> On a database whose sessions, redo or size move a
+        little every day, the shipped floors can raise several <code>*_ANOM</code> lines. When a
+        series alerts often, section&nbsp;0 ends with one line that says how many do. Run
+        <span class="inline">@doctor.sql</span>: <a href="reference.html#doctor">check&nbsp;12</a>
+        counts the alerts per kind, lists each noisy series and prints the
+        <code>UPDATE cap_config</code> that quiets it, either a higher floor
+        (<span class="inline">series_floor_count</span>, <span class="inline">series_floor_gib</span>,
+        <span class="inline">abs_floor_bytes</span>, ...) or one baseline mode less in
+        <span class="inline">alert_modes_*</span>. <span class="inline">CAPR_ALERT_VOLUME</span> holds the
+        same rows. A series is noisy from <span class="inline">noise_episodes</span> (3) episodes or
+        <span class="inline">noise_flag_pct</span> (10) percent of its scored days inside
+        <span class="inline">anomaly_report_days</span>.</p>
       </div>
 
       <!-- ===================== DRILL ===================== -->
@@ -1373,6 +1389,7 @@ COMMIT;</pre>
             <tr><td><span class="k">abs_floor_bytes</span></td><td class="num">100 MiB</td><td class="def">min growth/day to flag (flat-baseline guard)</td></tr>
             <tr><td><span class="k">dow_weeks</span></td><td class="num">8</td><td class="def">weeks the SAME_DOW and HOUR_OF_WEEK baselines look back</td></tr>
             <tr><td><span class="k">alert_modes_tbspc / _cpu / _series</span></td><td class="num">1 / 2 / 1</td><td class="def">which baseline modes page: 1 = TRAILING, 2 = SAME_DOW, 4 = HOUR_OF_WEEK, added together</td></tr>
+            <tr><td><span class="k">noise_episodes / noise_flag_pct</span></td><td class="num">3 / 10</td><td class="def">when an anomaly series reads noisy (<a href="#noisy">doctor check&nbsp;12</a>)</td></tr>
             <tr><td><span class="k">dtf_warn / dtf_crit</span></td><td class="num">90 / 30</td><td class="def">days-to-full WARN / CRIT thresholds</td></tr>
             <tr><td><span class="k">nearfull_warn_pct / nearfull_crit_pct</span></td><td class="num">90 / 97</td><td class="def">near-full-now WARN / CRIT, at any fit quality</td></tr>
             <tr><td><span class="k">report_min_gb</span></td><td class="num">1</td><td class="def">minimum used GiB for a tablespace to print in sections 2 and 6a</td></tr>

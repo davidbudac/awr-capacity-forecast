@@ -124,6 +124,13 @@ The maintainer chose not to plan these yet; they remain open findings.
   2026-11-13 (U11). `CAPR_ALERT_EVENTS.acked`, skipped by default,
   `--include-acked` sends them.
 
+## Units outside the numbered plans
+
+- **U14, doctor alert volume** (improve program 2026-11): `CAPR_ANOM_VOLUME`
+  and `CAPR_ALERT_VOLUME`, the knobs `noise_episodes` / `noise_flag_pct`,
+  `doctor.sql` section 12 and a closing line in the text report's section 0.
+  Open: the HTML report and the briefing do not show the noisy count.
+
 ## Direction options (not planned; the maintainer said "none for now")
 
 - Port the standalone STOP / START window restart into the suite's
