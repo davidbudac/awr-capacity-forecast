@@ -18,6 +18,9 @@
 --                     and baseline mode, plus CPU level shifts) with its
 --                     severity, message and alert eligibility. Also a point
 --                     feed for external dashboards.
+--   CAPR_ANOM_VOLUME -- per series and baseline mode that alerts: scored
+--                     and flagged days, episodes, the governing floor knob
+--                     and the floor that would quiet it, the noisy flag.
 --   CAPR_FRESHNESS -- one row per dbid: the age of its newest AWR snapshot
 --                     against SYSDATE (the DATA_STALE dead-man check).
 --   CAPR_TARGETS   -- one row per target and dbid: how it is fed, its
@@ -216,6 +219,130 @@ SELECT e.dbid,
 FROM   ev e
 LEFT   JOIN capr_container c
   ON   c.dbid = e.dbid AND c.con_dbid = e.con_dbid;
+
+-- --------------------------------------------------------------------
+-- CAPR_ANOM_VOLUME -- how much each series alerts under each baseline mode,
+-- and the floor that would quiet it. One row per (dbid, con_dbid,
+-- alert_kind, series, baseline_mode) with at least one flagged observation
+-- that alerts: the mode's bit is set in the family's alert_modes knob and
+-- the day lies inside anomaly_report_days of the kind's last day, the test
+-- CAPR_ANOMALIES.alerting applies. CAPR_ALERT_VOLUME (ddl/55) adds the
+-- alert rows and the other alert kinds; the text report's closing line
+-- reads this view, which costs one pass of the anomaly engine and none of
+-- the forecast views.
+--   scored_days   days of the window with a score: not a gap, a complete
+--                 day, n_hist >= min_hist (HOUR_OF_WEEK: at least one such
+--                 hour)
+--   flagged_days  the scored days that flagged, HIGH or LOW
+--   flagged_pct   100 x flagged_days / scored_days
+--   episodes      runs of consecutive flagged days: the rows CAPR_ALERTS
+--                 lists for the series and mode
+--   floor_knob    the CAP_CONFIG knob behind CAPA_OBS.thr_floor for the
+--                 series' unit and grain (fk below mirrors CAPA_OBS.ufloor),
+--                 floor_value its value now. thr_floor = floor_value, times
+--                 mad_k for the two cpu_min_mad_pct knobs.
+--   max_dev       the largest |value - expected| among the flagged
+--                 observations, in floor_knob units (CPU: divided by mad_k)
+--   suggested_floor  the smallest multiple of the knob's step
+--                 (fk.floor_step) that leaves none of those observations
+--                 above its threshold. A flag needs |dev| > mad_k x
+--                 GREATEST(mad_sigma, thr_floor / mad_k), and a floor does
+--                 not move a baseline, so a threshold floor at or above
+--                 every |dev| ends them. CAPA_ANOM's threshold floor is
+--                 mad_k x (thr_floor / mad_k), which NUMBER division can
+--                 leave a last digit below thr_floor (3 x (100 / 3) reads
+--                 99.99...): the first multiple at or above max_dev is
+--                 tested with that same arithmetic and the next one taken
+--                 when it falls short. The knob is shared by every series
+--                 of the unit.
+--   mode_knob / mode_bit  the alert_modes knob of the family and the bit of
+--                 this mode: clearing it stops the mode alerting for the
+--                 whole family.
+--   noisy         'Y' when episodes >= noise_episodes or flagged_pct >=
+--                 noise_flag_pct.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_anom_volume AS
+WITH fk AS (
+        SELECT 'BYTES_PER_DAY' AS unit, 'DAY' AS grain, 'abs_floor_bytes' AS floor_knob,
+               cfg.abs_floor_bytes AS floor_value, 1 AS floor_factor, 1048576 AS floor_step FROM cap_cfg cfg
+        UNION ALL SELECT 'PCT',         'DAY',  'cpu_min_mad_pct',      cfg.cpu_min_mad_pct,      cfg.mad_k, 0.1  FROM cap_cfg cfg
+        UNION ALL SELECT 'PCT',         'HOUR', 'cpu_min_mad_pct_hour', cfg.cpu_min_mad_pct_hour, cfg.mad_k, 0.1  FROM cap_cfg cfg
+        UNION ALL SELECT 'COUNT',       'DAY',  'series_floor_count',   cfg.series_floor_count,   1,         1    FROM cap_cfg cfg
+        UNION ALL SELECT 'GIB_PER_DAY', 'DAY',  'series_floor_gib',     cfg.series_floor_gib,     1,         0.01 FROM cap_cfg cfg
+        UNION ALL SELECT 'GIB',         'DAY',  'series_floor_gib',     cfg.series_floor_gib,     1,         0.01 FROM cap_cfg cfg
+        UNION ALL SELECT 'IO_PER_SEC',  'DAY',  'series_floor_iops',    cfg.series_floor_iops,    1,         1    FROM cap_cfg cfg
+        UNION ALL SELECT 'MB_PER_SEC',  'DAY',  'series_floor_mbps',    cfg.series_floor_mbps,    1,         0.1  FROM cap_cfg cfg
+     ),
+     mk AS (
+        SELECT 'TBSPC' AS kind, 'alert_modes_tbspc' AS mode_knob FROM dual
+        UNION ALL SELECT 'CPU',    'alert_modes_cpu'    FROM dual
+        UNION ALL SELECT 'SERIES', 'alert_modes_series' FROM dual
+     ),
+     dy AS (
+        SELECT a.dbid, a.con_dbid, a.kind, a.alert_kind, a.series, a.baseline_mode, a.mode_bit,
+               a.unit, a.grain, TRUNC(a.ts) AS obs_day,
+               MAX(CASE WHEN a.anomaly_flag IS NOT NULL THEN 1 ELSE 0 END) AS flagged,
+               MAX(CASE WHEN a.anomaly_flag IS NOT NULL THEN ABS(a.dev) END) AS abs_dev
+        FROM   capa_anom a
+        CROSS  JOIN cap_cfg cfg
+        WHERE  a.alerting_mode = 'Y'
+          AND  TRUNC(a.ts) > a.kind_last_day - cfg.anomaly_report_days
+          AND  a.gap_flag = 'N' AND a.is_complete = 'Y'
+          AND  a.n_hist >= a.min_hist
+        GROUP  BY a.dbid, a.con_dbid, a.kind, a.alert_kind, a.series, a.baseline_mode, a.mode_bit,
+                  a.unit, a.grain, TRUNC(a.ts)
+     ),
+     -- obs_day minus the running count of flagged days is constant along a
+     -- run of consecutive flagged days: it names the episode.
+     ep AS (
+        SELECT d.*,
+               CASE WHEN d.flagged = 1
+                    THEN d.obs_day - SUM(d.flagged) OVER (PARTITION BY d.dbid, d.con_dbid, d.alert_kind,
+                                                                       d.series, d.baseline_mode
+                                                          ORDER BY d.obs_day) END AS grp
+        FROM   dy d
+     ),
+     g AS (
+        SELECT e.dbid, e.con_dbid, e.kind, e.alert_kind, e.series, e.baseline_mode, e.mode_bit,
+               e.unit, e.grain,
+               COUNT(*)              AS scored_days,
+               SUM(e.flagged)        AS flagged_days,
+               COUNT(DISTINCT e.grp) AS episodes,
+               MAX(e.abs_dev)        AS abs_dev
+        FROM   ep e
+        GROUP  BY e.dbid, e.con_dbid, e.kind, e.alert_kind, e.series, e.baseline_mode, e.mode_bit,
+                  e.unit, e.grain
+        HAVING SUM(e.flagged) > 0
+     ),
+     s AS (
+        SELECT g.*, k.floor_knob, k.floor_value, k.floor_factor, k.floor_step,
+               CEIL(g.abs_dev / NULLIF(k.floor_factor, 0) / k.floor_step) * k.floor_step AS s0
+        FROM   g
+        LEFT   JOIN fk k ON k.unit = g.unit AND k.grain = g.grain
+     )
+SELECT s.dbid,
+       s.con_dbid,
+       s.alert_kind,
+       s.series,
+       s.baseline_mode,
+       cfg.anomaly_report_days                                        AS window_days,
+       s.scored_days,
+       s.flagged_days,
+       100 * s.flagged_days / s.scored_days                           AS flagged_pct,
+       s.episodes,
+       s.abs_dev / NULLIF(s.floor_factor, 0)                          AS max_dev,
+       s.floor_knob,
+       s.floor_value,
+       CASE WHEN s.abs_dev > cfg.mad_k * (s.floor_factor * s.s0 / NULLIF(cfg.mad_k, 0))
+            THEN s.s0 + s.floor_step ELSE s.s0 END                    AS suggested_floor,
+       m.mode_knob,
+       s.mode_bit,
+       CASE WHEN s.episodes >= cfg.noise_episodes
+              OR 100 * s.flagged_days / s.scored_days >= cfg.noise_flag_pct
+            THEN 'Y' ELSE 'N' END                                     AS noisy
+FROM   s
+CROSS  JOIN cap_cfg cfg
+JOIN   mk m ON m.kind = s.kind;
 
 -- --------------------------------------------------------------------
 -- CAPR_FRESHNESS -- one row per dbid: how old its newest AWR snapshot is.

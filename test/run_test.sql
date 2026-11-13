@@ -4694,6 +4694,309 @@ BEGIN
             fail('M15 anomaly-modes block raised ' || SQLERRM);
     END;
 
+    -- Alert volume: CAPR_ANOM_VOLUME (the noise facts per series and mode)
+    -- and CAPR_ALERT_VOLUME (CAPR_ALERTS counted per state_key). With the
+    -- shipped knobs the 14-day window (days 107..120) holds five anomaly
+    -- alerts, every series scored on all 14 days:
+    --   FIX_SPIKE   TRAILING  the +2 GiB day 110               1 day
+    --   FIX_GAP     TRAILING  the +256 MiB burst 115..117      3 days, 1 episode
+    --   BUSY_PCT    SAME_DOW  the injected Tuesday, 70 vs 40   1 day
+    --   DB_CPU_PCT  SAME_DOW  FIXPDB1's +18 points, 114..120   7 days, 1 episode
+    --   DB_SIZE_GB  TRAILING  the spike day's growth           1 day
+    -- So 1 of 14 days is 7.1% (below noise_flag_pct 10), 3 of 14 and 7 of 14
+    -- are noisy, and no series reaches noise_episodes 3.
+    DECLARE
+        d_last   DATE   := meta_d('LAST_DAY');
+        d_base   DATE   := meta_d('LAST_DAY') - 120;
+        n_pdb    NUMBER := meta_n('PDB_CON_DBID');
+        v_adj    BOOLEAN := meta_d('INVERTED_WED') = meta_d('INJECTED_TUE') + 1;
+        c_burst  CONSTANT NUMBER := 32768 * 8192;     -- the burst: c_burstb blocks a day
+        c_day    CONSTANT PLS_INTEGER := 112;         -- the day the unit spikes land on
+        n_k      NUMBER;
+        n_dbsz   NUMBER;
+        v_rows   PLS_INTEGER := 0;
+        v_seen   PLS_INTEGER := 0;
+        v_a      NUMBER;
+        v_b      NUMBER;
+        v_c      NUMBER;
+        TYPE t_num IS TABLE OF NUMBER INDEX BY VARCHAR2(30);
+        v_max    t_num;
+        v_knob   VARCHAR2(30);
+
+        -- One CAPR_ANOM_VOLUME row against its closed form. e_dev is the
+        -- largest |value - expected| in the series' own unit, e_factor what
+        -- the floor knob is multiplied by (mad_k for the CPU knobs), e_sugg
+        -- e_dev / e_factor rounded up to the knob's step.
+        PROCEDURE chk_vol(p_tag VARCHAR2, p_scored NUMBER, p_flagged NUMBER, p_eps NUMBER,
+                          p_max_dev NUMBER, p_knob VARCHAR2, p_floor NUMBER, p_sugg NUMBER,
+                          p_mknob VARCHAR2, p_bit NUMBER, p_noisy VARCHAR2,
+                          e_scored NUMBER, e_flagged NUMBER, e_eps NUMBER, e_dev NUMBER,
+                          e_factor NUMBER, e_knob VARCHAR2, e_floor NUMBER, e_sugg NUMBER,
+                          e_mknob VARCHAR2, e_bit NUMBER, e_noisy VARCHAR2) IS
+        BEGIN
+            chk_true(p_tag || ': scored ' || e_scored || ', flagged ' || e_flagged || ', episodes ' || e_eps
+                     || ' (got ' || p_scored || ' / ' || p_flagged || ' / ' || p_eps || ')',
+                     p_scored = e_scored AND p_flagged = e_flagged AND p_eps = e_eps);
+            chk_close(p_tag || ': max_dev in ' || e_knob || ' units', p_max_dev, e_dev / e_factor, 0.000000001);
+            chk_true(p_tag || ': floor ' || e_knob || ' = ' || e_floor || ' (got ' || p_knob || ' = ' || p_floor || ')',
+                     p_knob = e_knob AND p_floor = e_floor);
+            chk_int(p_tag || ': suggested_floor', p_sugg, e_sugg);
+            chk_true(p_tag || ': ' || e_mknob || ' bit ' || e_bit || ', noisy ' || e_noisy
+                     || ' (got ' || p_mknob || ' ' || p_bit || ' ' || p_noisy || ')',
+                     p_mknob = e_mknob AND p_bit = e_bit AND p_noisy = e_noisy);
+        END;
+    BEGIN
+        SELECT mad_k INTO n_k FROM cap_cfg;
+        -- DB_SIZE_GB is scored on its growth rate: the spike day's against
+        -- the median of the scored days in its 28-day window, re-derived here
+        -- from the daily series.
+        SELECT MAX(CASE WHEN day_dt = d_spike THEN rate END)
+               - MEDIAN(CASE WHEN day_dt < d_spike AND day_dt >= d_spike - 28 AND gap_flag = 'N' THEN rate END)
+          INTO n_dbsz
+          FROM (SELECT day_dt, gap_flag,
+                       (value - LAG(value) OVER (PARTITION BY dbid, con_dbid ORDER BY day_dt)) / day_gap AS rate
+                FROM   capd_series_daily
+                WHERE  dbid = v_dbid AND con_dbid = v_dbid AND series = 'DB_SIZE_GB');
+
+        DBMS_OUTPUT.PUT_LINE('=== alert volume: CAPR_ANOM_VOLUME with the shipped knobs ===');
+        FOR r IN (SELECT * FROM capr_anom_volume) LOOP
+            v_rows := v_rows + 1;
+            chk_int(r.alert_kind || ' ' || r.series || ' window_days = anomaly_report_days', r.window_days, 14);
+            chk_close(r.alert_kind || ' ' || r.series || ' flagged_pct = 100 x flagged / scored', r.flagged_pct,
+                      100 * r.flagged_days / r.scored_days, 0.000000001);
+            IF r.alert_kind = 'TBSPC_ANOM' AND r.series = 'FIX_SPIKE' AND r.con_dbid = v_dbid THEN
+                v_seen := v_seen + 1;
+                chk_vol('FIX_SPIKE TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                        r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                        14, 1, 1, 2147483648, 1, 'abs_floor_bytes', 104857600, 2147483648, 'alert_modes_tbspc', 1, 'N');
+            ELSIF r.alert_kind = 'TBSPC_ANOM' AND r.series = 'FIX_GAP' AND r.con_dbid = v_dbid THEN
+                v_seen := v_seen + 1;
+                chk_vol('FIX_GAP TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                        r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                        14, meta_n('BURST_DAYS'), 1, c_burst, 1, 'abs_floor_bytes', 104857600, c_burst,
+                        'alert_modes_tbspc', 1, 'Y');
+            ELSIF r.alert_kind = 'CPU_ANOM' AND r.series = 'BUSY_PCT' AND r.con_dbid = v_dbid THEN
+                v_seen := v_seen + 1;
+                chk_vol('BUSY_PCT SAME_DOW', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                        r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                        14, 1, 1, 70 - 40, n_k, 'cpu_min_mad_pct', 3, 10, 'alert_modes_cpu', 2, 'N');
+            ELSIF r.alert_kind = 'DBCPU_ANOM' AND r.series = 'DB_CPU_PCT' AND r.con_dbid = n_pdb THEN
+                v_seen := v_seen + 1;
+                chk_vol('FIXPDB1 DB_CPU_PCT SAME_DOW', r.scored_days, r.flagged_days, r.episodes, r.max_dev,
+                        r.floor_knob, r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                        14, 7, 1, 18, n_k, 'cpu_min_mad_pct', 3, 6, 'alert_modes_cpu', 2, 'Y');
+            ELSIF r.alert_kind = 'SERIES_ANOM' AND r.series = 'DB_SIZE_GB' AND r.con_dbid = v_dbid THEN
+                v_seen := v_seen + 1;
+                chk_vol('DB_SIZE_GB TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                        r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                        14, 1, 1, n_dbsz, 1, 'series_floor_gib', 0.5, CEIL(n_dbsz * 100) / 100, 'alert_modes_series', 1, 'N');
+                chk_true('DB_SIZE_GB max_dev: the 2 GiB step and no more than one day of growth swing (got '
+                         || r.max_dev || ')', r.max_dev >= 2 AND r.max_dev < 2.1);
+            END IF;
+        END LOOP;
+        chk_int('CAPR_ANOM_VOLUME rows (the five anomaly alerts)', v_rows, 5);
+        chk_int('CAPR_ANOM_VOLUME rows matched by key', v_seen, 5);
+
+        DBMS_OUTPUT.PUT_LINE('=== alert volume: CAPR_ALERT_VOLUME = CAPR_ALERTS per state_key ===');
+        snap_alerts;
+        SELECT COUNT(*), COUNT(a.state_key), COUNT(v.state_key),
+               COUNT(CASE WHEN v.episodes = a.n AND v.n_crit = a.n_crit AND v.n_warn = a.n_warn
+                           AND v.n_info = a.n_info AND v.db_pdb = a.db_pdb THEN 1 END),
+               SUM(v.episodes),
+               COUNT(CASE WHEN v.noisy = 'Y' THEN 1 END),
+               COUNT(CASE WHEN v.floor_knob IS NOT NULL THEN 1 END),
+               COUNT(CASE WHEN v.kind NOT IN ('TBSPC_ANOM', 'CPU_ANOM', 'DBCPU_ANOM', 'SERIES_ANOM')
+                           AND (v.noisy <> 'N' OR v.episodes <> 1
+                                OR COALESCE(v.window_days, v.scored_days, v.flagged_days, v.flagged_pct, v.max_dev,
+                                            v.floor_value, v.suggested_floor, v.mode_bit) IS NOT NULL
+                                OR v.floor_knob IS NOT NULL OR v.mode_knob IS NOT NULL OR v.baseline_mode IS NOT NULL)
+                          THEN 1 END)
+          INTO v_n, v_a, v_b, v_c, v_num, v_num2, v_num3, v_rows
+          FROM capr_alert_volume v
+          FULL OUTER JOIN (SELECT state_key, MAX(db_pdb) AS db_pdb, COUNT(*) AS n,
+                                  COUNT(CASE WHEN severity = 'CRIT' THEN 1 END) AS n_crit,
+                                  COUNT(CASE WHEN severity = 'WARN' THEN 1 END) AS n_warn,
+                                  COUNT(CASE WHEN severity = 'INFO' THEN 1 END) AS n_info
+                           FROM   cap_fixture_alerts_snap
+                           GROUP  BY state_key) a
+            ON a.state_key = v.state_key;
+        chk_true('CAPR_ALERT_VOLUME: one row per CAPR_ALERTS state_key, same counts by severity (' || v_n
+                 || ' keys, ' || v_a || ' / ' || v_b || ' / ' || v_c || ')',
+                 v_n > 0 AND v_a = v_n AND v_b = v_n AND v_c = v_n);
+        SELECT COUNT(*) INTO v_a FROM cap_fixture_alerts_snap;
+        chk_int('CAPR_ALERT_VOLUME SUM(episodes) = CAPR_ALERTS rows', v_num, v_a);
+        chk_int('CAPR_ALERT_VOLUME noisy rows (FIX_GAP, FIXPDB1 DB_CPU_PCT)', v_num2, 2);
+        chk_int('CAPR_ALERT_VOLUME rows with a floor knob (the five anomaly alerts)', v_num3, 5);
+        chk_int('CAPR_ALERT_VOLUME forecast and threshold kinds: one episode, no floor, noisy N (rows off)',
+                v_rows, 0);
+        SELECT COUNT(*) INTO v_n
+          FROM capr_alert_volume v
+          JOIN capr_anom_volume a
+            ON a.dbid = v.dbid AND a.con_dbid = v.con_dbid AND a.alert_kind = v.kind
+           AND a.series = v.series_key AND a.baseline_mode = v.baseline_mode
+          WHERE a.episodes = v.episodes AND a.scored_days = v.scored_days
+            AND a.flagged_days = v.flagged_days AND a.max_dev = v.max_dev
+            AND a.floor_knob = v.floor_knob AND a.suggested_floor = v.suggested_floor
+            AND a.mode_knob = v.mode_knob AND a.mode_bit = v.mode_bit AND a.noisy = v.noisy;
+        chk_int('CAPR_ALERT_VOLUME anomaly rows carry CAPR_ANOM_VOLUME, and its episodes = the alert rows',
+                v_n, 5);
+
+        DBMS_OUTPUT.PUT_LINE('=== alert volume: the suggested floor silences the series ===');
+        SAVEPOINT u14_floor;
+        BEGIN
+            -- One step below the suggestion every burst day still flags.
+            knob('abs_floor_bytes', c_burst - 1048576);
+            SELECT MAX(flagged_days), MAX(suggested_floor) INTO v_a, v_b FROM capr_anom_volume
+              WHERE alert_kind = 'TBSPC_ANOM' AND series = 'FIX_GAP';
+            chk_true('abs_floor_bytes one MiB below the suggestion: FIX_GAP still flags 3 days, same suggestion (got '
+                     || v_a || ' / ' || v_b || ')', v_a = 3 AND v_b = c_burst);
+            knob('abs_floor_bytes', c_burst);
+            SELECT COUNT(CASE WHEN series = 'FIX_GAP' THEN 1 END),
+                   COUNT(CASE WHEN series = 'FIX_SPIKE' THEN 1 END), COUNT(*)
+              INTO v_a, v_b, v_c FROM capr_anom_volume;
+            chk_true('abs_floor_bytes = FIX_GAP suggested_floor: FIX_GAP gone, FIX_SPIKE and the other three stay (got '
+                     || v_a || ' / ' || v_b || ' / ' || v_c || ')', v_a = 0 AND v_b = 1 AND v_c = 4);
+            SELECT COUNT(CASE WHEN series_key = 'FIX_GAP' THEN 1 END),
+                   COUNT(CASE WHEN series_key = 'FIX_SPIKE' THEN 1 END)
+              INTO v_a, v_b FROM capr_alerts WHERE kind = 'TBSPC_ANOM';
+            chk_true('abs_floor_bytes = FIX_GAP suggested_floor: no FIX_GAP TBSPC_ANOM alert, FIX_SPIKE keeps its one (got '
+                     || v_a || ' / ' || v_b || ')', v_a = 0 AND v_b = 1);
+            ROLLBACK TO SAVEPOINT u14_floor;
+
+            -- A CPU knob is in sigma points: the threshold floor is mad_k x
+            -- the knob. FIXPDB1's 18 points need 6; 5.9 gives 17.7.
+            knob('cpu_min_mad_pct', 18 / n_k - 0.1);
+            SELECT COUNT(*), MAX(n_days) INTO v_a, v_b FROM capr_alerts WHERE kind = 'DBCPU_ANOM';
+            chk_true('cpu_min_mad_pct 0.1 below the suggestion: the DBCPU_ANOM episode stays, 7 days (got '
+                     || v_a || ' / ' || v_b || ')', v_a = 1 AND v_b = 7);
+            knob('cpu_min_mad_pct', 18 / n_k);
+            SELECT COUNT(CASE WHEN kind = 'DBCPU_ANOM' THEN 1 END), COUNT(CASE WHEN kind = 'CPU_ANOM' THEN 1 END),
+                   COUNT(CASE WHEN kind = 'CPU_SHIFT' THEN 1 END)
+              INTO v_a, v_b, v_c FROM capr_alerts;
+            chk_true('cpu_min_mad_pct = the DBCPU suggestion: DBCPU_ANOM gone, CPU_ANOM (30 points) and CPU_SHIFT stay (got '
+                     || v_a || ' / ' || v_b || ' / ' || v_c || ')', v_a = 0 AND v_b = 1 AND v_c = 1);
+            ROLLBACK TO SAVEPOINT u14_floor;
+
+            DBMS_OUTPUT.PUT_LINE('=== alert volume: noise_episodes / noise_flag_pct ===');
+            -- 7 of 14 days is 50%: above it nothing is noisy by share.
+            knob('noise_flag_pct', 50.1);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END) INTO v_a FROM capr_anom_volume;
+            chk_int('noise_flag_pct 50.1: no noisy series', v_a, 0);
+            knob('noise_flag_pct', 50);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END), MAX(CASE WHEN noisy = 'Y' THEN series END)
+              INTO v_a, v_str FROM capr_anom_volume;
+            chk_true('noise_flag_pct 50: FIXPDB1 DB_CPU_PCT alone (7 of 14) (got ' || v_a || ' ' || v_str || ')',
+                     v_a = 1 AND v_str = 'DB_CPU_PCT');
+            knob('noise_flag_pct', 100);
+            knob('noise_episodes', 1);
+            SELECT COUNT(CASE WHEN noisy = 'Y' THEN 1 END) INTO v_a FROM capr_anom_volume;
+            chk_int('noise_episodes 1: every series with an episode is noisy', v_a, 5);
+            FOR k IN (SELECT 'noise_episodes' AS kn, 0 AS v FROM dual UNION ALL
+                      SELECT 'noise_episodes', 2.5 FROM dual UNION ALL
+                      SELECT 'noise_flag_pct', 0   FROM dual UNION ALL
+                      SELECT 'noise_flag_pct', 101 FROM dual) LOOP
+                knob(k.kn, k.v);
+                SELECT status INTO v_str FROM cap_cfg_check WHERE knob = k.kn;
+                chk_str('CAP_CFG_CHECK ' || k.kn || ' ' || k.v, v_str, 'BAD');
+            END LOOP;
+            ROLLBACK TO SAVEPOINT u14_floor;
+            SELECT COUNT(*) INTO v_n FROM cap_cfg_check
+              WHERE knob IN ('noise_episodes', 'noise_flag_pct') AND status = 'OK';
+            chk_int('CAP_CFG_CHECK noise_episodes / noise_flag_pct OK as shipped', v_n, 2);
+            SELECT COUNT(*) INTO v_n FROM cap_cfg WHERE noise_episodes = 3 AND noise_flag_pct = 10;
+            chk_int('CAP_CFG noise_episodes 3, noise_flag_pct 10', v_n, 1);
+
+            -- Every unit and grain has its floor knob. Day 112 gets a spike
+            -- in the four families the shipped fixture never flags, and
+            -- alert_modes_cpu 6 adds the hour grain:
+            --   IOPS      +10000 read requests/s over the day interval: the
+            --             daily p95 moves 0.95 x 10000, and a straight line
+            --             sits 14.5 slopes (9.5 a day) over its 28-day median
+            --   IO_MBPS   +100 MB/s the same way: 0.95 x 100 over a constant
+            --   PROCESSES +100 on the flat 150. Its suggestion is 101: the
+            --             engine's threshold floor is mad_k x (floor / mad_k),
+            --             and 3 x (100 / 3) reads 99.99..., below the 100.
+            --   PGA_ALLOC_GB +1 GiB at 18:00: 1 + 14.5 days of 1/1200 GiB
+            --   BUSY_PCT HOUR_OF_WEEK: the injected Tuesday 06:00, 70 vs 20
+            DBMS_OUTPUT.PUT_LINE('=== alert volume: one floor knob per unit and grain ===');
+            knob('alert_modes_cpu', 6);
+            UPDATE cap_fixture_sysstat SET value = value + 10000 * 43200
+             WHERE dbid = v_dbid AND con_dbid = v_dbid AND stat_name = 'physical read total IO requests'
+               AND snap_id >= 2001 + 2 * c_day;
+            UPDATE cap_fixture_sysstat SET value = value + 100 * 1048576 * 43200
+             WHERE dbid = v_dbid AND con_dbid = v_dbid AND stat_name = 'physical read total bytes'
+               AND snap_id >= 2001 + 2 * c_day;
+            UPDATE cap_fixture_resource_limit SET max_utilization = max_utilization + 100
+             WHERE dbid = v_dbid AND resource_name = 'processes' AND snap_id = 2001 + 2 * c_day;
+            UPDATE cap_fixture_pgastat SET value = value + 1073741824
+             WHERE dbid = v_dbid AND stat_name = 'total PGA allocated' AND snap_id = 2001 + 2 * c_day;
+            v_rows := 0; v_seen := 0;
+            FOR r IN (SELECT * FROM capr_anom_volume) LOOP
+                v_rows := v_rows + 1;
+                IF r.floor_knob IS NOT NULL THEN
+                    v_max(r.floor_knob) := GREATEST(r.suggested_floor,
+                                                    CASE WHEN v_max.EXISTS(r.floor_knob) THEN v_max(r.floor_knob) ELSE 0 END);
+                END IF;
+                IF r.series = 'IOPS' THEN
+                    v_seen := v_seen + 1;
+                    chk_vol('IOPS TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                            r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                            14, 1, 1, 0.95 * 10000 + 14.5 * 9.5, 1, 'series_floor_iops', 100, 9638,
+                            'alert_modes_series', 1, 'N');
+                ELSIF r.series = 'IO_MBPS' THEN
+                    v_seen := v_seen + 1;
+                    chk_vol('IO_MBPS TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                            r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                            14, 1, 1, 0.95 * 100, 1, 'series_floor_mbps', 10, 95, 'alert_modes_series', 1, 'N');
+                ELSIF r.series = 'PROCESSES' THEN
+                    v_seen := v_seen + 1;
+                    chk_vol('PROCESSES TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev, r.floor_knob,
+                            r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                            14, 1, 1, 100, 1, 'series_floor_count', 10, 101, 'alert_modes_series', 1, 'N');
+                ELSIF r.series = 'PGA_ALLOC_GB' THEN
+                    v_seen := v_seen + 1;
+                    chk_vol('PGA_ALLOC_GB TRAILING', r.scored_days, r.flagged_days, r.episodes, r.max_dev,
+                            r.floor_knob, r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                            14, 1, 1, 1 + 14.5 / 1200, 1, 'series_floor_gib', 0.5, 1.02, 'alert_modes_series', 1, 'N');
+                ELSIF r.series = 'BUSY_PCT' AND r.baseline_mode = 'HOUR_OF_WEEK' THEN
+                    v_seen := v_seen + 1;
+                    chk_vol('BUSY_PCT HOUR_OF_WEEK', r.scored_days, r.flagged_days, r.episodes, r.max_dev,
+                            r.floor_knob, r.floor_value, r.suggested_floor, r.mode_knob, r.mode_bit, r.noisy,
+                            14, 2, CASE WHEN v_adj THEN 1 ELSE 2 END, 70 - 20, n_k, 'cpu_min_mad_pct_hour', 5, 16.7,
+                            'alert_modes_cpu', 4, 'Y');
+                END IF;
+            END LOOP;
+            chk_int('unit spikes: CAPR_ANOM_VOLUME rows (5 shipped + 4 series + 2 HOUR_OF_WEEK)', v_rows, 11);
+            chk_int('unit spikes: rows matched by key', v_seen, 5);
+            chk_int('unit spikes: floor knobs suggested for (all seven)', v_max.COUNT, 7);
+            knob('series_floor_count', 100);
+            SELECT MAX(flagged_days), MAX(suggested_floor) INTO v_a, v_b FROM capr_anom_volume
+              WHERE series = 'PROCESSES';
+            chk_true('series_floor_count = the deviation itself (100): PROCESSES still flags, suggestion 101 (got '
+                     || v_a || ' / ' || v_b || ')', v_a = 1 AND v_b = 101);
+            -- Each knob at the largest suggestion of its series: nothing
+            -- flags any more, in the view or in CAPR_ALERTS.
+            v_knob := v_max.FIRST;
+            WHILE v_knob IS NOT NULL LOOP
+                knob(v_knob, v_max(v_knob));
+                v_knob := v_max.NEXT(v_knob);
+            END LOOP;
+            SELECT COUNT(*) INTO v_n FROM capr_anom_volume;
+            chk_int('every floor knob at its largest suggestion: CAPR_ANOM_VOLUME rows', v_n, 0);
+            SELECT COUNT(*) INTO v_n FROM capr_alerts
+              WHERE kind IN ('TBSPC_ANOM', 'CPU_ANOM', 'DBCPU_ANOM', 'SERIES_ANOM');
+            chk_int('every floor knob at its largest suggestion: anomaly alerts', v_n, 0);
+            SELECT COUNT(*) INTO v_n FROM cap_cfg_check WHERE status <> 'OK';
+            chk_int('every floor knob at its largest suggestion: CAP_CFG_CHECK rows not OK', v_n, 0);
+        EXCEPTION
+            WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u14_floor; RAISE;
+        END;
+        ROLLBACK TO SAVEPOINT u14_floor;
+    EXCEPTION
+        WHEN OTHERS THEN
+            fail('alert volume block raised ' || SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
+    END;
+
     -- Alert surface: CAPR_SEVERITY, the stable state_key, direction,
     -- the gates, per-tablespace thresholds, DATA_STALE, CPU_HOT / DBCPU_HOT,
     -- MODEL_HEALTH, the CPU limit convention and the SERIES scored flag.

@@ -35,6 +35,9 @@
 --   CAPR_ALERTS         -- the pollable alert surface (bottom of this file):
 --                          here because its MODEL_HEALTH kind reads the
 --                          Tier 2 health view.
+--   CAPR_ALERT_VOLUME   -- CAPR_ALERTS counted per alert identity, with
+--                          the noise facts of CAPR_ANOM_VOLUME (ddl/45) on
+--                          the anomaly kinds. doctor.sql section 12 reads it.
 --
 -- Read-only, like everything else in the suite.
 --
@@ -657,3 +660,60 @@ SELECT a.severity,
 FROM   alerts a
 LEFT   JOIN capr_container c
   ON   c.dbid = a.dbid AND c.con_dbid = a.con_dbid;
+
+-- --------------------------------------------------------------------
+-- CAPR_ALERT_VOLUME -- how many alerts each alert identity raises with the
+-- knobs as they are: CAPR_ALERTS counted per state_key (dbid, con_dbid,
+-- kind, series_key, baseline_mode), one row each, per database.
+--   episodes        its CAPR_ALERTS rows: an anomaly kind lists one row per
+--                   run of consecutive flagged days, every other kind one
+--                   row. n_crit / n_warn / n_info split them by severity.
+-- The anomaly kinds (TBSPC_ANOM, CPU_ANOM, DBCPU_ANOM, SERIES_ANOM) carry
+-- CAPR_ANOM_VOLUME's row of the same key: the window, scored and flagged
+-- days, the largest deviation in floor-knob units, the floor knob with its
+-- value and the suggested value, the alert_modes knob and bit. Those
+-- columns are NULL on every other kind: a forecast or threshold alert has
+-- no floor to raise.
+--   noisy           CAPR_ANOM_VOLUME's verdict (its own episode count, the
+--                   same number as episodes here), 'N' on the other kinds.
+-- Reading it runs the anomaly engine twice (CAPR_ALERTS, CAPR_ANOM_VOLUME):
+-- it is doctor's view, no report driver reads it.
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capr_alert_volume AS
+WITH al AS (
+        SELECT a.dbid, a.con_dbid, a.kind, a.series_key, a.baseline_mode, a.state_key,
+               MAX(a.db_pdb)                                   AS db_pdb,
+               COUNT(*)                                        AS episodes,
+               COUNT(CASE WHEN a.severity = 'CRIT' THEN 1 END) AS n_crit,
+               COUNT(CASE WHEN a.severity = 'WARN' THEN 1 END) AS n_warn,
+               COUNT(CASE WHEN a.severity = 'INFO' THEN 1 END) AS n_info
+        FROM   capr_alerts a
+        GROUP  BY a.dbid, a.con_dbid, a.kind, a.series_key, a.baseline_mode, a.state_key
+     )
+SELECT al.dbid,
+       al.con_dbid,
+       al.db_pdb,
+       al.kind,
+       al.series_key,
+       al.baseline_mode,
+       al.state_key,
+       al.episodes,
+       al.n_crit,
+       al.n_warn,
+       al.n_info,
+       v.window_days,
+       v.scored_days,
+       v.flagged_days,
+       v.flagged_pct,
+       v.max_dev,
+       v.floor_knob,
+       v.floor_value,
+       v.suggested_floor,
+       v.mode_knob,
+       v.mode_bit,
+       NVL(v.noisy, 'N') AS noisy
+FROM   al
+LEFT   JOIN capr_anom_volume v
+  ON   v.dbid = al.dbid AND v.con_dbid = al.con_dbid
+ AND   v.alert_kind = al.kind AND v.series = al.series_key
+ AND   v.baseline_mode = al.baseline_mode;
