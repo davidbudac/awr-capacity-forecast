@@ -402,13 +402,13 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      if (val) usual += ' \u00b7 ' + hrs; else val = hrs;~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    return '<div class="an ' + (ev.f === 'LOW' ? 'lo' : 'hi') + '"><span class="dt">' + fWDay(ev.d) + '</span><span class="vv">' + val +~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      '</span><span class="us">' + usual + '</span><span class="z">z ' + num(ev.z, 1) + '</span></div>';~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  /* ---------- charts ---------- */~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  var CHARTS = [];~');
   DBMS_OUTPUT.PUT_LINE(q'~  var W = 640, H = 196, ML = 44, MR = 14, MT = 22, MB = 24;~');
@@ -805,13 +805,13 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  function fillRate(f) { return f.q === 'CYCLIC' ? f.pkSlope : f.slope; }~');
   DBMS_OUTPUT.PUT_LINE(q'~  function observedChange(pts, days) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var last = null, first = null;~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    for (var i = pts.length - 1; i >= 0; i--) {~');
   DBMS_OUTPUT.PUT_LINE(q'~      var p = pts[i];~');
   DBMS_OUTPUT.PUT_LINE(q'~      if (p.y == null) continue;~');
   DBMS_OUTPUT.PUT_LINE(q'~      if (last == null) last = p;~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      if (p.x >= last.x - days) first = p; else break;~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    return last && first && last.x > first.x ? { d: last.y - first.y, n: last.x - first.x } : null;~');
@@ -824,9 +824,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  /* The tablespace with the fewest days to full, as one sentence. */~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  function fillsFirstHtml(ts) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var first = ts.filter(function (m) { return m.f.dtf != null && m.f.q !== 'INSUFFICIENT_HISTORY'; })~');
   DBMS_OUTPUT.PUT_LINE(q'~      .sort(function (a, b) { return a.f.dtf - b.f.dtf; })[0];~');
@@ -1211,13 +1208,13 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    if (m.fam.id === 'tablespaces') return 'unusual growth ' + sign(z.v) + fBytes(Math.abs(z.v)) + ', usual ' + fBytes(z.e) + ' \u00b7 z ' + num(z.z, 1);~');
   DBMS_OUTPUT.PUT_LINE(q'~    return 'unusual, usual ' + m.unit.fmt(z.e) + ' \u00b7 z ' + num(z.z, 1);~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  Array.prototype.forEach.call(document.querySelectorAll('.chart'), function (el) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var spec = CHARTS[+el.getAttribute('data-chart')];~');
   DBMS_OUTPUT.PUT_LINE(q'~    var svg = el.querySelector('svg'), tip = el.querySelector('.tip');~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    var hx = svg.querySelector('.hx'), hd = svg.querySelector('.hd'), hit = svg.querySelector('.hit');~');
   DBMS_OUTPUT.PUT_LINE(q'~    function hide() { tip.classList.remove('on'); hx.setAttribute('visibility', 'hidden'); hd.setAttribute('visibility', 'hidden'); }~');
   DBMS_OUTPUT.PUT_LINE(q'~    hit.addEventListener('mouseleave', hide);~');
@@ -1230,9 +1227,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        var p = nearest(spec.lines[0].pts, x);~');
   DBMS_OUTPUT.PUT_LINE(q'~        if (!p) return hide();~');
   DBMS_OUTPUT.PUT_LINE(q'~        px = spec.xs(p.x); py = spec.ys(p.y);~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        lines.push('<b>' + fWDay(p.x) + ' ' + dateOf(p.x).getUTCFullYear() + '</b>');~');
   DBMS_OUTPUT.PUT_LINE(q'~        spec.lines.forEach(function (l) {~');
   DBMS_OUTPUT.PUT_LINE(q'~          var q = nearest(l.pts, p.x);~');
