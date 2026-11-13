@@ -1462,6 +1462,26 @@ BEGIN
     WHEN OTHERS THEN sec_failed('also unusual', SQLERRM);
   END;
 
+  -- Anomaly series that alert often (CAPR_ANOM_VOLUME.noisy): one line.
+  -- doctor.sql section 12 names them and the knob change for each.
+  DECLARE
+    v_noisy NUMBER;
+    v_days  NUMBER;
+  BEGIN
+    SELECT COUNT(*), MAX(window_days)
+      INTO v_noisy, v_days
+      FROM capr_anom_volume~cap_s
+     WHERE noisy = 'Y'
+       AND (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con);
+    IF v_noisy > 0 THEN
+      p('<p class="quiet">' || v_noisy || ' anomaly series ' || CASE v_noisy WHEN 1 THEN 'alerts' ELSE 'alert' END
+        || ' often in the last ' || v_days || ' days. Run doctor.sql: section 12 lists them with the knob change'
+        || ' that quiets each.</p>');
+    END IF;
+  EXCEPTION
+    WHEN OTHERS THEN sec_failed('noisy series', SQLERRM);
+  END;
+
   -- Evidence
   DECLARE
     first BOOLEAN := TRUE;

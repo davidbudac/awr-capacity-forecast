@@ -760,12 +760,20 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   4=HOUR_OF_WEEK, AND inside `anomaly_report_days`); `CAPR_ALERTS` has one
   branch over its `alerting = 'Y'` rows (TBSPC_ANOM, CPU_ANOM, DBCPU_ANOM,
   SERIES_ANOM), an HOUR_OF_WEEK day rolled up to its worst hour.
+  The message words a value by its unit, not its series: CTE `ut` in
+  `CAPR_ANOMALIES` (divisor, format, suffix per `CAPA_OBS` unit; a unit
+  without a row prints the number and the unit's name). The alert's `unit`
+  is the series' unit in upper case (`IO_PER_SEC`, `MB_PER_SEC`, ...), with
+  `BYTES` for bytes a day and `GIB` for both GiB and GiB a day. report.js
+  tells those two apart by the series' anomaly rows (`anomUnit`).
 - **Alert volume (U14).** `CAPR_ANOM_VOLUME` (ddl/45, because it reads
   `CAPA_ANOM`, grouped by the mode; in the snapshot registry, read by the
-  text report's closing line of section 0) holds per series and alerting
+  text report's closing line of section 0, one line in the briefing and
+  `meta.noisy` in the HTML report) holds per series and alerting
   baseline mode the scored and flagged days of the `anomaly_report_days`
   window, the episodes, `floor_knob`, `max_dev`, `suggested_floor` and
-  `noisy` (`noise_episodes` 3, `noise_flag_pct` 10). Its `fk` CTE mirrors
+  `noisy` (`noise_episodes` 3, or `noise_flag_pct` 10 on at least
+  `noise_min_days` 7 scored days: 1 flagged of 1 is 100%). Its `fk` CTE mirrors
   `CAPA_OBS.ufloor` (unit, grain -> knob): a new unit needs a row in both.
   `CAPR_ALERT_VOLUME` (ddl/55) counts `CAPR_ALERTS` per `state_key` and
   joins it; only doctor reads it (two passes of the anomaly engine).

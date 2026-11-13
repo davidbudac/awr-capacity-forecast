@@ -228,6 +228,7 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~.arow .d { text-align: right; }~');
   DBMS_OUTPUT.PUT_LINE(q'~.arow.crit .d .stamp { color: var(--crit); font-weight: 600; }~');
   DBMS_OUTPUT.PUT_LINE(q'~.allok { padding: 12px 0; color: var(--ink-2); border-bottom: 1px solid var(--line); }~');
+  DBMS_OUTPUT.PUT_LINE(q'~.noisy { margin: 12px 0 0; font-size: 12.5px; color: var(--ink-2); }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~.key { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 16px; font-size: 12px; color: var(--ink-3); align-items: center; }~');
   DBMS_OUTPUT.PUT_LINE(q'~.key span { display: inline-flex; align-items: center; gap: 8px; }~');
@@ -401,10 +402,10 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~.mlg { max-width: 640px; margin-top: 10px; font-size: 12.5px; }~');
   DBMS_OUTPUT.PUT_LINE(q'~.mlh, .mlr { display: grid; grid-template-columns: minmax(0, 1fr) 5.5em 4em 14.5em; gap: 12px; align-items: baseline; }~');
   DBMS_OUTPUT.PUT_LINE(q'~.mlr span { white-space: nowrap; }~');
-  DBMS_OUTPUT.PUT_LINE(q'~.mlh { color: var(--ink-3); font-size: 11.5px; padding-bottom: 5px; border-bottom: 1px solid var(--ink); }~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~.mlh { color: var(--ink-3); font-size: 11.5px; padding-bottom: 5px; border-bottom: 1px solid var(--ink); }~');
   DBMS_OUTPUT.PUT_LINE(q'~.mlr { padding: 4px 0; border-bottom: 1px solid var(--line-2); font: 12px var(--mono); color: var(--ink-2); }~');
   DBMS_OUTPUT.PUT_LINE(q'~.mlh span:nth-child(n+2), .mlr span:nth-child(n+2) { text-align: right; }~');
   DBMS_OUTPUT.PUT_LINE(q'~.mlr .mn { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }~');

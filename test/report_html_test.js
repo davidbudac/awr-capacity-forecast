@@ -257,6 +257,51 @@ try {
   check(false, 'render with IOPS / IO_MBPS throws: ' + e.message);
 }
 
+// An anomaly alert reads in the unit its series is scored in: IO/s and MB/s
+// for the I/O series (alert units IO_PER_SEC / MB_PER_SEC), GiB for a PGA
+// level and GiB/d for redo, which share the alert unit GIB and are told
+// apart by the series' own anomaly rows. Without such a row GIB reads GiB/d.
+try {
+  const redoFit = d.fits.filter(f => f.s === 'REDO_GB_DAY')[0];
+  const day = d.meta.lastDay;
+  const mk = (s, u) => Object.assign({}, redoFit, { s: s, u: u, v: 100, slope: 0, q: 'FLAT' });
+  const al = (s, u, v, thr) => ({ sev: 'WARN', kind: 'SERIES_ANOM', dbid: redoFit.dbid, con: redoFit.con, s: s, day: day, v: v, thr: thr, u: u, mode: 'TRAILING', first: day, n: 1, maxz: 9.9, msg: s + ' message' });
+  const an = (s, u) => ({ k: 'SERIES', dbid: redoFit.dbid, con: redoFit.con, s: s, ts: day + 'T00:00', ak: 'SERIES_LEVEL', f: 'HIGH', v: 1, e: 1, thr: 1, z: 9.9, shift: null, u: u, sev: 'WARN', mode: 'TRAILING', grain: 'DAY', nh: 28, al: 'Y', raw: 1, pctE: 1 });
+  const own = s => x => x.s !== s;
+  const units = Object.assign({}, d, {
+    fits: d.fits.filter(f => f.s !== 'IOPS' && f.s !== 'IO_MBPS').concat([mk('IOPS', 'io_per_sec'), mk('IO_MBPS', 'mb_per_sec')]),
+    alerts: d.alerts.filter(a => !/^(IOPS|IO_MBPS|PGA_ALLOC_GB|REDO_GB_DAY)$/.test(a.s)).concat([
+      al('IOPS', 'IO_PER_SEC', 12514, 3000), al('IO_MBPS', 'MB_PER_SEC', 143.5, 58.5),
+      al('PGA_ALLOC_GB', 'GIB', 12.5, 11.25), al('REDO_GB_DAY', 'GIB', 61.5, 56.25)]),
+    anomalies: d.anomalies.filter(own('PGA_ALLOC_GB')).filter(own('REDO_GB_DAY')).concat([an('PGA_ALLOC_GB', 'gib'), an('REDO_GB_DAY', 'gib_per_day')])
+  });
+  const h = render(JSON.stringify(units));
+  check(!h.includes('undefined') && !h.includes('NaN'), 'anomaly units: render is clean');
+  check(h.includes('unusual <b>12,514 IO/s</b>, normal \u2264 3,000 IO/s'), 'anomaly units: an IOPS alert reads in IO/s');
+  check(h.includes('unusual <b>144 MB/s</b>, normal \u2264 58.5 MB/s'), 'anomaly units: an IO_MBPS alert reads in MB/s');
+  check(h.includes('unusual <b>12.5 GiB</b>, normal \u2264 11.3 GiB \u00b7'), 'anomaly units: a PGA level alert reads in GiB, not GiB/d');
+  check(h.includes('unusual <b>61.5 GiB/d</b>, normal \u2264 56.3 GiB/d'), 'anomaly units: a redo alert reads in GiB/d');
+  const bare = render(JSON.stringify(Object.assign({}, units, { anomalies: [] })));
+  check(bare.includes('unusual <b>12.5 GiB/d</b>') && bare.includes('unusual <b>12,514 IO/s</b>'), 'anomaly units: without anomaly rows the alert unit decides (GIB reads GiB/d)');
+} catch (e) {
+  check(false, 'render with anomaly alerts of every unit throws: ' + e.message);
+}
+
+// The noisy line (meta.noisy, CAPR_ANOM_VOLUME rows with noisy = Y): one
+// line under the alert list, none at 0 or without the field. Advice: the
+// alert tally does not move.
+try {
+  const withNoisy = n => render(JSON.stringify(Object.assign({}, d, { meta: Object.assign({}, d.meta, { noisy: n, noisyDays: 14 }) })));
+  const two = withNoisy(2), one = withNoisy(1);
+  check(count(two, /<p class="noisy">/g) === 1 && two.includes('2 anomaly series alert often in the last 14 days. Run doctor.sql: section 12'), 'noisy 2: one line with the count and the window');
+  check(one.includes('1 anomaly series alerts often in the last 14 days.'), 'noisy 1: singular verb');
+  check(!withNoisy(0).includes('class="noisy"') && !withNoisy(null).includes('class="noisy"'), 'noisy 0 or absent: no line');
+  check(d.meta.noisy > 0 || !html.includes('class="noisy"'), 'the page shows the line only with a count');
+  check(between(two, '<div class="tally">', '<h3>') === between(html, '<div class="tally">', '<h3>'), 'noisy: the alert tally is unchanged');
+} catch (e) {
+  check(false, 'render with a noisy count throws: ' + e.message);
+}
+
 // The forecast track record (block "track", CAPR_FIT_TRACK): one line on
 // every card whose series has a row, a tag on the card only for BIASED and
 // WIDE, the band at the factor only when the factor widens it. Advice, like

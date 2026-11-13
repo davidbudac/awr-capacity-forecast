@@ -129,7 +129,14 @@ The maintainer chose not to plan these yet; they remain open findings.
 - **U14, doctor alert volume** (improve program 2026-11): `CAPR_ANOM_VOLUME`
   and `CAPR_ALERT_VOLUME`, the knobs `noise_episodes` / `noise_flag_pct`,
   `doctor.sql` section 12 and a closing line in the text report's section 0.
-  Open: the HTML report and the briefing do not show the noisy count.
+  U22 added `noise_min_days` (the share rule needs 7 scored days) and the
+  noisy count as one line in the briefing and the HTML report's alert list.
+- **U22, defect sweep** (2026-11-13): anomaly messages and alert units of
+  the I/O series follow the series' unit (they read GiB/day and `GIB`); a
+  positional `top_n` passed alone was ignored (ORA-00932 in the drivers'
+  argument SELECT, `test/lint_nullif_args.sh`); `test/report_html_test.js`
+  failed on a fixture page (its family list lacked the I/O sections and its
+  built I/O series counted days from the row count).
 
 ## Direction options (not planned; the maintainer said "none for now")
 

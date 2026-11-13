@@ -351,6 +351,22 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    return '<span class="when">now</span>';~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
+  DBMS_OUTPUT.PUT_LINE(q'~  /* An anomaly alert's value is in the unit the series is scored in. The~');
+  DBMS_OUTPUT.PUT_LINE(q'~     alert row has one name for some of them (GIB is GiB and GiB a day), so~');
+  DBMS_OUTPUT.PUT_LINE(q'~     the unit comes from the series' own anomaly rows when the metric is~');
+  DBMS_OUTPUT.PUT_LINE(q'~     known, else from the alert. */~');
+  DBMS_OUTPUT.PUT_LINE(q'~  var ALERT_UNIT = { BYTES: 'bytes_per_day', GIB: 'gib_per_day' };~');
+  DBMS_OUTPUT.PUT_LINE(q'~  function anomUnit(a, m) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    var rows = m ? m.anoms.filter(function (x) { return x.s === a.s && x.ak !== 'CPU_SHIFT' && x.u; }) : [];~');
+  DBMS_OUTPUT.PUT_LINE(q'~    return rows.length ? rows[0].u : ALERT_UNIT[a.u] || (a.u || '').toLowerCase();~');
+  DBMS_OUTPUT.PUT_LINE(q'~  }~');
+  DBMS_OUTPUT.PUT_LINE(q'~  var ANOM_SUFFIX = { gib_per_day: ' GiB/d', gib: ' GiB', io_per_sec: ' IO/s', mb_per_sec: ' MB/s' };~');
+  DBMS_OUTPUT.PUT_LINE(q'~  function anomFmt(u) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    if (u === 'bytes_per_day') return function (v) { return fBytes(v) + '/d'; };~');
+  DBMS_OUTPUT.PUT_LINE(q'~    if (u === 'pct') return function (v) { return num(v, 1) + '%'; };~');
+  DBMS_OUTPUT.PUT_LINE(q'~    return function (v) { return auto(v) + (ANOM_SUFFIX[u] || ''); };~');
+  DBMS_OUTPUT.PUT_LINE(q'~  }~');
+  DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  function alertFact(a, m) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var u = m ? m.unit : unitFor(a.u);~');
   DBMS_OUTPUT.PUT_LINE(q'~    switch (a.kind) {~');
@@ -367,10 +383,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      case 'TBSPC_FAMILY': return 'filling member may reach <b>' + num(a.v, 2) + ' GiB</b>, ceiling ' + num(a.thr, 2) + ' GiB';~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (/_ANOM$/.test(a.kind)) {~');
-  DBMS_OUTPUT.PUT_LINE(q'~      var v = a.u === 'BYTES' ? fBytes(a.v) + '/d' : a.u === 'PCT' ? num(a.v, 1) + '%' : a.u === 'GIB' ? auto(a.v) + ' GiB/d' : auto(a.v);~');
-  DBMS_OUTPUT.PUT_LINE(q'~      var t = a.u === 'BYTES' ? fBytes(a.thr) + '/d' : a.u === 'PCT' ? num(a.thr, 1) + '%' : a.u === 'GIB' ? auto(a.thr) + ' GiB/d' : auto(a.thr);~');
+  DBMS_OUTPUT.PUT_LINE(q'~      var af = anomFmt(anomUnit(a, m));~');
   DBMS_OUTPUT.PUT_LINE(q'~      var span = a.n > 1 ? ' \u00b7 ' + a.n + ' days' : '';~');
-  DBMS_OUTPUT.PUT_LINE(q'~      return 'unusual <b>' + v + '</b>, normal \u2264 ' + t + (a.maxz != null ? ' \u00b7 z ' + num(a.maxz, 1) : '') + span;~');
+  DBMS_OUTPUT.PUT_LINE(q'~      return 'unusual <b>' + af(a.v) + '</b>, normal \u2264 ' + af(a.thr) + (a.maxz != null ? ' \u00b7 z ' + num(a.maxz, 1) : '') + span;~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    return esc(a.msg || a.kind);~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
@@ -387,6 +402,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        if (!e.hours[a.ts]) e.nh++;~');
   DBMS_OUTPUT.PUT_LINE(q'~        e.hours[a.ts] = a.f;~');
   DBMS_OUTPUT.PUT_LINE(q'~      } else if (!e.day || Math.abs(a.z) > Math.abs(e.day.z)) e.day = a;~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      if (Math.abs(a.z || 0) >= Math.abs(e.z)) { e.z = a.z; e.f = a.f; }~');
   DBMS_OUTPUT.PUT_LINE(q'~    });~');
   DBMS_OUTPUT.PUT_LINE(q'~    return Object.keys(days).map(function (k) { return days[k]; })~');
@@ -402,9 +420,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        usual = 'usual ' + fBytes(a.e * scale);~');
   DBMS_OUTPUT.PUT_LINE(q'~      } else {~');
   DBMS_OUTPUT.PUT_LINE(q'~        val = m.unit.fmt(a.v);~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~        usual = 'usual ' + m.unit.fmt(a.e);~');
   DBMS_OUTPUT.PUT_LINE(q'~      }~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
@@ -790,6 +805,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    if (a && m.sev !== 'OK') {~');
   DBMS_OUTPUT.PUT_LINE(q'~      var fact = /_ANOM$/.test(a.kind) ? 'unusual ' + fDay(dayN(a.day)) : alertFact(a, m).replace(/<\/?b>/g, '');~');
   DBMS_OUTPUT.PUT_LINE(q'~      return '<b>' + esc(m.name) + '</b> ' + fact;~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    var f = m.f;~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (fam.id === 'tablespaces') {~');
@@ -805,9 +823,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  var SPACE_TOP = 5;~');
   DBMS_OUTPUT.PUT_LINE(NULL);
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  function famMetrics(id) {~');
   DBMS_OUTPUT.PUT_LINE(q'~    var s = sections.filter(function (x) { return x.fam.id === id; })[0];~');
   DBMS_OUTPUT.PUT_LINE(q'~    return s ? s.ms : [];~');
@@ -1193,6 +1208,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  var listed = alerts.filter(function (a) { return a.sev === 'CRIT' || a.sev === 'WARN'; });~');
   DBMS_OUTPUT.PUT_LINE(q'~  var nFitOk = present.reduce(function (n, s) { return n + s.ms.filter(function (m) { return m.f.q === 'OK'; }).length; }, 0);~');
+END;
+/
+BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  var plural = function (n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); };~');
   DBMS_OUTPUT.PUT_LINE(q'~  html.push('<section id="overview" class="ov">');~');
   DBMS_OUTPUT.PUT_LINE(q'~  var top = listed[0];~');
@@ -1208,9 +1226,6 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    (absent.length ? ' No data for ' + absent.map(function (s) { return esc(s.fam.title); }).join(', ') + '.' : '') + '</p>');~');
   DBMS_OUTPUT.PUT_LINE(q'~  html.push('<div class="tally">' +~');
   DBMS_OUTPUT.PUT_LINE(q'~    '<div' + (nCrit ? ' class="crit"' : '') + '><b>' + nCrit + '</b><span>critical</span></div>' +~');
-END;
-/
-BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    '<div' + (nWarn ? ' class="warn"' : '') + '><b>' + nWarn + '</b><span>warning</span></div>' +~');
   DBMS_OUTPUT.PUT_LINE(q'~    '<div><b>' + nOk + '</b><span>of ' + nSeries + ' series healthy</span></div>' +~');
   DBMS_OUTPUT.PUT_LINE(q'~    '<div><b>' + nFitOk + '/' + nSeries + '</b><span>fits graded OK</span></div></div>');~');
@@ -1236,7 +1251,13 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      '<span class="s">' + esc(m ? m.name : a.s) + ' <span>' + esc(m ? m.ctr : conLabel(a.dbid, a.con)) + '</span></span>' +~');
   DBMS_OUTPUT.PUT_LINE(q'~      '<span class="f">' + alertFact(a, m) + '</span><span class="d">' + alertWhen(a) + '</span></a>');~');
   DBMS_OUTPUT.PUT_LINE(q'~  });~');
-  DBMS_OUTPUT.PUT_LINE(q'~  html.push('</div></section>');~');
+  DBMS_OUTPUT.PUT_LINE(q'~  html.push('</div>');~');
+  DBMS_OUTPUT.PUT_LINE(q'~  if (M.noisy > 0) {~');
+  DBMS_OUTPUT.PUT_LINE(q'~    html.push('<p class="noisy">' + M.noisy + ' anomaly series ' + (M.noisy === 1 ? 'alerts' : 'alert') + ' often' +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      (M.noisyDays ? ' in the last ' + M.noisyDays + ' days' : '') +~');
+  DBMS_OUTPUT.PUT_LINE(q'~      '. Run doctor.sql: section 12 lists them with the knob change that quiets each.</p>');~');
+  DBMS_OUTPUT.PUT_LINE(q'~  }~');
+  DBMS_OUTPUT.PUT_LINE(q'~  html.push('</section>');~');
   DBMS_OUTPUT.PUT_LINE(q'~  html.push('<div class="key"><span><i class="k-hist"></i>history</span><span><i class="k-fc"></i>forecast</span><span><i class="k-bd"></i>95% band</span>' +~');
   DBMS_OUTPUT.PUT_LINE(q'~    '<span><i class="k-lim"></i>limit</span><span><i class="k-thr"></i>warning line</span><span><i class="k-un"></i>unusual day, last ' + ANOM_DAYS + ' d</span>' +~');
   DBMS_OUTPUT.PUT_LINE(q'~    '<span><i class="k-old"></i>older unusual day</span><span><i class="k-es"></i>ESM +30 d</span><span><span class="stamp">\u2192 3 Nov</span> reaches the line</span></div>');~');

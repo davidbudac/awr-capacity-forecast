@@ -346,6 +346,22 @@
     return '<span class="when">now</span>';
   }
 
+  /* An anomaly alert's value is in the unit the series is scored in. The
+     alert row has one name for some of them (GIB is GiB and GiB a day), so
+     the unit comes from the series' own anomaly rows when the metric is
+     known, else from the alert. */
+  var ALERT_UNIT = { BYTES: 'bytes_per_day', GIB: 'gib_per_day' };
+  function anomUnit(a, m) {
+    var rows = m ? m.anoms.filter(function (x) { return x.s === a.s && x.ak !== 'CPU_SHIFT' && x.u; }) : [];
+    return rows.length ? rows[0].u : ALERT_UNIT[a.u] || (a.u || '').toLowerCase();
+  }
+  var ANOM_SUFFIX = { gib_per_day: ' GiB/d', gib: ' GiB', io_per_sec: ' IO/s', mb_per_sec: ' MB/s' };
+  function anomFmt(u) {
+    if (u === 'bytes_per_day') return function (v) { return fBytes(v) + '/d'; };
+    if (u === 'pct') return function (v) { return num(v, 1) + '%'; };
+    return function (v) { return auto(v) + (ANOM_SUFFIX[u] || ''); };
+  }
+
   function alertFact(a, m) {
     var u = m ? m.unit : unitFor(a.u);
     switch (a.kind) {
@@ -362,10 +378,9 @@
       case 'TBSPC_FAMILY': return 'filling member may reach <b>' + num(a.v, 2) + ' GiB</b>, ceiling ' + num(a.thr, 2) + ' GiB';
     }
     if (/_ANOM$/.test(a.kind)) {
-      var v = a.u === 'BYTES' ? fBytes(a.v) + '/d' : a.u === 'PCT' ? num(a.v, 1) + '%' : a.u === 'GIB' ? auto(a.v) + ' GiB/d' : auto(a.v);
-      var t = a.u === 'BYTES' ? fBytes(a.thr) + '/d' : a.u === 'PCT' ? num(a.thr, 1) + '%' : a.u === 'GIB' ? auto(a.thr) + ' GiB/d' : auto(a.thr);
+      var af = anomFmt(anomUnit(a, m));
       var span = a.n > 1 ? ' · ' + a.n + ' days' : '';
-      return 'unusual <b>' + v + '</b>, normal ≤ ' + t + (a.maxz != null ? ' · z ' + num(a.maxz, 1) : '') + span;
+      return 'unusual <b>' + af(a.v) + '</b>, normal ≤ ' + af(a.thr) + (a.maxz != null ? ' · z ' + num(a.maxz, 1) : '') + span;
     }
     return esc(a.msg || a.kind);
   }
@@ -1222,7 +1237,13 @@
       '<span class="s">' + esc(m ? m.name : a.s) + ' <span>' + esc(m ? m.ctr : conLabel(a.dbid, a.con)) + '</span></span>' +
       '<span class="f">' + alertFact(a, m) + '</span><span class="d">' + alertWhen(a) + '</span></a>');
   });
-  html.push('</div></section>');
+  html.push('</div>');
+  if (M.noisy > 0) {
+    html.push('<p class="noisy">' + M.noisy + ' anomaly series ' + (M.noisy === 1 ? 'alerts' : 'alert') + ' often' +
+      (M.noisyDays ? ' in the last ' + M.noisyDays + ' days' : '') +
+      '. Run doctor.sql: section 12 lists them with the knob change that quiets each.</p>');
+  }
+  html.push('</section>');
   html.push('<div class="key"><span><i class="k-hist"></i>history</span><span><i class="k-fc"></i>forecast</span><span><i class="k-bd"></i>95% band</span>' +
     '<span><i class="k-lim"></i>limit</span><span><i class="k-thr"></i>warning line</span><span><i class="k-un"></i>unusual day, last ' + ANOM_DAYS + ' d</span>' +
     '<span><i class="k-old"></i>older unusual day</span><span><i class="k-es"></i>ESM +30 d</span><span><span class="stamp">→ 3 Nov</span> reaches the line</span></div>');

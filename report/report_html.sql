@@ -152,6 +152,8 @@ DECLARE
   v_esm_failed NUMBER := 0;
   v_esm_stale  NUMBER := 0;
   v_do_esm     NUMBER;
+  v_noisy      NUMBER;
+  v_noisy_days NUMBER;
 
   -- A block's JSON is buffered and printed only when the block finished,
   -- so a failing view cannot leave half an array in the page.
@@ -269,6 +271,16 @@ BEGIN
         FROM capf_esm_health_summary&cap_s;
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
+    -- Anomaly series that alert often (CAPR_ANOM_VOLUME.noisy): one line
+    -- under the alert list. Optional, like the ESM counts.
+    BEGIN
+      SELECT COUNT(*), MAX(window_days)
+        INTO v_noisy, v_noisy_days
+        FROM capr_anom_volume&cap_s
+       WHERE noisy = 'Y'
+         AND (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con);
+    EXCEPTION WHEN OTHERS THEN v_noisy := NULL;
+    END;
     v_do_esm := CASE WHEN show_esm = 'N' THEN 0
                      WHEN show_esm = 'Y' THEN 1
                      WHEN v_esm_ok > 0 THEN 1 ELSE 0 END;
@@ -300,6 +312,7 @@ BEGIN
         || ',"firstDay":' || jd(v_first_day) || ',"lastDay":' || jd(v_last_day)
         || ',"run":' || js(v_run_line) || ',"coverage":' || js(v_cov_line)
         || ',"topN":' || jn(top_n) || ',"anomalyDays":' || jn(anomaly_days)
+        || ',"noisy":' || jn(v_noisy) || ',"noisyDays":' || jn(v_noisy_days)
         || ',"esm":{"show":' || jn(v_do_esm) || ',"ok":' || jn(v_esm_ok)
         || ',"failed":' || jn(v_esm_failed) || ',"stale":' || jn(v_esm_stale) || '}'
         || ',"knobs":{"dtfWarn":' || jn(c.dtf_warn) || ',"dtfCrit":' || jn(c.dtf_crit)
