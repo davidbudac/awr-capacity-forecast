@@ -2,7 +2,8 @@
 
 Base URL: `http://<ords-host>:8080/ords/<alias>/awrcap/` where `<alias>` is the
 ORDS URL mapping of the schema that holds the suite (`capdemo` in the lab).
-Every handler is `GET`, returns ORDS' standard collection envelope
+Every handler needs a bearer token (see "Access" below) and answers 401
+without one. Every handler is `GET`, returns ORDS' standard collection envelope
 `{"items":[...], "hasMore":false, "limit":..., "offset":..., "count":...}`,
 and is NOT paginated (every matching row in one response). The analytics are
 daily-grain except `hourly` and the `HOUR_OF_WEEK` rows of `anomalies`, which
@@ -18,13 +19,32 @@ the same way.
 
 | Endpoint | Query params | Columns | Backing view |
 |---|---|---|---|
-| `containers` | none | `dbid, con_dbid, db_name, con_name, db` | `CAPR_CONTAINER` |
+| `containers?target=` | optional | `dbid, con_dbid, db_name, con_name, db, target_name` | `CAPR_CONTAINER` |
+| `targets` | none | `target_name, dbid, db_name, feed (LINK/FIXTURE), host_name, enabled (Y/N), n_containers, newest_snap, age_hours, is_stale (Y/N), collected_snap_id, last_ok_at, last_error_at, last_error, n_gaps, collect_state (OK/FAILING/NEVER/DISABLED; null unless feed = LINK)` | `CAPR_TARGETS` |
 | `series?kind=&db=&series=&from=&to=` | kind required (TBSPC/CPU/SERIES); db (= `db` label) and series optional; from/to ISO date-times, default last 120 days | `ts, kind, series, db, con_dbid, value, limit_value, pct, unit, anomaly (0/1; null on unscored series), anomaly_flag, z, expected, threshold, gap (0/1)` plus kind extras: TBSPC `used_bytes, size_bytes, limit_bytes, delta_bytes, rate_bpd`; CPU `busy_pct, busy_p95, busy_peak_pct` on series BUSY_PCT; then `anomaly_modes` (the baseline modes that flagged the day, comma-separated, e.g. `TRAILING,SAME_DOW`), `how_hours_flagged` (HOUR_OF_WEEK hours flagged that day; BUSY_PCT and DB_CPU_PCT only) | `CAPR_SERIES_POINTS` (ddl/45) |
 | `hourly?db=&series=&from=&to=` | all optional; series BUSY_PCT or DB_CPU_PCT; from/to taken as given (no day rounding), default last 14 days | `ts (end of the hour bucket), kind (CPU), series, db, con_dbid, day_dt, dow (0 = Monday), hour_of_day (end hour), unit (pct), value, gap (0/1), ivl_hours, n_intervals, anomaly (0/1), how_expected, how_threshold, how_z, how_flag (HIGH/LOW), how_n_hist` (`how_*` null when the hour was not scored) | `CAPR_HOURLY_POINTS` (ddl/45) |
 | `forecast?kind=&db=&series=` | kind required; others optional | `ts, kind, series, db, con_dbid, method (REGR/ESM), horizon_days, value, lo, hi, limit_value, pct, quality` | `CAPR_FORECAST_POINTS` (new, ddl/55; needs CAPF_COMPARE) |
 | `fit?kind=&db=` | kind optional (all kinds when absent) | `kind, series, db, con_dbid, unit, method, value, limit_value, pct, slope_per_day, r2, quality, days_to_full, days_to_full_lo, days_to_full_hi, accel, train_n, sev (CRIT/WARN/OK), sev_rank, limit_source, last_day` | `CAPR_FIT` (new, ddl/45) |
 | `anomalies?from=&to=&db=&kind=&mode=` | all optional; mode = a baseline_mode; from/to default last 120 days | `ts, kind, series, db, con_dbid, anomaly_kind, anomaly_flag (HIGH/LOW/UP/DOWN), value, expected, threshold, z, shift_pct, unit (bytes_per_day/pct/count/gib_per_day), sev (WARN/INFO), sev_rank, message, obs_day, baseline_mode, grain (DAY/HOUR), n_hist, alerting (Y/N), raw_value` | `CAPR_ANOMALIES` (ddl/45) |
 | `alerts?db=` | optional | `sev, sev_rank, alert_kind, kind, series, db, con_dbid, obs_day, value, threshold, unit, message, baseline_mode, alert_key` | `CAPR_ALERTS` |
+| `mem_verdicts?db=` | optional | `target_name, db, dbid, con_dbid, instance_number, area, area_label, area_rank, mem_mode, grade, reason, reason_text, actionable (Y/N), current_bytes, suggested_bytes, current_size, suggested_size, change_pct, suggested_param, exceeds_host_ram (Y/N), exceeds_sga (Y/N), n_evidence, n_pressure, n_days, window_start, window_end, headline` | `CAPR_MEM_VERDICT` |
+| `mem_evidence?db=&area=` | optional | `target_name, db, dbid, con_dbid, instance_number, area, area_label, area_rank, evidence_kind (USAGE/ADVISOR/SYMPTOM/CONTEXT), signal, direction (PRESSURE/SLACK/NEUTRAL), value, unit, threshold, observed_at, evidence_text` | `CAPR_MEM_EVIDENCE` |
+| `mem_components?db=` | optional | `target_name, db, dbid, con_dbid, instance_number, component, is_pool, current_bytes, min_bytes, max_bytes, pct_of_total, n_ops, n_grows, n_shrinks, n_forced_grows, last_resize_at` | `CAPR_MEM_COMPONENTS` |
+| `mem_points?db=&from=&to=` | optional; from/to default last 120 days (the view holds the evidence window, `mem_window_days`) | `ts, target_name, db, dbid, con_dbid, instance_number, component, bytes, min_bytes, max_bytes, ops` | `CAPR_MEM_COMP_POINTS` |
+
+`target_name` is the suite's name of the row's database
+(`CAPR_CONTAINER.target_name`, one target per dbid; null for a dbid without
+a target). It is the last column of `series`, `hourly`, `forecast`, `fit`,
+`anomalies` and `alerts`, and every endpoint but `targets` takes an optional
+`target=` filter. `db` is the display label built from it (`TARGET` or
+`TARGET/PDB`).
+
+The memory endpoints are instance level: their rows belong to the root
+container of a database (`con_dbid = dbid`), so `db` is the root's label and
+a PDB label returns nothing. Grades: `UNDERSIZED`, `OVERSIZED`, `THRASHING`,
+`DRIFTING`, `OK`, `INSUFFICIENT_EVIDENCE`. They are report content and never
+appear in `alerts`. They are also the slowest handlers: the verdict views
+read a 30-day window of AWR memory history on every request.
 
 Enumerations:
 
@@ -78,6 +98,41 @@ Grafana reads these with the Infinity data source (JSON, root selector
 `items`), passing `${__from:date:iso}` / `${__to:date:iso}` and dashboard
 variables `$db`, `$series` into the query string.
 
+## Access
+
+`grafana/ords/awrcap_module.sql` publishes the module protected: the ORDS
+privilege `awrcap.read` covers the module and requires the ORDS role
+`awrcap_reader`. A request without a valid bearer token gets 401, on every
+handler, `metrics` included.
+
+A consumer is an OAuth2 client with the grant type `client_credentials`
+that holds the role. `grafana/ords/awrcap_client.sql [schema] [client name]`
+creates one (default name `awrcap_grafana`) and prints `ORDS_CLIENT_ID=` and
+`ORDS_CLIENT_SECRET=` once. ORDS keeps only a hash of the secret. Running the
+script again replaces the client: the old id and secret stop working.
+
+```bash
+# token: HTTP Basic with the client id and secret, valid 3600 s by default
+curl -s -K client.curlrc -d grant_type=client_credentials \
+     http://<ords-host>:8080/ords/<alias>/oauth/token
+# -> {"access_token":"...","token_type":"bearer","expires_in":3600}
+curl -s -H "Authorization: Bearer <access_token>" \
+     http://<ords-host>:8080/ords/<alias>/awrcap/containers
+```
+
+`client.curlrc` holds one line, `user = "<client id>:<client secret>"`, so
+the secret is not on a command line. Grafana's Infinity data source does
+the same exchange by itself (`auth_method: oauth2`, see
+`grafana/provisioning/datasources/infinity.yml`) and renews the token.
+
+Over plain HTTP the token and the secret travel unencrypted. Outside a lab
+put ORDS behind TLS.
+
+Opt-out for a closed lab: `@grafana/ords/awrcap_module.sql <schema> - PUBLIC`
+removes the privilege, and every handler is readable by anyone who reaches
+the ORDS port. Set `ORDS_AUTH_METHOD=none` for Grafana then. Running the
+script again without `PUBLIC` protects the module again.
+
 ## Prometheus: `metrics`
 
 `GET .../awrcap/metrics` is a PL/SQL handler, not a JSON collection. It
@@ -89,7 +144,7 @@ version=0.0.4`), read live from the CAPR views on every scrape:
 | `awrcap_alert` | `kind, severity, db, con_dbid, series, mode` | rows of that issue (normally 1); `mode` is the baseline mode or `-` | `CAPR_ALERTS` |
 | `awrcap_days_to_full` | `kind, db, con_dbid, series, quality` | days to the ceiling; series with no projected crossing are omitted | `CAPR_FIT.days_to_full` |
 | `awrcap_pct_used` | `kind, db, con_dbid, series` | value as a percent of the ceiling (CPU: of `cpu_sat_pct`) | `CAPR_FIT.pct` |
-| `awrcap_data_through_days` | `db, dbid` | days since the newest AWR snapshot day | `CAPR_FRESHNESS` |
+| `awrcap_data_through_days` | `db, dbid, target` | days since the newest AWR snapshot day; `target` is the target name of the dbid, empty when it has none | `CAPR_FRESHNESS`, `CAPR_CONTAINER` |
 | `awrcap_up` | none | 1 when every view was read, 0 when one raised (a `# awrcap metrics failed:` comment says why) | the handler |
 
 Every family is a gauge with HELP and TYPE lines. Label values escape `\`,
@@ -118,15 +173,19 @@ scrape_configs:
     metrics_path: /ords/capdemo/awrcap/metrics
     scrape_interval: 15m
     scrape_timeout: 2m
+    oauth2:
+      client_id: <ORDS_CLIENT_ID of the scraper's client>
+      client_secret_file: /etc/prometheus/awrcap_client_secret
+      token_url: http://ords-host:8080/ords/capdemo/oauth/token
     static_configs:
       - targets: ['ords-host:8080']
 ```
 
-Security: like every handler in the module, `metrics` is public (no ORDS
-privilege). It exposes tablespace and series names and alert messages'
-subjects. On an untrusted network protect the module with
-`ORDS.DEFINE_PRIVILEGE` and give Prometheus OAuth client credentials, or put
-the endpoint behind the reverse proxy that already fronts ORDS.
+`metrics` follows the module's access rule: 401 without a bearer token.
+Give the scraper its own client
+(`@grafana/ords/awrcap_client.sql <schema> awrcap_prometheus`) and keep the
+secret in a file only Prometheus reads. The handler exposes tablespace and
+series names and the subjects of alert messages.
 
 Trying the body without ORDS (any SQL*Plus session in the suite schema): the
 handler writes through HTP, so set up an OWA environment, run the block that

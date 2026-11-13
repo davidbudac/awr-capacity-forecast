@@ -7,18 +7,21 @@ rows in one response (`p_items_per_page => 0`, verified on ORDS 26.3: a
 1251-row response came back with `"hasMore":false`).
 
 The module writes only ORDS metadata (in `ORDS_METADATA`). The handlers run
-read-only `SELECT`s against the suite views. The handlers are public, so if
-the network is not trusted, protect the module with an ORDS privilege.
+read-only `SELECT`s against the suite views. The module is protected by the
+ORDS privilege `awrcap.read`, which requires the ORDS role `awrcap_reader`:
+every handler answers 401 without a bearer token (verified on ORDS 26.3).
 
 ## Scripts
 
 | Script | What it does |
 |---|---|
-| `awrcap_module.sql [schema] [alias]` | REST-enables the schema (URL alias defaults to the lower-case schema name, `p_auto_rest_auth => FALSE`) and defines the `awrcap` module (base path `/awrcap/`) with six GET handlers. Running it again replaces the module. |
-| `awrcap_module_drop.sql [schema]` | Deletes the `awrcap` module. The schema stays REST-enabled. Running it when the module is already gone does nothing. |
+| `awrcap_module.sql [schema] [alias] [PROTECTED\|PUBLIC]` | REST-enables the schema (URL alias defaults to the lower-case schema name, `p_auto_rest_auth => FALSE`), defines the `awrcap` module (base path `/awrcap/`) with thirteen GET handlers, creates the role `awrcap_reader` when it is missing and defines the privilege `awrcap.read` over the module. Running it again replaces the module and the privilege and keeps the role and its clients. `PUBLIC` deletes the privilege instead: the handlers are then open to anyone who reaches ORDS. |
+| `awrcap_client.sql [schema] [client] [e-mail]` | Creates the OAuth2 client (`client_credentials`, default name `awrcap_grafana`), grants it `awrcap_reader` and prints `ORDS_CLIENT_ID=` and `ORDS_CLIENT_SECRET=`. Running it again replaces the client: a new id and secret. It uses `ORDS_SECURITY` where that package exists (verified on ORDS 26.3) and the older `OAUTH` package otherwise (that branch is written from the documented API and was not run). |
+| `awrcap_module_drop.sql [schema] [client]` | Deletes the client, the privilege, the module and the role. The schema stays REST-enabled. Whatever is already gone is skipped. |
 
-Both scripts take the schema from `&1`, or from `CURRENT_SCHEMA` when `&1` is
-not given. When the session user is the schema owner, the scripts call
+An argument given as `-` is skipped (never as the last word of the line:
+SQL*Plus reads a trailing `-` as line continuation). The scripts take the
+schema from `&1`, or from `CURRENT_SCHEMA` when `&1` is not given. When the session user is the schema owner, the scripts call
 `ORDS.*`. Any other user calls `ORDS_ADMIN.*` with `p_schema`. That user needs
 `ORDS_ADMINISTRATOR_ROLE` or `EXECUTE ANY PROCEDURE`. SYSDBA has the second.
 
@@ -28,7 +31,27 @@ SQL> @grafana/ords/awrcap_module.sql
 -- as SYSDBA, in the PDB that holds the suite
 SQL> ALTER SESSION SET CONTAINER = PDB1;
 SQL> @grafana/ords/awrcap_module.sql CAPDEMO
+SQL> @grafana/ords/awrcap_client.sql CAPDEMO
 ```
+
+`awrcap_client.sql` prints the secret once and ORDS keeps only its hash.
+Send the output to a file only you can read, for Grafana the gitignored
+`grafana/.env`:
+
+```
+(umask 077; sqlplus -S -L / @grafana/ords/awrcap_client.sql | grep '^ORDS_CLIENT_' >> grafana/.env)
+```
+
+A client exchanges its id and secret for a bearer token at
+`/ords/<alias>/oauth/token` (HTTP Basic, `grant_type=client_credentials`,
+valid 3600 s by default). `REGISTER_CLIENT` registers no secret unless it is
+given `ords_types.oauth_client_secret()`, which has ORDS generate one and
+return it (verified 26.3).
+
+ORDS caches a module's metadata for a few seconds. After a change of access
+(`PUBLIC` to `PROTECTED` or back) a request can still get the old answer for
+that long: one read 200 six seconds after the module was protected again,
+and 401 from then on (26.3).
 
 The `from` and `to` query parameters are mapped to the bind variables
 `:p_from` and `:p_to` with `DEFINE_PARAMETER`, because `:from` and `:to` are
@@ -42,6 +65,10 @@ not legal bind names. `kind`, `db` and `series` bind implicitly.
 `TRUNC(SYSDATE) - 120`. When `to` is missing, it defaults to `SYSDATE`. A
 request without `kind` on `series` or `forecast` returns an empty `items`
 array.
+
+`target_name` comes from one join (`c_tgt` in the script: the dbid's target
+from `CAPR_CONTAINER`). A handler that drives from alias `t` and ends its
+`FROM` with it gets the column and the `target=` filter.
 
 ## Lab deployment (dbmint, done 2026-10-17)
 
@@ -109,7 +136,7 @@ complaint.
    ```
 
 6. Sync the repo to the VM. Install the two view files in `CAPDEMO`, then
-   publish the module:
+   publish the module and create the client (step 6b):
 
    ```
    rsync -az --delete -e 'ssh -p 2200' --exclude .git --exclude reports \
@@ -124,15 +151,32 @@ complaint.
    @grafana/ords/awrcap_module.sql CAPDEMO
    ```
 
-7. Check the endpoints:
+   6b. The client, from the workstation, straight into `grafana/.env` (the
+   secret is never shown):
 
    ```
-   curl -s 'http://100.108.246.57:8181/ords/capdemo/awrcap/containers'
-   curl -s 'http://100.108.246.57:8181/ords/capdemo/awrcap/series?kind=TBSPC&from=2026-06-01T00:00:00.000Z&to=2026-10-17T00:00:00.000Z'
+   sed -i '/^ORDS_CLIENT_/d' grafana/.env
+   (umask 077; ssh -p 2200 oracle@dbmint 'export ORACLE_SID=cdb1 ORAENV_ASK=NO; . oraenv >/dev/null 2>&1
+       cd ~/awr-capacity-forecast && printf "%s\n" "ALTER SESSION SET CONTAINER = PDB1;" \
+           "@grafana/ords/awrcap_client.sql CAPDEMO" | sqlplus -S -L / as sysdba' |
+       grep '^ORDS_CLIENT_' >> grafana/.env)
+   docker compose -f grafana/docker-compose.yml up -d    # Grafana re-reads the client
+   ```
+
+7. Check the endpoints: 401 without a token, 200 with one.
+
+   ```
+   B=http://100.108.246.57:8181/ords/capdemo
+   curl -s -o /dev/null -w '%{http_code}\n' $B/awrcap/containers            # 401
+   TOK=$( . grafana/.env; printf 'user = "%s:%s"\n' "$ORDS_CLIENT_ID" "$ORDS_CLIENT_SECRET" |
+          curl -s -K - -d grant_type=client_credentials $B/oauth/token |
+          python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])' )
+   curl -s -H "Authorization: Bearer $TOK" $B/awrcap/containers
+   curl -s -H "Authorization: Bearer $TOK" "$B/awrcap/series?kind=TBSPC&from=2026-06-01T00:00:00.000Z&to=2026-10-17T00:00:00.000Z"
    ```
 
 Base URL: `http://100.108.246.57:8181/ords/capdemo/awrcap/` (the Tailscale address; `grafana/.env` pins `BIND_ADDR`, see `LAB.md`).
 
-To remove everything, run `@grafana/ords/awrcap_module_drop.sql CAPDEMO` and
-`docker rm -f awrcap-ords`. To remove ORDS from the PDB, run `ords uninstall`
+To remove everything, run `@grafana/ords/awrcap_module_drop.sql CAPDEMO`
+(module, privilege, client and role) and `docker rm -f awrcap-ords`. To remove ORDS from the PDB, run `ords uninstall`
 with the same admin user.

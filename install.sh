@@ -62,7 +62,7 @@ KEYS=(
 "JOBS_ENABLE|N|yn|Enable the jobs right away (they are created disabled): CAP_NIGHTLY_JOB, and for standalone CAP_COLLECT_JOB too (a repository enables it once targets are added)"
 "REPORT_DIR|CAP_REPORTS|name|Directory object the alert-spool job writes to"
 "NIGHTLY_INTERVAL|FREQ=DAILY;BYHOUR=1;BYMINUTE=0;BYSECOND=0|text|CAP_NIGHTLY_JOB calendar string"
-"ORDS|N|yn|Publish the ORDS REST module awrcap (Grafana / Prometheus feed; needs ORDS in this database)"
+"ORDS|N|yn|Publish the ORDS REST module awrcap, protected: readers need an OAuth2 token (Grafana / Prometheus feed; needs ORDS in this database)"
 "ORDS_ALIAS||text|ORDS URL alias (empty = lower-case schema name)"
 "APEX|N|yn|Import the APEX application (needs APEX and an existing workspace)"
 "APEX_WORKSPACE|AWRCAP|name|APEX workspace"
@@ -338,7 +338,7 @@ steps() {
   [[ ${CFG[ROLE]} == standalone ]] && p "repository/self.sql: register this database as its own target (or refresh its link), collect"
   [[ ${CFG[TRAIN_ML]} == Y ]] && p "cap_forecast_ml.train_all"
   [[ ${CFG[JOBS]} == Y ]] && p "install_jobs.sql$([[ ${CFG[JOBS_ENABLE]} == Y ]] && echo ", then enable $(enable_jobs)")"
-  [[ ${CFG[ORDS]} == Y ]] && p "grafana/ords/awrcap_module.sql"
+  [[ ${CFG[ORDS]} == Y ]] && p "grafana/ords/awrcap_module.sql (protected; create a reader's OAuth2 client afterwards with grafana/ords/awrcap_client.sql)"
   [[ ${CFG[APEX]} == Y ]] && p "apex/install.sql (workspace ${CFG[APEX_WORKSPACE]}, app ${CFG[APEX_APP_ID]})"
   [[ ${CFG[RUN_TESTS]} == Y ]] && p "test/run_test.sql$([[ ${CFG[TRAIN_ML]} == Y ]] && echo ' + test/run_test_ml.sql')"
   [[ ${CFG[REPORTS]} != none ]] && p "reports: ${CFG[REPORTS]}"
@@ -557,7 +557,9 @@ END;
 EOF
   fi
 
-  [[ ${CFG[ORDS]} == Y ]] && printf '\nPROMPT ==== install.sh: ORDS module ====\n@@grafana/ords/awrcap_module.sql &cap_target %s\n%s\n' "${CFG[ORDS_ALIAS]}" "$STRICT"
+  # Always PROTECTED: the module prints how to create the client. The public
+  # opt-out is a hand run of the script with PUBLIC, never an installer answer.
+  [[ ${CFG[ORDS]} == Y ]] && printf '\nPROMPT ==== install.sh: ORDS module (protected) ====\n@@grafana/ords/awrcap_module.sql &cap_target %s PROTECTED\n%s\n' "${CFG[ORDS_ALIAS]:--}" "$STRICT"
   [[ ${CFG[APEX]} == Y ]] && printf '\nPROMPT ==== install.sh: APEX application ====\n@@apex/install.sql %s &cap_target %s\n%s\n' "${CFG[APEX_WORKSPACE]}" "${CFG[APEX_APP_ID]}" "$STRICT"
 
   if [[ ${CFG[RUN_TESTS]} == Y ]]; then
