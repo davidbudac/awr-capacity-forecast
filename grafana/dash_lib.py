@@ -31,7 +31,7 @@ STRING_COLS = {
     "feed", "host_name", "enabled", "is_stale", "collect_state", "last_error",
     "restart_reason", "reliability", "track_summary",
     "disk_name", "disk_source", "top_growers", "raw_sev", "gated_by",
-    "is_current", "limit_live", "stopped_by",
+    "is_current", "limit_live", "stopped_by", "growing",
     "family_name", "source", "period", "trend_sig", "next_over_limit",
     "filling_member", "fits", "state",
     "state_key", "floor_knob", "mode_knob", "noisy",

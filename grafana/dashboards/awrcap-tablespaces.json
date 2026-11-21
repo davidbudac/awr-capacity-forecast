@@ -2704,11 +2704,16 @@
               "selector": "rank_shared",
               "text": "rank_shared",
               "type": "number"
+            },
+            {
+              "selector": "growing",
+              "text": "growing",
+              "type": "string"
             }
           ],
           "filters": [],
           "computed_columns": [],
-          "filterExpression": "db IN (${db:singlequote}) && series IN (${series:singlequote}) && grow_mb > 0"
+          "filterExpression": "db IN (${db:singlequote}) && series IN (${series:singlequote}) && growing == 'Y'"
         }
       ],
       "transformations": [
@@ -2741,7 +2746,8 @@
               "dtf_shared_worst": 11,
               "limit_shared_gb": 12,
               "stopped_by": 13,
-              "rank_shared": 14
+              "rank_shared": 14,
+              "growing": 15
             },
             "renameByName": {
               "target_name": "Target",
@@ -2760,7 +2766,8 @@
               "stopped_by": "Stopped by"
             },
             "excludeByName": {
-              "rank_shared": true
+              "rank_shared": true,
+              "growing": true
             }
           }
         }

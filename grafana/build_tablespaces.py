@@ -186,8 +186,8 @@ b.add(table(
     q("A", "tbspc_shared", ["target_name", "db", "series", "quality", "cur_gb", "alloc_gb",
                             "limit_own_gb", "limit_live", "grow_mb", "dtf_own",
                             "dtf_shared", "dtf_shared_worst", "limit_shared_gb",
-                            "stopped_by", "rank_shared"],
-      filt=where(FILT, "grow_mb > 0")), [
+                            "stopped_by", "rank_shared", "growing"],
+      filt=where(FILT, "growing == 'Y'")), [
         TARGET_COL,
         ("db", "Database", [width(190)]), ("series", "Tablespace", [width(190)]),
         ("quality", "Fit quality"),
@@ -198,8 +198,9 @@ b.add(table(
         ("dtf_shared", "Days, shared disk", cell_bg(DTF_STEPS, prop("decimals", 0))),
         ("dtf_shared_worst", "Worst case", [prop("decimals", 0)]),
         ("limit_shared_gb", "Size when stuck", GIB),
-        ("stopped_by", "Stopped by", [width(100)]), ("rank_shared", "rank_shared")],
-    sort="rank_shared", hidden=("rank_shared",),
+        ("stopped_by", "Stopped by", [width(100)]), ("rank_shared", "rank_shared"),
+        ("growing", "growing")],
+    sort="rank_shared", hidden=("rank_shared", "growing"),
     description="Growing tablespaces only. Days, alone: to the tablespace's own limit (its "
                 "ceiling, or the live ceiling when that is lower). Days, shared disk: until "
                 "it is stuck, at its own limit or the first time it must extend after the "

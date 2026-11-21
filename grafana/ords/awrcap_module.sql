@@ -256,14 +256,16 @@ WHERE  (:db IS NULL OR db_pdb = :db)
 ORDER  BY episodes DESC, db_pdb, kind, series_key, baseline_mode]');
 
     -- The shared disk (ddl/33). tbspc_shared: every tablespace against the
-    -- disk its database's datafiles share. disk: one row per database and
+    -- disk its database's datafiles share (growing = Y where grow_mb is
+    -- set: Infinity's filter cannot compare a null). disk: one row per database and
     -- disk, database level, so db names the root container and a :db that
     -- names any container of the database finds it.
     get('tbspc_shared', q'[
 SELECT target_name, db_pdb AS db, dbid, con_dbid, tablespace_name AS series,
        disk_name, quality, is_current, cur_gb, alloc_gb, limit_gb, limit_own_gb,
        limit_live, grow_mb, grow_worst_mb, ext_days, days_to_full, dtf_own,
-       dtf_shared, dtf_shared_worst, limit_shared_gb, stopped_by, rank_shared
+       dtf_shared, dtf_shared_worst, limit_shared_gb, stopped_by, rank_shared,
+       CASE WHEN grow_mb IS NOT NULL THEN 'Y' ELSE 'N' END AS growing
 FROM   capr_tbspc_shared t
 ]' || c_tgt || q'[
 WHERE  (:db IS NULL OR db_pdb = :db)
