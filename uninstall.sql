@@ -316,6 +316,8 @@ DECLARE
 BEGIN
     -- ORA-00942 table does not exist, ORA-04043 object does not exist.
     drop_it('DROP PACKAGE cap_results',            -4043);
+    -- The one view 00_drop keeps (the monitoring user's grant hangs on it).
+    drop_it('DROP VIEW capr_runs',                 -942);
     drop_it('DROP TABLE cap_alert_event PURGE',    -942);
     drop_it('DROP TABLE cap_alert_state PURGE',    -942);
     drop_it('DROP TABLE cap_fit_hist PURGE',       -942);

@@ -11,6 +11,10 @@
 -- cap_forecast_ml.drop_all / uninstall.sql, because dropping them requires
 -- the model registry (CAP_ML_MODEL) to still exist.
 --
+-- CAPR_RUNS is not in the list: ddl/60 replaces it in place, and a drop
+-- would take the READ grant of the Enterprise Manager monitoring user with
+-- it (oem/grant_monitor.sql). uninstall.sql drops it.
+--
 -- Read-only against AWR; only touches this suite's own objects.
 --
 SET DEFINE OFF
@@ -34,7 +38,6 @@ DECLARE
         'CAPR_WEEKLY_DIGEST',
         'CAPR_FIT_HISTORY',
         'CAPR_COVERAGE',
-        'CAPR_RUNS',
         'CAPR_ALERT_EVENTS',
         'CAPR_ALERTS_LATEST',
         'CAPR_ALERT_VOLUME',

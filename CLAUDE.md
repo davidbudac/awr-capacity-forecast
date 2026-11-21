@@ -309,7 +309,8 @@ position, `event_id` = `run_id * 100000 + n` in commit order, lives in
 state file = only the last `--since-hours`. Events of alerts that are
 acknowledged now (`CAPR_ALERT_EVENTS.acked`, last column: the state today,
 not at the event) are skipped unless `--include-acked` (alert_events.sql
-argument 7); the position moves past them. Its awk uses no `gsub`: awks
+argument 7); the position moves past them. A webhook answer that is not a
+2xx is a failed delivery (curl exits 0 on a redirect it does not follow). Its awk uses no `gsub`: awks
 disagree on backslashes in the replacement. `test/notify_sh_test.sh` is its
 offline test: mock sqlplus, mail and curl), `report/report_html.sql` (one section per
 metric, one card per series: it spools the point-feed views as one JSON block
@@ -469,7 +470,9 @@ The metric extension takes the statement between `-- ME-QUERY-BEGIN` and the
 lone `;`, which must stay free of comments, blank lines and `;`
 (`test/oem_test.sh` checks). The column order is the extension's contract:
 only append. `oem/grant_monitor.sql <user>` grants READ on those two
-objects. `oem/prepare_targets.sh` reads the EM inventory with one
+objects. `CAPR_RUNS` is the one view `ddl/00_drop.sql` does not drop (ddl/60
+replaces it in place; a drop would take that grant with it), so
+`uninstall.sql` drops it by name. `oem/prepare_targets.sh` reads the EM inventory with one
 `emcli list -sql` and prints (default) the per-target prepare.sql steps and
 an `add_targets.sql` for the repository, or with `--submit` creates an EM
 SQLScript job holding target/prepare.sql + check.sql verbatim behind a
@@ -774,7 +777,10 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   `last_day`, newest run) with the fit `accuracy_horizon_days` later, else
   the nearest within 2 days (earlier on a tie), outcome day inside
   `accuracy_window_days`. A fit graded INSUFFICIENT_HISTORY or CYCLIC is an
-  actual only, never a forecast. The pair is picked first, the window applied after
+  actual only, never a forecast. A forecast is graded against the line the
+  run issued: `value + slope x elapsed`, and for kind CPU (whose projection
+  starts at the smoothed anchor, not the last day's value) `proj_30 - 30 x
+  slope + slope x elapsed`. The pair is picked first, the window applied after
   (filtering candidates first paired a forecast with a non-nearest day).
   Join the outcome by equality on `last_day + horizon + offset` (five
   offsets), never by a day range (series x runs squared). `band_factor` =
