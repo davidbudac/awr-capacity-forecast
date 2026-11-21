@@ -1327,7 +1327,7 @@
             <tr><td>A copy equals its source</td><td class="def"><span class="inline">test/dbmint_copy_check.sh</span>: source MINUS copy and back, per target, DBID and source</td></tr>
             <tr><td>LIVE and SNAPSHOT agree</td><td class="def"><span class="inline">test/snapshot_parity.sh</span> diffs both reports on the fixture</td></tr>
             <tr><td>A scoped report reads one target</td><td class="def"><span class="inline">test/scope_plan.sql</span> counts unscoped seam reads in every plan</td></tr>
-            <tr><td>The structural rules hold</td><td class="def">Six lints: <span class="inline">lint_dba_hist</span>, <span class="inline">lint_dbid_windows</span>, <span class="inline">lint_snapshot_reads</span>, <span class="inline">lint_anom_joins</span>, <span class="inline">lint_appinfo</span>, <span class="inline">docs_lint</span></td></tr>
+            <tr><td>The structural rules hold</td><td class="def">The lints: <span class="inline">lint_dba_hist</span>, <span class="inline">lint_dbid_windows</span>, <span class="inline">lint_snapshot_reads</span>, <span class="inline">lint_anom_joins</span>, <span class="inline">lint_appinfo</span>, <span class="inline">lint_nullif_args</span>, <span class="inline">lint_secrets</span>, <span class="inline">docs_lint</span></td></tr>
             <tr><td>It scales linearly</td><td class="def"><span class="inline">test/dbmint_scale.sh</span> grows a synthetic fleet and times each step (<a href="reference.html#fleet-size">How many targets</a>)</td></tr>
           </tbody>
         </table>
