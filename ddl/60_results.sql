@@ -586,10 +586,11 @@ LEFT   JOIN evs e
 -- CAPR_FORECAST_ACCURACY -- how the issued forecasts fared. For every
 -- CAP_FIT_HIST row of an OK run whose series has newer data today
 -- (elapsed_days = CAPR_FIT.last_day - the row's last_day, at least 1):
---   projected   value_then + slope_then * elapsed_days, the anchored
---               formula every CAPF_ projection uses
---   actual      CAPR_FIT.value today (the same anchor quantity: used bytes,
---               the CPU anchor, the series level)
+--   projected   value_then + slope_then * elapsed_days
+--   actual      CAPR_FIT.value today (used bytes, the series level; for CPU
+--               the last complete day's value, not the smoothed anchor the
+--               CPU projections start at: CAPR_FIT_TRACK grades those
+--               against the issued line)
 --   error       actual - projected (positive = grew faster than forecast)
 --   error_pct   100 * error / |actual|
 -- Filter on elapsed_days for a horizon, e.g. WHERE elapsed_days BETWEEN 28
@@ -641,8 +642,11 @@ WHERE  a.last_day > h.last_day
 -- accuracy_horizon_days later, or failing that the nearest within 2 days
 -- (the earlier one on a tie), when that outcome day lies in the last
 -- accuracy_window_days before the series' newest day:
---   projected   value_then + slope_then * elapsed days (the anchored formula,
---               as CAPR_FORECAST_ACCURACY)
+--   projected   level_then + slope_then * elapsed days, the line the run
+--               issued. level_then is the stored value, except for kind CPU:
+--               a CPU projection starts at the smoothed anchor, not at the
+--               last day's value, so there it is proj_30 - 30 * slope_then
+--               (the stored value on runs that predate proj_30)
 --   error       actual - projected, error percent = 100 * error / |actual|
 --   half        (proj_30_hi - proj_30_lo) / 2 of the forecast, the half-width
 --               of the +30 band issued then. A band of width 0 (a FLAT fit)
@@ -678,9 +682,13 @@ WITH ok AS (
         WHERE  h.run_id = (SELECT MAX(run_id) FROM ok)
      ),
      fc AS (
-        SELECT kind, dbid, con_dbid, series, last_day, value, slope_per_day, quality, proj_30_lo, proj_30_hi
+        SELECT kind, dbid, con_dbid, series, last_day, value, level_then, slope_per_day, quality,
+               proj_30_lo, proj_30_hi
         FROM  (SELECT h.kind, h.dbid, h.con_dbid, h.series, h.last_day, h.value, h.slope_per_day,
                       h.quality, h.proj_30_lo, h.proj_30_hi,
+                      CASE WHEN h.kind = 'CPU' AND h.proj_30 IS NOT NULL
+                           THEN h.proj_30 - 30 * h.slope_per_day
+                           ELSE h.value END                             AS level_then,
                       ROW_NUMBER() OVER (PARTITION BY h.dbid, h.con_dbid, h.kind, h.series, h.last_day
                                          ORDER BY h.run_id DESC) AS rn
                FROM   cap_fit_hist h
@@ -695,7 +703,7 @@ WITH ok AS (
      pr AS (
         SELECT f.kind, f.dbid, f.con_dbid, f.series,
                a.value                                                 AS actual,
-               f.value + f.slope_per_day * (a.last_day - f.last_day)   AS projected,
+               f.level_then + f.slope_per_day * (a.last_day - f.last_day) AS projected,
                CASE WHEN a.last_day > c.last_day - cfg.accuracy_window_days
                     THEN 'Y' ELSE 'N' END                              AS in_window,
                CASE WHEN f.proj_30_hi > f.proj_30_lo

@@ -6879,23 +6879,26 @@ BEGIN
         e_good num_list := num_list(-4, -3, -2, -1, 1, 2, 3, 4);
 
         -- Day LAST - p_j of a series: the newest day lives in the newest run.
+        -- p_anchor: the level the +30 point was issued from (default: the value).
         PROCEDURE fit(p_series VARCHAR2, p_j NUMBER, p_value NUMBER, p_slope NUMBER, p_half NUMBER,
-                      p_run NUMBER DEFAULT NULL, p_quality VARCHAR2 DEFAULT 'OK') IS
+                      p_run NUMBER DEFAULT NULL, p_quality VARCHAR2 DEFAULT 'OK',
+                      p_kind VARCHAR2 DEFAULT 'SERIES', p_anchor NUMBER DEFAULT NULL) IS
+            v_from NUMBER := NVL(p_anchor, p_value);
         BEGIN
             INSERT INTO cap_fit_hist (run_id, kind, dbid, con_dbid, series, as_of_day, db, unit, quality,
                                       value, slope_per_day, last_day, is_current, proj_30, proj_30_lo, proj_30_hi)
-            VALUES (NVL(p_run, CASE WHEN p_j = 0 THEN r_now ELSE 1000 - p_j END), 'SERIES', v_dbid, v_dbid,
+            VALUES (NVL(p_run, CASE WHEN p_j = 0 THEN r_now ELSE 1000 - p_j END), p_kind, v_dbid, v_dbid,
                     p_series, d0 - p_j, 'TRACK', 'count', p_quality, p_value, p_slope, d0 - p_j, 1,
-                    CASE WHEN p_half IS NOT NULL THEN p_value + 30 * p_slope END,
-                    p_value + 30 * p_slope - p_half, p_value + 30 * p_slope + p_half);
+                    CASE WHEN p_half IS NOT NULL THEN v_from + 30 * p_slope END,
+                    v_from + 30 * p_slope - p_half, v_from + 30 * p_slope + p_half);
         END;
         PROCEDURE trk(p_series VARCHAR2, p_n NUMBER, p_abs NUMBER, p_bias NUMBER, p_nb NUMBER, p_hits NUMBER,
-                      p_factor NUMBER, p_rel VARCHAR2) IS
+                      p_factor NUMBER, p_rel VARCHAR2, p_kind VARCHAR2 DEFAULT 'SERIES') IS
             v_n NUMBER; v_a NUMBER; v_b NUMBER;
         BEGIN
             SELECT n_forecasts, abs_err_pct, bias_pct, n_banded, band_hits, band_factor, reliability
               INTO v_n, v_a, v_b, v_nb, v_h, v_f, v_rel
-              FROM capr_fit_track WHERE kind = 'SERIES' AND dbid = v_dbid AND series = p_series;
+              FROM capr_fit_track WHERE kind = p_kind AND dbid = v_dbid AND series = p_series;
             chk_true('track ' || p_series || ': n ' || p_n || ', median |error| ' || p_abs || '%, bias ' || p_bias
                      || '%, banded ' || p_nb || ', hits ' || NVL(TO_CHAR(p_hits), 'NULL') || ', factor '
                      || NVL(TO_CHAR(p_factor), 'NULL') || ', ' || p_rel || ' (got ' || v_n || ' ' || v_a || ' ' || v_b
@@ -7035,6 +7038,26 @@ BEGIN
         chk_int ('CAP_CFG_CHECK: the six track knobs OK after the rollback', v_n, 6);
         SELECT COUNT(*) INTO v_n FROM capr_fit_track WHERE series LIKE 'TRK\_%' ESCAPE '\';
         chk_int ('track: the seeded series are gone after the rollback', v_n, 0);
+
+        -- Kind CPU: a projection starts at the smoothed anchor, not at the
+        -- last day's value. Eight forecasts whose day read 900 while the
+        -- anchor was 940 - e (TRK_GOOD's errors): graded against the issued
+        -- line they are TRK_GOOD's numbers. From the day's value each would
+        -- be wrong by 40, 4 percent, outside the half-width 10. TRK_CPU_OLD:
+        -- the same days stored without a +30 point, so the value stands in.
+        SAVEPOINT trk_cpu;
+        INSERT INTO cap_run (run_id, as_of_day, deploy_mode, started_at, ended_at, status, backdated)
+        SELECT 1000 - (LEVEL - 1), d0 - (LEVEL - 1), 'fixture', SYSTIMESTAMP, SYSTIMESTAMP, 'OK', 'N'
+          FROM dual CONNECT BY LEVEL <= 61;
+        FOR k IN 0 .. 7 LOOP
+            fit('TRK_CPU',     k,      1000, 2, 50,   p_kind => 'CPU');
+            fit('TRK_CPU',     30 + k, 900,  2, 10,   p_kind => 'CPU', p_anchor => 940 - e_good(k + 1));
+            fit('TRK_CPU_OLD', k,      1000, 2, 50,   p_kind => 'CPU');
+            fit('TRK_CPU_OLD', 30 + k, 900,  2, NULL, p_kind => 'CPU', p_anchor => 940 - e_good(k + 1));
+        END LOOP;
+        trk('TRK_CPU',     8, 0.25, 0, 8, 8,    1,    'GOOD', p_kind => 'CPU');
+        trk('TRK_CPU_OLD', 8, 4,    4, 0, NULL, NULL, 'GOOD', p_kind => 'CPU');
+        ROLLBACK TO SAVEPOINT trk_cpu;
 
         -- No run at all: no rows, and the view still answers.
         SAVEPOINT trk_empty;
