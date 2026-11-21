@@ -37,6 +37,7 @@ row() { local IFS=$'\t'; printf '%s\n' "$*"; }
   row dw_db06         oracle_database db06.example.com  -                 1521 dw     dw         -           - YES NO  None               19.27.0.0.0 /u01/oh19 -                  -          "Target Down"
   row racdb_racdb1    oracle_database rac01.example.com rac01.example.com 1521 racdb1 racdb      -           - YES YES None               19.27.0.0.0 /u01/oh19 RACDB.EXAMPLE.COM  racdb      "Target Up"
   row racdb_racdb2    oracle_database rac02.example.com rac02.example.com 1521 racdb2 racdb      -           - YES YES None               19.27.0.0.0 /u01/oh19 RACDB.EXAMPLE.COM  racdb      "Target Up"
+  row odd_db07        oracle_database db07.example.com  db07.example.com  1521 odd    odd        -           - YES NO  None               19.27.0.0.0 /u01/oh19 "ODD'||X"          odd        "Target Up"
   row racdb           rac_database    rac01.example.com rac01.example.com 1521 racdb1 racdb      -           racdb.example.com YES YES None 19.27.0.0.0 /u01/oh19 RACDB.EXAMPLE.COM racdb     "Target Up"
 } > "$MOCK_INV"
 
@@ -77,7 +78,8 @@ calls() { grep -c . "$MOCK_LOG"; }
 # ---- 1. list ------------------------------------------------------------------
 run
 check "list: exit 0"                               '[ $rc -eq 0 ]'
-check "list: nine targets"                         '[ "$(grep -cE " (oracle|rac)_database " "$T/out")" -eq 9 ]'
+check "list: ten targets"                          '[ "$(grep -cE " (oracle|rac)_database " "$T/out")" -eq 10 ]'
+check "list: a name with a quote is no candidate"  'grep -qE "^odd_db07 .*not a candidate: its host, port, service or global name has a character" "$T/out"'
 check "list: the standby is no candidate"          'grep -qE "^prod1_stby_db02 .*not a candidate: standby" "$T/out"'
 check "list: RAC instances are no candidates"      '[ "$(grep -c "not a candidate: RAC instance" "$T/out")" -eq 2 ]'
 check "list: six candidates carry no note"         '[ "$(grep -E " (oracle|rac)_database " "$T/out" | grep -vc "not a candidate")" -eq 6 ]'
@@ -116,6 +118,7 @@ check "--match: the primary only, the standby dropped" \
 run --all
 check "--all: exit 0, six add_target calls"        '[ $rc -eq 0 ] && [ "$(grep -c "^EXEC cap_repo.add_target" "$T/out")" -eq 6 ]'
 check "--all: no call for a standby or a RAC instance" '! grep -qE "add_target.*(db02|rac02)" "$T/out"'
+check "--all: no call for the name with a quote"   '! grep -q "db07" "$T/out"'
 check "--all: two databases of one name get the host" \
       'has "add_target('"'HR_DB03', '//db03.example.com:1521/hr'"'" && has "add_target('"'HR_DB04', '//db04.example.com:1521/hr'"'"'
 check "--all: the cluster database uses ServiceName" \

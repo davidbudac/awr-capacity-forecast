@@ -156,6 +156,13 @@ while IFS=$'\t' read -r name type host machine port sid dbname dbdomain service 
   fi
   [ "$machine" = - ] && machine=$host
   [ "$uname" = - ] && uname=$dbname
+  # //host:port/service, as target/prepare.sql prints it: the default service
+  # is DB_UNIQUE_NAME[.DB_DOMAIN]. A cluster database has ServiceName.
+  svc=$service
+  if [ "$svc" = - ]; then
+    svc=$(printf '%s' "$uname" | tr '[:upper:]' '[:lower:]')
+    [ "$dbdomain" != - ] && svc="$svc.$dbdomain"
+  fi
   why=""
   if [ "$type" = oracle_database ] && [ "$rac" = YES ]; then
     why="RAC instance: select its cluster database"
@@ -163,13 +170,9 @@ while IFS=$'\t' read -r name type host machine port sid dbname dbdomain service 
     why="standby: prepare its primary"
   elif [ "$uname" = - ] || [ "$machine" = - ] || [ "$port" = - ]; then
     why="the inventory has no name, host or port for it"
-  fi
-  # //host:port/service, as target/prepare.sql prints it: the default service
-  # is DB_UNIQUE_NAME[.DB_DOMAIN]. A cluster database has ServiceName.
-  svc=$service
-  if [ "$svc" = - ]; then
-    svc=$(printf '%s' "$uname" | tr '[:upper:]' '[:lower:]')
-    [ "$dbdomain" != - ] && svc="$svc.$dbdomain"
+  elif [[ "$machine$port$svc$gname" == *[!A-Za-z0-9._:\#\$-]* ]]; then
+    # These go into the add_target statements as string literals.
+    why="its host, port, service or global name has a character outside A-Z a-z 0-9 . _ - : # \$"
   fi
   t_name[n]=$name; t_type[n]=$type; t_host[n]=$machine; t_port[n]=$port; t_sid[n]=$sid
   t_cdb[n]=$cdb; t_dg[n]=$dg; t_ver[n]=$ver; t_home[n]=$home; t_gname[n]=$gname
