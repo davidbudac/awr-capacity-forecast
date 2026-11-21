@@ -101,7 +101,8 @@
 --     ci     = (1.96 + 2.4 / (k - 2)) x resid_se / SQRT(SXX)   (the M9.1 t)
 --     step   = b when k >= 3 and |b| > ci, else 0       (trend_sig Y / N)
 --     adj_i  = final_i + step x (k + 1 - i)             carried to member k + 1
---     next_member_bytes    = MEDIAN(adj_i)
+--     next_member_bytes    = GREATEST(0, MEDIAN(adj_i)): a steep falling
+--                            trend can carry the sizes below zero
 --     next_member_hi_bytes = MAX(final_i + GREATEST(step, 0) x (k + 1 - i))
 --
 -- With no significant trend that is the median and the maximum of the
@@ -416,7 +417,7 @@ WITH m AS (
      nx AS (
         SELECT r.dbid, r.con_dbid, r.family_name,
                MAX(r.k)                                                              AS recent_n,
-               MEDIAN(r.final_bytes + t.step * (r.k + 1 - r.i))                      AS next_member_bytes,
+               GREATEST(0, MEDIAN(r.final_bytes + t.step * (r.k + 1 - r.i)))         AS next_member_bytes,
                MAX(r.final_bytes + GREATEST(t.step, 0) * (r.k + 1 - r.i))            AS next_member_hi_bytes,
                MAX(t.b)                                                              AS trend_bpm,
                MAX(t.step)                                                           AS step
