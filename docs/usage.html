@@ -1096,8 +1096,8 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         <code>SGA_BALANCE</code>, over the last <span class="inline">mem_window_days</span> (30).
         Sizes are bytes; a suggestion is one step (at most <span class="inline">mem_max_step</span> ×
         current) and is flagged, never reduced, by <span class="inline">exceeds_host_ram</span> /
-        <span class="inline">exceeds_sga</span>. Live: about 8 s and 150 MB of PGA on a
-        30-day AWR, more on a longer history. The verdicts raise no alert; the
+        <span class="inline">exceeds_sga</span>. Live: about 3 s and 170 MB of PGA on a
+        real AWR of 1,700 snapshots, more on a longer history. The verdicts raise no alert; the
         <span class="inline">CAPR_MEM_</span> report views over them are in the <code>SNAPSHOT</code>
         tables. Knobs
         <span class="inline">mem_*</span>: <a href="reference.html#config">Reference</a>; views:
