@@ -519,7 +519,8 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         message. A failed delivery or a failed query leaves it, the script exits non-zero so cron
         reports it, and the next run sends the same events again. With two channels in one job a
         failing webhook therefore repeats the mail: use one job per channel, each with its own state
-        file, to keep them independent. Exit status: 0 delivered or nothing to send, 1 a failure,
+        file, to keep them independent. A webhook counts as delivered only on a 2xx answer: any other status
+        fails the run, a redirect included (it is not followed, so give the final URL). Exit status: 0 delivered or nothing to send, 1 a failure,
         2 a usage error. An acknowledgement hides an alert from
         <span class="inline">CAPR_ALERTS_LATEST</span> and keeps its later events
         (<code>DEESCALATED</code>, <code>RESOLVED</code>) out of the message unless
@@ -822,7 +823,7 @@ report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run
         board has a Target control and a Target column.</p>
 
       <figure class="figure">
-        <img src="assets/kibana-fleet-anomalies.png" alt="The fleet anomalies dashboard: anomaly counts per day by kind, a database-by-day heatmap, and the newest anomalies with their explanations" loading="lazy">
+        <img src="assets/kibana-fleet-anomalies.png" alt="The fleet anomalies dashboard: target, database, kind, baseline mode and severity filters, anomaly counts per day by kind, the most anomalous series, a database-by-day heatmap, the newest anomalies with their explanations, the alert volume per series and the fleet alerts" loading="lazy">
         <figcaption>Fleet anomalies board, two demo databases.</figcaption>
       </figure>
 

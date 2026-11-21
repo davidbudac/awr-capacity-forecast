@@ -666,8 +666,8 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   interval 1000 requests/s and 20 MB/s, day interval 2000 + 10i and 50, so
   `IOPS = 1950 + 9.5i` (OK, slope 9.5, cur 3090) and `IO_MBPS = 48.5`
   (FLAT). Day 0 reads 2000 / 50 and the partial day 1000 / 20, both
-  incomplete. No row on the restart day, no alert, no anomaly. Not in the
-  demo fixture or the ELK / Grafana / APEX boards.
+  incomplete. No row on the restart day, no alert, no anomaly. The demo
+  fixture and the ELK / Grafana / APEX boards carry both series (U20).
 - **Other fixture series** (closed forms in run_test.sql): `FIX_CYCLIC` /
   `FIX_CYCLIC_UP` (30-day sawtooths graded CYCLIC, flat vs growing peaks),
   `FIX_OVERFULL` (override ceiling below usage: `limit_below_used`, clamped
@@ -878,7 +878,8 @@ Prefixes: `CAPV_` seam → `CAPD_` daily → `CAPF_` forecast → `CAPA_` anomal
   member continues the same `state_key`.
 - **Not built.** TBSPC_FULL of a filling member is not held back when the
   family says it fits. Purges inside a member's window are not treated. No
-  mirror in the standalone queries. Dashboards do not read the views.
+  mirror in the standalone queries. The ELK export, ORDS / Grafana and the
+  APEX app read the two CAPR_ views (U20).
 - **Fixture.** `FIXM_#` (six monthly members: two flat DONE, two filled in
   the window, FIXM_202311 FILLING 53 MiB/day with 20 days left against 1600
   MiB, FIXM_202312 EMPTY: next 1586.5 MiB, cautious 1612, expected 1591,

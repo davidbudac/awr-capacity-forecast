@@ -221,7 +221,10 @@ oem/prepare_targets.sh --all --submit --db-cred NC_SYSDBA --host-cred NC_ORACLE
 Candidates are the CDBs and non-CDBs: targets of type `oracle_database` that
 are no RAC instance, and `rac_database`. A standby is listed and cannot be
 selected: prepare its primary, the reader arrives with the redo. A target
-that is not up is selected with a warning.
+that is not up is selected with a warning. A target whose host, port,
+service or global name has a character outside letters, digits and
+`. _ : # $ -` is listed and cannot be selected: those values go into the
+printed SQL as they are.
 
 ### Print mode (the default)
 
