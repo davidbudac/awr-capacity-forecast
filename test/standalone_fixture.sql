@@ -63,11 +63,15 @@ BEGIN
               FROM   all_objects
               WHERE  owner = v_own
                 AND  object_type IN ('VIEW', 'TABLE')
-                AND  (object_name LIKE 'SA\_%' ESCAPE '\'
-                      OR object_name IN ('DBA_HIST_SNAPSHOT', 'DBA_HIST_TABLESPACE',
-                                         'DBA_HIST_DATAFILE', 'DBA_HIST_TBSPC_SPACE_USAGE',
-                                         'DBA_HIST_PDB_INSTANCE', 'DBA_HIST_DATABASE_INSTANCE',
-                                         'CDB_TABLESPACE_USAGE_METRICS'))
+                -- By name, never by pattern: the schema may hold other SA_ objects.
+                AND  object_name IN ('SA_CTX', 'SA_TS', 'SA_DAY', 'SA_SNAP', 'SA_CON',
+                                     'SA_CAP', 'SA_MON',
+                                     'SA_CAP_V', 'SA_MON_V', 'SA_MON_ALL_V',
+                                     'SA_CAP_Q0_V', 'SA_CAP_M0_V', 'SA_CAP_DISK_V',
+                                     'DBA_HIST_SNAPSHOT', 'DBA_HIST_TABLESPACE',
+                                     'DBA_HIST_DATAFILE', 'DBA_HIST_TBSPC_SPACE_USAGE',
+                                     'DBA_HIST_PDB_INSTANCE', 'DBA_HIST_DATABASE_INSTANCE',
+                                     'CDB_TABLESPACE_USAGE_METRICS')
               ORDER  BY object_type DESC) LOOP
         ddl('DROP ' || r.object_type || ' @OWN@."' || r.object_name || '"'
             || CASE WHEN r.object_type = 'TABLE' THEN ' PURGE' END);
