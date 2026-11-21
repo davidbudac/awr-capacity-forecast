@@ -222,6 +222,16 @@ fi
 command -v sqlplus >/dev/null 2>&1 || die "sqlplus not on PATH"
 
 # ---- the position of the last delivery ----
+if [ $dry -eq 0 ]; then
+    mkdir -p "$(dirname "$state")" || die "cannot create the directory of $state"
+    # One run per state file: a second one would send the same events. The
+    # lock comes before the read, or a run could read the position another
+    # run is about to move.
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>>"$state.lock" || die "cannot write $state.lock"
+        flock -n 9 || { echo "$me: another run holds $state.lock" >&2; exit 1; }
+    fi
+fi
 after="-"
 if [ -e "$state" ]; then
     IFS= read -r after < "$state" || true
@@ -229,14 +239,6 @@ if [ -e "$state" ]; then
 fi
 last="$after"
 [ "$after" = "-" ] && last="none, the first run"
-if [ $dry -eq 0 ]; then
-    mkdir -p "$(dirname "$state")" || die "cannot create the directory of $state"
-    # One run per state file: a second one would send the same events.
-    if command -v flock >/dev/null 2>&1; then
-        exec 9>>"$state.lock" || die "cannot write $state.lock"
-        flock -n 9 || { echo "$me: another run holds $state.lock" >&2; exit 1; }
-    fi
-fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/awrcap_notify.XXXXXX")" || die "cannot create a temporary directory"
 trap 'rm -rf "$tmp"' EXIT
@@ -424,13 +426,21 @@ send_mail() {
 # The URL goes to curl in a config on stdin, never as an argument (ps shows
 # arguments), and is cut out of anything curl prints.
 send_webhook() {
-    local q out st
+    local q out st code
     q=${hook//\\/\\\\}
     q=${q//\"/\\\"}
     # shellcheck disable=SC2086
-    out=$(printf 'url = "%s"\nheader = "Content-Type: application/json"\ndata-binary = "@%s"\n' "$q" "$payload" \
-          | $curl_cmd --silent --show-error --fail --max-time 30 --output /dev/null --config - 2>&1)
+    code=$(printf 'url = "%s"\nheader = "Content-Type: application/json"\ndata-binary = "@%s"\n' "$q" "$payload" \
+           | $curl_cmd --silent --show-error --fail --max-time 30 --output /dev/null \
+                       --write-out '%{http_code}' --config - 2>"$tmp/curl.err")
     st=$?
+    out=$(cat "$tmp/curl.err")
+    # curl does not follow a redirect and --fail passes a 3xx: the endpoint
+    # that answered did not take the message.
+    if [ $st -eq 0 ] && [[ ! "$code" =~ ^2[0-9][0-9]$ ]]; then
+        st=22
+        out="HTTP status ${code:-none}, not a 2xx (a redirect is not followed: give the final URL)"
+    fi
     if [ $st -ne 0 ]; then
         out=${out//"$hook"/<webhook URL>}
         echo "FAIL webhook: curl exit $st${out:+: $out}" >&2

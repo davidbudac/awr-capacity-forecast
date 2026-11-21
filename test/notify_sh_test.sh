@@ -85,6 +85,7 @@ if [ "${MOCK_CURL_RC:-0}" -ne 0 ]; then
     echo "curl: (22) The requested URL returned error: 500 for $url" >&2
     exit "$MOCK_CURL_RC"
 fi
+case " $* " in *" --write-out "*) printf '%s' "${MOCK_CURL_HTTP:-200}";; esac
 exit 0
 MOCK
 chmod +x "$T/bin/sqlplus" "$T/bin/mockmail" "$T/bin/mocksendmail" "$T/bin/curl"
@@ -269,6 +270,15 @@ state_is  "webhook failed" "(no file)"
 run events --mail-to dba@example.com --webhook "$SECRET"
 want_rc   "both channels" 0
 state_is  "both channels delivered" "$POS"
+
+# ---- a redirect is not a delivery: curl exits 0 on a 3xx ----
+reset_state
+RUN_ENV=("MOCK_CURL_HTTP=302")
+run events --webhook "$SECRET"
+want_rc   "webhook answered 302" 1
+want_out  "the redirect is reported" "FAIL webhook: curl exit 22: HTTP status 302, not a 2xx"
+no_secret "webhook answered 302"
+state_is  "webhook answered 302" "(no file)"
 
 # ---- sendmail style ----
 reset_state
