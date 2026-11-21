@@ -341,7 +341,9 @@
   /* ---------- alert and anomaly wording (facts only) ---------- */
 
   function alertWhen(a) {
-    if (a.unit === 'DAYS' || a.u === 'DAYS') return stamp(LAST + a.v);
+    /* days count from the alert's own day: in a fleet report LAST is the
+       newest day of any target */
+    if (a.unit === 'DAYS' || a.u === 'DAYS') return stamp((a.day ? dayN(a.day) : LAST) + a.v);
     if (/_ANOM$/.test(a.kind)) return '<span class="when">' + fDay(dayN(a.n > 1 ? a.first : a.day)) + (a.n > 1 ? '–' + fDay(dayN(a.day)) : '') + '</span>';
     return '<span class="when">now</span>';
   }

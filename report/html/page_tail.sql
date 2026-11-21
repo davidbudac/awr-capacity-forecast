@@ -346,7 +346,9 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~  /* ---------- alert and anomaly wording (facts only) ---------- */~');
   DBMS_OUTPUT.PUT_LINE(NULL);
   DBMS_OUTPUT.PUT_LINE(q'~  function alertWhen(a) {~');
-  DBMS_OUTPUT.PUT_LINE(q'~    if (a.unit === 'DAYS' || a.u === 'DAYS') return stamp(LAST + a.v);~');
+  DBMS_OUTPUT.PUT_LINE(q'~    /* days count from the alert's own day: in a fleet report LAST is the~');
+  DBMS_OUTPUT.PUT_LINE(q'~       newest day of any target */~');
+  DBMS_OUTPUT.PUT_LINE(q'~    if (a.unit === 'DAYS' || a.u === 'DAYS') return stamp((a.day ? dayN(a.day) : LAST) + a.v);~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (/_ANOM$/.test(a.kind)) return '<span class="when">' + fDay(dayN(a.n > 1 ? a.first : a.day)) + (a.n > 1 ? '\u2013' + fDay(dayN(a.day)) : '') + '</span>';~');
   DBMS_OUTPUT.PUT_LINE(q'~    return '<span class="when">now</span>';~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
@@ -400,11 +402,11 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~      var e = days[d] || (days[d] = { d: d, day: null, hours: {}, nh: 0, f: a.f, z: 0 });~');
   DBMS_OUTPUT.PUT_LINE(q'~      if (a.grain === 'HOUR') {~');
   DBMS_OUTPUT.PUT_LINE(q'~        if (!e.hours[a.ts]) e.nh++;~');
-  DBMS_OUTPUT.PUT_LINE(q'~        e.hours[a.ts] = a.f;~');
-  DBMS_OUTPUT.PUT_LINE(q'~      } else if (!e.day || Math.abs(a.z) > Math.abs(e.day.z)) e.day = a;~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~        e.hours[a.ts] = a.f;~');
+  DBMS_OUTPUT.PUT_LINE(q'~      } else if (!e.day || Math.abs(a.z) > Math.abs(e.day.z)) e.day = a;~');
   DBMS_OUTPUT.PUT_LINE(q'~      if (Math.abs(a.z || 0) >= Math.abs(e.z)) { e.z = a.z; e.f = a.f; }~');
   DBMS_OUTPUT.PUT_LINE(q'~    });~');
   DBMS_OUTPUT.PUT_LINE(q'~    return Object.keys(days).map(function (k) { return days[k]; })~');
@@ -803,11 +805,11 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    if (!m) return '';~');
   DBMS_OUTPUT.PUT_LINE(q'~    var a = m.alerts[0];~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (a && m.sev !== 'OK') {~');
-  DBMS_OUTPUT.PUT_LINE(q'~      var fact = /_ANOM$/.test(a.kind) ? 'unusual ' + fDay(dayN(a.day)) : alertFact(a, m).replace(/<\/?b>/g, '');~');
-  DBMS_OUTPUT.PUT_LINE(q'~      return '<b>' + esc(m.name) + '</b> ' + fact;~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~      var fact = /_ANOM$/.test(a.kind) ? 'unusual ' + fDay(dayN(a.day)) : alertFact(a, m).replace(/<\/?b>/g, '');~');
+  DBMS_OUTPUT.PUT_LINE(q'~      return '<b>' + esc(m.name) + '</b> ' + fact;~');
   DBMS_OUTPUT.PUT_LINE(q'~    }~');
   DBMS_OUTPUT.PUT_LINE(q'~    var f = m.f;~');
   DBMS_OUTPUT.PUT_LINE(q'~    if (fam.id === 'tablespaces') {~');
@@ -1206,11 +1208,11 @@ BEGIN
   DBMS_OUTPUT.PUT_LINE(q'~    html.push('<div class="banner warn">Newest AWR day is ' + fDayY(LAST) + ', ' + (GEN - LAST) + ' days before this report.</div>');~');
   DBMS_OUTPUT.PUT_LINE(q'~  }~');
   DBMS_OUTPUT.PUT_LINE(NULL);
-  DBMS_OUTPUT.PUT_LINE(q'~  var listed = alerts.filter(function (a) { return a.sev === 'CRIT' || a.sev === 'WARN'; });~');
-  DBMS_OUTPUT.PUT_LINE(q'~  var nFitOk = present.reduce(function (n, s) { return n + s.ms.filter(function (m) { return m.f.q === 'OK'; }).length; }, 0);~');
 END;
 /
 BEGIN
+  DBMS_OUTPUT.PUT_LINE(q'~  var listed = alerts.filter(function (a) { return a.sev === 'CRIT' || a.sev === 'WARN'; });~');
+  DBMS_OUTPUT.PUT_LINE(q'~  var nFitOk = present.reduce(function (n, s) { return n + s.ms.filter(function (m) { return m.f.q === 'OK'; }).length; }, 0);~');
   DBMS_OUTPUT.PUT_LINE(q'~  var plural = function (n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); };~');
   DBMS_OUTPUT.PUT_LINE(q'~  html.push('<section id="overview" class="ov">');~');
   DBMS_OUTPUT.PUT_LINE(q'~  var top = listed[0];~');
