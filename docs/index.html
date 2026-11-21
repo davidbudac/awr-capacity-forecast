@@ -240,8 +240,9 @@
 
       <h3>Space</h3>
       <p>Measured on the demo schema (150 days of history, 27 trained models, one refresh run):
-        4.4 MB in total, of which 3.4 MB is the OML models (about 0.13 MB each) and under 1 MB
-        is the suite's own tables and indexes.</p>
+        11.3 MB in total, of which 6.9 MB is the SNAPSHOT cache tables (one per report view,
+        replaced by every refresh), 3.4 MB the OML models (about 0.13 MB each) and 1 MB
+        the suite's own tables and indexes.</p>
       <ul>
         <li><span class="inline">CAP_FIT_HIST</span> gains one row (about 200 bytes) per series per
           refresh run; <span class="inline">CAP_RUN</span> one row per run;
