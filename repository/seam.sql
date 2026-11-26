@@ -5,7 +5,7 @@
 -- ddl/13_seam_repository.sql by renaming every dba_hist_<x> to cap_h_<x>,
 -- the copies a repository pulls from its targets.
 --
--- These twenty-four views (plus the CAPV_CONTRACT diagnostic at the bottom) are
+-- These twenty-five views (plus the CAPV_CONTRACT diagnostic at the bottom) are
 -- the ONLY place the analytics touch AWR data. Everything downstream
 -- (CAPD_/CAPF_/CAPA_/report) is written once against CAPV_* and runs
 -- byte-identically over ddl/13 (repository) or ddl/12_seam_fixture.sql
@@ -297,9 +297,16 @@ WHERE  resource_name IN ('processes','sessions')
 
 -- --------------------------------------------------------------------
 -- CAPV_SYSSTAT (M11.2) -- system statistics PER CONTAINER, filtered to the
--- one counter the redo series needs. 'redo size' is a CUMULATIVE BYTE counter
--- since instance startup (like the OSSTAT/time-model counters), so the daily
--- layer differences consecutive snaps and drops restart-spanning intervals.
+-- counters the series read: 'redo size' (REDO_GB_DAY) and the four physical
+-- I/O totals (IOPS, IO_MBPS: read / write requests and bytes, every I/O the
+-- instance issues for the container, not only buffer cache I/O). All are
+-- CUMULATIVE counters since instance startup (like the OSSTAT/time-model
+-- counters), so the daily layer differences consecutive snaps and drops
+-- restart-spanning intervals.
+--   * AWR writes no row for a container's statistic that is still zero
+--     since startup (19.27: a PDB had 1265 'physical write total IO
+--     requests' rows beside 1572 read rows), so a name can be absent on a
+--     snapshot that carries the others.
 --   * Source DBA_HIST_CON_SYSSTAT, for the same reason as CAPV_TIME_MODEL:
 --     DBA_HIST_SYSSTAT in CDB$ROOT carries the root's con_dbid only. The log
 --     stream is shared, so the CDB's redo is the SUM over containers.
@@ -313,13 +320,17 @@ SELECT c.dbid                   AS dbid,
        c.stat_name              AS stat_name,
        c.value                  AS value
 FROM   dba_hist_con_sysstat c
-WHERE  c.stat_name = 'redo size'
+WHERE  c.stat_name IN ('redo size',
+                        'physical read total IO requests', 'physical write total IO requests',
+                        'physical read total bytes', 'physical write total bytes')
   AND  NVL(c.con_id, 0) <> 2
   AND  c.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), c.dbid)
 UNION ALL
 SELECT s.dbid, s.con_dbid, s.instance_number, s.snap_id, s.stat_name, s.value
 FROM   dba_hist_sysstat s
-WHERE  s.stat_name = 'redo size'
+WHERE  s.stat_name IN ('redo size',
+                        'physical read total IO requests', 'physical write total IO requests',
+                        'physical read total bytes', 'physical write total bytes')
   AND  s.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), s.dbid)
   AND  NOT EXISTS (SELECT 1
                    FROM   dba_hist_con_sysstat c
@@ -653,6 +664,33 @@ JOIN   dba_hist_seg_stat_obj o
  AND   o.ts# = s.ts# AND o.obj# = s.obj# AND o.dataobj# = s.dataobj#
 WHERE  s.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), s.dbid)
   AND  o.dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), o.dbid);
+
+-- --------------------------------------------------------------------
+-- CAPV_TBSPC_LIVE -- the live tablespace ceilings (U09, the shared-disk
+-- forecast in ddl/33). Not AWR: CDB_TABLESPACE_USAGE_METRICS on the target,
+-- copied whole at every collect into CAP_H_TBSPC_LIVE (repository/build.py
+-- kind L). This view names the copy itself, not a DBA_HIST_ view: the copy
+-- has columns the source lacks (dbid, con_dbid, collected_at).
+--   * ceiling_blocks is TABLESPACE_SIZE: the largest size the tablespace can
+--     reach now, in blocks of its own block size. Oracle caps the autoextend
+--     maximum by the free space of the filesystem / ASM disk group behind
+--     the datafiles (allocated + device free, per tablespace, at any file
+--     count: verified 19.27), which AWR's tablespace_maxsize is not.
+--   * collected_at is the collect time on the repository's clock. No
+--     snap_id, no history: one row per tablespace, as of that time.
+--   * Rows exist for the target's newest DBID only, every contents type.
+--     Optional copy: a reader without the grant leaves it empty.
+-- Not in CAPV_CONTRACT (no snap_id).
+-- --------------------------------------------------------------------
+CREATE OR REPLACE VIEW capv_tbspc_live AS
+SELECT dbid                     AS dbid,
+       con_dbid                 AS con_dbid,
+       tablespace_name          AS tablespace_name,
+       tablespace_size          AS ceiling_blocks,
+       used_space               AS used_blocks,
+       collected_at             AS collected_at
+FROM   cap_h_tbspc_live
+WHERE  dbid = NVL(TO_NUMBER(REGEXP_SUBSTR(SYS_CONTEXT('USERENV', 'CLIENT_INFO'), '^AWRCAP dbid=(-?[0-9]+)$', 1, 1, NULL, 1)), dbid);
 
 -- --------------------------------------------------------------------
 -- CAPV_CONTRACT -- what this seam actually presents, one row per fact

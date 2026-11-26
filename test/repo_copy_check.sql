@@ -22,6 +22,8 @@
 -- there only a source row missing from the copy is a difference; copy-only
 -- rows are listed as kept. A stale copy of a keyed row still shows as its
 -- source row missing.
+-- A kind L copy (CAP_H_TBSPC_LIVE) is not compared: its source is a live
+-- view with no snapshot to pin, so its numbers move between collect and check.
 -- Prints "COPYCHECK <target> dbid=<n> <source> ..." per source and DBID, its
 -- first 10 differing rows, and one closing line
 --   COPYCHECK-RESULT EQUAL | DIFFERENT | MOVED | FAILED ...
@@ -211,12 +213,16 @@ BEGIN
                 'F',
                 q'~dbid, con_dbid, instance_number, snap_id, stat_name, value~',
                 q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || stat_name || '|' || TO_CHAR(value)~',
-                p_filter => q'~stat_name = 'redo size'~');
+                p_filter => q'~stat_name IN ('redo size',
+             'physical read total IO requests','physical write total IO requests',
+             'physical read total bytes','physical write total bytes')~');
             one('con_sysstat',
                 'F',
                 q'~dbid, con_dbid, con_id, instance_number, snap_id, stat_name, value~',
                 q'~TO_CHAR(dbid) || '|' || TO_CHAR(con_dbid) || '|' || TO_CHAR(con_id) || '|' || TO_CHAR(instance_number) || '|' || TO_CHAR(snap_id) || '|' || stat_name || '|' || TO_CHAR(value)~',
-                p_filter => q'~stat_name = 'redo size'~');
+                p_filter => q'~stat_name IN ('redo size',
+             'physical read total IO requests','physical write total IO requests',
+             'physical read total bytes','physical write total bytes')~');
             one('parameter',
                 'F',
                 q'~dbid, con_dbid, instance_number, snap_id, parameter_name, value~',

@@ -29,6 +29,70 @@
   "templating": {
     "list": [
       {
+        "name": "target",
+        "label": "Target",
+        "type": "query",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "awrcap-ords"
+        },
+        "query": {
+          "queryType": "infinity",
+          "infinityQuery": {
+            "refId": "V",
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "awrcap-ords"
+            },
+            "type": "json",
+            "source": "url",
+            "parser": "backend",
+            "format": "table",
+            "url": "/containers",
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "root_selector": "items",
+            "columns": [
+              {
+                "selector": "target_name",
+                "text": "target_name",
+                "type": "string"
+              },
+              {
+                "selector": "db",
+                "text": "db",
+                "type": "string"
+              }
+            ],
+            "filters": [],
+            "computed_columns": [],
+            "summarizeExpression": "count(db)",
+            "summarizeBy": "target_name",
+            "summarizeAlias": "summary"
+          },
+          "meta": {
+            "valueField": "target_name",
+            "textField": "target_name"
+          },
+          "refId": "var-target"
+        },
+        "definition": "/containers",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
         "name": "db",
         "label": "Database",
         "type": "query",
@@ -59,10 +123,16 @@
                 "selector": "db",
                 "text": "db",
                 "type": "string"
+              },
+              {
+                "selector": "target_name",
+                "text": "target_name",
+                "type": "string"
               }
             ],
             "filters": [],
-            "computed_columns": []
+            "computed_columns": [],
+            "filterExpression": "target_name IN (${target:singlequote})"
           },
           "meta": {
             "valueField": "db",
@@ -267,6 +337,11 @@
           "root_selector": "items",
           "columns": [
             {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
               "selector": "db",
               "text": "db",
               "type": "string"
@@ -329,6 +404,21 @@
             {
               "selector": "quality",
               "text": "quality",
+              "type": "string"
+            },
+            {
+              "selector": "restart_reason",
+              "text": "restart_reason",
+              "type": "string"
+            },
+            {
+              "selector": "restart_day",
+              "text": "restart_day",
+              "type": "timestamp"
+            },
+            {
+              "selector": "reliability",
+              "text": "reliability",
               "type": "string"
             }
           ],
@@ -438,6 +528,11 @@
               "selector": "ts",
               "text": "ts",
               "type": "timestamp"
+            },
+            {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
             },
             {
               "selector": "db",
@@ -554,7 +649,7 @@
       },
       "type": "table",
       "title": "Days to full (latest fit per tablespace, soonest first)",
-      "description": "Days to full is the linear fit projected at today's slope; low/high come from the forecast band. CRIT at 30 days or less, WARN at 90.",
+      "description": "Days to full is the linear fit projected at today's slope; low/high come from the forecast band. CRIT at 30 days or less, WARN at 90. Restart: why the fit window is shorter than the training window (PURGE, growth that stopped = STOP or began = START) and its first day. Track: the grade of the series' earlier forecasts (GOOD, BIASED, WIDE; UNKNOWN until enough are old enough to check).",
       "datasource": {
         "type": "datasource",
         "uid": "-- Dashboard --"
@@ -586,22 +681,27 @@
           "id": "organize",
           "options": {
             "indexByName": {
-              "db": 0,
-              "series": 1,
-              "sev": 2,
-              "pct": 3,
-              "value": 4,
-              "limit_value": 5,
-              "slope_per_day": 6,
-              "days_to_full": 7,
-              "days_to_full_lo": 8,
-              "days_to_full_hi": 9,
-              "r2": 10,
-              "quality": 11,
-              "sev_rank": 12,
-              "soonest": 13
+              "target_name": 0,
+              "db": 1,
+              "series": 2,
+              "sev": 3,
+              "pct": 4,
+              "value": 5,
+              "limit_value": 6,
+              "slope_per_day": 7,
+              "days_to_full": 8,
+              "days_to_full_lo": 9,
+              "days_to_full_hi": 10,
+              "r2": 11,
+              "quality": 12,
+              "restart_reason": 13,
+              "restart_day": 14,
+              "reliability": 15,
+              "sev_rank": 16,
+              "soonest": 17
             },
             "renameByName": {
+              "target_name": "Target",
               "db": "Database",
               "series": "Tablespace",
               "sev": "Sev",
@@ -613,7 +713,10 @@
               "days_to_full_lo": "DTF low",
               "days_to_full_hi": "DTF high",
               "r2": "R\u00b2",
-              "quality": "Fit quality"
+              "quality": "Fit quality",
+              "restart_reason": "Restart",
+              "restart_day": "Since",
+              "reliability": "Track"
             },
             "excludeByName": {
               "sev_rank": true,
@@ -632,6 +735,18 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -895,6 +1010,46 @@
               {
                 "id": "decimals",
                 "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Restart"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Since"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "unit",
+                "value": "time:YYYY-MM-DD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Track"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
               }
             ]
           }
@@ -1560,21 +1715,23 @@
           "options": {
             "indexByName": {
               "ts": 0,
-              "db": 1,
-              "series": 2,
-              "baseline_mode": 3,
-              "raw_value": 4,
-              "value": 5,
-              "expected": 6,
-              "z": 7,
-              "anomaly_flag": 8,
-              "sev": 9,
-              "message": 10,
-              "anomaly_kind": 11,
-              "sev_rank": 12
+              "target_name": 1,
+              "db": 2,
+              "series": 3,
+              "baseline_mode": 4,
+              "raw_value": 5,
+              "value": 6,
+              "expected": 7,
+              "z": 8,
+              "anomaly_flag": 9,
+              "sev": 10,
+              "message": 11,
+              "anomaly_kind": 12,
+              "sev_rank": 13
             },
             "renameByName": {
               "ts": "Day",
+              "target_name": "Target",
               "db": "Database",
               "series": "Tablespace",
               "baseline_mode": "Mode",
@@ -1615,6 +1772,18 @@
               {
                 "id": "unit",
                 "value": "time:YYYY-MM-DD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
               }
             ]
           },
@@ -1999,10 +2168,1742 @@
         "x": 0,
         "y": 42,
         "w": 24,
+        "h": 5
+      },
+      "type": "table",
+      "title": "Shared disk: when is the disk under the datafiles full?",
+      "description": "All datafiles of a database are taken to sit on one disk. Free space: the operator's CAP_DISK_OVERRIDE row, else derived from the live tablespace ceilings (LIVE), else not known (NONE). Days to full: until the growing tablespaces have taken it. DISK_FULL alerts at 90 and 30 days.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "awrcap-ords"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "awrcap-ords"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/disk",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "items",
+          "columns": [
+            {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
+              "selector": "db",
+              "text": "db",
+              "type": "string"
+            },
+            {
+              "selector": "disk_name",
+              "text": "disk_name",
+              "type": "string"
+            },
+            {
+              "selector": "sev",
+              "text": "sev",
+              "type": "string"
+            },
+            {
+              "selector": "sev_rank",
+              "text": "sev_rank",
+              "type": "number"
+            },
+            {
+              "selector": "disk_source",
+              "text": "disk_source",
+              "type": "string"
+            },
+            {
+              "selector": "disk_free_gb",
+              "text": "disk_free_gb",
+              "type": "number"
+            },
+            {
+              "selector": "alloc_gb",
+              "text": "alloc_gb",
+              "type": "number"
+            },
+            {
+              "selector": "disk_dtf",
+              "text": "disk_dtf",
+              "type": "number"
+            },
+            {
+              "selector": "disk_dtf_worst",
+              "text": "disk_dtf_worst",
+              "type": "number"
+            },
+            {
+              "selector": "disk_full_day",
+              "text": "disk_full_day",
+              "type": "timestamp"
+            },
+            {
+              "selector": "n_growing",
+              "text": "n_growing",
+              "type": "number"
+            },
+            {
+              "selector": "grow_mb",
+              "text": "grow_mb",
+              "type": "number"
+            },
+            {
+              "selector": "top_growers",
+              "text": "top_growers",
+              "type": "string"
+            },
+            {
+              "selector": "gated_by",
+              "text": "gated_by",
+              "type": "string"
+            }
+          ],
+          "filters": [],
+          "computed_columns": [],
+          "filterExpression": "target_name IN (${target:singlequote})"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "sev_rank",
+                "desc": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "target_name": 0,
+              "db": 1,
+              "disk_name": 2,
+              "sev": 3,
+              "disk_source": 4,
+              "disk_free_gb": 5,
+              "alloc_gb": 6,
+              "disk_dtf": 7,
+              "disk_dtf_worst": 8,
+              "disk_full_day": 9,
+              "n_growing": 10,
+              "grow_mb": 11,
+              "top_growers": 12,
+              "gated_by": 13,
+              "sev_rank": 14
+            },
+            "renameByName": {
+              "target_name": "Target",
+              "db": "Database",
+              "disk_name": "Disk",
+              "sev": "Sev",
+              "disk_source": "Free space from",
+              "disk_free_gb": "Free",
+              "alloc_gb": "Allocated",
+              "disk_dtf": "Days to full",
+              "disk_dtf_worst": "Worst case",
+              "disk_full_day": "Full on",
+              "n_growing": "Growing",
+              "grow_mb": "They take",
+              "top_growers": "Fastest growing (MiB/day)",
+              "gated_by": "Gate"
+            },
+            "excludeByName": {
+              "sev_rank": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Database"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Disk"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sev"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "CRIT": {
+                        "color": "#e7664c",
+                        "index": 0
+                      },
+                      "WARN": {
+                        "color": "#f5a700",
+                        "index": 1
+                      },
+                      "INFO": {
+                        "color": "#6092c0",
+                        "index": 2
+                      },
+                      "OK": {
+                        "color": "#24c292",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Free space from"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Free"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Allocated"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Days to full"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#e7664c",
+                      "value": null
+                    },
+                    {
+                      "color": "#f5a700",
+                      "value": 31
+                    },
+                    {
+                      "color": "#24c292",
+                      "value": 91
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "",
+                        "color": "transparent",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Worst case"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Full on"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "unit",
+                "value": "time:YYYY-MM-DD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Growing"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "They take"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: MiB/d"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Gate"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 10,
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 9
+      },
+      "type": "table",
+      "title": "Tablespaces on the shared disk: days alone, days once the disk is full",
+      "description": "Growing tablespaces only. Days, alone: to the tablespace's own limit (its ceiling, or the live ceiling when that is lower). Days, shared disk: until it is stuck, at its own limit or the first time it must extend after the disk is full. Stopped by says which.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "awrcap-ords"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "awrcap-ords"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/tbspc_shared",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "items",
+          "columns": [
+            {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
+              "selector": "db",
+              "text": "db",
+              "type": "string"
+            },
+            {
+              "selector": "series",
+              "text": "series",
+              "type": "string"
+            },
+            {
+              "selector": "quality",
+              "text": "quality",
+              "type": "string"
+            },
+            {
+              "selector": "cur_gb",
+              "text": "cur_gb",
+              "type": "number"
+            },
+            {
+              "selector": "alloc_gb",
+              "text": "alloc_gb",
+              "type": "number"
+            },
+            {
+              "selector": "limit_own_gb",
+              "text": "limit_own_gb",
+              "type": "number"
+            },
+            {
+              "selector": "limit_live",
+              "text": "limit_live",
+              "type": "string"
+            },
+            {
+              "selector": "grow_mb",
+              "text": "grow_mb",
+              "type": "number"
+            },
+            {
+              "selector": "dtf_own",
+              "text": "dtf_own",
+              "type": "number"
+            },
+            {
+              "selector": "dtf_shared",
+              "text": "dtf_shared",
+              "type": "number"
+            },
+            {
+              "selector": "dtf_shared_worst",
+              "text": "dtf_shared_worst",
+              "type": "number"
+            },
+            {
+              "selector": "limit_shared_gb",
+              "text": "limit_shared_gb",
+              "type": "number"
+            },
+            {
+              "selector": "stopped_by",
+              "text": "stopped_by",
+              "type": "string"
+            },
+            {
+              "selector": "rank_shared",
+              "text": "rank_shared",
+              "type": "number"
+            },
+            {
+              "selector": "growing",
+              "text": "growing",
+              "type": "string"
+            }
+          ],
+          "filters": [],
+          "computed_columns": [],
+          "filterExpression": "db IN (${db:singlequote}) && series IN (${series:singlequote}) && growing == 'Y'"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "rank_shared",
+                "desc": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "target_name": 0,
+              "db": 1,
+              "series": 2,
+              "quality": 3,
+              "cur_gb": 4,
+              "alloc_gb": 5,
+              "limit_own_gb": 6,
+              "limit_live": 7,
+              "grow_mb": 8,
+              "dtf_own": 9,
+              "dtf_shared": 10,
+              "dtf_shared_worst": 11,
+              "limit_shared_gb": 12,
+              "stopped_by": 13,
+              "rank_shared": 14,
+              "growing": 15
+            },
+            "renameByName": {
+              "target_name": "Target",
+              "db": "Database",
+              "series": "Tablespace",
+              "quality": "Fit quality",
+              "cur_gb": "Used",
+              "alloc_gb": "Allocated",
+              "limit_own_gb": "Own limit",
+              "limit_live": "Live ceiling",
+              "grow_mb": "Growth",
+              "dtf_own": "Days, alone",
+              "dtf_shared": "Days, shared disk",
+              "dtf_shared_worst": "Worst case",
+              "limit_shared_gb": "Size when stuck",
+              "stopped_by": "Stopped by"
+            },
+            "excludeByName": {
+              "rank_shared": true,
+              "growing": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Database"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tablespace"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Allocated"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Own limit"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Live ceiling"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Growth"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: MiB/d"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Days, alone"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Days, shared disk"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#e7664c",
+                      "value": null
+                    },
+                    {
+                      "color": "#f5a700",
+                      "value": 31
+                    },
+                    {
+                      "color": "#24c292",
+                      "value": 91
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "",
+                        "color": "transparent",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Worst case"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Size when stuck"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stopped by"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 11,
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 6
+      },
+      "type": "table",
+      "title": "Tablespace families: the next member's size, the filling member against its ceiling",
+      "description": "Tablespaces of one container whose names differ only in a period (month, quarter, year) are a family. Next member: the size the next one needs, from the finished members. Fits = N: the member that fills now may pass its ceiling before its period ends (the TBSPC_FAMILY alert).",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "awrcap-ords"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "awrcap-ords"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/families",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "items",
+          "columns": [
+            {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
+              "selector": "db",
+              "text": "db",
+              "type": "string"
+            },
+            {
+              "selector": "family_name",
+              "text": "family_name",
+              "type": "string"
+            },
+            {
+              "selector": "sev",
+              "text": "sev",
+              "type": "string"
+            },
+            {
+              "selector": "period",
+              "text": "period",
+              "type": "string"
+            },
+            {
+              "selector": "n_done",
+              "text": "n_done",
+              "type": "number"
+            },
+            {
+              "selector": "n_filling",
+              "text": "n_filling",
+              "type": "number"
+            },
+            {
+              "selector": "n_empty",
+              "text": "n_empty",
+              "type": "number"
+            },
+            {
+              "selector": "next_member_gb",
+              "text": "next_member_gb",
+              "type": "number"
+            },
+            {
+              "selector": "next_member_hi_gb",
+              "text": "next_member_hi_gb",
+              "type": "number"
+            },
+            {
+              "selector": "filling_member",
+              "text": "filling_member",
+              "type": "string"
+            },
+            {
+              "selector": "period_end_day",
+              "text": "period_end_day",
+              "type": "timestamp"
+            },
+            {
+              "selector": "days_left",
+              "text": "days_left",
+              "type": "number"
+            },
+            {
+              "selector": "expected_final_gb",
+              "text": "expected_final_gb",
+              "type": "number"
+            },
+            {
+              "selector": "expected_final_hi_gb",
+              "text": "expected_final_hi_gb",
+              "type": "number"
+            },
+            {
+              "selector": "filling_limit_gb",
+              "text": "filling_limit_gb",
+              "type": "number"
+            },
+            {
+              "selector": "fits",
+              "text": "fits",
+              "type": "string"
+            },
+            {
+              "selector": "headline",
+              "text": "headline",
+              "type": "string"
+            }
+          ],
+          "filters": [],
+          "computed_columns": [],
+          "filterExpression": "db IN (${db:singlequote})"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "family_name",
+                "desc": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "target_name": 0,
+              "db": 1,
+              "family_name": 2,
+              "sev": 3,
+              "period": 4,
+              "n_done": 5,
+              "n_filling": 6,
+              "n_empty": 7,
+              "next_member_gb": 8,
+              "next_member_hi_gb": 9,
+              "filling_member": 10,
+              "period_end_day": 11,
+              "days_left": 12,
+              "expected_final_gb": 13,
+              "expected_final_hi_gb": 14,
+              "filling_limit_gb": 15,
+              "fits": 16,
+              "headline": 17
+            },
+            "renameByName": {
+              "target_name": "Target",
+              "db": "Database",
+              "family_name": "Family",
+              "sev": "Sev",
+              "period": "Period",
+              "n_done": "Done",
+              "n_filling": "Filling",
+              "n_empty": "Empty",
+              "next_member_gb": "Next member",
+              "next_member_hi_gb": "Cautious",
+              "filling_member": "Filling member",
+              "period_end_day": "Period ends",
+              "days_left": "Days left",
+              "expected_final_gb": "Expected final",
+              "expected_final_hi_gb": "Cautious final",
+              "filling_limit_gb": "Ceiling",
+              "fits": "Fits",
+              "headline": "In words"
+            },
+            "excludeByName": {}
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Database"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Family"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sev"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "CRIT": {
+                        "color": "#e7664c",
+                        "index": 0
+                      },
+                      "WARN": {
+                        "color": "#f5a700",
+                        "index": 1
+                      },
+                      "INFO": {
+                        "color": "#6092c0",
+                        "index": 2
+                      },
+                      "OK": {
+                        "color": "#24c292",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Period"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Done"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Filling"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Empty"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Next member"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cautious"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Filling member"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Period ends"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "unit",
+                "value": "time:YYYY-MM-DD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Days left"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Expected final"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cautious final"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ceiling"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fits"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 24,
+        "h": 9
+      },
+      "type": "table",
+      "title": "Family members in period order",
+      "description": "In the handler's order: database, family, period. DONE: filled, or growth stopped. FILLING: the newest member that grows. EMPTY: created ahead. Final size: the largest used size of a DONE member.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "awrcap-ords"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "awrcap-ords"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/family_members",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "items",
+          "columns": [
+            {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
+              "selector": "db",
+              "text": "db",
+              "type": "string"
+            },
+            {
+              "selector": "family_name",
+              "text": "family_name",
+              "type": "string"
+            },
+            {
+              "selector": "series",
+              "text": "series",
+              "type": "string"
+            },
+            {
+              "selector": "member_seq",
+              "text": "member_seq",
+              "type": "number"
+            },
+            {
+              "selector": "state",
+              "text": "state",
+              "type": "string"
+            },
+            {
+              "selector": "used_gb",
+              "text": "used_gb",
+              "type": "number"
+            },
+            {
+              "selector": "limit_gb",
+              "text": "limit_gb",
+              "type": "number"
+            },
+            {
+              "selector": "pct_used",
+              "text": "pct_used",
+              "type": "number"
+            },
+            {
+              "selector": "final_gb",
+              "text": "final_gb",
+              "type": "number"
+            },
+            {
+              "selector": "fill_from",
+              "text": "fill_from",
+              "type": "timestamp"
+            },
+            {
+              "selector": "fill_to",
+              "text": "fill_to",
+              "type": "timestamp"
+            },
+            {
+              "selector": "fill_days",
+              "text": "fill_days",
+              "type": "number"
+            },
+            {
+              "selector": "quality",
+              "text": "quality",
+              "type": "string"
+            },
+            {
+              "selector": "restart_reason",
+              "text": "restart_reason",
+              "type": "string"
+            }
+          ],
+          "filters": [],
+          "computed_columns": [],
+          "filterExpression": "db IN (${db:singlequote})"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "target_name": 0,
+              "db": 1,
+              "family_name": 2,
+              "member_seq": 3,
+              "series": 4,
+              "state": 5,
+              "used_gb": 6,
+              "limit_gb": 7,
+              "pct_used": 8,
+              "final_gb": 9,
+              "fill_from": 10,
+              "fill_to": 11,
+              "fill_days": 12,
+              "quality": 13,
+              "restart_reason": 14
+            },
+            "renameByName": {
+              "target_name": "Target",
+              "db": "Database",
+              "family_name": "Family",
+              "member_seq": "Seq",
+              "series": "Tablespace",
+              "state": "State",
+              "used_gb": "Used",
+              "limit_gb": "Ceiling",
+              "pct_used": "Used %",
+              "final_gb": "Final size",
+              "fill_from": "Filled from",
+              "fill_to": "to",
+              "fill_days": "Fill days",
+              "quality": "Fit quality",
+              "restart_reason": "Restart"
+            },
+            "excludeByName": {}
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Database"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Family"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Seq"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tablespace"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "State"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ceiling"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used %"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#24c292",
+                      "value": null
+                    },
+                    {
+                      "color": "#f5a700",
+                      "value": 90
+                    },
+                    {
+                      "color": "#e7664c",
+                      "value": 97
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "",
+                        "color": "transparent",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Final size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: GiB"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Filled from"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "unit",
+                "value": "time:YYYY-MM-DD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "to"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "unit",
+                "value": "time:YYYY-MM-DD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fill days"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Restart"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 13,
+      "gridPos": {
+        "x": 0,
+        "y": 71,
+        "w": 24,
         "h": 8
       },
       "type": "table",
-      "title": "Tablespace alerts",
+      "title": "Tablespace and disk alerts",
       "description": "",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -2047,6 +3948,11 @@
               "type": "string"
             },
             {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
               "selector": "db",
               "text": "db",
               "type": "string"
@@ -2084,7 +3990,7 @@
           ],
           "filters": [],
           "computed_columns": [],
-          "filterExpression": "kind == 'TBSPC' && db IN (${db:singlequote})"
+          "filterExpression": "(kind == 'TBSPC' || kind == 'DISK') && db IN (${db:singlequote})"
         }
       ],
       "transformations": [
@@ -2105,19 +4011,21 @@
             "indexByName": {
               "sev": 0,
               "alert_kind": 1,
-              "db": 2,
-              "series": 3,
-              "obs_day": 4,
-              "message": 5,
-              "sev_rank": 6,
-              "kind": 7,
-              "value": 8,
-              "threshold": 9,
-              "unit": 10
+              "target_name": 2,
+              "db": 3,
+              "series": 4,
+              "obs_day": 5,
+              "message": 6,
+              "sev_rank": 7,
+              "kind": 8,
+              "value": 9,
+              "threshold": 10,
+              "unit": 11
             },
             "renameByName": {
               "sev": "Sev",
               "alert_kind": "Alert",
+              "target_name": "Target",
               "db": "Database",
               "series": "Series",
               "obs_day": "Day",
@@ -2196,6 +4104,18 @@
               {
                 "id": "custom.width",
                 "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
               }
             ]
           },

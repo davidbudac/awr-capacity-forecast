@@ -18,12 +18,13 @@ The samples are real output from a fictional database with 150 days of test AWR 
 | Question | Output |
 |----------|--------|
 | When does a tablespace fill? | Size at +30 / 90 / 180 / 365 days with 95% bands, `days_to_full` with worst/best case, GiB to add and the date to add them by |
+| When is the disk behind the datafiles full? | Every tablespace forecast against the one disk they share: `dtf_shared`, the size each reaches, `disk_dtf` and a `DISK_FULL` alert |
 | How much CPU headroom is left? | Host busy% (average, p95, peak window) and DB CPU per container, days to saturation, level shifts, hosts already hot |
-| Which fixed limits are close? | `processes`, `sessions`, PGA allocated against `pga_aggregate_limit`, redo GiB/day against the FRA, DB size, ASM disk groups, TEMP / UNDO peaks |
+| One tablespace per month: will this one fit, how big must the next be? | Tablespaces named by period form a family: each member's state and final size, the size the next member needs, and the filling member's expected size against its ceiling |
+| Which fixed limits are close? | `processes`, `sessions`, PGA allocated against `pga_aggregate_limit`, redo GiB/day against the FRA, DB size, ASM disk groups, TEMP / UNDO peaks; I/O requests and MB per second as a trend with no limit |
 | Is instance memory sized well? | A grade per area (SGA, buffer cache, shared pool, PGA target and limit) from Oracle's advisors and observed symptoms, with the evidence and a suggested size |
 | Is today unusual? | Median + MAD flags against three baselines: last 28 days, same weekday, same weekday and hour (CPU) |
 | Which forecast to trust? | A holdout backtest scores each engine's MAPE and bias |
-| Is instance memory sized right? | `CAPM_VERDICT`: a grade per instance and area (PGA limit, PGA target, buffer cache, shared pool, SGA total, SGA balance) with its evidence and a suggested size. A view to query; not in the reports or alerts yet |
 
 Every number can be checked by hand: the anomaly flags show value, median,
 threshold and robust z, and the `drill_*` scripts print the fit arithmetic.
@@ -37,8 +38,11 @@ threshold and robust z, and the `drill_*` scripts print the fit arithmetic.
   seam reads the copies (or the test fixtures); everything above is the same
   SQL.
 - **Tier 1**: SQL linear fit (least squares, or Theil-Sen / drift on demand),
-  anchored at today's value. **Tier 2** (optional): OML exponential
-  smoothing as a second opinion, at most +30 days on 19c.
+  anchored at today's value. A tablespace fit restarts after a purge and
+  where growth stopped or began, so a tablespace that filled and then
+  stopped gets no full date. Tablespaces named by period (`SALES_202601`,
+  `SALES_202602`) are also judged as a family. **Tier 2** (optional): OML
+  exponential smoothing as a second opinion, at most +30 days on 19c.
 - Thresholds live in the `CAP_CONFIG` table, never in the SQL.
 
 The whole system, measured databases on the left and consumers on the right:
@@ -72,6 +76,11 @@ into SYS.
 AWR keeps 8 days by default, so the first report says `INSUFFICIENT_HISTORY`.
 The copies keep 400 days and grow with every collect, so schedule the hourly
 collect (`CAP_COLLECT_JOB`).
+
+A first report can also list several `*_ANOM` alerts for series that move a
+little every day. Run `@doctor.sql` as the owner: section 12 counts the
+alerts per kind, names each noisy series and prints the `UPDATE cap_config`
+that quiets it (a higher floor knob, or one baseline mode less).
 
 For a lasting install, `./install.sh --profile standalone` does the same,
 trains the Tier 2 models and creates the scheduler jobs (disabled).
@@ -109,8 +118,9 @@ SQL> @standalone/tbspc_capacity.sql
 
 One row per permanent tablespace: used, limit, % used, MB/day, R², +30/+90
 days, days to full (fitted and worst case), space to add for 90 days, quality
-and CRIT / WARN / OK. It is the suite's OLS fit, restarted after a purge, with
-the knob defaults in the `prm` CTE. No overrides, CYCLIC peak line, anomalies
+and CRIT / WARN / OK. It is the suite's OLS fit, restarted after a purge or where
+growth stopped or began, forecast also against the one disk the tablespaces
+share, with the knob defaults in the `prm` CTE. No overrides, CYCLIC peak line, anomalies
 or ML.
 
 `standalone/tbspc_monitor.sql` is its monitoring companion: the same forecast,
@@ -137,14 +147,19 @@ Run from the repo root (`@@` includes resolve there):
 | `@report/drill_tbspc.sql <TBSPC>`, `@report/drill_cpu.sql` | one series with its arithmetic spelled out |
 | `@report/drill_mem.sql [DB] [INSTANCE]` | one instance's memory verdicts: evidence, advisor curves, resizes |
 | `report/run_report.sh` | cron wrapper: `--html`, `--brief`, `--csv`, `--target NAME`, `--snapshot` |
+| `report/notify.sh` | cron: mail and / or webhook for new and escalated alerts, each event once |
 
 Report arguments: `[top_n] [anomaly_days] [show_esm] [dbid] [con_dbid] [LIVE|SNAPSHOT]`;
 `-` skips one. `SNAPSHOT` reads the tables of the last `cap_results.refresh`
 and takes about a second at any fleet size.
 
 Optional dashboards read the same views: [Kibana](elk/README.md),
-[Grafana over ORDS](grafana/README.md), [Oracle APEX](apex/README.md)
+[Grafana over ORDS](grafana/README.md) (the ORDS module needs an OAuth2
+bearer token), [Oracle APEX](apex/README.md)
 ([screenshots](https://davidbudac.github.io/awr-capacity-forecast/usage.html#kibana)).
+For Oracle Enterprise Manager, [oem/](oem/README.md) raises the alerts as
+incidents through a metric extension and registers targets from the EM
+inventory.
 
 ## Alerts
 
@@ -163,6 +178,24 @@ SELECT severity, kind, db_pdb, message FROM capr_alerts ORDER BY sev_rank;
 SELECT * FROM capr_alerts_latest;       -- open, not acknowledged
 EXEC cap_results.ack('<state_key>', SYSDATE + 7, 'disk ordered')
 SELECT * FROM capr_weekly_digest;
+SELECT * FROM capr_fit_track;           -- how each series' earlier forecasts fared
+```
+
+`CAPR_FIT_TRACK` checks every stored forecast against the value stored 30 days
+later: forecasts checked, median error, bias, how often the value stayed
+inside the band issued then, the factor that band needed, and a `reliability`
+grade (`GOOD`, `WIDE`, `BIASED`, `UNKNOWN`). The reports print it (text section
+9, one line per HTML card, the briefing, a CSV). It needs about a month of
+nightly `cap_results.refresh` runs, and it changes no forecast and no alert.
+
+`report/notify.sh` delivers the changes from cron: one mail or webhook message
+per run that lists the new, escalated and reopened alerts by target. It keeps
+the position of the last delivery in a state file, so an event is sent once.
+Events of an alert you acknowledged are skipped (`--include-acked` sends them).
+
+```sh
+report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --dry-run   # print, send nothing
+20 * * * * /opt/awrcap/report/notify.sh "/ as sysdba" --container PDB1 --schema AWRCAP --mail-to dba@example.com
 ```
 
 Alert kinds: [Usage → Alerts](https://davidbudac.github.io/awr-capacity-forecast/usage.html#alerts).
@@ -185,7 +218,10 @@ SELECT * FROM cap_cfg_check WHERE status <> 'OK';
 
 A re-install keeps your values. `CAP_TBSPC_OVERRIDE` sets a tablespace's real
 ceiling (when autoextend `maxsize` exceeds the storage), excludes one, or
-gives it its own thresholds. All knobs:
+gives it its own thresholds. `CAP_TBSPC_FAMILY` names tablespaces that belong
+to a family when their names do not say so. `CAP_DISK_OVERRIDE` sets the free
+space of the disk the datafiles share, for the shared-disk forecast
+(`dtf_shared`, the `DISK_FULL` alert) when the suite cannot derive it. All knobs:
 [Reference → Configuration](https://davidbudac.github.io/awr-capacity-forecast/reference.html#config).
 
 ## Testing
@@ -199,7 +235,10 @@ DEFINE deploy_mode = 'fixture'
 @test/run_test.sql          -- exits non-zero on any failure
 ```
 
-`test/docs_lint.sh` checks the docs against the DDL without a database.
+`test/check.sh` runs every check that needs no database: the generated-file
+checks, the lints, `test/docs_lint.sh` (the docs against the DDL) and the
+offline tests. The GitHub workflow
+`.github/workflows/check.yml` runs it on every push and pull request.
 More: [Testing](https://davidbudac.github.io/awr-capacity-forecast/testing.html).
 
 ## Requirements and caveats

@@ -105,7 +105,8 @@ WITH prm AS (
                0.60      AS r2_gate,            -- R^2 below = LOW_CONFIDENCE
                6         AS shrink_mad_k,       -- purge cliff = drop > k x MAD sigma
                104857600 AS abs_floor_bytes,    -- ... and > 100 MiB
-               2         AS cyclic_min_cliffs,  -- this many cliffs = CYCLIC, below 2 = never
+               2         AS cyclic_min_cliffs,  -- this many purges = CYCLIC, below 2 = never
+               1         AS cliff_merge_days,   -- cliff days this close are one purge, 0 = never
                14        AS quiet_days,         -- stopped / began = a pause this long, 0 = never ...
                2         AS quiet_ratio,        -- ... and this many x the longest other pause ...
                0.01      AS quiet_chance,       -- ... and less likely than this by chance
@@ -224,19 +225,34 @@ WITH prm AS (
         WHERE  t.delta IS NOT NULL
         GROUP  BY t.con_dbid, t.tablespace_id
      ),
-     cliff AS (
-        SELECT t.con_dbid, t.tablespace_id,
-               MAX(t.day_dt)  AS last_cliff,
-               CASE WHEN MAX(prm.cyclic_min_cliffs) >= 2
-                     AND COUNT(*) >= MAX(prm.cyclic_min_cliffs)
-                    THEN 1 ELSE 0 END AS is_cyclic
-        FROM   tw t
-        JOIN   dsig s ON s.con_dbid = t.con_dbid AND s.tablespace_id = t.tablespace_id
+     -- The cliff days. is_ev = 1 on the first of each purge: cliff days at
+     -- most cliff_merge_days days apart are one purge.
+     cday AS (
+        SELECT c.con_dbid, c.tablespace_id, c.day_dt,
+               CASE WHEN c.prev_days IS NULL OR c.prev_days > prm.cliff_merge_days
+                    THEN 1 ELSE 0 END AS is_ev
+        FROM  (SELECT t.con_dbid, t.tablespace_id, t.day_dt,
+                      t.day_dt - LAG(t.day_dt) OVER (PARTITION BY t.con_dbid, t.tablespace_id
+                                                     ORDER BY t.day_dt) AS prev_days
+               FROM   tw t
+               JOIN   dsig s ON s.con_dbid = t.con_dbid AND s.tablespace_id = t.tablespace_id
+               CROSS  JOIN prm
+               WHERE  t.delta < -GREATEST(prm.shrink_mad_k * s.sig, prm.abs_floor_bytes)) c
         CROSS  JOIN prm
-        WHERE  t.delta < -GREATEST(prm.shrink_mad_k * s.sig, prm.abs_floor_bytes)
-        GROUP  BY t.con_dbid, t.tablespace_id
      ),
-     -- The days since the latest cliff (all of the window when CYCLIC),
+     -- last_cliff = the last cliff day of the latest purge, where used is
+     -- the level after it.
+     cliff AS (
+        SELECT c.con_dbid, c.tablespace_id,
+               MAX(c.day_dt)  AS last_cliff,
+               CASE WHEN MAX(prm.cyclic_min_cliffs) >= 2
+                     AND SUM(c.is_ev) >= MAX(prm.cyclic_min_cliffs)
+                    THEN 1 ELSE 0 END AS is_cyclic
+        FROM   cday c
+        CROSS  JOIN prm
+        GROUP  BY c.con_dbid, c.tablespace_id
+     ),
+     -- The days since the latest purge (all of the window when CYCLIC),
      -- numbered. is_grow = a growth day (header, "Growth that stopped or
      -- began").
      cw AS (
@@ -245,6 +261,8 @@ WITH prm AS (
                ROW_NUMBER() OVER (PARTITION BY t.con_dbid, t.tablespace_id
                                   ORDER BY t.day_dt)                 AS rn,
                COUNT(*)     OVER (PARTITION BY t.con_dbid, t.tablespace_id) AS rn_max,
+               MIN(t.day_n) OVER (PARTITION BY t.con_dbid, t.tablespace_id) AS dn_min,
+               MAX(t.day_n) OVER (PARTITION BY t.con_dbid, t.tablespace_id) AS dn_max,
                CASE WHEN t.used_b - MAX(t.used_b) OVER (PARTITION BY t.con_dbid, t.tablespace_id
                                                         ORDER BY t.day_dt
                                                         ROWS BETWEEN UNBOUNDED PRECEDING
@@ -262,27 +280,32 @@ WITH prm AS (
      ),
      -- The growth days, each with the pause before it.
      gd AS (
-        SELECT con_dbid, tablespace_id, rn, rn_max,
-               rn - LAG(rn) OVER (PARTITION BY con_dbid, tablespace_id ORDER BY rn) - 1 AS gap
+        SELECT con_dbid, tablespace_id, rn, rn_max, day_n, dn_min, dn_max,
+               day_n - LAG(day_n) OVER (PARTITION BY con_dbid, tablespace_id ORDER BY rn) - 1 AS gap
         FROM   cw
         WHERE  is_grow = 1 AND is_cyclic = 0
      ),
      -- g growth days that span span days. lead / trail = the pause before
      -- the first and after the last, gap_max = the longest one between.
+     -- Pauses and spans are calendar days (day_n): a day without a row
+     -- still counts. n_start = the rows a START window keeps.
      act AS (
         SELECT con_dbid, tablespace_id,
-               COUNT(*)              AS g,
-               MIN(rn)               AS rn_first,
-               MAX(rn)               AS rn_last,
-               MAX(rn) - MIN(rn)     AS span,
-               MIN(rn) - 2           AS lead,
-               MAX(rn_max) - MAX(rn) AS trail,
-               NVL(MAX(gap), 0)      AS gap_max
+               COUNT(*)                     AS g,
+               MIN(rn)                      AS rn_first,
+               MAX(rn)                      AS rn_last,
+               MAX(rn_max) - MIN(rn) + 2    AS n_start,
+               MAX(day_n) - MIN(day_n)      AS span,
+               MIN(day_n) - MIN(dn_min) - 1 AS lead,
+               MAX(dn_max) - MAX(day_n)     AS trail,
+               NVL(MAX(gap), 0)             AS gap_max
         FROM   gd
         GROUP  BY con_dbid, tablespace_id
      ),
      -- Where growth stopped (the fit starts after the last growth day) or
-     -- began (it starts on the day before the first). STOP wins.
+     -- began (it starts on the day before the first). STOP wins. The chance
+     -- of the pause: exponent g for STOP (one growth day: span 0, chance 0),
+     -- g - 1 for START (one growth day: chance 1, never).
      regime AS (
         SELECT a.con_dbid, a.tablespace_id,
                CASE WHEN a.is_stop = 1 THEN 'STOP'        ELSE 'START'        END AS cut,
@@ -290,12 +313,12 @@ WITH prm AS (
         FROM  (SELECT a.*,
                       CASE WHEN a.trail >= prm.quiet_days
                             AND a.trail >= prm.quiet_ratio * a.gap_max
-                            AND POWER(a.span / NULLIF(a.span + a.trail, 0), a.g - 1) < prm.quiet_chance
+                            AND POWER(a.span / NULLIF(a.span + a.trail, 0), a.g) < prm.quiet_chance
                            THEN 1 ELSE 0 END AS is_stop,
                       CASE WHEN a.lead >= prm.quiet_days
                             AND a.lead >= prm.quiet_ratio * GREATEST(a.gap_max, a.trail)
                             AND POWER(a.span / NULLIF(a.span + a.lead, 0), a.g - 1) < prm.quiet_chance
-                            AND a.span + a.trail + 2 >= prm.min_train_days
+                            AND a.n_start >= prm.min_train_days
                            THEN 1 ELSE 0 END AS is_start
                FROM   act a
                CROSS  JOIN prm

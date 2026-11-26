@@ -8,7 +8,10 @@
 -- rationale and the single selected ESM row in CAPF_BACKTEST. Tier 2 health
 -- adds: the furthest ESM step and model age in CAPF_COMPARE, CAPF_ESM_HEALTH,
 -- the CPU twins train_all refreshes, a failed retrain that keeps the last good
--- model, and the AUTO tie margin.
+-- model, and the AUTO tie margin. Complete days: the CPU models and twins
+-- train on is_complete = 'Y' days only, and CAPF_ESM_HEALTH / CAPF_BACKTEST
+-- take the series' last day from them (a partial newest day does not count).
+-- Last: a full tablespace run retires the models it no longer selects.
 -- Exits NON-ZERO on failure.
 --
 -- Prereqs: fixtures installed, suite installed (deploy_mode=fixture), schema has
@@ -23,6 +26,7 @@ WHENEVER SQLERROR EXIT FAILURE
 
 DECLARE
     g_fail  PLS_INTEGER := 0;
+    g_pass  PLS_INTEGER := 0;
     v_status VARCHAR2(200);
     d30     DATE;
     v_exp   NUMBER;
@@ -50,8 +54,11 @@ DECLARE
     v_tt    DATE;
     v_tt2   DATE;
     v_d     DATE;
+    v_pdb   NUMBER;        -- FIXPDB1's con_dbid (FIXPDB2 is the next one)
+    v_cpu_before NUMBER;   -- CPU registry rows before the retirement block
+    v_cpu   NUMBER;        -- eligible CPU series (one model + one twin each)
 
-    PROCEDURE pass(p VARCHAR2) IS BEGIN DBMS_OUTPUT.PUT_LINE('  PASS  ' || p); END;
+    PROCEDURE pass(p VARCHAR2) IS BEGIN g_pass := g_pass + 1; DBMS_OUTPUT.PUT_LINE('  PASS  ' || p); END;
     PROCEDURE fail(p VARCHAR2) IS BEGIN g_fail := g_fail + 1; DBMS_OUTPUT.PUT_LINE('* FAIL  ' || p); END;
     PROCEDURE note(p VARCHAR2) IS BEGIN DBMS_OUTPUT.PUT_LINE('  ....  ' || p); END;
 
@@ -296,6 +303,7 @@ BEGIN
     cap_forecast_ml.train_all(20);
     SELECT COUNT(*) INTO v_n2 FROM capf_cpu_trend
     WHERE  metric IN ('BUSY_PCT', 'DB_CPU_SEC') AND quality IN ('OK', 'LOW_CONFIDENCE');
+    v_cpu := v_n2;
     SELECT COUNT(*), COUNT(CASE WHEN trained_through = v_last - v_hold THEN 1 END)
     INTO   v_n, v_h
     FROM   cap_ml_model
@@ -319,6 +327,126 @@ BEGIN
     WHERE  quality IN ('OK', 'LOW_CONFIDENCE') AND train_n >= v_min;
     chk_num('CAPF_ESM_HEALTH_SUMMARY n_ok after train_all (tablespaces + CPU)', v_n, v_n2);
     chk_num('CAPF_ESM_HEALTH_SUMMARY n_failed after train_all', v_h, 0);
+
+    ------------------------------------------------------------------
+    -- Tier 2 CPU inputs are complete days only (is_complete = 'Y'), as the
+    -- Tier 1 fit. FIXPDB1 / FIXPDB2 DB_CPU_SEC: the v_nd fixture days minus
+    -- the first day and the partial day (both incomplete) and the restart day
+    -- (no row) = v_nd - 3 = 118 rows -> step 29. With the two incomplete days
+    -- it would be 120 rows -> step 30. Their twins stop at LAST_DAY - holdout:
+    -- 93 - 3 = 90 rows -> step 22 (92 rows -> 23). The root's series have no
+    -- row on the AWR gap day either: v_nd - 4 and v_nd - holdout - 4.
+    -- A day left out is a missing date to ESM (EXSM_SETMISSING AUTO), as the
+    -- restart day always was: every build above is OK.
+    ------------------------------------------------------------------
+    DBMS_OUTPUT.PUT_LINE('=== Tier 2 CPU inputs: complete days only ===');
+    SELECT nval INTO v_pdb FROM cap_fixture_meta WHERE mkey = 'PDB_CON_DBID';
+    SELECT nval INTO v_dbid FROM cap_fixture_meta WHERE mkey = 'DBID';
+    SELECT COUNT(DISTINCT model_name), MIN(esm_horizon_days), MAX(esm_horizon_days)
+    INTO   v_n, v_h, v_age
+    FROM   capf_esm_forecast
+    WHERE  series_kind = 'DBCPU' AND dbid = v_dbid AND con_dbid IN (v_pdb, v_pdb + 1);
+    chk_num('PDB DB_CPU_SEC forecast models', v_n, 2);
+    chk_num('PDB DB_CPU_SEC esm_horizon_days (min), v_nd - 3 complete days', v_h, exp_step(v_nd - 3));
+    chk_num('PDB DB_CPU_SEC esm_horizon_days (max), v_nd - 3 complete days', v_age, exp_step(v_nd - 3));
+    SELECT COUNT(DISTINCT model_name), MIN(esm_horizon_days), MAX(esm_horizon_days)
+    INTO   v_n, v_h, v_age
+    FROM   capf_esm_backtest
+    WHERE  series_kind = 'DBCPU' AND dbid = v_dbid AND con_dbid IN (v_pdb, v_pdb + 1);
+    chk_num('PDB DB_CPU_SEC twins', v_n, 2);
+    chk_num('PDB DB_CPU_SEC twin esm_horizon_days (min), v_nd - holdout - 3 complete days',
+            v_h, exp_step(v_nd - v_hold - 3));
+    chk_num('PDB DB_CPU_SEC twin esm_horizon_days (max), v_nd - holdout - 3 complete days',
+            v_age, exp_step(v_nd - v_hold - 3));
+    SELECT COUNT(DISTINCT model_name), MIN(esm_horizon_days), MAX(esm_horizon_days)
+    INTO   v_n, v_h, v_age
+    FROM   capf_esm_forecast
+    WHERE  series_kind IN ('CPU', 'DBCPU') AND dbid = v_dbid AND con_dbid = v_dbid;
+    chk_num('root BUSY_PCT + DB_CPU_SEC forecast models', v_n, 2);
+    chk_num('root CPU esm_horizon_days (min), v_nd - 4 complete days', v_h, exp_step(v_nd - 4));
+    chk_num('root CPU esm_horizon_days (max), v_nd - 4 complete days', v_age, exp_step(v_nd - 4));
+    SELECT COUNT(DISTINCT model_name), MIN(esm_horizon_days), MAX(esm_horizon_days)
+    INTO   v_n, v_h, v_age
+    FROM   capf_esm_backtest
+    WHERE  series_kind IN ('CPU', 'DBCPU') AND dbid = v_dbid AND con_dbid = v_dbid;
+    chk_num('root BUSY_PCT + DB_CPU_SEC twins', v_n, 2);
+    chk_num('root CPU twin esm_horizon_days (min), v_nd - holdout - 4 complete days',
+            v_h, exp_step(v_nd - v_hold - 4));
+    chk_num('root CPU twin esm_horizon_days (max), v_nd - holdout - 4 complete days',
+            v_age, exp_step(v_nd - v_hold - 4));
+
+    ------------------------------------------------------------------
+    -- The newest day still partial, as on every live database: drop the CPU
+    -- counters of the last 18:00 snapshot (id 2001 + 2 x 120), so LAST_DAY
+    -- keeps its night interval only (12 h of 24: a value, is_complete N). The
+    -- Tier 1 last_day is then LAST_DAY - 1, the day the trainers train
+    -- through. Nothing is trained in here (a build commits): the CPU registry
+    -- rows are moved back that one day by hand, and all of it is rolled back.
+    --   CAPF_ESM_HEALTH  series_last_day = LAST_DAY - 1, so age 0 for every
+    --                    CPU model and twin (1 if the partial day counted).
+    --   CAPF_BACKTEST    REGR cutoff = LAST_DAY - 1 - holdout, the cutoff the
+    --                    twins take from CAPF_CPU_TREND.last_day, and the
+    --                    holdout is its 28 complete days (27 scored of 28 if
+    --                    the cutoff came from the partial day).
+    ------------------------------------------------------------------
+    DBMS_OUTPUT.PUT_LINE('=== Partial newest day: Tier 2 reads the last complete day ===');
+    SAVEPOINT u03_partial_last;
+    BEGIN
+        DELETE FROM cap_fixture_osstat     WHERE snap_id = 2001 + 2 * (v_last - v_base);
+        DELETE FROM cap_fixture_time_model WHERE snap_id = 2001 + 2 * (v_last - v_base);
+        UPDATE cap_ml_model SET trained_through = trained_through - 1
+        WHERE  series_kind IN ('CPU', 'DBCPU');
+
+        SELECT covered_sec, is_complete INTO v_h, v_txt FROM capd_cpu_daily
+        WHERE  dbid = v_dbid AND con_dbid = v_dbid AND day_dt = v_last;
+        chk_num('partial newest day: covered_sec (12 h)', v_h, 43200);
+        chk_txt('partial newest day: is_complete', v_txt, 'N');
+        SELECT COUNT(*), COUNT(CASE WHEN last_day = v_last - 1 AND newest_day = v_last THEN 1 END)
+        INTO   v_n, v_h
+        FROM   capf_cpu_trend WHERE metric IN ('BUSY_PCT', 'DB_CPU_SEC');
+        chk_num('partial newest day: BUSY_PCT + DB_CPU_SEC series', v_n, 4);
+        chk_num('partial newest day: Tier 1 last_day = LAST_DAY - 1, newest_day = LAST_DAY', v_h, 4);
+
+        SELECT COUNT(*),
+               COUNT(CASE WHEN series_last_day = v_last - 1 THEN 1 END),
+               COUNT(CASE WHEN model_age_days = 0 AND stale_flag = 'N' THEN 1 END)
+        INTO   v_n, v_h, v_age
+        FROM   capf_esm_health WHERE series_kind IN ('CPU', 'DBCPU');
+        chk_num('partial newest day: CPU models + twins in CAPF_ESM_HEALTH', v_n, 2 * v_cpu);
+        chk_num('partial newest day: series_last_day = LAST_DAY - 1 on each', v_h, 2 * v_cpu);
+        chk_num('partial newest day: model_age_days 0, not stale, on each', v_age, 2 * v_cpu);
+        -- Tablespace days have no coverage: their last day stays LAST_DAY
+        -- (FIX_DROPPED: the day it ends, 30 days earlier).
+        SELECT dval INTO v_d FROM cap_fixture_meta WHERE mkey = 'DROPPED_LAST_DAY';
+        SELECT COUNT(*) INTO v_n FROM capf_esm_health
+        WHERE  series_kind = 'TBSPC'
+          AND  (model_age_days <> 0
+                OR series_last_day <> CASE series_key WHEN 'FIX_DROPPED' THEN v_d ELSE v_last END);
+        chk_num('partial newest day: tablespace models keep their last day, age 0', v_n, 0);
+        SELECT NVL(SUM(n_stale), 0) INTO v_n FROM capf_esm_health_summary;
+        chk_num('partial newest day: CAPF_ESM_HEALTH_SUMMARY n_stale', v_n, 0);
+
+        SELECT COUNT(*),
+               COUNT(CASE WHEN cutoff_day = v_last - 1 - v_hold THEN 1 END),
+               COUNT(CASE WHEN n_days = v_hold THEN 1 END)
+        INTO   v_n, v_h, v_age
+        FROM   capf_backtest WHERE series_kind = 'CPU' AND engine = 'REGR';
+        chk_num('partial newest day: CAPF_BACKTEST CPU REGR rows', v_n, 4);
+        chk_num('partial newest day: REGR cutoff_day = LAST_DAY - 1 - holdout', v_h, 4);
+        chk_num('partial newest day: REGR n_days = holdout (complete days)', v_age, 4);
+        SELECT COUNT(*) INTO v_n
+        FROM   capf_backtest r JOIN capf_cpu_trend t
+          ON   t.dbid = r.dbid AND t.con_dbid = r.con_dbid AND t.metric = r.series_key
+        WHERE  r.series_kind = 'CPU' AND r.engine = 'REGR'
+          AND  r.cutoff_day = t.last_day - v_hold;
+        chk_num('partial newest day: REGR cutoff = Tier 1 last_day - holdout (the twins'' cutoff)', v_n, 4);
+        ROLLBACK TO SAVEPOINT u03_partial_last;
+    EXCEPTION
+        WHEN OTHERS THEN ROLLBACK TO SAVEPOINT u03_partial_last; RAISE;
+    END;
+    SELECT COUNT(*) INTO v_n FROM capf_esm_health
+    WHERE  series_kind IN ('CPU', 'DBCPU') AND model_age_days = 0 AND series_last_day = v_last;
+    chk_num('after the rollback: CPU models + twins back on LAST_DAY, age 0', v_n, 2 * v_cpu);
 
     DBMS_OUTPUT.PUT_LINE('=== M9.4 ESM backtest (train_backtest + CAPF_BACKTEST) ===');
     cap_forecast_ml.train_backtest(20);
@@ -576,7 +704,59 @@ BEGIN
                 CASE WHEN v_h < v_saved THEN 'AUTO_TIE' ELSE 'AUTO_BACKTEST' END);
     END IF;
 
+    ------------------------------------------------------------------
+    -- A full run owns the tablespace models: a smaller top N retires the
+    -- rest (forecast models and twins), the default brings them back. The
+    -- two kept are the two most critical of the database, by the cursor's
+    -- order (days_to_full, NULL last, then the larger cur_used).
+    ------------------------------------------------------------------
+    DBMS_OUTPUT.PUT_LINE('=== train_tablespaces(2): the unselected models are retired ===');
+    SELECT COUNT(*) INTO v_cpu_before FROM cap_ml_model WHERE series_kind <> 'TBSPC';
+    cap_forecast_ml.train_tablespaces(2);
+    SELECT COUNT(*) INTO v_n FROM cap_ml_model
+    WHERE  series_kind = 'TBSPC' AND purpose = 'FORECAST';
+    chk_num('train_tablespaces(2): forecast models left', v_n, 2);
+    SELECT COUNT(DISTINCT series_key) INTO v_n FROM cap_ml_model
+    WHERE  series_kind = 'TBSPC';
+    chk_num('train_tablespaces(2): series with any model or twin', v_n, 2);
+    SELECT COUNT(*) INTO v_n
+    FROM   cap_ml_model m
+    JOIN  (SELECT f.dbid, f.con_dbid, f.tablespace_name,
+                  ROW_NUMBER() OVER (PARTITION BY f.dbid
+                                     ORDER BY CASE WHEN f.days_to_full IS NULL THEN 1 ELSE 0 END,
+                                              f.days_to_full, f.cur_used DESC,
+                                              f.con_dbid, f.tablespace_name) AS rn
+           FROM   capf_tbspc_forecast f
+           WHERE  f.quality IN ('OK', 'LOW_CONFIDENCE') AND f.train_n >= v_min) t
+      ON   t.dbid = m.dbid AND t.con_dbid = m.con_dbid AND t.tablespace_name = m.series_key
+    WHERE  m.series_kind = 'TBSPC' AND m.purpose = 'FORECAST' AND m.status = 'OK'
+      AND  t.rn <= 2;
+    chk_num('train_tablespaces(2): the two kept are the two nearest to full', v_n, 2);
+    SELECT COUNT(*) INTO v_n FROM all_mining_models mm
+    WHERE  mm.owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+      AND  REGEXP_LIKE(mm.model_name, '^(CAPT|CBTT)_[0-9A-F]{16}(_N)?$')
+      AND  NOT EXISTS (SELECT 1 FROM cap_ml_model r WHERE r.model_name = mm.model_name);
+    chk_num('train_tablespaces(2): no OML tablespace model without a registry row', v_n, 0);
+    SELECT COUNT(*) INTO v_n FROM cap_ml_model WHERE series_kind <> 'TBSPC';
+    chk_num('train_tablespaces(2): CPU models untouched', v_n, v_cpu_before);
+    SELECT COUNT(*) INTO v_n FROM capr_alerts WHERE kind = 'MODEL_HEALTH';
+    chk_num('train_tablespaces(2): no MODEL_HEALTH from retired models', v_n, 0);
+    -- One name never retires another series' model.
+    SELECT MIN(series_key) INTO v_txt FROM cap_ml_model
+    WHERE  series_kind = 'TBSPC' AND purpose = 'FORECAST';
+    cap_forecast_ml.train_tablespace(v_txt);
+    SELECT COUNT(*) INTO v_n FROM cap_ml_model
+    WHERE  series_kind = 'TBSPC' AND purpose = 'FORECAST' AND status = 'OK';
+    chk_num('train_tablespace(' || v_txt || '): the other model stays', v_n, 2);
+    cap_forecast_ml.train_tablespaces;
+    SELECT COUNT(*) INTO v_n FROM cap_ml_model
+    WHERE  series_kind = 'TBSPC' AND purpose = 'FORECAST' AND status = 'OK';
+    SELECT COUNT(*) INTO v_n2 FROM capf_tbspc_forecast
+    WHERE  quality IN ('OK', 'LOW_CONFIDENCE') AND train_n >= v_min;
+    chk_num('train_tablespaces: every eligible tablespace has its model again', v_n, v_n2);
+
     DBMS_OUTPUT.PUT_LINE('----------------------------------------');
+    DBMS_OUTPUT.PUT_LINE('RESULT: ' || g_pass || ' passed, ' || g_fail || ' failed');
     IF g_fail > 0 THEN
         RAISE_APPLICATION_ERROR(-20051, 'ML TESTS FAILED: ' || g_fail || ' assertion(s)');
     END IF;

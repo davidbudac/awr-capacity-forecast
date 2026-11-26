@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # test/docs_lint.sh -- catch documentation drift against the DDL.
-# Bash + grep/awk, git for checks 8 and 10 and python3 for check 9. Ten
+# Bash + grep/awk and python3 for check 9. It reads tracked files only
+# (test/repo_files.sh; every file where the copy has no git). Ten
 # checks, each prints one OK / FAIL summary line (6 and 7 one per document
 # they read):
 #   1. every knob the ddl/05 seed MERGE inserts is named in docs/reference.html;
@@ -31,9 +32,10 @@
 # Exit 1 when any check fails.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. test/repo_files.sh
 REF=docs/reference.html
-DOCS="README.md CLAUDE.md PLAN.md LAB.md docs/*.html docs/design.md grafana/API.md
-      elk/README.md apex/README.md bench/README.md"
+DOCS=$(repo_only README.md CLAUDE.md PLAN.md LAB.md docs/*.html docs/design.md grafana/API.md \
+                 elk/README.md apex/README.md bench/README.md)
 rc=0
 
 report() {   # report <label> <checked> <missing list>
@@ -58,7 +60,7 @@ done
 report "knobs seeded in ddl/05 named in $REF" "$(echo "$knobs" | grep -c .)" "$miss"
 
 # ---- 2. objects -------------------------------------------------------------
-objects=$(cat ddl/*.sql ml/*.pks ml/*.pkb repository/*.sql 2>/dev/null \
+objects=$(cat $(repo_only ddl/*.sql ml/*.pks ml/*.pkb repository/*.sql) 2>/dev/null \
   | grep -v -E '^\s*--' \
   | grep -oiE "CREATE( OR REPLACE)?( FORCE)? (VIEW|TABLE|PACKAGE|PROCEDURE|FUNCTION|TYPE) +[a-z0-9_\$]+" \
   | grep -viE 'PACKAGE BODY|TYPE BODY' \
@@ -101,7 +103,7 @@ report "alert kinds ($(echo $kinds | tr ' ' ',')) named in $REF" "$(echo "$kinds
 # ---- 6. persisted tables ---------------------------------------------------------
 # Every table is persisted: ddl/00_drop drops views only. ddl/13 creates the
 # copies under a computed name, so they count as the one entry CAP_H_*.
-tables=$(cat ddl/*.sql repository/*.sql 2>/dev/null \
+tables=$(cat $(repo_only ddl/*.sql repository/*.sql) 2>/dev/null \
   | grep -v -E '^\s*--' \
   | grep -oiE "CREATE TABLE +[a-z][a-z0-9_\$#]*" \
   | awk '{print toupper($NF)}' | sort -u)
@@ -124,7 +126,7 @@ report "persisted tables named in the CLAUDE.md 'Persisted tables' bullet" "$n_t
 # reference.html must show a profile as --profile NAME or NAME.env, so the
 # English word "target" alone does not count. The install.sh help block is a
 # plain list of names.
-profiles=$(ls profiles/*.env 2>/dev/null | sed -E 's|.*/||; s|\.env$||')
+profiles=$(repo_only profiles/*.env | sed -E 's|.*/||; s|\.env$||')
 ref_txt=$(sed 's/<[^>]*>/ /g' "$REF")
 help_txt=$(awk '/^#   --profile P/{on=1; print; next} on && /^#   --/{exit} on' install.sh)
 miss_ref=""; miss_help=""
@@ -141,11 +143,13 @@ report "profiles/*.env named in the install.sh --profile help" "$n_profiles" "$m
 # ---- 8. retired warehouse mode -----------------------------------------------------
 # PLAN.md keeps the milestone history, bench/'s warehouses are SwingBench's, and
 # this script spells out the tokens it looks for.
-not_wh=(-- . ':!PLAN.md' ':!bench' ':!test/docs_lint.sh')
-hits=$(git grep -n -I -i -E \
-  "awrv_|awrwh|11_seam_warehouse|warehouse\.env|profile +warehouse|role *= *warehouse|deploy_mode *= *'?warehouse" \
-  "${not_wh[@]}")
-report "tracked files without a retired warehouse-mode token" "$(git ls-files "${not_wh[@]}" | grep -c .)" "$hits"
+live=$(repo_files '*' | grep -v -E '^(PLAN\.md$|bench/|test/docs_lint\.sh$)')
+grep_live() {   # grep_live <ERE>: "path:line:text" for every match, binary files skipped
+  printf '%s\n' "$live" | tr '\n' '\0' | xargs -0 grep -n -H -I -i -E -e "$1" --
+}
+hits=$(grep_live \
+  "awrv_|awrwh|11_seam_warehouse|warehouse\.env|profile +warehouse|role *= *warehouse|deploy_mode *= *'?warehouse")
+report "tracked files without a retired warehouse-mode token" "$(printf '%s\n' "$live" | grep -c .)" "$hits"
 
 # ---- 9. README diagrams ------------------------------------------------------------
 stale=$(python3 docs/diagrams/readme_svgs.py --check 2>&1 | grep '^  ')
@@ -155,14 +159,12 @@ report "README diagrams current (docs/diagrams/readme_svgs.py --check)" \
   "$(ls docs/diagrams/readme/*.svg | grep -c .)" "$stale${stale:+$'\n'}$missing"
 
 # ---- 10. retired local mode ------------------------------------------------------
-not_local=(-- . ':!PLAN.md' ':!bench' ':!test/docs_lint.sh')
 local_ok=(
   "^install\.sql:[0-9]+: .*'deploy_mode = local is retired \(M25\)"
   "^doctor\.sql:[0-9]+: +ELSIF v_deploy_mode = 'local' THEN\$"
 )
-hits=$(git grep -n -I -i -E \
-  "deploy_mode[\"']? *= *[\"']?local\b|owner_mode|10_seam_local" \
-  "${not_local[@]}" | grep -v -E "$(IFS='|'; echo "${local_ok[*]}")")
-report "tracked files without a retired local-mode token" "$(git ls-files "${not_local[@]}" | grep -c .)" "$hits"
+hits=$(grep_live "deploy_mode[\"']? *= *[\"']?local\b|owner_mode|10_seam_local" \
+       | grep -v -E "$(IFS='|'; echo "${local_ok[*]}")")
+report "tracked files without a retired local-mode token" "$(printf '%s\n' "$live" | grep -c .)" "$hits"
 
 exit $rc

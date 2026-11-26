@@ -15,6 +15,17 @@
 --                'redo size' counter deltas). unit GIB_PER_DAY. NO limit --
 --                FRA / archive-destination sizing is an operator decision, so
 --                the series is a trend, not a days-to-limit.
+--   IOPS         (M27) physical I/O requests per second, read + write
+--   IO_MBPS      (M27) physical I/O megabytes per second (MB = 2^20 bytes),
+--                read + write. Both from the CAPV_SYSSTAT 'physical read /
+--                write total IO requests' and '... total bytes' counter
+--                deltas, per container. The day's value is the 95th
+--                percentile of its per-interval rates (delta / interval
+--                seconds), the statistic BUSY_P95 / DB_CPU_P95 use for a
+--                rate: the busy hours without one short interval setting
+--                the day, which MAX would allow. units IO_PER_SEC and
+--                MB_PER_SEC. NO limit: what storage delivers is not in AWR,
+--                so the series are a trend and an anomaly baseline.
 --   PGA_ALLOC_GB (M26) the day's highest sampled 'total PGA allocated'
 --                (CAPV_PGASTAT) in GiB, against pga_aggregate_limit
 --                (CAPV_PARAMETER at the same snapshot; 0 = no limit = NULL).
@@ -45,23 +56,28 @@
 --   (dbid, con_dbid, series, day_dt, value, limit_value, unit, n_samples,
 --    covered_sec, is_complete, day_gap, max_interval_hours, gap_flag,
 --    worst_inst_pct, worst_inst)
--- limit_value is NULL when the series has no ceiling (REDO_GB_DAY, and
--- PGA_ALLOC_GB under pga_aggregate_limit 0) or when it could not be resolved
--- (an UNLIMITED / non-numeric resource limit).
+-- limit_value is NULL when the series has no ceiling (REDO_GB_DAY, IOPS,
+-- IO_MBPS, and PGA_ALLOC_GB under pga_aggregate_limit 0) or when it could
+-- not be resolved (an UNLIMITED / non-numeric resource limit).
 -- covered_sec / is_complete mean what they mean in CAPD_CPU_DAILY, and only a
 -- flow series has them: REDO_GB_DAY sums counter deltas, so a day with half
--- its intervals reads half the redo. The level series (PROCESSES, SESSIONS,
--- PGA_ALLOC_GB, DB_SIZE_GB, ASM_DG, TEMP_PEAK, UNDO_PEAK) read samples of a
--- level, so they
--- carry covered_sec NULL and is_complete 'Y'.
+-- its intervals reads half the redo, and an IOPS / IO_MBPS day with half its
+-- intervals may have missed its busy hours. The level series (PROCESSES,
+-- SESSIONS, PGA_ALLOC_GB, DB_SIZE_GB, ASM_DG, TEMP_PEAK, UNDO_PEAK) read
+-- samples of a level, so they carry covered_sec NULL and is_complete 'Y'.
+-- n_samples on IOPS / IO_MBPS is the number of snapshots whose rate entered
+-- the percentile.
 -- M15 gap columns, read by the anomaly layer (a gap day is neither scored
 -- nor used as baseline):
 --   day_gap            = days since the series' previous row.
---   max_interval_hours = REDO_GB_DAY: the longest counter interval ending
---                        that day; NULL for the level series.
---   gap_flag           = 'Y' for REDO_GB_DAY when max_interval_hours >
---                        cpu_gap_hours (the day carries more than a day of
---                        redo); for DB_SIZE_GB when n_samples differs from the
+--   max_interval_hours = REDO_GB_DAY / IOPS / IO_MBPS: the longest counter
+--                        interval ending that day; NULL for the level series.
+--   gap_flag           = 'Y' for REDO_GB_DAY / IOPS / IO_MBPS when
+--                        max_interval_hours > cpu_gap_hours (the day carries
+--                        more than a day of redo; an I/O rate over such an
+--                        interval is an average across the outage and stays
+--                        out of the percentile, as in CAPD_CPU_INTERVAL);
+--                        for DB_SIZE_GB when n_samples differs from the
 --                        previous row's (the tablespace SET changed, so the
 --                        day-over-day move measures membership, not growth);
 --                        else 'N'. ASM_DG / TEMP_PEAK / UNDO_PEAK /
@@ -107,6 +123,14 @@
 --   * REDO_GB_DAY is per container (CAPV_SYSSTAT reads
 --     DBA_HIST_CON_SYSSTAT). The log stream is shared, so the CDB's redo is
 --     the SUM over its containers.
+--   * IOPS / IO_MBPS are per container too, and the root row is CDB$ROOT
+--     alone. AWR writes no row for a container's statistic that is still
+--     zero since startup (a PDB that has not written yet has read rows
+--     only), so an interval counts with either side and the missing side
+--     reads 0. The interval in which a counter first appears has no delta
+--     for it (CAPD_COUNTER_DELTA needs a predecessor) and reads without it.
+--     RAC: a snapshot's rate is the sum of its instances' rates, NULL when
+--     one of them spans more than cpu_gap_hours.
 --   * PROCESSES / SESSIONS are CDB-wide: DBA_HIST_RESOURCE_LIMIT is root-only
 --     in CDB$ROOT. So is PGA_ALLOC_GB: DBA_HIST_PGASTAT and the
 --     pga_aggregate_limit row CAPV_PARAMETER keeps are the root's.
@@ -206,6 +230,61 @@ WITH snap AS (
                   AND  is_restart = 'N' )
         GROUP  BY dbid, con_dbid, day_dt
      ),
+     -- ---------------- IOPS / IO_MBPS (M27) ----------------
+     -- Read + write deltas of one interval side by side, per instance. The
+     -- GROUP BY carries prev_end_time, so two counters pair up only when
+     -- they difference the same pair of snapshots (as CAPD_CPU_INTERVAL
+     -- does). No restart on either side. One present side is enough: see
+     -- the header on statistics AWR does not write while they are zero.
+     -- series is projected in the inline view and grouped as a column, for
+     -- the ORA-00979 reason given at redo_day.
+     io_inst AS (
+        SELECT dbid, con_dbid, series, instance_number, snap_id, end_time, ivl_sec,
+               SUM(delta) AS d
+        FROM  ( SELECT dbid, con_dbid, instance_number, snap_id, end_time,
+                       prev_end_time, ivl_sec, delta, is_restart,
+                       CASE WHEN stat_name IN ('physical read total IO requests',
+                                               'physical write total IO requests')
+                            THEN 'IOPS' ELSE 'IO_MBPS' END AS series
+                FROM   capd_counter_delta
+                WHERE  source = 'SYSSTAT'
+                  AND  stat_name IN ('physical read total IO requests',
+                                     'physical write total IO requests',
+                                     'physical read total bytes',
+                                     'physical write total bytes') )
+        GROUP  BY dbid, con_dbid, series, instance_number, snap_id, end_time,
+                  prev_end_time, ivl_sec
+        HAVING MAX(is_restart) = 'N' AND COUNT(delta) > 0 AND ivl_sec > 0
+     ),
+     -- One rate per snapshot: the instances' rates summed. An interval
+     -- longer than cpu_gap_hours has no rate (an average across an outage
+     -- would dilute the day's percentile), and then neither has the snapshot.
+     io_snap AS (
+        SELECT dbid, con_dbid, series, snap_id,
+               TRUNC(MIN(end_time))                              AS day_dt,
+               CASE WHEN COUNT(*) = COUNT(rate) THEN SUM(rate) END AS rate,
+               SUM(ivl_sec)                                      AS ivl_sec,
+               COUNT(DISTINCT instance_number)                   AS n_inst,
+               MAX(ivl_sec)                                      AS max_ivl_sec
+        FROM  ( SELECT i.dbid, i.con_dbid, i.series, i.instance_number, i.snap_id,
+                       i.end_time, i.ivl_sec,
+                       CASE WHEN i.ivl_sec <= cfg.cpu_gap_hours * 3600
+                            THEN i.d / i.ivl_sec
+                                 / CASE i.series WHEN 'IO_MBPS' THEN 1048576 ELSE 1 END
+                       END AS rate
+                FROM   io_inst i
+                CROSS  JOIN cap_cfg cfg )
+        GROUP  BY dbid, con_dbid, series, snap_id
+     ),
+     io_day AS (
+        SELECT dbid, con_dbid, series, day_dt,
+               PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY rate) AS val,
+               COUNT(rate)                                        AS n_samples,
+               SUM(ivl_sec) / MAX(n_inst)                         AS covered_sec,
+               MAX(max_ivl_sec) / 3600                            AS max_ivl
+        FROM   io_snap
+        GROUP  BY dbid, con_dbid, series, day_dt
+     ),
      -- ---------------- DB_SIZE_GB (M11.3) ----------------
      -- One number per container per day: the sum of every permanent
      -- tablespace's last-of-day used bytes, against the sum of their ceilings.
@@ -301,6 +380,20 @@ WITH snap AS (
                CAST(NULL AS NUMBER), CAST(NULL AS NUMBER)
         FROM   redo_day r
         CROSS  JOIN cap_cfg cfg
+        UNION ALL
+        -- A day whose every interval is a gap has no rate and no row.
+        SELECT i.dbid, i.con_dbid, i.series, i.day_dt, i.val,
+               CAST(NULL AS NUMBER),
+               CASE i.series WHEN 'IOPS' THEN 'IO_PER_SEC' ELSE 'MB_PER_SEC' END,
+               i.n_samples,
+               i.covered_sec,
+               CASE WHEN i.covered_sec >= cfg.complete_day_pct / 100 * 86400
+                    THEN 'Y' ELSE 'N' END,
+               i.max_ivl,
+               CAST(NULL AS NUMBER), CAST(NULL AS NUMBER)
+        FROM   io_day i
+        CROSS  JOIN cap_cfg cfg
+        WHERE  i.val IS NOT NULL
         UNION ALL
         SELECT dbid, con_dbid, series, day_dt, val, lim,
                'GIB'         AS unit, n_samples,

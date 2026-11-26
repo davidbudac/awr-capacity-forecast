@@ -61,4 +61,4 @@ SELECT db_pdb,
 FROM   capr_cpu_trend&cap_s
 WHERE  (&cap_sdbid IS NULL OR dbid = &cap_sdbid)
   AND  (&cap_scon  IS NULL OR con_dbid = &cap_scon)
-ORDER  BY con_dbid, metric;
+ORDER  BY dbid, con_dbid, metric;

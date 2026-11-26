@@ -1,0 +1,5 @@
+--
+-- 10_family_skip.sql -- stub report.sql includes instead of
+-- 10_tbspc_family.sql when the scope holds no tablespace family: a database
+-- without one shows nothing, not an empty section.
+--

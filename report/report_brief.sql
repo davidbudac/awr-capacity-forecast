@@ -18,6 +18,9 @@
 -- panels all read t_act. t_beh is the unusual-behaviour list.
 -- CAPR_MEM_VERDICT is read once, by the memory section alone: a verdict is
 -- advice, raises no alert and changes no headline, action or count.
+-- CAPR_FIT_TRACK (the forecast track record, from the stored refresh runs)
+-- is read once, for its own lines under the advice: a series a forecast alert
+-- names whose earlier forecasts graded BIASED or WIDE. It changes no action.
 --
 -- Run from the REPO ROOT so the @@report/defaults.sql include resolves:
 --   SQL> @report/report_brief.sql
@@ -62,12 +65,13 @@ COLUMN 6 NEW_VALUE 6 NOPRINT
 SELECT NULL AS "1", NULL AS "2", NULL AS "3",
        NULL AS "4", NULL AS "5", NULL AS "6" FROM dual WHERE 1 = 0;
 
+-- DECODE, not NULLIF: see report/report.sql (ORA-00932 on an empty argument).
 COLUMN eff_top_n NEW_VALUE top_n        NOPRINT
 COLUMN eff_anom  NEW_VALUE anomaly_days NOPRINT
 COLUMN eff_esm   NEW_VALUE show_esm     NOPRINT
-SELECT NVL(NULLIF(TRIM('&1'), '-'), '&top_n')                  AS eff_top_n,
-       NVL(NULLIF(TRIM('&2'), '-'), '&anomaly_days')           AS eff_anom,
-       NVL(NULLIF(UPPER(TRIM('&3')), '-'), UPPER('&show_esm')) AS eff_esm
+SELECT NVL(DECODE(TRIM('&1'), '-', NULL, TRIM('&1')), '&top_n')                      AS eff_top_n,
+       NVL(DECODE(TRIM('&2'), '-', NULL, TRIM('&2')), '&anomaly_days')               AS eff_anom,
+       NVL(DECODE(TRIM('&3'), '-', NULL, UPPER(TRIM('&3'))), UPPER('&show_esm'))     AS eff_esm
 FROM   dual;
 
 -- Scope and identity: cap_sdbid / cap_scon, the target, cap_db / cap_host /
@@ -171,7 +175,7 @@ DECLARE
     SELECT dbid, con_dbid, db, db_name, con_name, kind, series, unit, value, limit_value, pct,
            slope_per_day, r2, quality, days_to_full, days_to_full_lo, days_to_full_hi, accel,
            train_n, sev, sev_rank, last_day, limit_below_used, cycle_days, cycle_peak_pct,
-           need_gib_30, need_gib_90, add_by_day
+           need_gib_30, need_gib_90, add_by_day, restart_reason, restart_day
     FROM   capr_fit~cap_s
     WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
       AND  is_current = 1
@@ -205,7 +209,7 @@ DECLARE
   t_beh ix_tab;
 
   c_act_kinds CONSTANT VARCHAR2(200) := ',TBSPC_FULL,TBSPC_NEARFULL,CPU_SAT,DBCPU_SAT,CPU_HOT,DBCPU_HOT,'
-                                        || 'SERIES_LIMIT,SERIES_NEARLIMIT,DATA_STALE,MODEL_HEALTH,';
+                                        || 'SERIES_LIMIT,SERIES_NEARLIMIT,DATA_STALE,MODEL_HEALTH,DISK_FULL,';
   c_beh_kinds CONSTANT VARCHAR2(100) := ',TBSPC_ANOM,CPU_ANOM,DBCPU_ANOM,SERIES_ANOM,CPU_SHIFT,';
   c_gib CONSTANT NUMBER := 1073741824;
   c_mib CONSTANT NUMBER := 1048576;
@@ -314,7 +318,8 @@ DECLARE
 
   FUNCTION unit_sfx(p_unit IN VARCHAR2) RETURN VARCHAR2 IS
   BEGIN
-    RETURN CASE LOWER(p_unit) WHEN 'gib' THEN ' GiB' WHEN 'gib_per_day' THEN ' GiB/day' END;
+    RETURN CASE LOWER(p_unit) WHEN 'gib' THEN ' GiB' WHEN 'gib_per_day' THEN ' GiB/day'
+                              WHEN 'io_per_sec' THEN ' IO/s' WHEN 'mb_per_sec' THEN ' MB/s' END;
   END unit_sfx;
 
   FUNCTION sev_col(p_sev IN VARCHAR2) RETURN VARCHAR2 IS
@@ -354,6 +359,8 @@ DECLARE
              WHEN p_kind = 'SERIES' AND p_series = 'DB_SIZE_GB'  THEN 'Database size'
              WHEN p_kind = 'SERIES' AND p_series = 'REDO_GB_DAY' THEN 'Redo per day'
              WHEN p_kind = 'SERIES' AND p_series = 'PGA_ALLOC_GB' THEN 'PGA allocated'
+             WHEN p_kind = 'SERIES' AND p_series = 'IOPS'    THEN 'I/O requests per second'
+             WHEN p_kind = 'SERIES' AND p_series = 'IO_MBPS' THEN 'I/O MB per second'
              WHEN p_kind = 'SERIES' AND p_series LIKE 'UNDO_PEAK:%' THEN 'Undo peak ' || SUBSTR(p_series, 11)
              WHEN p_kind = 'SERIES' AND p_series LIKE 'TEMP_PEAK:%' THEN 'Temp peak ' || SUBSTR(p_series, 11)
              ELSE p_series
@@ -440,6 +447,14 @@ DECLARE
       f   := t_fit(a.fit_ix);
       ts  := '<code>' || esc(f.series) || '</code>';
       con := esc(f.con_name);
+    ELSIF a.kind = 'DISK_FULL' THEN
+      -- U09: the disk the datafiles share. No fit row: the alert carries the
+      -- day count (value, from day_dt) and CAPR_DISK's sentence.
+      a.by_day := al.day_dt + al.value;
+      a.sent   := 'Add storage to disk <code>' || esc(SUBSTR(al.series_key, 6)) || '</code> of '
+                  || esc(al.db_pdb) || ', or free space on it.';
+      a.detail := esc(al.message) || '.';
+      RETURN;
     ELSIF a.kind NOT IN ('DATA_STALE', 'MODEL_HEALTH') THEN
       a.sent := esc(al.message) || '.';
       RETURN;
@@ -586,6 +601,7 @@ DECLARE
     IF t_act(j).fit_ix IS NOT NULL THEN RETURN lbl_t(t_act(j).fit_ix); END IF;
     RETURN CASE t_act(j).kind WHEN 'DATA_STALE' THEN 'AWR snapshots'
                               WHEN 'MODEL_HEALTH' THEN 'the Tier 2 models'
+                              WHEN 'DISK_FULL' THEN 'disk ' || SUBSTR(t_al(t_act(j).al_ix).series_key, 6)
                               ELSE t_al(t_act(j).al_ix).series_key END;
   END act_lbl;
 
@@ -1042,7 +1058,11 @@ DECLARE
                            || ')' END
          END || '</dd>'
       || '<dt>Fit</dt><dd>' || esc(f.quality) || CASE WHEN f.r2 IS NOT NULL THEN ', R&sup2; ' || TO_CHAR(f.r2, 'FM990.00') END
-      || ' over ' || f.train_n || ' days</dd>'
+      || ' over ' || f.train_n || ' days'
+      || CASE f.restart_reason WHEN 'PURGE' THEN ', since the purge on ' || dfmt(f.restart_day, 'S')
+                               WHEN 'STOP'  THEN ', since growth stopped on ' || dfmt(f.restart_day, 'S')
+                               WHEN 'START' THEN ', since growth began on ' || dfmt(f.restart_day, 'S') END
+      || '</dd>'
       || CASE WHEN v_esm IS NOT NULL THEN
                 '<dt>Second model</dt><dd>Exponential smoothing '
                 || CASE WHEN v_regr IS NOT NULL AND ABS(v_esm - v_regr) <= 0.1 * ABS(v_regr) THEN 'agrees: '
@@ -1351,6 +1371,79 @@ BEGIN
     WHEN OTHERS THEN sec_failed('memory sizing', SQLERRM);
   END;
 
+  -- Tablespace families (ddl/32), under the memory lines: one line per
+  -- family whose filling member will not fit under its ceiling (the
+  -- TBSPC_FAMILY alert) or whose next member needs more than the largest
+  -- ceiling the family has. A scope without such a family prints nothing.
+  DECLARE
+    n_fam PLS_INTEGER := 0;
+  BEGIN
+    FOR r IN (SELECT db_pdb, sev, headline, period_end_day,
+                     COUNT(DISTINCT dbid || '|' || con_dbid) OVER () AS n_con
+              FROM   capr_tbspc_family~cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+                AND  actionable = 'Y'
+              ORDER  BY dbid, rank_family) LOOP
+      IF n_fam = 0 THEN
+        p('<h3>Tablespace families</h3>');
+        p('<ol class="todo">');
+      END IF;
+      n_fam := n_fam + 1;
+      p('<li><span class="by">' || CASE WHEN r.n_con > 1 THEN esc(r.db_pdb) END || '</span><p>' || esc(r.headline)
+        || '.</p><span>' || CASE WHEN r.sev = 'WARN' THEN 'by ' || dfmt(r.period_end_day, 'S') END || '</span></li>');
+    END LOOP;
+    IF n_fam > 0 THEN
+      p('</ol>');
+    END IF;
+  EXCEPTION
+    WHEN OTHERS THEN sec_failed('tablespace families', SQLERRM);
+  END;
+
+  -- Forecast track record, under the advice: one line per series that a
+  -- forecast alert names (TBSPC_FULL, CPU_SAT, DBCPU_SAT, SERIES_LIMIT) and
+  -- whose earlier forecasts graded BIASED or WIDE (CAPR_FIT_TRACK, the stored
+  -- refresh runs; the same under LIVE and SNAPSHOT). A good or unknown record
+  -- prints nothing, and the action list above does not change.
+  DECLARE
+    n_trk PLS_INTEGER := 0;
+    fi    PLS_INTEGER;
+    hit   BOOLEAN;
+  BEGIN
+    IF v_load_err IS NULL THEN
+      FOR r IN (SELECT dbid, con_dbid, kind, series, reliability, bias_pct, summary
+                FROM   capr_fit_track
+                WHERE  reliability IN ('BIASED', 'WIDE')
+                  AND  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+                ORDER  BY dbid, rank_track) LOOP
+        hit := FALSE;
+        FOR i IN 1 .. t_al.COUNT LOOP
+          hit := hit OR (kprio(t_al(i).kind) = 1 AND fam(t_al(i).kind) = r.kind AND t_al(i).dbid = r.dbid
+                         AND t_al(i).con_dbid = r.con_dbid AND t_al(i).series_key = r.series);
+        END LOOP;
+        IF hit THEN
+          n_trk := n_trk + 1;
+          IF n_trk = 1 THEN
+            p('<h3>Forecast track record</h3>');
+            p('<ul class="beh">');
+          END IF;
+          fi := find_fit(r.dbid, r.con_dbid, r.kind, r.series);
+          p('<li><span class="by">' || CASE r.reliability WHEN 'BIASED' THEN 'Biased' ELSE 'Too narrow' END
+            || '</span><span>' || esc(CASE WHEN fi IS NOT NULL THEN lbl_t(fi) ELSE lbl(r.kind, r.series) END) || ': '
+            || esc(r.summary)
+            || CASE WHEN r.reliability = 'WIDE' THEN ' Its dates are less certain than the 95% band says.'
+                    WHEN r.bias_pct > 0 THEN ' It grew faster than forecast: its date may come sooner.'
+                    ELSE ' It grew slower than forecast: its date may come later.' END
+            || '</span></li>');
+        END IF;
+      END LOOP;
+      IF n_trk > 0 THEN
+        p('</ul>');
+      END IF;
+    END IF;
+  EXCEPTION
+    WHEN OTHERS THEN sec_failed('forecast track record', SQLERRM);
+  END;
+
   -- A load failure already has its box under "What to do".
   BEGIN
     IF v_load_err IS NULL AND t_beh.COUNT > 0 THEN
@@ -1367,6 +1460,26 @@ BEGIN
     END IF;
   EXCEPTION
     WHEN OTHERS THEN sec_failed('also unusual', SQLERRM);
+  END;
+
+  -- Anomaly series that alert often (CAPR_ANOM_VOLUME.noisy): one line.
+  -- doctor.sql section 12 names them and the knob change for each.
+  DECLARE
+    v_noisy NUMBER;
+    v_days  NUMBER;
+  BEGIN
+    SELECT COUNT(*), MAX(window_days)
+      INTO v_noisy, v_days
+      FROM capr_anom_volume~cap_s
+     WHERE noisy = 'Y'
+       AND (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con);
+    IF v_noisy > 0 THEN
+      p('<p class="quiet">' || v_noisy || ' anomaly series ' || CASE v_noisy WHEN 1 THEN 'alerts' ELSE 'alert' END
+        || ' often in the last ' || v_days || ' days. Run doctor.sql: section 12 lists them with the knob change'
+        || ' that quiets each.</p>');
+    END IF;
+  EXCEPTION
+    WHEN OTHERS THEN sec_failed('noisy series', SQLERRM);
   END;
 
   -- Evidence
@@ -1427,6 +1540,8 @@ BEGIN
             v_gh  := GREATEST(LEAST(NVL(v_p90, 0), 100) - NVL(f.pct, 0), 0);
             v_when := CASE WHEN f.limit_below_used = 1 THEN 'limit below usage'
                            WHEN f.quality = 'CYCLIC' THEN 'purges every ' || NVL(fx0(f.cycle_days), '?') || ' d'
+                           WHEN f.quality = 'FLAT' AND f.restart_reason = 'STOP'
+                                THEN 'stopped <span>' || dfmt(f.restart_day, 'T') || '</span>'
                            WHEN f.quality = 'FLAT' THEN 'not growing'
                            WHEN f.days_to_full IS NOT NULL THEN fx0(f.days_to_full) || ' d <span>'
                                 || dfmt(f.last_day + f.days_to_full, 'T') || '</span>'
@@ -1434,7 +1549,9 @@ BEGIN
             v_gro := CASE WHEN ABS(NVL(f.slope_per_day, 0)) >= c_gib
                           THEN TO_CHAR(f.slope_per_day / c_gib, 'FMS9990.00') || ' <span>GiB/d</span>'
                           WHEN ROUND(NVL(f.slope_per_day, 0) / c_mib) = 0 THEN '0 <span>MiB/d</span>'
-                          ELSE TO_CHAR(ROUND(f.slope_per_day / c_mib), 'FMS999990') || ' <span>MiB/d</span>' END;
+                          ELSE TO_CHAR(ROUND(f.slope_per_day / c_mib), 'FMS999990') || ' <span>MiB/d</span>' END
+                     || CASE WHEN f.restart_reason = 'START'
+                             THEN ' <span>since ' || dfmt(f.restart_day, 'T') || '</span>' END;
             p('<tr' || CASE f.sev WHEN 'CRIT' THEN ' class="crit"' WHEN 'WARN' THEN ' class="warn"' END || '>'
               || '<td><code>' || esc(f.series) || '</code><small>' || esc(f.con_name) || '</small></td>'
               || '<td class="tank"><div class="track"><i class="now" style="width:' || TO_CHAR(LEAST(NVL(f.pct, 0), 100), 'FM990.0')

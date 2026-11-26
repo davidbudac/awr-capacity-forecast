@@ -18,6 +18,9 @@ PROMPT == 2. TABLESPACE FORECAST (GiB): current / +30 / +90 / +180, plus the ESM
 PROMPT    Showing &ts_shown of &ts_total tablespace(s): growing, near-full, or >= &min_gb GiB
 PROMPT    used (knob report_min_gb), capped at top &top_n -- CAPR_TBSPC_FORECAST has all.
 PROMPT    QUALITY: OK | LOW_CONFIDENCE (R2<gate) | FLAT (no growth) | INSUFFICIENT_HISTORY.
+PROMPT    RESTART / SINCE: the fit uses TRAIN_N days from SINCE, not the whole window:
+PROMPT    PURGE = since a purge cliff, STOP = since growth stopped (no new high since,
+PROMPT    knob quiet_days), START = since growth began. Empty = the whole window.
 PROMPT    ESM (Tier 2) only reaches +30 on 19c (hard horizon cap); +90/180 are REGR.
 PROMPT    ESM_GIB sits ESM_H days after the last day: the model's furthest step
 PROMPT    (esm_horizon_days, at most 30) minus its age (esm_age_days).
@@ -37,6 +40,8 @@ COLUMN r2              FORMAT 90.999        HEADING 'R2'
 COLUMN quality         FORMAT A20          HEADING 'QUALITY'
 COLUMN esm30           FORMAT 99990.00     HEADING 'ESM_GIB'
 COLUMN esm_h           FORMAT 9990         HEADING 'ESM_H'
+COLUMN restart_reason  FORMAT A7           HEADING 'RESTART'
+COLUMN restart_since   FORMAT A10          HEADING 'SINCE'
 
 SELECT db_pdb,
        tablespace_name,
@@ -50,7 +55,9 @@ SELECT db_pdb,
        r2,
        quality,
        esm30,
-       esm_horizon_days - esm_age_days AS esm_h
+       esm_horizon_days - esm_age_days AS esm_h,
+       restart_reason,
+       TO_CHAR(restart_day, 'YYYY-MM-DD') AS restart_since
 FROM  (SELECT t.*, ROW_NUMBER() OVER (PARTITION BY t.dbid ORDER BY t.rank_report) AS s_rank
        FROM   capr_tbspc_forecast&cap_s t
        WHERE  (&cap_sdbid IS NULL OR t.dbid = &cap_sdbid)

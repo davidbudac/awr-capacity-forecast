@@ -29,6 +29,70 @@
   "templating": {
     "list": [
       {
+        "name": "target",
+        "label": "Target",
+        "type": "query",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "awrcap-ords"
+        },
+        "query": {
+          "queryType": "infinity",
+          "infinityQuery": {
+            "refId": "V",
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "awrcap-ords"
+            },
+            "type": "json",
+            "source": "url",
+            "parser": "backend",
+            "format": "table",
+            "url": "/containers",
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "root_selector": "items",
+            "columns": [
+              {
+                "selector": "target_name",
+                "text": "target_name",
+                "type": "string"
+              },
+              {
+                "selector": "db",
+                "text": "db",
+                "type": "string"
+              }
+            ],
+            "filters": [],
+            "computed_columns": [],
+            "summarizeExpression": "count(db)",
+            "summarizeBy": "target_name",
+            "summarizeAlias": "summary"
+          },
+          "meta": {
+            "valueField": "target_name",
+            "textField": "target_name"
+          },
+          "refId": "var-target"
+        },
+        "definition": "/containers",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
         "name": "db",
         "label": "Database",
         "type": "query",
@@ -59,10 +123,16 @@
                 "selector": "db",
                 "text": "db",
                 "type": "string"
+              },
+              {
+                "selector": "target_name",
+                "text": "target_name",
+                "type": "string"
               }
             ],
             "filters": [],
-            "computed_columns": []
+            "computed_columns": [],
+            "filterExpression": "target_name IN (${target:singlequote})"
           },
           "meta": {
             "valueField": "db",
@@ -183,6 +253,11 @@
               "selector": "obs_day",
               "text": "obs_day",
               "type": "timestamp"
+            },
+            {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
             },
             {
               "selector": "db",
@@ -317,19 +392,21 @@
           "options": {
             "indexByName": {
               "ts": 0,
-              "db": 1,
-              "series": 2,
-              "anomaly_kind": 3,
-              "baseline_mode": 4,
-              "sev": 5,
-              "z": 6,
-              "anomaly_flag": 7,
-              "message": 8,
-              "sev_rank": 9,
-              "obs_day": 10
+              "target_name": 1,
+              "db": 2,
+              "series": 3,
+              "anomaly_kind": 4,
+              "baseline_mode": 5,
+              "sev": 6,
+              "z": 7,
+              "anomaly_flag": 8,
+              "message": 9,
+              "sev_rank": 10,
+              "obs_day": 11
             },
             "renameByName": {
               "ts": "When",
+              "target_name": "Target",
               "db": "Database",
               "series": "Series",
               "anomaly_kind": "Kind",
@@ -368,6 +445,18 @@
               {
                 "id": "unit",
                 "value": "time:YYYY-MM-DD HH:mm"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
               }
             ]
           },
@@ -1204,6 +1293,450 @@
         "h": 8
       },
       "type": "table",
+      "title": "Alert volume: alerts per series with the knobs as they are",
+      "description": "One row per alert series and baseline mode. An anomaly kind lists one alert per run of flagged days in the alert window. Noisy = Y: it alerts often (noise_episodes, noise_flag_pct). Suggested floor: the value of the floor knob that would end those alerts; the knob is shared by every series of the unit. doctor.sql section 12 prints the UPDATE.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "awrcap-ords"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "awrcap-ords"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/alert_volume",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "items",
+          "columns": [
+            {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
+              "selector": "db",
+              "text": "db",
+              "type": "string"
+            },
+            {
+              "selector": "alert_kind",
+              "text": "alert_kind",
+              "type": "string"
+            },
+            {
+              "selector": "series",
+              "text": "series",
+              "type": "string"
+            },
+            {
+              "selector": "baseline_mode",
+              "text": "baseline_mode",
+              "type": "string"
+            },
+            {
+              "selector": "episodes",
+              "text": "episodes",
+              "type": "number"
+            },
+            {
+              "selector": "n_crit",
+              "text": "n_crit",
+              "type": "number"
+            },
+            {
+              "selector": "n_warn",
+              "text": "n_warn",
+              "type": "number"
+            },
+            {
+              "selector": "n_info",
+              "text": "n_info",
+              "type": "number"
+            },
+            {
+              "selector": "noisy",
+              "text": "noisy",
+              "type": "string"
+            },
+            {
+              "selector": "flagged_days",
+              "text": "flagged_days",
+              "type": "number"
+            },
+            {
+              "selector": "scored_days",
+              "text": "scored_days",
+              "type": "number"
+            },
+            {
+              "selector": "flagged_pct",
+              "text": "flagged_pct",
+              "type": "number"
+            },
+            {
+              "selector": "max_dev",
+              "text": "max_dev",
+              "type": "number"
+            },
+            {
+              "selector": "floor_knob",
+              "text": "floor_knob",
+              "type": "string"
+            },
+            {
+              "selector": "floor_value",
+              "text": "floor_value",
+              "type": "number"
+            },
+            {
+              "selector": "suggested_floor",
+              "text": "suggested_floor",
+              "type": "number"
+            }
+          ],
+          "filters": [],
+          "computed_columns": [],
+          "filterExpression": "db IN (${db:singlequote})"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "episodes",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "target_name": 0,
+              "db": 1,
+              "alert_kind": 2,
+              "series": 3,
+              "baseline_mode": 4,
+              "episodes": 5,
+              "n_crit": 6,
+              "n_warn": 7,
+              "n_info": 8,
+              "noisy": 9,
+              "flagged_days": 10,
+              "scored_days": 11,
+              "flagged_pct": 12,
+              "max_dev": 13,
+              "floor_knob": 14,
+              "floor_value": 15,
+              "suggested_floor": 16
+            },
+            "renameByName": {
+              "target_name": "Target",
+              "db": "Database",
+              "alert_kind": "Alert",
+              "series": "Series",
+              "baseline_mode": "Mode",
+              "episodes": "Alerts",
+              "n_crit": "CRIT",
+              "n_warn": "WARN",
+              "n_info": "INFO",
+              "noisy": "Noisy",
+              "flagged_days": "Flagged days",
+              "scored_days": "of scored",
+              "flagged_pct": "Flagged %",
+              "max_dev": "Largest deviation",
+              "floor_knob": "Floor knob",
+              "floor_value": "Floor now",
+              "suggested_floor": "Suggested floor"
+            },
+            "excludeByName": {}
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Database"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Alert"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Series"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mode"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Alerts"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CRIT"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WARN"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "INFO"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Noisy"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Flagged days"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "of scored"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Flagged %"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#24c292",
+                      "value": null
+                    },
+                    {
+                      "color": "#f5a700",
+                      "value": 10
+                    },
+                    {
+                      "color": "#e7664c",
+                      "value": 30
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "",
+                        "color": "transparent",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Largest deviation"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Floor now"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Suggested floor"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 10,
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 8
+      },
+      "type": "table",
       "title": "Fleet alerts",
       "description": "",
       "datasource": {
@@ -1246,6 +1779,11 @@
             {
               "selector": "kind",
               "text": "kind",
+              "type": "string"
+            },
+            {
+              "selector": "target_name",
+              "text": "target_name",
               "type": "string"
             },
             {
@@ -1307,19 +1845,21 @@
             "indexByName": {
               "sev": 0,
               "alert_kind": 1,
-              "db": 2,
-              "series": 3,
-              "obs_day": 4,
-              "message": 5,
-              "sev_rank": 6,
-              "kind": 7,
-              "value": 8,
-              "threshold": 9,
-              "unit": 10
+              "target_name": 2,
+              "db": 3,
+              "series": 4,
+              "obs_day": 5,
+              "message": 6,
+              "sev_rank": 7,
+              "kind": 8,
+              "value": 9,
+              "threshold": 10,
+              "unit": 11
             },
             "renameByName": {
               "sev": "Sev",
               "alert_kind": "Alert",
+              "target_name": "Target",
               "db": "Database",
               "series": "Series",
               "obs_day": "Day",
@@ -1398,6 +1938,18 @@
               {
                 "id": "custom.width",
                 "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
               }
             ]
           },

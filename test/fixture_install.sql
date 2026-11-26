@@ -32,6 +32,19 @@
 --                  again -- the M9.3 change-point reset (fit must restart at
 --                  the cliff and read 10 MiB/day, not the across-the-cliff
 --                  slope).
+--   FIX_PURGE2   : FIX_PURGE's purge spread over two days: 10 MiB/day, -302.5
+--                  MiB on day 80 and again on day 81. One purge event
+--                  (cliff_merge_days 1): reset on day 81, 40 post-purge days,
+--                  10 MiB/day, OK. With cliff_merge_days 0 it is two cliffs,
+--                  CYCLIC.
+--   FIX_STOPPED  : a month's tablespace: 1 GiB + 16 MiB/day until day 90,
+--                  then flat at 2464 MiB of a 3000 MiB maxsize. Restart STOP on
+--                  day 91: 30 flat days, FLAT, no days_to_full, no alert. With
+--                  quiet_days 0 the whole window reads 11.7 MiB/day, OK, full in
+--                  45 days: a TBSPC_FULL WARN for a tablespace that stopped.
+--   FIX_STARTED  : flat at 1 GiB until day 95, then 16 MiB/day. Restart START
+--                  on day 95: 26 days, exactly 16 MiB/day, OK, days_to_full 200
+--                  (200.5). With quiet_days 0: 3.1 MiB/day, LOW_CONFIDENCE.
 --   FIX_OVERFULL : flat 1.5 GiB used of ~1.6 GiB allocated, with a
 --                  CAP_TBSPC_OVERRIDE ceiling of 1 GiB: the limit is under the
 --                  usage (limit_below_used = Y, pct_used 150, FLAT so
@@ -83,6 +96,10 @@
 --                  REDO_GB_DAY = 2.0 GiB/day, no ceiling, no alert. A second
 --                  ('user commits') stat name is present purely so the
 --                  downstream 'redo size' filter is exercised.
+--                  Four I/O counters (M27) beside it: IOPS = 1950 + 9.5*i
+--                  (p95 of a 1000/s night and a (2000 + 10*i)/s day
+--                  interval), IO_MBPS = 48.5 (p95 of 20 and 50), no
+--                  ceiling, no alert.
 --   CONTAINER    : FIXCDB root row + FIXPDB1 and FIXPDB2 rows (M7.2 labels).
 --   PARAMETER    : the nine CAPV_PARAMETER names on every snapshot, cpu_count
 --                  8 = NUM_CPUS (no CPU number moves) and
@@ -106,6 +123,17 @@
 --                  after it, 1.9 GiB (95% of the limit) from day 110 18:00:
 --                  CAPM_VERDICT PGA_LIMIT UNDERSIZED, suggested 2162 MiB.
 --                  OSSTAT PHYSICAL_MEMORY_BYTES 16 GiB beside the CPU rows.
+--   LIVE (U09)   : CAP_FIXTURE_TBSPC_LIVE, the live tablespace ceilings
+--                  (CAPV_TBSPC_LIVE) as of the last day 18:30. FIX_LINEAR is
+--                  capped at allocated + 40 GiB and FIX_SPIKE at allocated +
+--                  45 GiB, both under their 50 GiB maxsize: the shared disk
+--                  has 40 GiB free (source LIVE) and fills long after
+--                  dtf_warn, so no DISK_FULL. FIX_FILLING's ceiling is its
+--                  maxsize (not capped). FIX_OVERRIDE's is 1562.5 MiB, under
+--                  its 2 GiB override: its own limit on the shared disk
+--                  (26.25 days), but an OVERRIDE limit says nothing about
+--                  the disk. run_test.sql builds the closed-form disk in a
+--                  savepoint. See the "U09" block at the end.
 --   MEMORY (M26) : the four advisors, component history, work areas, events,
 --                  library and dictionary cache on every snapshot, constant
 --                  increments per interval, counters reset at both restarts:
@@ -113,6 +141,33 @@
 --                  OVERSIZED (suggested 1536 MiB), SHARED_POOL OK /
 --                  ADVISOR_ONLY, SGA_TOTAL OK / SIZED_RIGHT, SGA_BALANCE OK /
 --                  STABLE. See the "M26 -- memory sizing sources" block.
+--
+--   FAMILIES     : tablespace families (ddl/32), all in the root container.
+--                  FIXM_# (monthly, six members, 1 MiB when empty):
+--                  FIXM_202307 flat 811 MiB and FIXM_202308 flat 1036 MiB
+--                  (DONE, no growth in the window). FIXM_202309 fills 40
+--                  MiB/day on days 50..79 to 1201 MiB (30 fill days),
+--                  FIXM_202310 45 MiB/day on days 80..110 to 1396 MiB (31):
+--                  DONE because its successor grows, 10 quiet days only.
+--                  FIXM_202311 FILLING, 53 MiB/day from day 111, 531 MiB of
+--                  a 1600 MiB maxsize, period end day 140 (20 days left).
+--                  FIXM_202312 EMPTY. The four finals rise 192 MiB a member
+--                  (significant): next member 1586.5 MiB, cautious 1612 MiB.
+--                  Expected final 1591 MiB (its own 53 MiB/day beats 1586.5 /
+--                  30), cautious 1605.67 MiB (1612 / 30 a day): over the
+--                  ceiling, the one TBSPC_FAMILY alert. Its own fit is
+--                  LOW_CONFIDENCE (80 flat days, 10 on the ramp), so no
+--                  TBSPC_FULL.
+--                  FIXY_# (yearly, quiet): FIXY_2023 flat 600 MiB, FIXY_2024
+--                  flat 500 MiB, FIXY_<the load year> 100 MiB + 8 MiB/day
+--                  over the whole spine (it grew into the window, so its
+--                  period ends on 31 December and its rate is the fit's
+--                  slope). Next member 550 MiB (median of two, no trend),
+--                  cautious 600 MiB, 50 GiB maxsize: fits.
+--                  FIXP_2024Q1 / FIXP_2024Q2 (flat 300 MiB): two look-alikes,
+--                  under family_min_members, no family.
+--                  Every step is under 100 MiB a day: no anomaly, and
+--                  DB_SIZE_GB flags nothing new.
 --
 -- Run this BEFORE @install.sql with deploy_mode=fixture (the seam views need the
 -- tables to exist), then run test/run_test.sql.
@@ -136,7 +191,8 @@ DECLARE
               'CAP_FIXTURE_MEM_COMP','CAP_FIXTURE_WORKAREA_HSTGRM',
               'CAP_FIXTURE_PGA_ADVICE','CAP_FIXTURE_SGA_ADVICE','CAP_FIXTURE_CACHE_ADVICE',
               'CAP_FIXTURE_SHPOOL_ADVICE','CAP_FIXTURE_SGASTAT','CAP_FIXTURE_LIBRARYCACHE',
-              'CAP_FIXTURE_ROWCACHE','CAP_FIXTURE_SYSTEM_EVENT');
+              'CAP_FIXTURE_ROWCACHE','CAP_FIXTURE_SYSTEM_EVENT',
+              'CAP_FIXTURE_TBSPC_LIVE');
 BEGIN
     FOR i IN 1 .. v.COUNT LOOP
         BEGIN EXECUTE IMMEDIATE 'DROP TABLE ' || v(i) || ' PURGE';
@@ -261,6 +317,22 @@ DECLARE
     -- day, i.e. OUTSIDE the 14-day anomaly_report_days alert window.
     c_purge  CONSTANT PLS_INTEGER := 90;
     c_purgeb CONSTANT NUMBER      := 76800;       -- 600 MiB in 8 KiB blocks
+    -- FIX_PURGE2: the same purge over two adjacent days, c_p2 and c_p2 + 1,
+    -- 38720 blocks (302.5 MiB) each. Each day's step, +10 - 302.5 MiB, is
+    -- past the 100 MiB cliff floor and under DB_SIZE_GB's 0.5 GiB anomaly
+    -- floor, both days are outside the 14-day alert window, and the
+    -- headroom / slope quotient ends in .5 (no FLOOR on a last digit).
+    c_p2     CONSTANT PLS_INTEGER := 80;
+    c_p2b    CONSTANT NUMBER      := 38720;
+    -- FIX_STOPPED / FIX_STARTED: base c_gb1 blocks (1 GiB), c_ramp blocks
+    -- (16 MiB) a day. FIX_STOPPED grows through day c_stop, FIX_STARTED from
+    -- day c_start + 1. 16 MiB a day stays under every anomaly floor.
+    c_gb1    CONSTANT NUMBER      := 131072;
+    c_ramp   CONSTANT NUMBER      := 2048;
+    c_stop   CONSTANT PLS_INTEGER := 90;
+    c_stopmx CONSTANT NUMBER      := 384000;      -- 3000 MiB
+    c_start  CONSTANT PLS_INTEGER := 95;
+    c_startmx CONSTANT NUMBER     := 592896;      -- 4632 MiB: 200.5 days at 16 MiB/day
     -- FIX_DROPPED's usage rows stop this many days before the last day, so
     -- its last_day is c_drop days behind the newest day of the dbid: stale
     -- under the default stale_days (3), current once stale_days >= c_drop.
@@ -278,6 +350,25 @@ DECLARE
     -- 50 GiB as a literal NUMBER: 50*1024*1024*1024 as integer-literal
     -- arithmetic overflows PLS_INTEGER (>2^31) before the NUMBER assignment.
     c_50g    CONSTANT NUMBER := 53687091200;
+    -- Tablespace families (header, FAMILIES), sizes in 8 KiB blocks.
+    c_mib    CONSTANT NUMBER      := 128;         -- 1 MiB
+    c_fm1    CONSTANT NUMBER      := 811 * 128;   -- FIXM_202307, flat
+    c_fm2    CONSTANT NUMBER      := 1036 * 128;  -- FIXM_202308, flat
+    c_fm3r   CONSTANT NUMBER      := 40 * 128;    -- FIXM_202309, per day
+    c_fm3a   CONSTANT PLS_INTEGER := 50;          --   first growth day
+    c_fm3n   CONSTANT PLS_INTEGER := 30;          --   growth days
+    c_fm4r   CONSTANT NUMBER      := 45 * 128;    -- FIXM_202310
+    c_fm4a   CONSTANT PLS_INTEGER := 80;
+    c_fm4n   CONSTANT PLS_INTEGER := 31;
+    c_fm5r   CONSTANT NUMBER      := 53 * 128;    -- FIXM_202311, filling
+    c_fm5a   CONSTANT PLS_INTEGER := 111;
+    c_fm5mx  CONSTANT NUMBER      := 1600 * 128;  --   its maxsize
+    c_fy1    CONSTANT NUMBER      := 600 * 128;   -- FIXY_2023, flat
+    c_fy2    CONSTANT NUMBER      := 500 * 128;   -- FIXY_2024, flat
+    c_fy3b   CONSTANT NUMBER      := 100 * 128;   -- FIXY_<load year>: base
+    c_fy3r   CONSTANT NUMBER      := 8 * 128;     --   per day
+    c_fp     CONSTANT NUMBER      := 300 * 128;   -- FIXP_2024Q1 / Q2, flat
+    v_fyname VARCHAR2(30) := 'FIXY_' || TO_CHAR(SYSDATE, 'YYYY');
     v_base   DATE := TRUNC(SYSDATE) - c_nd;
     v_start1 TIMESTAMP := CAST(v_base - 5 AS TIMESTAMP);
     v_start2 TIMESTAMP := CAST(v_base + c_restart AS TIMESTAMP);
@@ -408,6 +499,14 @@ DECLARE
     FUNCTION p2_spr(p_i PLS_INTEGER) RETURN NUMBER IS
     BEGIN RETURN CASE WHEN dow(p_i) >= 5 THEN 10 ELSE 25 END; END;
 
+    -- Used blocks of a FIXM_ member that fills p_rate blocks a day on the
+    -- p_n days from p_first on (p_n NULL: still filling), 1 MiB when empty.
+    FUNCTION fam_used(p_i PLS_INTEGER, p_first PLS_INTEGER, p_n PLS_INTEGER, p_rate NUMBER)
+        RETURN NUMBER IS
+    BEGIN
+        RETURN c_mib + p_rate * LEAST(GREATEST(p_i - p_first + 1, 0), NVL(p_n, 100000));
+    END;
+
     PROCEDURE osstat(p_snap NUMBER, p_name VARCHAR2, p_val NUMBER) IS
     BEGIN
         INSERT INTO cap_fixture_osstat
@@ -484,6 +583,12 @@ BEGIN
     INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 21, 'FIX_DROPPED',  'PERMANENT', c_bs);
     INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 22, 'FIX_CYCLIC',   'PERMANENT', c_bs);
     INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 23, 'FIX_CYCLIC_UP','PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 30, 'FIX_PURGE2',   'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 30, c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 31, 'FIX_STOPPED',  'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 32, 'FIX_STARTED',  'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 31, c_bs);
+    INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 32, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 10, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 11, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 12, c_bs);
@@ -498,6 +603,21 @@ BEGIN
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 21, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 22, c_bs);
     INSERT INTO cap_fixture_datafile   VALUES (c_dbid, c_con, 23, c_bs);
+    -- Tablespace families (ids 40..50).
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 40, 'FIXM_202307', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 41, 'FIXM_202308', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 42, 'FIXM_202309', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 43, 'FIXM_202310', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 44, 'FIXM_202311', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 45, 'FIXM_202312', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 46, 'FIXY_2023',   'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 47, 'FIXY_2024',   'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 48, v_fyname,      'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 49, 'FIXP_2024Q1', 'PERMANENT', c_bs);
+    INSERT INTO cap_fixture_tablespace VALUES (c_dbid, c_con, 50, 'FIXP_2024Q2', 'PERMANENT', c_bs);
+    FOR t IN 40 .. 50 LOOP
+        INSERT INTO cap_fixture_datafile VALUES (c_dbid, c_con, t, c_bs);
+    END LOOP;
 
     -- Container naming (M7.2): the row every fixture series resolves through
     -- (con_dbid = dbid -> label is the db_name alone), plus one synthetic PDB
@@ -607,6 +727,22 @@ BEGIN
         INSERT INTO cap_fixture_tbspc_usage
         VALUES (c_dbid, c_con, 2001 + 2 * i, 19, v_used, v_max50g, v_used);
 
+        -- FIX_PURGE2 : FIX_PURGE's line with the purge taken in two steps on
+        -- adjacent days. Day c_p2 is mid-purge, day c_p2 + 1 carries the
+        -- post-purge level and is the reset day.
+        v_used := 1280 * i + 12800 - c_p2b * LEAST(GREATEST(i - c_p2 + 1, 0), 2);
+        INSERT INTO cap_fixture_tbspc_usage
+        VALUES (c_dbid, c_con, 2001 + 2 * i, 30, v_used, v_max50g, v_used);
+
+        -- FIX_STOPPED : ramp, then flat (a tablespace per month, after its
+        -- month). FIX_STARTED : flat, then ramp.
+        v_used := c_gb1 + c_ramp * LEAST(i, c_stop);
+        INSERT INTO cap_fixture_tbspc_usage
+        VALUES (c_dbid, c_con, 2001 + 2 * i, 31, v_used, c_stopmx, v_used);
+        v_used := c_gb1 + c_ramp * GREATEST(i - c_start, 0);
+        INSERT INTO cap_fixture_tbspc_usage
+        VALUES (c_dbid, c_con, 2001 + 2 * i, 32, v_used, c_startmx, v_used);
+
         -- FIX_OVERFULL : constant, so FLAT (slope 0, days_to_full NULL). Its
         -- 1 GiB override ceiling (inserted after this block) sits under the
         -- 1.5 GiB it uses: pct_used 150, limit_below_used = 'Y'.
@@ -644,6 +780,28 @@ BEGIN
             INSERT INTO cap_fixture_tbspc_usage
             VALUES (c_dbid, c_con, 2001 + 2 * i, 13, v_used, v_max50g, v_used);
         END IF;
+
+        -- ---- tablespace families (header, FAMILIES) ----
+        -- FIXM_#: only the filling member has a small maxsize. The others
+        -- autoextend to 50 GiB, so FIXM_202310's line (it stopped 10 days
+        -- ago, not yet a STOP) is years from its ceiling.
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 40, c_fm1, v_max50g, c_fm1);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 41, c_fm2, v_max50g, c_fm2);
+        v_used := fam_used(i, c_fm3a, c_fm3n, c_fm3r);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 42, v_used, v_max50g, v_used);
+        v_used := fam_used(i, c_fm4a, c_fm4n, c_fm4r);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 43, v_used, v_max50g, v_used);
+        v_used := fam_used(i, c_fm5a, NULL, c_fm5r);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 44, v_used, c_fm5mx, v_used);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 45, c_mib, v_max50g, c_mib);
+        -- FIXY_#.
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 46, c_fy1, v_max50g, c_fy1);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 47, c_fy2, v_max50g, c_fy2);
+        v_used := c_fy3b + c_fy3r * i;
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 48, v_used, v_max50g, v_used);
+        -- The look-alike pair.
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 49, c_fp, v_max50g, c_fp);
+        INSERT INTO cap_fixture_tbspc_usage VALUES (c_dbid, c_con, 2001 + 2 * i, 50, c_fp, v_max50g, c_fp);
 
         -- ---- CPU counters (cumulative centiseconds), reset at restart ----
         -- Each 12 h interval contributes half a day of CPU time (c_tot_cs/2).
@@ -863,6 +1021,71 @@ BEGIN
         (1280 * c_nd + 12800 - c_purgeb) * c_bs);                                                -- 734,003,200
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE_DTF',
         FLOOR((c_50g - (1280 * c_nd + 12800 - c_purgeb) * c_bs) / 10485760));                    -- 5050
+
+    -- FIX_PURGE2: one purge event over days c_p2 and c_p2 + 1. The reset day
+    -- is the second cliff day, the window the days from it, the line the
+    -- post-purge 10 MiB/day.
+    INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('PURGE2_FIRST', v_base + c_p2, c_p2);
+    INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('PURGE2_DAY', v_base + c_p2 + 1, c_p2 + 1);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE2_TRAIN_N', c_nd - c_p2);              -- 40
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE2_CUR',
+        (1280 * c_nd + 12800 - 2 * c_p2b) * c_bs);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE2_DTF',
+        FLOOR((c_50g - (1280 * c_nd + 12800 - 2 * c_p2b) * c_bs) / 10485760));                   -- 5050 (5050.5)
+    -- With cliff_merge_days = 0 the two cliff days are two cliffs one day
+    -- apart: CYCLIC, judged on the window's peak, the day before the purge.
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PURGE2_PEAK',
+        (1280 * (c_p2 - 1) + 12800) * c_bs);
+
+    -- ---- STOP / START expectations (FIX_STOPPED / FIX_STARTED) ----------
+    -- The forecast window is i = c_nd - 89 .. c_nd (31 .. 120), row 1 = day 31.
+    -- FIX_STOPPED: growth days 32 .. 90 (59 of them, 58 days apart), then 30
+    -- quiet days: (58 / 88) ^ 59 is far under quiet_chance. The fit starts on
+    -- day 91 and is flat. FIX_STARTED: 64 quiet days, growth days 96 .. 120
+    -- (25, 24 days apart): (24 / 88) ^ 24. The fit starts on day 95, the last
+    -- day before the first growth day, and is the ramp alone.
+    -- The *_Q0_* values are the same series with quiet_days = 0: OLS over the
+    -- whole window from the sums written out, as for FIX_ZIGZAG.
+    DECLARE
+        n NUMBER; sx NUMBER; sy NUMBER; sxx NUMBER; sxy NUMBER; syy NUMBER;
+        bxx NUMBER; bxy NUMBER; byy NUMBER; y NUMBER; slope NUMBER; r2 NUMBER;
+        cur NUMBER; lim NUMBER;
+    BEGIN
+        FOR k IN 1 .. 2 LOOP
+            n := 0; sx := 0; sy := 0; sxx := 0; sxy := 0; syy := 0;
+            FOR i IN c_nd - 89 .. c_nd LOOP
+                y := c_bs * CASE k WHEN 1 THEN c_gb1 + c_ramp * LEAST(i, c_stop)
+                                   ELSE c_gb1 + c_ramp * GREATEST(i - c_start, 0) END;
+                n := n + 1; sx := sx + i; sy := sy + y;
+                sxx := sxx + i * i; sxy := sxy + i * y; syy := syy + y * y;
+            END LOOP;
+            bxx := sxx - sx * sx / n; bxy := sxy - sx * sy / n; byy := syy - sy * sy / n;
+            slope := bxy / bxx;
+            r2    := bxy * bxy / (bxx * byy);
+            IF k = 1 THEN
+                cur := (c_gb1 + c_ramp * c_stop) * c_bs;
+                lim := c_stopmx * c_bs;
+                INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('STOPPED_DAY', v_base + c_stop + 1, c_stop + 1);
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STOPPED_TRAIN_N', c_nd - c_stop);          -- 30
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STOPPED_CUR', cur);
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STOPPED_Q0_SLOPE', slope);                 -- 11.73 MiB/day
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STOPPED_Q0_R2', r2);                       -- 0.92
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STOPPED_Q0_DTF', FLOOR((lim - cur) / slope));  -- 45
+            ELSE
+                cur := (c_gb1 + c_ramp * (c_nd - c_start)) * c_bs;
+                lim := c_startmx * c_bs;
+                INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('STARTED_DAY', v_base + c_start, c_start);
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_TRAIN_N', c_nd - c_start + 1);     -- 26
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_CUR', cur);
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_SLOPE', c_ramp * c_bs);            -- 16 MiB/day
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_DTF',
+                    FLOOR((lim - cur) / (c_ramp * c_bs)));                                                  -- 200 (200.5)
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_Q0_SLOPE', slope);                 -- 3.12 MiB/day
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_Q0_R2', r2);                       -- 0.53
+                INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('STARTED_Q0_DTF', FLOOR((lim - cur) / slope));  -- 1026
+            END IF;
+        END LOOP;
+    END;
 
     -- ---- clamp / staleness expectations ---------------------------------
     -- FIX_OVERFULL: limit 1 GiB under 1.5 GiB used.
@@ -1347,6 +1570,94 @@ BEGIN
         END LOOP;
         bt('TS', med);
     END;
+    -- ---- tablespace family expectations (ddl/32), from the construction ----
+    -- Sizes in bytes. FIXM_#: the four DONE finals f(1..4), their trend
+    -- across the members and the sizes carried to member 5, all written out.
+    DECLARE
+        TYPE num_t IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
+        f     num_t;
+        adj   num_t;
+        k     CONSTANT PLS_INTEGER := 4;
+        mb    CONSTANT NUMBER := 1048576;
+        sx NUMBER := 0; sy NUMBER := 0; sxx NUMBER := 0; sxy NUMBER := 0; syy NUMBER := 0;
+        bxx NUMBER; bxy NUMBER; byy NUMBER; b NUMBER; ci NUMBER;
+        nxt NUMBER; nxt_hi NUMBER; cur NUMBER; rate NUMBER; left_d NUMBER; pdays NUMBER;
+        n NUMBER := 0; tx NUMBER := 0; ty NUMBER := 0; txx NUMBER := 0; txy NUMBER := 0; y NUMBER;
+        tmp NUMBER;
+        yend DATE := TRUNC(ADD_MONTHS(TRUNC(SYSDATE, 'YYYY'), 12)) - 1;
+    BEGIN
+        f(1) := c_fm1 * c_bs;
+        f(2) := c_fm2 * c_bs;
+        f(3) := fam_used(c_nd, c_fm3a, c_fm3n, c_fm3r) * c_bs;                -- 1201 MiB
+        f(4) := fam_used(c_nd, c_fm4a, c_fm4n, c_fm4r) * c_bs;                -- 1396 MiB
+        FOR i IN 1 .. k LOOP
+            sx := sx + i; sy := sy + f(i); sxx := sxx + i * i; sxy := sxy + i * f(i); syy := syy + f(i) * f(i);
+        END LOOP;
+        bxx := sxx - sx * sx / k; bxy := sxy - sx * sy / k; byy := syy - sy * sy / k;
+        b   := bxy / bxx;                                                    -- 192 MiB a member
+        ci  := (1.96 + 2.4 / (k - 2)) * SQRT((byy - bxy * bxy / bxx) / (k - 2)) / SQRT(bxx);
+        IF ABS(b) <= ci THEN
+            RAISE_APPLICATION_ERROR(-20001, 'fixture: the FIXM_ trend must be significant');
+        END IF;
+        FOR i IN 1 .. k LOOP adj(i) := f(i) + b * (k + 1 - i); END LOOP;     -- 1579 1612 1585 1588 MiB
+        -- Median and maximum of the four carried sizes, sorted by hand.
+        FOR i IN 1 .. k - 1 LOOP
+            FOR j IN i + 1 .. k LOOP
+                IF adj(j) < adj(i) THEN tmp := adj(i); adj(i) := adj(j); adj(j) := tmp; END IF;
+            END LOOP;
+        END LOOP;
+        nxt    := (adj(2) + adj(3)) / 2;                                     -- 1586.5 MiB
+        nxt_hi := adj(4);                                                    -- 1612 MiB
+        cur    := fam_used(c_nd, c_fm5a, NULL, c_fm5r) * c_bs;               -- 531 MiB
+        rate   := c_fm5r * c_bs;                                             -- 53 MiB/day
+        pdays  := 30;                                                        -- November 2023
+        left_d := c_fm5a + pdays - 1 - c_nd;                                 -- 20
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_TREND',   b);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_NEXT',    nxt);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_NEXT_HI', nxt_hi);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_FINAL3',  f(3));
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_FINAL4',  f(4));
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_CUR',     cur);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_LIMIT',   c_fm5mx * c_bs);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_RATE',    rate);
+        INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('FAM_M_FILL_FROM', v_base + c_fm5a, c_fm5a);
+        INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('FAM_M_PERIOD_END', v_base + c_fm5a + pdays - 1, left_d);
+        -- The member's own rate beats next / period, the cautious family
+        -- rate beats the member's: one number from each branch.
+        IF NOT (rate > nxt / pdays AND nxt_hi / pdays > rate) THEN
+            RAISE_APPLICATION_ERROR(-20001, 'fixture: FIXM_202311 must sit between the two family rates');
+        END IF;
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_EXP',    cur + rate * left_d);            -- 1591 MiB
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_EXP_HI', cur + nxt_hi / pdays * left_d);  -- 1605.67 MiB
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_USED',
+            f(1) + f(2) + f(3) + f(4) + cur + c_mib * c_bs);                                               -- 4976 MiB
+        -- family_recent_members = 2: the median and maximum of the two
+        -- newest finals, no trend. The member's own rate wins both ways.
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_NEXT_R2',    (f(3) + f(4)) / 2);           -- 1298.5 MiB
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_NEXT_HI_R2', f(4));
+        -- The total's OLS slope over the window, i = c_nd - 89 .. c_nd.
+        FOR i IN c_nd - 89 .. c_nd LOOP
+            y := c_bs * (c_fm1 + c_fm2 + fam_used(i, c_fm3a, c_fm3n, c_fm3r) + fam_used(i, c_fm4a, c_fm4n, c_fm4r)
+                         + fam_used(i, c_fm5a, NULL, c_fm5r) + c_mib);
+            n := n + 1; tx := tx + i; ty := ty + y; txx := txx + i * i; txy := txy + i * y;
+        END LOOP;
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_M_SLOPE',
+            (txy - tx * ty / n) / (txx - tx * tx / n));
+        -- FIXY_#: two flat finals, the load year's member on its fit slope
+        -- to 31 December.
+        cur := (c_fy3b + c_fy3r * c_nd) * c_bs;                                                            -- 1060 MiB
+        INSERT INTO cap_fixture_meta (mkey, sval) VALUES ('FAM_Y_FILLING', v_fyname);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_NEXT',    (c_fy1 + c_fy2) / 2 * c_bs);     -- 550 MiB
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_NEXT_HI', c_fy1 * c_bs);                   -- 600 MiB
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_CUR',     cur);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_RATE',    c_fy3r * c_bs);                  -- 8 MiB/day
+        INSERT INTO cap_fixture_meta (mkey, dval, nval) VALUES ('FAM_Y_PERIOD_END', yend, yend - (v_base + c_nd));
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_EXP',
+            cur + c_fy3r * c_bs * (yend - (v_base + c_nd)));
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_PERIOD_DAYS', yend - TRUNC(SYSDATE, 'YYYY') + 1);
+        INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_Y_USED', (c_fy1 + c_fy2) * c_bs + cur);
+    END;
+
     COMMIT;
 
     DBMS_OUTPUT.PUT_LINE('Fixtures loaded: base=' || TO_CHAR(v_base,'YYYY-MM-DD')
@@ -1385,6 +1696,18 @@ END;
 --   REDO       +1 GiB per 12 h interval -> 2 GiB/day every full day, i.e. a
 --              PERFECTLY FLAT GiB/day series with NO ceiling: it must produce
 --              a REDO_GB_DAY value of exactly 2.0 and never an alert.
+--   I/O (M27)  four cumulative counters beside 'redo size', same resets.
+--              Night interval (ends 06:00): 600 read + 400 write requests/s,
+--              15 + 5 MB/s. Day interval (ends 18:00): (1400 + 10*i) read +
+--              600 write requests/s, 30 + 20 MB/s. The daily value is the
+--              p95 of the day's two interval rates, lo + 0.95 * (hi - lo):
+--                IOPS    = 1000 + 0.95 * (1000 + 10*i) = 1950 + 9.5*i
+--                          -> slope 9.5/day, R^2 1, OK, no ceiling, no alert
+--                IO_MBPS = 20 + 0.95 * 30 = 48.5 -> FLAT, no alert
+--              A day with one valid interval reads that interval's rate:
+--              day 0 the day rate (2000, 50), the partial day the night
+--              rate (1000, 20), both is_complete 'N'. No row on the restart
+--              day. The same complete days as REDO_GB_DAY.
 DECLARE
     c_dbid   CONSTANT NUMBER := 42424242;
     c_con    CONSTANT NUMBER := 42424242;
@@ -1396,6 +1719,12 @@ DECLARE
     c_proclim CONSTANT NUMBER := 300;
     c_satpct CONSTANT NUMBER := 90;               -- shipped series_sat_pct
     v_redo   NUMBER := 0;
+    c_ivl    CONSTANT NUMBER := 43200;            -- seconds per interval
+    c_mb     CONSTANT NUMBER := 1048576;
+    v_rreq   NUMBER := 0;                         -- read requests
+    v_wreq   NUMBER := 0;                         -- write requests
+    v_rbyt   NUMBER := 0;                         -- read bytes
+    v_wbyt   NUMBER := 0;                         -- write bytes
     v_probe  PLS_INTEGER;
     v_partial PLS_INTEGER;
 
@@ -1417,6 +1746,24 @@ DECLARE
         rlim(p_snap, 'sessions',  180 + 2 * p_i, 200 + 2 * p_i, c_sesslim);
         rlim(p_snap, 'processes', 120,           150,           c_proclim);
     END;
+    -- One interval of I/O at the given per-second rates, then the four
+    -- counters at the snapshot that ends it.
+    PROCEDURE io_ivl(p_snap NUMBER, p_rreq NUMBER, p_wreq NUMBER,
+                     p_rmb NUMBER, p_wmb NUMBER) IS
+    BEGIN
+        v_rreq := v_rreq + p_rreq * c_ivl;
+        v_wreq := v_wreq + p_wreq * c_ivl;
+        v_rbyt := v_rbyt + p_rmb * c_mb * c_ivl;
+        v_wbyt := v_wbyt + p_wmb * c_mb * c_ivl;
+        sstat(p_snap, 'physical read total IO requests',  v_rreq);
+        sstat(p_snap, 'physical write total IO requests', v_wreq);
+        sstat(p_snap, 'physical read total bytes',        v_rbyt);
+        sstat(p_snap, 'physical write total bytes',       v_wbyt);
+    END;
+    PROCEDURE io_reset IS
+    BEGIN
+        v_rreq := 0; v_wreq := 0; v_rbyt := 0; v_wbyt := 0;
+    END;
 BEGIN
     SELECT nval INTO v_probe   FROM cap_fixture_meta WHERE mkey = 'PROBE_DAY';
     SELECT nval INTO v_partial FROM cap_fixture_meta WHERE mkey = 'PARTIAL_DAY';
@@ -1432,17 +1779,20 @@ BEGIN
         -- restart exactly like the OSSTAT / time-model counters above.
         IF i = c_restart THEN
             v_redo := 0;
+            io_reset;
         ELSE
             v_redo := v_redo + c_gib;
             sstat(2000 + 2 * i, 'redo size', v_redo);
             -- Noise: a stat name the series must ignore. Its value is chosen
             -- to be absurd on the redo scale, so a missing filter is loud.
             sstat(2000 + 2 * i, 'user commits', 987654321 + i);
+            io_ivl(2000 + 2 * i, 600, 400, 15, 5);
         END IF;
-        IF i = v_partial THEN v_redo := 0; END IF;
+        IF i = v_partial THEN v_redo := 0; io_reset; END IF;
         v_redo := v_redo + c_gib;
         sstat(2001 + 2 * i, 'redo size', v_redo);
         sstat(2001 + 2 * i, 'user commits', 987654321 + i);
+        io_ivl(2001 + 2 * i, 1400 + 10 * i, 600, 30, 20);
     END LOOP;
 
     -- ---- expected values for run_test.sql ----
@@ -1454,6 +1804,15 @@ BEGIN
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('PROC_LIMIT', c_proclim);
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('REDO_PROBE_GB', 2);
     INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('REDO_PARTIAL_GB', 1);
+    -- I/O: p95 of two interval rates = lo + 0.95 * (hi - lo).
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_NIGHT',    600 + 400);                          -- 1000
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_DAY0',     1400 + 600);                         -- 2000
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_SLOPE',    0.95 * 10);                          -- 9.5
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_BASE',     (600 + 400) + 0.95 * ((1400 + 600) - (600 + 400)));  -- 1950
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_CUR',      (600 + 400) + 0.95 * ((1400 + 10 * c_nd + 600) - (600 + 400)));  -- 3090
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IO_MBPS_NIGHT', 15 + 5);                             -- 20
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IO_MBPS_DAY',   30 + 20);                            -- 50
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IO_MBPS_P95',   (15 + 5) + 0.95 * ((30 + 20) - (15 + 5)));  -- 48.5
     COMMIT;
 
     DBMS_OUTPUT.PUT_LINE('M11 fixtures loaded: sessions 200..'
@@ -2124,6 +2483,70 @@ INSERT INTO cap_fixture_meta (mkey, nval)
 SELECT 'DROPPED_DTF', FLOOR((53687091200 - nval) / 10485760)
 FROM   cap_fixture_meta WHERE mkey = 'DROPPED_CUR';
 
+-- CAP_TBSPC_FAMILY (ddl/05) is operator data like the override table and
+-- survives a re-install. The fixture ships no row: run_test.sql adds its own
+-- and rolls them back. Clear rows an aborted run left. ORA-00942: the suite
+-- was never installed here.
+BEGIN
+    EXECUTE IMMEDIATE q'[DELETE FROM cap_tbspc_family WHERE name_regex LIKE '%FIX%']';
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;
+END;
+/
+
 COMMIT;
+
+-- =====================================================================
+-- U09 BEGIN -- the live tablespace ceilings (CAPV_TBSPC_LIVE) and the
+-- operator's disk table.
+-- =====================================================================
+-- Columns = the seam view's: ceiling_blocks is the largest size the
+-- tablespace can reach now (blocks), collected_at the collect time. The
+-- ceilings hang off the allocated size of the last day, so they move with
+-- the spine. A FIX_TEMP row proves a tablespace without a forecast row is
+-- ignored.
+CREATE TABLE cap_fixture_tbspc_live (
+    dbid NUMBER, con_dbid NUMBER, tablespace_name VARCHAR2(30),
+    ceiling_blocks NUMBER, used_blocks NUMBER, collected_at DATE);
+
+DECLARE
+    c_dbid CONSTANT NUMBER := 42424242;
+    c_gib  CONSTANT NUMBER := 131072;          -- blocks of 8 KiB in 1 GiB
+    v_at   DATE;
+    PROCEDURE live(p_ts NUMBER, p_name VARCHAR2, p_add NUMBER, p_abs NUMBER) IS
+    BEGIN
+        INSERT INTO cap_fixture_tbspc_live
+        SELECT c_dbid, c_dbid, p_name,
+               NVL(p_abs, MAX(tablespace_size) KEEP (DENSE_RANK LAST ORDER BY snap_id) + p_add),
+               MAX(tablespace_usedsize) KEEP (DENSE_RANK LAST ORDER BY snap_id), v_at
+        FROM   cap_fixture_tbspc_usage
+        WHERE  dbid = c_dbid AND con_dbid = c_dbid AND tablespace_id = p_ts;
+    END;
+BEGIN
+    SELECT dval + 18.5 / 24 INTO v_at FROM cap_fixture_meta WHERE mkey = 'LAST_DAY';
+    live(10, 'FIX_LINEAR',   40 * c_gib, NULL);
+    live(11, 'FIX_SPIKE',    45 * c_gib, NULL);
+    live(15, 'FIX_FILLING',  NULL, 192000);
+    live(17, 'FIX_OVERRIDE', NULL, 200000);
+    live(24, 'FIX_TEMP',     NULL, 2621440);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('LIVE_FREE_GB', 40);
+    INSERT INTO cap_fixture_meta (mkey, dval) VALUES ('LIVE_AT', v_at);
+    -- FIX_OVERRIDE on the shared disk: (1562.5 - 1300) MiB at 10 MiB/day.
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('OVERRIDE_LIVE_LIMIT', 200000 * 8192);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('OVERRIDE_DTF_OWN', 26);
+    COMMIT;
+END;
+/
+
+-- CAP_DISK_OVERRIDE is operator data like CAP_TBSPC_OVERRIDE and survives a
+-- re-install: clear this fixture's rows where the table exists already.
+BEGIN
+    EXECUTE IMMEDIATE 'DELETE FROM cap_disk_override WHERE dbid IN (0, 42424242)';
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;
+END;
+/
+-- U09 END
 
 PROMPT Fixtures installed.  Next: @install.sql (deploy_mode=fixture), then test/run_test.sql

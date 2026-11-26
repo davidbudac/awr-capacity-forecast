@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Generate dashboards/10-tablespaces.ndjson (AWR Capacity - Tablespaces)."""
 from lens_lib import (
-    AMBER, DASH_TBSPC, GREEN, GREY, KQL_LATEST, PAST, RED, DashboardBuilder,
+    AMBER, DASH_TBSPC, GREEN, GREY, KQL_LATEST, PAST, RED, TARGET, DashboardBuilder,
     add_alerts_table, alarm_when_nonzero, add_nav_panel, cell_colors, col_avg, col_count,
     col_date_histogram, col_last_value, col_max, col_min, col_palette_steps,
-    col_sum, col_terms, col_unique_count, fmt_bytes, fmt_number,
+    col_sum, col_target, col_terms, col_unique_count, fmt_bytes, fmt_number,
     metric_state, palette, table_state, xy_data_layer, xy_multi_state, xy_ref_layer,
 )
 
@@ -19,7 +19,7 @@ b = DashboardBuilder(
     "Tablespace usage from AWR: observed daily, forecast to a year out, "
     "days to full, and the growth days the anomaly layer flagged.")
 add_nav_panel(b)
-b.add_controls(["cap.db", "cap.series"])
+b.add_controls([TARGET, "cap.db", "cap.series"])
 
 b.add_markdown("header", 0, 0, 24, 8, (
     "**Tablespaces: when do they fill up?** Lines left of today are observed "
@@ -32,7 +32,13 @@ b.add_markdown("header", 0, 0, 24, 8, (
     "**Days to full** is the linear fit's projection at today's slope, with "
     "a low/high range from the forecast band. CRIT at 30 days or less, WARN "
     "at 90. Tiles and the alerts table read only the latest export. Pick a "
-    "database and tablespace above to read a single chart."))
+    "database and tablespace above to read a single chart.\n\n"
+    "**Restart** says why a fit window is shorter than the training window: "
+    "PURGE, growth that stopped (STOP) or began (START). **Track** grades "
+    "the series' earlier forecasts (GOOD, BIASED, WIDE). Further down: the "
+    "**shared disk** (all tablespaces of a database against the free space "
+    "they share) and the **tablespace families** (one tablespace per "
+    "period)."))
 
 
 def kpi(name, title, x, col, pal):
@@ -61,11 +67,13 @@ def c(panel, name):
 
 # Days-to-full table: latest fit per (db, tablespace).
 p = "dtf"
-db, ser = c(p, "db"), c(p, "series")
+tgt, db, ser = c(p, "target"), c(p, "db"), c(p, "series")
 pct, used, lim, slope = c(p, "pct"), c(p, "used"), c(p, "limit"), c(p, "slope")
 dtf, lo, hi = c(p, "dtf"), c(p, "dtf-lo"), c(p, "dtf-hi")
 r2, qual, sev = c(p, "r2"), c(p, "quality"), c(p, "sev")
+rst, rst_day, track = c(p, "restart"), c(p, "restart-day"), c(p, "track")
 cols = {
+    tgt: col_target(),
     db: col_terms("cap.db", "Database", None, size=200),
     ser: col_terms("cap.series", "Tablespace", None, size=500),
     sev: col_last_value("cap.sev", "Sev", data_type="string"),
@@ -78,14 +86,19 @@ cols = {
     hi: col_last_value("cap.days_to_full_hi", "DTF high", fmt=fmt_number(0)),
     r2: col_last_value("cap.r2", "R²", fmt=fmt_number(2)),
     qual: col_last_value("cap.quality", "Fit quality", data_type="string"),
+    rst: col_last_value("cap.restart_reason", "Restart", data_type="string"),
+    rst_day: col_last_value("cap.restart_day", "Since", data_type="date"),
+    track: col_last_value("cap.track.reliability", "Track", data_type="string"),
 }
-order = [db, ser, sev, pct, used, lim, slope, dtf, lo, hi, r2, qual]
+order = [tgt, db, ser, sev, pct, used, lim, slope, dtf, lo, hi, r2, qual,
+         rst, rst_day, track]
 b.add_lens("dtf-table", "Days to full (latest fit per tablespace, soonest first)",
            0, 8, 48, 12, "lnsDatatable",
            table_state(order, dtf, direction="asc", page_size=10, overrides={
-               db: {"width": 190}, ser: {"width": 190},
+               tgt: {"width": 130}, db: {"width": 190}, ser: {"width": 190},
                pct: cell_colors(col_palette_steps(90, 97)),
                dtf: cell_colors(col_palette_steps(30, 90, (RED, AMBER, GREEN))),
+               rst: {"width": 80}, rst_day: {"width": 110}, track: {"width": 90},
            }),
            cols, order, query=FIT)
 
@@ -184,7 +197,154 @@ b.add_lens("anom-table", "Growth anomalies (newest first)", 0, 47, 48, 12,
            }),
            cols, order, query=GROWTH, time_range=PAST)
 
-add_alerts_table(b, "alerts", "Tablespace alerts (latest export)", 0, 59, 48,
-                 12, "cap.kind:TBSPC")
+# The shared disk: one row per database and disk, then every tablespace
+# against it. Both read the latest export.
+GIB = fmt_number(1, suffix=" GiB")
+MIB_DAY = fmt_number(1, suffix=" MiB/d")
+DAYS = fmt_number(0)
+DTF_COLORS = cell_colors(col_palette_steps(30, 90, (RED, AMBER, GREEN)))
+
+p = "disk"
+tgt, db, disk, sev, src = (c(p, n) for n in ("target", "db", "disk", "sev", "source"))
+free, alloc, dtf, worst, full = (c(p, n) for n in ("free", "alloc", "dtf", "worst", "full"))
+grow, n_grow, top = c(p, "grow"), c(p, "n-growing"), c(p, "top")
+cols = {
+    tgt: col_target(),
+    db: col_terms("cap.db", "Database", None, size=200),
+    disk: col_terms("cap.disk.disk_name", "Disk", None, size=20),
+    sev: col_last_value("cap.sev", "Sev", data_type="string"),
+    src: col_last_value("cap.disk.source", "Free space from", data_type="string"),
+    free: col_last_value("cap.disk.free_gb", "Free", fmt=GIB),
+    alloc: col_last_value("cap.disk.alloc_gb", "Allocated", fmt=GIB),
+    dtf: col_last_value("cap.disk.dtf", "Days to full", fmt=DAYS),
+    worst: col_last_value("cap.disk.dtf_worst", "Worst case", fmt=DAYS),
+    full: col_last_value("cap.disk.full_day", "Full on", data_type="date"),
+    n_grow: col_last_value("cap.disk.n_growing", "Growing", fmt=DAYS),
+    grow: col_last_value("cap.disk.grow_mb", "They take", fmt=MIB_DAY),
+    top: col_last_value("cap.disk.top_growers.keyword", "Fastest growing (MiB/day)",
+                        data_type="string"),
+}
+order = [tgt, db, disk, sev, src, free, alloc, dtf, worst, full, n_grow, grow, top]
+b.add_lens("disk-table", "Shared disk: when is the disk under the datafiles full? (latest export)",
+           0, 59, 48, 6, "lnsDatatable",
+           table_state(order, dtf, direction="asc", page_size=5, overrides={
+               tgt: {"width": 130}, db: {"width": 160}, disk: {"width": 110},
+               sev: {"width": 60}, src: {"width": 120}, free: {"width": 90},
+               alloc: {"width": 100}, dtf: {**DTF_COLORS, "width": 100},
+               worst: {"width": 90}, full: {"width": 110}, n_grow: {"width": 80},
+               grow: {"width": 110}}),
+           cols, order, query=f"cap.record:disk and {KQL_LATEST}")
+
+p = "shared"
+tgt, db, ser, qual = (c(p, n) for n in ("target", "db", "series", "quality"))
+used, alloc, own, live = (c(p, n) for n in ("used", "alloc", "own", "live"))
+grow, own_dtf, sh_dtf, worst = (c(p, n) for n in ("grow", "dtf-own", "dtf-shared", "worst"))
+lim_sh, stop = c(p, "limit-shared"), c(p, "stopped-by")
+cols = {
+    tgt: col_target(),
+    db: col_terms("cap.db", "Database", None, size=200),
+    ser: col_terms("cap.series", "Tablespace", None, size=500),
+    qual: col_last_value("cap.quality", "Fit quality", data_type="string"),
+    used: col_last_value("cap.shared.used_gb", "Used", fmt=GIB),
+    alloc: col_last_value("cap.shared.alloc_gb", "Allocated", fmt=GIB),
+    own: col_last_value("cap.shared.limit_own_gb", "Own limit", fmt=GIB),
+    live: col_last_value("cap.shared.limit_live", "Live ceiling", data_type="boolean"),
+    grow: col_last_value("cap.shared.grow_mb", "Growth", fmt=MIB_DAY),
+    own_dtf: col_last_value("cap.shared.dtf_own", "Days, alone", fmt=DAYS),
+    sh_dtf: col_last_value("cap.shared.dtf_shared", "Days, shared disk", fmt=DAYS),
+    worst: col_last_value("cap.shared.dtf_shared_worst", "Worst case", fmt=DAYS),
+    lim_sh: col_last_value("cap.shared.limit_shared_gb", "Size when stuck", fmt=GIB),
+    stop: col_last_value("cap.shared.stopped_by", "Stopped by", data_type="string"),
+}
+order = [tgt, db, ser, qual, used, alloc, own, live, grow, own_dtf, sh_dtf,
+         worst, lim_sh, stop]
+b.add_lens("shared-table",
+           "Tablespaces on the shared disk: days alone and days once the disk is full (latest export)",
+           0, 65, 48, 11, "lnsDatatable",
+           table_state(order, sh_dtf, direction="asc", page_size=8, overrides={
+               tgt: {"width": 130}, db: {"width": 190}, ser: {"width": 190},
+               sh_dtf: DTF_COLORS}),
+           cols, order,
+           query=f"cap.record:tbspc_shared and cap.shared.grow_mb > 0 and {KQL_LATEST}")
+
+# Tablespace families: one row per family, then its members.
+p = "family"
+tgt, db, fam, sev, period = (c(p, n) for n in ("target", "db", "family", "sev", "period"))
+n_done, n_fill, n_empty = c(p, "done"), c(p, "filling-n"), c(p, "empty")
+nxt, nxt_hi, member, end, left = (c(p, n) for n in ("next", "next-hi", "member", "end", "left"))
+exp, exp_hi, ceil, fits, head = (c(p, n) for n in ("exp", "exp-hi", "ceiling", "fits", "headline"))
+cols = {
+    tgt: col_target(),
+    db: col_terms("cap.db", "Database", None, size=200),
+    fam: col_terms("cap.family.name", "Family", None, size=200),
+    sev: col_last_value("cap.sev", "Sev", data_type="string"),
+    period: col_last_value("cap.family.period", "Period", data_type="string"),
+    n_done: col_last_value("cap.family.n_done", "Done", fmt=DAYS),
+    n_fill: col_last_value("cap.family.n_filling", "Filling", fmt=DAYS),
+    n_empty: col_last_value("cap.family.n_empty", "Empty", fmt=DAYS),
+    nxt: col_last_value("cap.family.next_member_gb", "Next member",
+                        fmt=fmt_number(2, suffix=" GiB")),
+    nxt_hi: col_last_value("cap.family.next_member_hi_gb", "Cautious",
+                           fmt=fmt_number(2, suffix=" GiB")),
+    member: col_last_value("cap.family.filling_member", "Filling member",
+                           data_type="string"),
+    end: col_last_value("cap.family.period_end_day", "Period ends", data_type="date"),
+    left: col_last_value("cap.family.days_left", "Days left", fmt=DAYS),
+    exp: col_last_value("cap.family.expected_final_gb", "Expected final",
+                        fmt=fmt_number(2, suffix=" GiB")),
+    exp_hi: col_last_value("cap.family.expected_final_hi_gb", "Cautious final",
+                           fmt=fmt_number(2, suffix=" GiB")),
+    ceil: col_last_value("cap.family.filling_limit_gb", "Ceiling",
+                         fmt=fmt_number(2, suffix=" GiB")),
+    fits: col_last_value("cap.family.fits", "Fits", data_type="boolean"),
+    head: col_last_value("cap.family.headline.keyword", "In words", data_type="string"),
+}
+order = [tgt, db, fam, sev, period, n_done, n_fill, n_empty, nxt, nxt_hi, member,
+         end, left, exp, exp_hi, ceil, fits, head]
+b.add_lens("family-table",
+           "Tablespace families: the next member's size, the filling member against its ceiling (latest export)",
+           0, 76, 48, 7, "lnsDatatable",
+           table_state(order, fam, direction="asc", page_size=5, overrides={
+               tgt: {"width": 130}, db: {"width": 160}, fam: {"width": 150},
+               sev: {"width": 60}, period: {"width": 80}, n_done: {"width": 60},
+               n_fill: {"width": 60}, n_empty: {"width": 60}, member: {"width": 160},
+               end: {"width": 110}, left: {"width": 80}, fits: {"width": 60}}),
+           cols, order, query=f"cap.record:family and {KQL_LATEST}")
+
+p = "member"
+tgt, db, fam, ser, seq = (c(p, n) for n in ("target", "db", "family", "series", "seq"))
+state_c, used, lim, pct, final = (c(p, n) for n in ("state", "used", "limit", "pct", "final"))
+f_from, f_to, f_days, qual, rst = (
+    c(p, n) for n in ("fill-from", "fill-to", "fill-days", "quality", "restart"))
+cols = {
+    seq: col_min("cap.family.member_seq", "Seq", fmt=DAYS),
+    tgt: col_target(),
+    db: col_terms("cap.db", "Database", None, size=200),
+    fam: col_terms("cap.family.name", "Family", None, size=200),
+    ser: col_terms("cap.series", "Tablespace", seq, size=500, direction="asc"),
+    state_c: col_last_value("cap.family.state", "State", data_type="string"),
+    used: col_last_value("cap.family.used_gb", "Used", fmt=fmt_number(2, suffix=" GiB")),
+    lim: col_last_value("cap.family.limit_gb", "Ceiling", fmt=fmt_number(2, suffix=" GiB")),
+    pct: col_last_value("cap.pct", "Used %", fmt=fmt_number(1, suffix=" %")),
+    final: col_last_value("cap.family.final_gb", "Final size",
+                          fmt=fmt_number(2, suffix=" GiB")),
+    f_from: col_last_value("cap.family.fill_from", "Filled from", data_type="date"),
+    f_to: col_last_value("cap.family.fill_to", "to", data_type="date"),
+    f_days: col_last_value("cap.family.fill_days", "Fill days", fmt=DAYS),
+    qual: col_last_value("cap.quality", "Fit quality", data_type="string"),
+    rst: col_last_value("cap.restart_reason", "Restart", data_type="string"),
+}
+order = [tgt, db, fam, ser, seq, state_c, used, lim, pct, final, f_from, f_to,
+         f_days, qual, rst]
+b.add_lens("member-table", "Family members in period order (latest export)",
+           0, 83, 48, 11, "lnsDatatable",
+           table_state(order, seq, direction="asc", page_size=8, overrides={
+               seq: {"width": 60}, tgt: {"width": 130}, db: {"width": 160},
+               fam: {"width": 150}, ser: {"width": 190},
+               pct: cell_colors(col_palette_steps(90, 97))}),
+           cols, order, query=f"cap.record:family_member and {KQL_LATEST}")
+
+add_alerts_table(b, "alerts", "Tablespace and disk alerts (latest export)", 0, 94, 48,
+                 12, "cap.kind:(TBSPC or DISK)")
 
 b.write("10-tablespaces.ndjson")

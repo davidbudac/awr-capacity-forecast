@@ -1,6 +1,6 @@
 --
 -- 07_series.sql -- fixed-ceiling series: processes/sessions, redo, DB size (M11),
--- ASM diskgroups, TEMP / UNDO peaks.
+-- ASM diskgroups, TEMP / UNDO peaks, and the I/O rates IOPS / IO_MBPS (M27).
 -- FORMAT ONLY (M8.2 convention): every number, label and severity marker comes
 -- from CAPR_SERIES (7) and CAPR_SERIES_ANOMALIES (7b), the views the HTML
 -- report reads.
@@ -8,12 +8,12 @@
 -- Unlike a tablespace, these series each have (or lack) a single hard ceiling
 -- that is not a tablespace's own: the `processes` / `sessions` init parameters,
 -- the summed tablespace ceilings, a diskgroup's size, a TEMP / UNDO
--- tablespace's size, or -- for redo -- no ceiling at all. They are
+-- tablespace's size, or -- for redo and the I/O rates -- no ceiling at all. They are
 -- listed together because the arithmetic is identical: fit a line, ask when it
 -- reaches SAT% of the limit.
 --
 PROMPT
-PROMPT == 7. FIXED-CEILING SERIES (processes / sessions / PGA / redo / DB size / ASM / TEMP / UNDO) ==
+PROMPT == 7. FIXED-CEILING SERIES (processes / sessions / PGA / redo / I/O / DB size / ASM / TEMP / UNDO) ==
 PROMPT     PROCESSES, SESSIONS  peak concurrency (AWR max_utilization, a
 PROMPT                          high-water mark since instance startup) against
 PROMPT                          the init parameter. RAC: summed over instances,
@@ -26,6 +26,10 @@ PROMPT     REDO_GB_DAY          redo written per day, GiB. No ceiling -- it is a
 PROMPT                          trend for FRA / archive-destination sizing.
 PROMPT                          FRA_DAYS = days of redo db_recovery_file_dest_size
 PROMPT                          holds at the current rate (an upper bound).
+PROMPT     IOPS, IO_MBPS        physical I/O requests per second and MB per second
+PROMPT                          (MB = 2^20 bytes), read + write, per container: the
+PROMPT                          95th percentile of the day's snapshot-interval rates.
+PROMPT                          No ceiling: a trend and an anomaly baseline.
 PROMPT     DB_SIZE_GB           total permanent-tablespace bytes used, vs the sum
 PROMPT                          of the same tablespaces' ceilings.
 PROMPT     ASM_DG:+<group>      ASM diskgroup GiB used (raw, before mirroring) vs
@@ -79,8 +83,8 @@ ORDER  BY dbid, rank_series;
 
 PROMPT
 PROMPT == 7b. SERIES ANOMALIES (last &anomaly_days days) ==
-PROMPT    PROCESSES / SESSIONS / REDO_GB_DAY are scored on their daily level, DB_SIZE_GB on its
-PROMPT    daily growth (GiB/day). MODE TRL = the trailing &mad_w days, DOW = the same weekday
+PROMPT    PROCESSES / SESSIONS / PGA_ALLOC_GB / REDO_GB_DAY / IOPS / IO_MBPS are scored on their
+PROMPT    daily level, DB_SIZE_GB on its daily growth (GiB/day). MODE TRL = the trailing &mad_w days, DOW = the same weekday
 PROMPT    over the last &dow_w weeks. FLAG when |value - median| exceeds THRESHOLD (k*MAD,
 PROMPT    floored); N_HIST = baseline days behind the median. One row per flagging mode.
 

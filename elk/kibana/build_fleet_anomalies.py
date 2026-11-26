@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Generate dashboards/30-fleet-anomalies.ndjson (AWR Capacity - Fleet anomalies)."""
 from lens_lib import (
-    AMBER, DASH_CPU, DASH_FLEET, DASH_TBSPC, RED, DashboardBuilder,
+    AMBER, DASH_CPU, DASH_FLEET, DASH_TBSPC, KQL_LATEST, RED, TARGET,
+    DashboardBuilder,
     add_alerts_table, add_nav_panel, alarm_when_nonzero, cell_colors, col_count,
-    col_date_histogram, col_last_value, col_max, col_palette_steps, col_terms,
+    col_date_histogram, col_last_value, col_max, col_palette_steps, col_target,
+    col_terms,
     col_unique_count, fmt_number, heatmap_state, metric_state, table_state,
     xy_data_layer, xy_multi_state,
 )
@@ -17,7 +19,7 @@ b = DashboardBuilder(
     "outliers, and DB CPU level shifts.",
     time_to="now")
 add_nav_panel(b)
-b.add_controls(["cap.db", "cap.anomaly_kind", "cap.baseline_mode", "cap.sev"])
+b.add_controls([TARGET, "cap.db", "cap.anomaly_kind", "cap.baseline_mode", "cap.sev"])
 
 b.add_markdown("header", 0, 0, 24, 8, (
     "**Fleet anomalies: what changed, where, and when?** Each anomaly is one "
@@ -25,7 +27,7 @@ b.add_markdown("header", 0, 0, 24, 8, (
     "tablespace grew far faster (or slower) than its median daily rate. "
     "**CPU_BUSY** / **DBCPU_BUSY**: host CPU or a container's DB CPU far "
     "outside its normal range. **SERIES_LEVEL** / **SERIES_GROWTH**: a "
-    "workload series (sessions, processes, size, redo) out of range. "
+    "workload series (sessions, processes, size, redo, I/O) out of range. "
     "**CPU_SHIFT**: a container's DB CPU moved to a new level and stayed "
     "there.\n\n"
     "**Mode** is the baseline the day was judged against: **TRAILING** (the "
@@ -94,10 +96,12 @@ b.add_lens("heatmap", "Anomalies per database per day", 0, 20, 48, 9,
 
 p = "latest"
 day, db, ser, kind = c(p, "day"), c(p, "db"), c(p, "series"), c(p, "kind")
+tgt = c(p, "target")
 mode = c(p, "mode")
 z, flag, sev, msg = (c(p, n) for n in ("z", "flag", "sev", "msg"))
 cols = {
     day: col_date_histogram(label="Day", empty_rows=False),
+    tgt: col_target(),
     db: col_terms("cap.db", "Database", None, size=200),
     ser: col_terms("cap.series", "Series", None, size=500),
     kind: col_terms("cap.anomaly_kind", "Kind", None, size=10),
@@ -108,11 +112,12 @@ cols = {
     msg: col_last_value("cap.message.keyword", "What happened",
                         data_type="string"),
 }
-order = [day, db, ser, kind, mode, sev, z, flag, msg]
+order = [day, tgt, db, ser, kind, mode, sev, z, flag, msg]
 b.add_lens("latest-table", "Anomalies, newest first (click a database or series to drill in)",
            0, 29, 48, 16, "lnsDatatable",
            table_state(order, day, page_size=10, overrides={
-               day: {"width": 110}, db: {"width": 180}, ser: {"width": 160}, kind: {"width": 130},
+               day: {"width": 110}, tgt: {"width": 130}, db: {"width": 180},
+               ser: {"width": 160}, kind: {"width": 130},
                mode: {"width": 120},
                sev: {"width": 60}, flag: {"width": 60},
                z: {**cell_colors(col_palette_steps(3, 5)), "width": 70},
@@ -120,7 +125,44 @@ b.add_lens("latest-table", "Anomalies, newest first (click a database or series 
            cols, order, query=ANOM, drill_to=[DASH_TBSPC, DASH_CPU],
            drill_label=["Open tablespaces dashboard", "Open CPU and series dashboard"])
 
-add_alerts_table(b, "alerts", "Fleet alerts (latest export)", 0, 45, 48, 12,
+# Alert volume (CAPR_ALERT_VOLUME): how many alerts each series makes with
+# the knobs as they are, and for an anomaly series the floor that quiets it.
+p = "volume"
+tgt, db, kind, ser, mode = (c(p, n) for n in ("target", "db", "kind", "series", "mode"))
+ep, flagged, scored, pct = (c(p, n) for n in ("episodes", "flagged", "scored", "pct"))
+dev, knob, floor, sug, noisy = (c(p, n) for n in ("dev", "knob", "floor", "suggested", "noisy"))
+cols = {
+    # max, not last_value: a terms column cannot order by last_value.
+    ep: col_max("cap.volume.episodes", "Alerts", fmt=fmt_number(0)),
+    tgt: col_target(),
+    db: col_terms("cap.db", "Database", None, size=200),
+    kind: col_terms("cap.alert_kind", "Alert", None, size=20),
+    ser: col_terms("cap.series", "Series", ep, size=500, missing=True),
+    mode: col_terms("cap.baseline_mode", "Mode", None, size=5, missing=True),
+    noisy: col_last_value("cap.volume.noisy", "Noisy", data_type="boolean"),
+    flagged: col_last_value("cap.volume.flagged_days", "Flagged days", fmt=fmt_number(0)),
+    scored: col_last_value("cap.volume.scored_days", "of scored", fmt=fmt_number(0)),
+    pct: col_last_value("cap.volume.flagged_pct", "Flagged %",
+                        fmt=fmt_number(1, suffix=" %")),
+    dev: col_last_value("cap.volume.max_dev", "Largest deviation", fmt=fmt_number(2)),
+    knob: col_last_value("cap.volume.floor_knob", "Floor knob", data_type="string"),
+    floor: col_last_value("cap.volume.floor_value", "Floor now", fmt=fmt_number(2)),
+    sug: col_last_value("cap.volume.suggested_floor", "Suggested floor",
+                        fmt=fmt_number(2)),
+}
+order = [tgt, db, kind, ser, mode, ep, noisy, flagged, scored, pct, dev, knob,
+         floor, sug]
+b.add_lens("volume-table",
+           "Alert volume: alerts per series with the knobs as they are (latest export)",
+           0, 45, 48, 12, "lnsDatatable",
+           table_state(order, ep, page_size=8, overrides={
+               tgt: {"width": 130}, db: {"width": 180}, kind: {"width": 150},
+               ser: {"width": 170}, mode: {"width": 120}, ep: {"width": 70},
+               noisy: {"width": 70},
+               pct: cell_colors(col_palette_steps(10, 30))}),
+           cols, order, query=f"cap.record:alert_volume and {KQL_LATEST}")
+
+add_alerts_table(b, "alerts", "Fleet alerts (latest export)", 0, 57, 48, 12,
                  "cap.alert_kind:*")
 
 b.write("30-fleet-anomalies.ndjson")

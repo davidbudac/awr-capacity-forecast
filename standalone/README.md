@@ -66,10 +66,12 @@ typical variation = 1.4826 x MEDIAN( | daily change - MEDIAN(daily change) | )
 cliff             = daily change < -GREATEST(6 x typical variation, 100 MB)
 ```
 
-What happens next depends on how many cliffs the 90-day window holds:
+A purge can spread over two days: it ran past midnight, or the delete was followed by a shrink the next day. Cliff days on adjacent days therefore count as one purge (setting `cliff_merge_days`, 1 day).
 
-- **One cliff:** the fit restarts at the cliff day. Only the data after the purge is used.
-- **Two or more cliffs:** the tablespace fills and is purged regularly. It is graded `CYCLIC` and judged on its peak fill level, not on a growth line.
+What happens next depends on how many purges the 90-day window holds:
+
+- **One purge:** the fit restarts at its last cliff day. Only the data after the purge is used.
+- **Two or more purges:** the tablespace fills and is purged regularly. It is graded `CYCLIC` and judged on its peak fill level, not on a growth line.
 
 ### 4. Detect growth that stopped or began
 
@@ -94,18 +96,25 @@ A pause is long when all three of these hold:
 
 1. **It lasts at least 14 days** (`quiet_days`).
 2. **It is at least twice as long as the longest other pause** (`quiet_ratio`). A tablespace that adds one extent every 20 days is not stopped after 14 quiet days. `STOP` compares with the pauses between two growth days. `START` compares with those and with the pause that runs up to today.
-3. **It is unlikely to be chance** (`quiet_chance`, 1%). The tablespace had `g` growth days spread over `s` days. The chance of a pause of `q` days is taken as:
+3. **It is unlikely to be chance** (`quiet_chance`, 1%). The tablespace had `g` growth days, the first and the last `s` days apart. If it still grew at that pace, the chance of a pause of `q` days is taken as:
 
 ```
-chance of a pause of q days = (s / (s + q)) ^ (g - 1)
+STOP:   chance of a pause of q days = (s / (s + q)) ^ g
+START:  chance of a pause of q days = (s / (s + q)) ^ (g - 1)
 ```
 
-Two examples:
+Examples for `STOP`:
 
-- 30 growth days in a row (`g` = 30, `s` = 29), then 14 quiet days: `(29 / 43) ^ 29` = 0.00001. Stopped.
-- 3 growth days, 10 days apart (`g` = 3, `s` = 20), then 30 quiet days: `(20 / 50) ^ 2` = 0.16. Not stopped: with so few growth days a long pause proves nothing.
+- 30 growth days in a row (`g` = 30, `s` = 29), then 14 quiet days: `(29 / 43) ^ 30` = 0.000007. Stopped.
+- 3 growth days, 10 days apart (`g` = 3, `s` = 20), then 30 quiet days: `(20 / 50) ^ 3` = 0.064. Not stopped: with so few growth days a long pause proves nothing.
+- 2 growth days in a row (`g` = 2, `s` = 1), then 14 quiet days: `(1 / 15) ^ 2` = 0.004. Stopped.
+- 1 growth day (`g` = 1, `s` = 0), then 14 quiet days: the chance is 0. Stopped.
 
-One growth day alone never restarts the fit (`g - 1` = 0, so the chance is 1).
+**One growth day is a load, not growth.** With one growth day there is no pace to compare the pause with (`s` = 0), so rule 1 decides alone: after 14 quiet days the load counts as finished. The reason is what a straight line does with such a tablespace. A line through "flat, one jump, flat" has a slope. When the jump sits in the middle of the window the line even fits well (`R2` 0.75, quality `OK`) and shows a full date for a tablespace that got one bulk load and nothing since. The same happens to a month's tablespace on the days when all but the last one or two days of its ramp have left the 90-day window. With `STOP`, both read `FLAT`.
+
+The price is the tablespace that really grows in single steps, weeks apart. While two of its steps are in the window, the pause between them is the yardstick (rule 2) and it is not stopped. Once only one step is left in the window, it reads `STOP` and `FLAT` until the next step. See "Limits of the forecast".
+
+`START` asks for one growth day more (`g - 1`). After a `START` the growth rate is measured from the growth days alone, and one growth day has no rate. Its chance is 1, so one growth day never starts a fit.
 
 After a `STOP` the line is fitted through the pause only. A tablespace that stayed flat reads `FLAT` and has no `DTF`. One that still creeps up gets the small rate it really has.
 
@@ -222,7 +231,7 @@ The first rule that matches wins.
 | Grade | Rule | What it tells you |
 |---|---|---|
 | `INSUFFICIENT_HISTORY` | Fewer than 14 days in the fit | Too little data. Trust `PCT`, not the forecast. |
-| `CYCLIC` | Two or more purge cliffs in the window | Fills and is purged regularly. Look at `PEAK_PCT`. |
+| `CYCLIC` | Two or more purges in the window | Fills and is purged regularly. Look at `PEAK_PCT`. |
 | `FLAT` | Growth is exactly 0 | Not growing. With `RESTART` = `STOP`: it grew earlier in the window and has stopped. |
 | `LOW_CONFIDENCE` | `R2` below 0.60 | The history does not follow a line well. Treat `DTF` as a rough hint. |
 | `OK` | None of the above | The forecast is usable. |
@@ -336,7 +345,8 @@ The defaults sit at the top of the query in the `prm` block and can be edited th
 | `r2_gate` | 0.60 | `R2` below this = `LOW_CONFIDENCE` |
 | `shrink_mad_k` | 6 | A cliff is a drop larger than this many times the typical variation |
 | `abs_floor_bytes` | 100 MB | ... and larger than this |
-| `cyclic_min_cliffs` | 2 | This many cliffs = `CYCLIC`. Below 2 turns the grade off. |
+| `cyclic_min_cliffs` | 2 | This many purges = `CYCLIC`. Below 2 turns the grade off. |
+| `cliff_merge_days` | 1 | Cliff days at most this many days apart are one purge. 0 = every cliff day is a purge of its own. |
 | `quiet_days` | 14 | Growth stopped or began = a pause of at least this many days. 0 turns step 4 off. |
 | `quiet_ratio` | 2 | ... and at least this many times the longest other pause |
 | `quiet_chance` | 0.01 | ... and less likely than this to be chance |
@@ -352,7 +362,7 @@ The defaults sit at the top of the query in the `prm` block and can be edited th
 - **It assumes steady growth.** A straight line cannot foresee a one-off bulk load, a new application or a planned purge.
 - **A growth stop shows after 14 quiet days, not sooner.** Until then the tablespace still has a forecast. If its growth began inside the window, that forecast uses the full recent rate.
 - **A change of rate without a pause is averaged.** A tablespace that slows from 1 GB to 100 MB per day keeps a rate between the two until the fast days leave the window.
-- **A one-off load and a rare regular load look the same.** A tablespace loaded once a quarter reads `STOP` and `FLAT` between two loads, like one that will never grow again. `PCT` still warns when it is nearly full. Set `quiet_days` to 0 if you have such tablespaces.
+- **A one-off load and a rare regular load look the same.** A tablespace loaded once a quarter reads `STOP` and `FLAT` between two loads, like one that will never grow again. So does any tablespace with a single growth day in the 90 days, from 14 days after it. `PCT` still warns when it is nearly full. Set `quiet_days` to 0 if you have such tablespaces.
 - **Short history, weak forecast.** With 14 to 30 days the growth rate is uncertain. `DTF_WORST` reflects that; `DTF` does not.
 - **The limit is only as real as the storage.** `LIM = LIVE` corrects a single tablespace. `DTF_SHARED` is the column that accounts for several tablespaces competing for the same disk.
 - **The shared-disk forecast rests on its assumptions.** All datafiles on one disk, nothing else on that disk growing, no storage added. UNDO and TEMP files can grow too and are not forecast. Run it in `CDB$ROOT`: inside a PDB the other containers' growth is not seen and `DISK_DTF` is too late.

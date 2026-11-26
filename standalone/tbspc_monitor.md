@@ -48,7 +48,7 @@ Notes:
 - Only a large tablespace can be held back. Under 1024 GB the answer stays `CRIT` at 90%, as with a plain alarm.
 - Even a large tablespace is `CRIT` from 95%, whatever the forecast says.
 - The rule fails closed. Only a forecast of quality `OK` or `FLAT` is trusted enough to hold an alarm back. Any other quality is `CRIT` from 90%, as with a plain alarm.
-- A tablespace that does not grow at all is `FLAT`. Its fitted growth is exactly 0. That includes one whose growth stopped. This is not a low-quality forecast. It is a confident "no growth", so it is held back as `WATCH`.
+- A tablespace that does not grow at all is `FLAT`. Its fitted growth is exactly 0. That includes one whose growth stopped: a month's tablespace after its month, or one that got a single bulk load and nothing in the 14 days since (`README.md`, step 4). This is not a low-quality forecast. It is a confident "no growth", so it is held back as `WATCH`.
 - A `LOW_CONFIDENCE` fit is a line that explains the history poorly. It fires at 90% like a plain alarm.
 - Rule 6 means there is no worst case because the tablespace does not grow. Either the quality is `FLAT`, or it is `OK` and the fitted growth is negative, so the tablespace shrinks on a line that fits well. After rule 3 an empty raw `DTF_SHARED_WORST` can mean nothing else.
 - The rule uses the raw worst case. A tablespace whose worst case is more than 100 years away shows an empty `DTF_SHARED_WORST`, but it is rule 5, not rule 6. `ALERT_WHY` tells the two apart.

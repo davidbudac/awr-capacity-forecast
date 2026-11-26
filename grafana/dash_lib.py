@@ -12,12 +12,29 @@ RED, AMBER, GREEN, BLUE, GREY = "#e7664c", "#f5a700", "#24c292", "#6092c0", "#8e
 DS = {"type": "yesoreyeram-infinity-datasource", "uid": "awrcap-ords"}
 OUT = pathlib.Path(__file__).resolve().parent / "dashboards"
 
-TIME_COLS = {"ts", "obs_day", "last_day", "day_dt"}
+TIME_COLS = {"ts", "obs_day", "last_day", "day_dt", "window_start", "window_end",
+             "observed_at", "last_resize_at", "newest_snap", "last_ok_at",
+             "last_error_at", "restart_day", "disk_as_of", "disk_full_day",
+             "newest_day", "filling_from", "period_end_day", "period_start",
+             "period_end", "fill_from", "fill_to"}
+# Every column that is not a time or a string is a number: a new string
+# column of an endpoint is one name here.
 STRING_COLS = {
     "kind", "series", "db", "db_name", "con_name", "unit", "anomaly_flag",
     "method", "quality", "sev", "limit_source", "anomaly_kind", "message",
     "alert_kind", "baseline_mode", "grain", "anomaly_modes", "alert_key",
-    "alerting", "how_flag",
+    "alerting", "how_flag", "target_name",
+    "area", "area_label", "mem_mode", "grade", "reason", "reason_text",
+    "actionable", "current_size", "suggested_size", "suggested_param",
+    "exceeds_host_ram", "exceeds_sga", "headline", "evidence_kind", "signal",
+    "direction", "evidence_text", "component", "is_pool",
+    "feed", "host_name", "enabled", "is_stale", "collect_state", "last_error",
+    "restart_reason", "reliability", "track_summary",
+    "disk_name", "disk_source", "top_growers", "raw_sev", "gated_by",
+    "is_current", "limit_live", "stopped_by", "growing",
+    "family_name", "source", "period", "trend_sig", "next_over_limit",
+    "filling_member", "fits", "state",
+    "state_key", "floor_knob", "mode_knob", "noisy",
 }
 # The CAPR_ANOMALIES vocabularies (grafana/API.md).
 ANOMALY_KINDS = ("TBSPC_GROWTH", "CPU_BUSY", "DBCPU_BUSY", "SERIES_LEVEL",
@@ -26,6 +43,9 @@ BASELINE_MODES = ("TRAILING", "SAME_DOW", "HOUR_OF_WEEK")
 RANGE = "from=${__from:date:iso}&to=${__to:date:iso}"
 DB = "db IN (${db:singlequote})"
 SERIES = "series IN (${series:singlequote})"
+# Database-level rows (the shared disk) carry the root container as db, so
+# they follow the target selection, not the database one.
+TARGET = "target_name IN (${target:singlequote})"
 SEV_MAPPING = [{"type": "value", "options": {
     "CRIT": {"color": RED, "index": 0},
     "WARN": {"color": AMBER, "index": 1},
@@ -245,13 +265,19 @@ def width(w):
     return prop("custom.width", w)
 
 
+# The target column of a table: put it in the query's columns and here.
+TARGET_COL = ("target_name", "Target", [width(130)])
+
+
 def alerts_table(title, filt, description=""):
     return table(
         title,
-        q("A", "alerts", ["sev", "sev_rank", "alert_kind", "kind", "db", "series",
+        q("A", "alerts", ["sev", "sev_rank", "alert_kind", "kind", "target_name",
+                          "db", "series",
                           "obs_day", "value", "threshold", "unit", "message"],
           filt=filt),
         [("sev", "Sev", sev_cell()), ("alert_kind", "Alert", [width(150)]),
+         TARGET_COL,
          ("db", "Database", [width(190)]), ("series", "Series", [width(160)]),
          ("obs_day", "Day", [width(110), prop("unit", "time:YYYY-MM-DD")]),
          ("message", "Message"), ("sev_rank", "sev_rank"), ("kind", "kind"),
@@ -283,8 +309,18 @@ def custom_var(name, label, values):
     }
 
 
+def target_var():
+    """The suite's targets. Add it before db_var(): the database list follows it."""
+    return query_var("target", "Target", q(
+        "V", "containers", ["target_name", "db"],
+        summarize="count(db)", by="target_name"), "target_name")
+
+
 def db_var():
-    return query_var("db", "Database", q("V", "containers", ["db"]), "db")
+    """The containers of the selected targets; panels filter on db alone."""
+    return query_var("db", "Database", q(
+        "V", "containers", ["db", "target_name"],
+        filt="target_name IN (${target:singlequote})"), "db")
 
 
 def annotation(name, target, color, panel_ids, *, time="ts", time_end=None,

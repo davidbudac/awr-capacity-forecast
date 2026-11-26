@@ -1,0 +1,1616 @@
+{
+  "uid": "awrcap-memory",
+  "title": "AWR Capacity - Memory sizing",
+  "description": "Memory sizing verdicts per instance: SGA total, buffer cache, shared pool, SGA balance, PGA target and PGA limit, with the evidence behind each and the SGA component sizes over the evidence window.",
+  "tags": [
+    "awrcap"
+  ],
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "time": {
+    "from": "now-35d",
+    "to": "now"
+  },
+  "refresh": "",
+  "timezone": "utc",
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "awrcap"
+      ],
+      "asDropdown": false,
+      "includeVars": true,
+      "keepTime": false,
+      "title": "AWR capacity"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "target",
+        "label": "Target",
+        "type": "query",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "awrcap-ords"
+        },
+        "query": {
+          "queryType": "infinity",
+          "infinityQuery": {
+            "refId": "V",
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "awrcap-ords"
+            },
+            "type": "json",
+            "source": "url",
+            "parser": "backend",
+            "format": "table",
+            "url": "/containers",
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "root_selector": "items",
+            "columns": [
+              {
+                "selector": "target_name",
+                "text": "target_name",
+                "type": "string"
+              },
+              {
+                "selector": "db",
+                "text": "db",
+                "type": "string"
+              }
+            ],
+            "filters": [],
+            "computed_columns": [],
+            "summarizeExpression": "count(db)",
+            "summarizeBy": "target_name",
+            "summarizeAlias": "summary"
+          },
+          "meta": {
+            "valueField": "target_name",
+            "textField": "target_name"
+          },
+          "refId": "var-target"
+        },
+        "definition": "/containers",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "db",
+        "label": "Database",
+        "type": "query",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "awrcap-ords"
+        },
+        "query": {
+          "queryType": "infinity",
+          "infinityQuery": {
+            "refId": "V",
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "awrcap-ords"
+            },
+            "type": "json",
+            "source": "url",
+            "parser": "backend",
+            "format": "table",
+            "url": "/containers",
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "root_selector": "items",
+            "columns": [
+              {
+                "selector": "db",
+                "text": "db",
+                "type": "string"
+              },
+              {
+                "selector": "target_name",
+                "text": "target_name",
+                "type": "string"
+              }
+            ],
+            "filters": [],
+            "computed_columns": [],
+            "filterExpression": "target_name IN (${target:singlequote})"
+          },
+          "meta": {
+            "valueField": "db",
+            "textField": "db"
+          },
+          "refId": "var-db"
+        },
+        "definition": "/containers",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "type": "stat",
+      "title": "Areas needing action",
+      "description": "Verdicts that advise a change or name a problem: UNDERSIZED, OVERSIZED, THRASHING or DRIFTING. Verdicts are report content and never raise an alert.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "awrcap-ords"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "awrcap-ords"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/mem_verdicts",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "items",
+          "columns": [
+            {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
+              "selector": "db",
+              "text": "db",
+              "type": "string"
+            },
+            {
+              "selector": "instance_number",
+              "text": "instance_number",
+              "type": "number"
+            },
+            {
+              "selector": "area",
+              "text": "area",
+              "type": "string"
+            },
+            {
+              "selector": "area_label",
+              "text": "area_label",
+              "type": "string"
+            },
+            {
+              "selector": "area_rank",
+              "text": "area_rank",
+              "type": "number"
+            },
+            {
+              "selector": "mem_mode",
+              "text": "mem_mode",
+              "type": "string"
+            },
+            {
+              "selector": "grade",
+              "text": "grade",
+              "type": "string"
+            },
+            {
+              "selector": "reason",
+              "text": "reason",
+              "type": "string"
+            },
+            {
+              "selector": "reason_text",
+              "text": "reason_text",
+              "type": "string"
+            },
+            {
+              "selector": "actionable",
+              "text": "actionable",
+              "type": "string"
+            },
+            {
+              "selector": "current_size",
+              "text": "current_size",
+              "type": "string"
+            },
+            {
+              "selector": "suggested_size",
+              "text": "suggested_size",
+              "type": "string"
+            },
+            {
+              "selector": "change_pct",
+              "text": "change_pct",
+              "type": "number"
+            },
+            {
+              "selector": "suggested_param",
+              "text": "suggested_param",
+              "type": "string"
+            },
+            {
+              "selector": "n_days",
+              "text": "n_days",
+              "type": "number"
+            },
+            {
+              "selector": "headline",
+              "text": "headline",
+              "type": "string"
+            }
+          ],
+          "filters": [],
+          "computed_columns": [],
+          "filterExpression": "db IN (${db:singlequote})"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "any",
+            "filters": [
+              {
+                "fieldName": "actionable",
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "Y"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "0",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#24c292",
+                "value": null
+              },
+              {
+                "color": "#f5a700",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "/^area_rank$/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 2,
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "type": "stat",
+      "title": "Undersized or thrashing",
+      "description": "",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 1,
+          "withTransforms": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "any",
+            "filters": [
+              {
+                "fieldName": "grade",
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "UNDERSIZED"
+                  }
+                }
+              },
+              {
+                "fieldName": "grade",
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "THRASHING"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "0",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#24c292",
+                "value": null
+              },
+              {
+                "color": "#e7664c",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "/^area_rank$/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 3,
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "type": "stat",
+      "title": "Oversized or drifting",
+      "description": "",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 1,
+          "withTransforms": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "any",
+            "filters": [
+              {
+                "fieldName": "grade",
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "OVERSIZED"
+                  }
+                }
+              },
+              {
+                "fieldName": "grade",
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "DRIFTING"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "0",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#24c292",
+                "value": null
+              },
+              {
+                "color": "#f5a700",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "/^area_rank$/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 4,
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "type": "stat",
+      "title": "Could not be judged",
+      "description": "",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 1,
+          "withTransforms": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "any",
+            "filters": [
+              {
+                "fieldName": "grade",
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": "INSUFFICIENT_EVIDENCE"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "0",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#24c292",
+                "value": null
+              },
+              {
+                "color": "#f5a700",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "count"
+          ],
+          "fields": "/^area_rank$/",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 5,
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 9
+      },
+      "type": "table",
+      "title": "Verdicts (one per instance and area)",
+      "description": "Instance level: the rows belong to the root container of a database, so a PDB picked in the Database variable shows none. The suggested size is the value to set for the parameter the last column names.",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "-- Dashboard --"
+          },
+          "panelId": 1,
+          "withTransforms": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "target_name": 0,
+              "db": 1,
+              "instance_number": 2,
+              "area_label": 3,
+              "grade": 4,
+              "current_size": 5,
+              "suggested_size": 6,
+              "change_pct": 7,
+              "headline": 8,
+              "reason_text": 9,
+              "area": 10,
+              "area_rank": 11,
+              "mem_mode": 12,
+              "reason": 13,
+              "actionable": 14,
+              "suggested_param": 15,
+              "n_days": 16
+            },
+            "renameByName": {
+              "target_name": "Target",
+              "db": "Database",
+              "instance_number": "Inst",
+              "area_label": "Area",
+              "grade": "Grade",
+              "current_size": "Current",
+              "suggested_size": "Suggested",
+              "change_pct": "Change %",
+              "headline": "What to do",
+              "reason_text": "Why"
+            },
+            "excludeByName": {
+              "area": true,
+              "area_rank": true,
+              "mem_mode": true,
+              "reason": true,
+              "actionable": true,
+              "suggested_param": true,
+              "n_days": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Database"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Inst"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Area"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Grade"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "UNDERSIZED": {
+                        "color": "#e7664c",
+                        "index": 0
+                      },
+                      "THRASHING": {
+                        "color": "#e7664c",
+                        "index": 1
+                      },
+                      "OVERSIZED": {
+                        "color": "#f5a700",
+                        "index": 2
+                      },
+                      "DRIFTING": {
+                        "color": "#f5a700",
+                        "index": 3
+                      },
+                      "OK": {
+                        "color": "#24c292",
+                        "index": 4
+                      },
+                      "INSUFFICIENT_EVIDENCE": {
+                        "color": "#8e8e8e",
+                        "index": 5
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Current"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Suggested"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Change %"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "What to do"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 520
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 6,
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 10
+      },
+      "type": "timeseries",
+      "title": "SGA components per day",
+      "description": "The size of each SGA component at the day's last snapshot, over the evidence window. A step is a resize: under ASMM the instance moved memory between the buffer cache and the shared pool.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "awrcap-ords"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "awrcap-ords"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/mem_points?from=${__from:date:iso}&to=${__to:date:iso}",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "items",
+          "columns": [
+            {
+              "selector": "ts",
+              "text": "ts",
+              "type": "timestamp"
+            },
+            {
+              "selector": "db",
+              "text": "db",
+              "type": "string"
+            },
+            {
+              "selector": "component",
+              "text": "component",
+              "type": "string"
+            },
+            {
+              "selector": "bytes",
+              "text": "size",
+              "type": "number"
+            }
+          ],
+          "filters": [],
+          "computed_columns": [],
+          "filterExpression": "db IN (${db:singlequote})"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "db",
+              "component"
+            ],
+            "keepFields": false
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "displayName": "${__field.labels.db} ${__field.labels.component}",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "sga"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 12
+      },
+      "type": "table",
+      "title": "Evidence (the signals behind each verdict)",
+      "description": "USAGE: what was measured. ADVISOR: what the advisor estimates at another size. SYMPTOM: pressure the instance showed. CONTEXT: facts that explain a verdict. PRESSURE argues for more memory, SLACK for less.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "awrcap-ords"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "awrcap-ords"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/mem_evidence",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "items",
+          "columns": [
+            {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
+              "selector": "db",
+              "text": "db",
+              "type": "string"
+            },
+            {
+              "selector": "instance_number",
+              "text": "instance_number",
+              "type": "number"
+            },
+            {
+              "selector": "area_label",
+              "text": "area_label",
+              "type": "string"
+            },
+            {
+              "selector": "evidence_kind",
+              "text": "evidence_kind",
+              "type": "string"
+            },
+            {
+              "selector": "signal",
+              "text": "signal",
+              "type": "string"
+            },
+            {
+              "selector": "direction",
+              "text": "direction",
+              "type": "string"
+            },
+            {
+              "selector": "value",
+              "text": "value",
+              "type": "number"
+            },
+            {
+              "selector": "unit",
+              "text": "unit",
+              "type": "string"
+            },
+            {
+              "selector": "threshold",
+              "text": "threshold",
+              "type": "number"
+            },
+            {
+              "selector": "observed_at",
+              "text": "observed_at",
+              "type": "timestamp"
+            },
+            {
+              "selector": "evidence_text",
+              "text": "evidence_text",
+              "type": "string"
+            }
+          ],
+          "filters": [],
+          "computed_columns": [],
+          "filterExpression": "db IN (${db:singlequote})"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "target_name": 0,
+              "db": 1,
+              "instance_number": 2,
+              "area_label": 3,
+              "evidence_kind": 4,
+              "signal": 5,
+              "direction": 6,
+              "value": 7,
+              "unit": 8,
+              "threshold": 9,
+              "evidence_text": 10,
+              "observed_at": 11
+            },
+            "renameByName": {
+              "target_name": "Target",
+              "db": "Database",
+              "instance_number": "Inst",
+              "area_label": "Area",
+              "evidence_kind": "Kind",
+              "signal": "Signal",
+              "direction": "Direction",
+              "value": "Value",
+              "unit": "Unit",
+              "threshold": "Threshold",
+              "evidence_text": "Evidence"
+            },
+            "excludeByName": {
+              "observed_at": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Database"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Inst"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Area"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Kind"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Signal"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 230
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Direction"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "PRESSURE": {
+                        "color": "#e7664c",
+                        "index": 0
+                      },
+                      "SLACK": {
+                        "color": "#6092c0",
+                        "index": 1
+                      },
+                      "NEUTRAL": {
+                        "color": "#8e8e8e",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Unit"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Threshold"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 8,
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 24,
+        "h": 8
+      },
+      "type": "table",
+      "title": "SGA components now (largest first)",
+      "description": "",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "awrcap-ords"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "awrcap-ords"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/mem_components",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "items",
+          "columns": [
+            {
+              "selector": "target_name",
+              "text": "target_name",
+              "type": "string"
+            },
+            {
+              "selector": "db",
+              "text": "db",
+              "type": "string"
+            },
+            {
+              "selector": "instance_number",
+              "text": "instance_number",
+              "type": "number"
+            },
+            {
+              "selector": "component",
+              "text": "component",
+              "type": "string"
+            },
+            {
+              "selector": "current_bytes",
+              "text": "current_bytes",
+              "type": "number"
+            },
+            {
+              "selector": "min_bytes",
+              "text": "min_bytes",
+              "type": "number"
+            },
+            {
+              "selector": "max_bytes",
+              "text": "max_bytes",
+              "type": "number"
+            },
+            {
+              "selector": "pct_of_total",
+              "text": "pct_of_total",
+              "type": "number"
+            },
+            {
+              "selector": "n_ops",
+              "text": "n_ops",
+              "type": "number"
+            },
+            {
+              "selector": "n_grows",
+              "text": "n_grows",
+              "type": "number"
+            },
+            {
+              "selector": "n_shrinks",
+              "text": "n_shrinks",
+              "type": "number"
+            },
+            {
+              "selector": "n_forced_grows",
+              "text": "n_forced_grows",
+              "type": "number"
+            },
+            {
+              "selector": "last_resize_at",
+              "text": "last_resize_at",
+              "type": "timestamp"
+            }
+          ],
+          "filters": [],
+          "computed_columns": [],
+          "filterExpression": "db IN (${db:singlequote})"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "target_name": 0,
+              "db": 1,
+              "instance_number": 2,
+              "component": 3,
+              "current_bytes": 4,
+              "pct_of_total": 5,
+              "min_bytes": 6,
+              "max_bytes": 7,
+              "n_ops": 8,
+              "n_grows": 9,
+              "n_shrinks": 10,
+              "n_forced_grows": 11,
+              "last_resize_at": 12
+            },
+            "renameByName": {
+              "target_name": "Target",
+              "db": "Database",
+              "instance_number": "Inst",
+              "component": "Component",
+              "current_bytes": "Size",
+              "pct_of_total": "% of SGA",
+              "min_bytes": "Window min",
+              "max_bytes": "Window max",
+              "n_ops": "Resize ops",
+              "n_grows": "Grows",
+              "n_shrinks": "Shrinks",
+              "n_forced_grows": "Forced grows",
+              "last_resize_at": "Last resize"
+            },
+            "excludeByName": {}
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Database"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Inst"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Component"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "% of SGA"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Window min"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Window max"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Resize ops"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Grows"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Shrinks"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Forced grows"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last resize"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "time:YYYY-MM-DD HH:mm"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    }
+  ]
+}

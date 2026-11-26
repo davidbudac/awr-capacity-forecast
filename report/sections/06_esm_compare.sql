@@ -90,7 +90,7 @@ ORDER  BY dbid, con_dbid, series_key, horizon_days;
 
 PROMPT
 PROMPT  6c. Backtest -- which engine was right over the held-out window (M9.4):
-PROMPT      Each engine forecast the last holdout window from data BEFORE it;
+PROMPT      Each engine forecast the last holdout window from data BEFORE it.
 PROMPT      MAPE% = mean abs error vs actuals, BIAS% >0 = over-forecast. ESM
 PROMPT      columns fill after  EXEC cap_forecast_ml.train_backtest  (ESM may
 PROMPT      cover fewer days than REGR: 19c 30-step cap and rows/4 floor).

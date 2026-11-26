@@ -565,7 +565,7 @@ class DashboardBuilder:
 
 
 # ---------------------------------------------------------------------------
-# Navigation row shared by all three boards. A by-value Links embeddable:
+# Navigation row shared by every board. A by-value Links embeddable:
 # embeddableConfig is the flat {layout, links} shape (no Lens-style
 # "attributes" wrapper), one dashboard reference per link named
 # "<panelIndex>:<destinationRefName>".
@@ -574,11 +574,20 @@ NAV_HEIGHT = 3
 DASH_TBSPC = "awrcap-dashboard-tablespaces"
 DASH_CPU = "awrcap-dashboard-cpu-series"
 DASH_FLEET = "awrcap-dashboard-fleet-anomalies"
+DASH_MEM = "awrcap-dashboard-memory"
 NAV_LINKS = [
     ("Tablespaces", DASH_TBSPC),
     ("CPU and workload series", DASH_CPU),
     ("Fleet anomalies", DASH_FLEET),
+    ("Memory sizing", DASH_MEM),
 ]
+# The target control comes first on every board. A document exported before
+# cap.target_name existed has none, hence missing=True on target columns.
+TARGET = "cap.target_name"
+
+
+def col_target(size=200):
+    return col_terms(TARGET, "Target", None, size=size, missing=True)
 
 
 def add_nav_panel(b, name="nav"):
@@ -610,6 +619,7 @@ def add_alerts_table(b, name, title, x, y, w, h, kql):
     q = f"cap.record:alert and {KQL_LATEST} and ({kql})"
     sev = b.uid(f"col:{name}-sev")
     kind = b.uid(f"col:{name}-kind")
+    tgt = b.uid(f"col:{name}-target")
     db = b.uid(f"col:{name}-db")
     ser = b.uid(f"col:{name}-series")
     rank = b.uid(f"col:{name}-rank")
@@ -618,13 +628,15 @@ def add_alerts_table(b, name, title, x, y, w, h, kql):
         rank: col_max("cap.sev_rank", "Rank", fmt=fmt_number(0)),
         sev: col_terms("cap.sev", "Sev", rank, size=5, direction="asc"),
         kind: col_terms("cap.alert_kind", "Alert", None, size=20),
+        tgt: col_target(),
         db: col_terms("cap.db", "Database", None, size=200),
         ser: col_terms("cap.series", "Series", None, size=200, missing=True),
         msg: col_last_value("cap.message.keyword", "Message", data_type="string"),
     }
-    order = [sev, kind, db, ser, rank, msg]
+    order = [sev, kind, tgt, db, ser, rank, msg]
     state = table_state(order, rank, direction="asc", page_size=8, overrides={
-        rank: {"hidden": True}, sev: {"width": 70}, db: {"width": 190},
+        rank: {"hidden": True}, sev: {"width": 70}, tgt: {"width": 130},
+        db: {"width": 190},
         ser: {"width": 190},
         kind: {"width": 170}})
     b.add_lens(name, title, x, y, w, h, "lnsDatatable", state, cols, order,

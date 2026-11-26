@@ -2,9 +2,10 @@
 """Generate dashboards/awrcap-tablespaces.json (AWR capacity: tablespaces)."""
 from dash_lib import (
     AMBER, DB, DOTTED, DASHED, GREEN, GREY, NO_LEGEND, PAST_120D, RANGE,
-    RED, SERIES, SOONEST, BLUE, Board, named, alerts_table, annotation, cell_bg, fixed, override,
-    prop, q, query_var, db_var, red_points, sev_cell, stat, table, timeseries,
-    keep, where, width,
+    RED, SERIES, SOONEST, BLUE, TARGET, TARGET_COL, Board, named, alerts_table, annotation,
+    cell_bg,
+    fixed, override, prop, q, query_var, db_var, red_points, sev_cell, stat, table,
+    target_var, timeseries, keep, where, width,
 )
 
 FILT = where(DB, SERIES)
@@ -17,6 +18,7 @@ b = Board("awrcap-tablespaces", "AWR Capacity - Tablespaces",
           "days to full, and the growth days the anomaly layer flagged.",
           "now-120d", "now+120d")
 b.variables += [
+    target_var(),
     db_var(),
     query_var("series", "Tablespace", q(
         "V", "fit?kind=TBSPC", ["series", "db"], filt=DB,
@@ -24,9 +26,10 @@ b.variables += [
 ]
 
 fit = q("A", "fit?kind=TBSPC", [
-    "db", "series", "sev", "sev_rank", "pct", "value", "limit_value",
+    "target_name", "db", "series", "sev", "sev_rank", "pct", "value", "limit_value",
     "slope_per_day", "days_to_full", "days_to_full_lo", "days_to_full_hi",
-    "r2", "quality"], filt=FILT, computed=[SOONEST])
+    "r2", "quality", "restart_reason", "restart_day", "reliability"],
+    filt=FILT, computed=[SOONEST])
 DTF_STEPS = ((RED, None), (AMBER, 31), (GREEN, 91))
 
 # Queries live on the y=0 stats (Grafana renders panels lazily; a panel that
@@ -37,7 +40,7 @@ fit_table = b.add(stat("Tablespaces CRIT", fit, transformations=[keep("sev", "CR
            description="Latest fit says full in 30 days or less (or already past the near-full line)."),
       0, 0, 6, 4)
 anomaly_table = b.add(stat("Growth anomalies in range",
-    q("A", f"anomalies?kind=TBSPC&{RANGE}", ["ts", "db", "series", "anomaly_kind",
+    q("A", f"anomalies?kind=TBSPC&{RANGE}", ["ts", "target_name", "db", "series", "anomaly_kind",
                                               "baseline_mode", "raw_value", "value",
                                               "expected", "z", "anomaly_flag", "sev",
                                               "sev_rank", "message"],
@@ -48,6 +51,7 @@ anomaly_table = b.add(stat("Growth anomalies in range",
       12, 0, 6, 4)
 b.add(table(
     "Days to full (latest fit per tablespace, soonest first)", fit_table, [
+        TARGET_COL,
         ("db", "Database", [width(190)]), ("series", "Tablespace", [width(190)]),
         ("sev", "Sev", sev_cell()),
         ("pct", "Used %", cell_bg(((GREEN, None), (AMBER, 90), (RED, 97)),
@@ -59,10 +63,18 @@ b.add(table(
         ("days_to_full_lo", "DTF low", [prop("decimals", 0)]),
         ("days_to_full_hi", "DTF high", [prop("decimals", 0)]),
         ("r2", "R²", [prop("decimals", 2)]),
-        ("quality", "Fit quality"), ("sev_rank", "sev_rank"), ("soonest", "soonest")],
+        ("quality", "Fit quality"),
+        ("restart_reason", "Restart", [width(80)]),
+        ("restart_day", "Since", [width(110), prop("unit", "time:YYYY-MM-DD")]),
+        ("reliability", "Track", [width(90)]),
+        ("sev_rank", "sev_rank"), ("soonest", "soonest")],
     sort="soonest", hidden=("sev_rank", "soonest"),
     description="Days to full is the linear fit projected at today's slope; low/high come "
-                "from the forecast band. CRIT at 30 days or less, WARN at 90."),
+                "from the forecast band. CRIT at 30 days or less, WARN at 90. Restart: why "
+                "the fit window is shorter than the training window (PURGE, growth that "
+                "stopped = STOP or began = START) and its first day. Track: the grade of "
+                "the series' earlier forecasts (GOOD, BIASED, WIDE; UNKNOWN until enough "
+                "are old enough to check)."),
     0, 4, 24, 9)
 
 used = b.add(timeseries(
@@ -117,6 +129,7 @@ growth = b.add(timeseries(
 b.add(table(
     "Growth anomalies (newest first)", anomaly_table, [
         ("ts", "Day", [width(110), prop("unit", "time:YYYY-MM-DD")]),
+        TARGET_COL,
         ("db", "Database", [width(190)]), ("series", "Tablespace", [width(170)]),
         ("baseline_mode", "Mode", [width(110)]),
         ("raw_value", "Growth", [width(100), prop("unit", "bytes"), prop("decimals", 1)]),
@@ -138,7 +151,113 @@ b.add(stat("Worst days to full", fit_table, field="days_to_full", calc="min",
            color_steps=DTF_STEPS, unit="suffix: d"),
       18, 0, 6, 4)
 
-b.add(alerts_table("Tablespace alerts", where("kind == 'TBSPC'", DB)), 0, 42, 24, 8)
+# The shared disk (ddl/33): the disk of each database, then every growing
+# tablespace against it.
+GIB = [prop("unit", "suffix: GiB"), prop("decimals", 1)]
+GIB2 = [prop("unit", "suffix: GiB"), prop("decimals", 2)]
+MIB_DAY = [prop("unit", "suffix: MiB/d"), prop("decimals", 1)]
+DAY = [width(110), prop("unit", "time:YYYY-MM-DD")]
+b.add(table(
+    "Shared disk: when is the disk under the datafiles full?",
+    q("A", "disk", ["target_name", "db", "disk_name", "sev", "sev_rank", "disk_source",
+                    "disk_free_gb", "alloc_gb", "disk_dtf", "disk_dtf_worst",
+                    "disk_full_day", "n_growing", "grow_mb", "top_growers", "gated_by"],
+      filt=TARGET), [
+        TARGET_COL,
+        ("db", "Database", [width(160)]), ("disk_name", "Disk", [width(110)]),
+        ("sev", "Sev", sev_cell()),
+        ("disk_source", "Free space from", [width(120)]),
+        ("disk_free_gb", "Free", GIB), ("alloc_gb", "Allocated", GIB),
+        ("disk_dtf", "Days to full", cell_bg(DTF_STEPS, prop("decimals", 0))),
+        ("disk_dtf_worst", "Worst case", [prop("decimals", 0)]),
+        ("disk_full_day", "Full on", DAY),
+        ("n_growing", "Growing", [prop("decimals", 0)]),
+        ("grow_mb", "They take", MIB_DAY),
+        ("top_growers", "Fastest growing (MiB/day)"),
+        ("gated_by", "Gate", [width(90)]), ("sev_rank", "sev_rank")],
+    sort="sev_rank", hidden=("sev_rank",),
+    description="All datafiles of a database are taken to sit on one disk. Free space: the "
+                "operator's CAP_DISK_OVERRIDE row, else derived from the live tablespace "
+                "ceilings (LIVE), else not known (NONE). Days to full: until the growing "
+                "tablespaces have taken it. DISK_FULL alerts at 90 and 30 days."),
+    0, 42, 24, 5)
+b.add(table(
+    "Tablespaces on the shared disk: days alone, days once the disk is full",
+    q("A", "tbspc_shared", ["target_name", "db", "series", "quality", "cur_gb", "alloc_gb",
+                            "limit_own_gb", "limit_live", "grow_mb", "dtf_own",
+                            "dtf_shared", "dtf_shared_worst", "limit_shared_gb",
+                            "stopped_by", "rank_shared", "growing"],
+      filt=where(FILT, "growing == 'Y'")), [
+        TARGET_COL,
+        ("db", "Database", [width(190)]), ("series", "Tablespace", [width(190)]),
+        ("quality", "Fit quality"),
+        ("cur_gb", "Used", GIB), ("alloc_gb", "Allocated", GIB),
+        ("limit_own_gb", "Own limit", GIB), ("limit_live", "Live ceiling", [width(100)]),
+        ("grow_mb", "Growth", MIB_DAY),
+        ("dtf_own", "Days, alone", [prop("decimals", 0)]),
+        ("dtf_shared", "Days, shared disk", cell_bg(DTF_STEPS, prop("decimals", 0))),
+        ("dtf_shared_worst", "Worst case", [prop("decimals", 0)]),
+        ("limit_shared_gb", "Size when stuck", GIB),
+        ("stopped_by", "Stopped by", [width(100)]), ("rank_shared", "rank_shared"),
+        ("growing", "growing")],
+    sort="rank_shared", hidden=("rank_shared", "growing"),
+    description="Growing tablespaces only. Days, alone: to the tablespace's own limit (its "
+                "ceiling, or the live ceiling when that is lower). Days, shared disk: until "
+                "it is stuck, at its own limit or the first time it must extend after the "
+                "disk is full. Stopped by says which."),
+    0, 47, 24, 9)
+
+# Tablespace families (ddl/32): one tablespace per period.
+b.add(table(
+    "Tablespace families: the next member's size, the filling member against its ceiling",
+    q("A", "families", ["target_name", "db", "family_name", "sev", "period", "n_done",
+                        "n_filling", "n_empty", "next_member_gb", "next_member_hi_gb",
+                        "filling_member", "period_end_day", "days_left",
+                        "expected_final_gb", "expected_final_hi_gb", "filling_limit_gb",
+                        "fits", "headline"], filt=DB), [
+        TARGET_COL,
+        ("db", "Database", [width(160)]), ("family_name", "Family", [width(150)]),
+        ("sev", "Sev", sev_cell()), ("period", "Period", [width(80)]),
+        ("n_done", "Done", [width(60)]), ("n_filling", "Filling", [width(60)]),
+        ("n_empty", "Empty", [width(60)]),
+        ("next_member_gb", "Next member", GIB2), ("next_member_hi_gb", "Cautious", GIB2),
+        ("filling_member", "Filling member", [width(160)]),
+        ("period_end_day", "Period ends", DAY),
+        ("days_left", "Days left", [prop("decimals", 0), width(80)]),
+        ("expected_final_gb", "Expected final", GIB2),
+        ("expected_final_hi_gb", "Cautious final", GIB2),
+        ("filling_limit_gb", "Ceiling", GIB2), ("fits", "Fits", [width(60)]),
+        ("headline", "In words")],
+    sort="family_name",
+    description="Tablespaces of one container whose names differ only in a period (month, "
+                "quarter, year) are a family. Next member: the size the next one needs, "
+                "from the finished members. Fits = N: the member that fills now may pass "
+                "its ceiling before its period ends (the TBSPC_FAMILY alert)."),
+    0, 56, 24, 6)
+b.add(table(
+    "Family members in period order",
+    q("A", "family_members", ["target_name", "db", "family_name", "series", "member_seq",
+                              "state", "used_gb", "limit_gb", "pct_used", "final_gb",
+                              "fill_from", "fill_to", "fill_days", "quality",
+                              "restart_reason"], filt=DB), [
+        TARGET_COL,
+        ("db", "Database", [width(160)]), ("family_name", "Family", [width(150)]),
+        ("member_seq", "Seq", [width(60)]),
+        ("series", "Tablespace", [width(190)]), ("state", "State", [width(90)]),
+        ("used_gb", "Used", GIB2), ("limit_gb", "Ceiling", GIB2),
+        ("pct_used", "Used %", cell_bg(((GREEN, None), (AMBER, 90), (RED, 97)),
+                                       prop("unit", "percent"), prop("decimals", 1))),
+        ("final_gb", "Final size", GIB2),
+        ("fill_from", "Filled from", DAY), ("fill_to", "to", DAY),
+        ("fill_days", "Fill days", [prop("decimals", 0)]),
+        ("quality", "Fit quality"), ("restart_reason", "Restart", [width(80)])],
+    description="In the handler's order: database, family, period. DONE: filled, or growth "
+                "stopped. FILLING: the newest member that grows. EMPTY: created ahead. Final "
+                "size: the largest used size of a DONE member."),
+    0, 62, 24, 9)
+
+b.add(alerts_table("Tablespace and disk alerts",
+                   where("(kind == 'TBSPC' || kind == 'DISK')", DB)), 0, 71, 24, 8)
 
 b.annotations.append(annotation(
     "Growth anomalies",

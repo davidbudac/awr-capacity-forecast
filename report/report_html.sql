@@ -2,7 +2,7 @@
 -- report/report_html.sql -- read-only, self-contained HTML capacity report.
 -- =====================================================================
 -- One section per monitored metric (tablespaces, database size, host CPU,
--- DB CPU, sessions, processes, PGA, redo, undo, temp, ASM), one card per
+-- DB CPU, sessions, processes, PGA, redo, I/O, undo, temp, ASM), one card per
 -- series, and a chart on every card whether or not anything is wrong; then
 -- a Memory section, one card per instance with the sizing verdicts.
 --
@@ -64,12 +64,13 @@ COLUMN 6 NEW_VALUE 6 NOPRINT
 SELECT NULL AS "1", NULL AS "2", NULL AS "3",
        NULL AS "4", NULL AS "5", NULL AS "6" FROM dual WHERE 1 = 0;
 
+-- DECODE, not NULLIF: see report/report.sql (ORA-00932 on an empty argument).
 COLUMN eff_top_n NEW_VALUE top_n        NOPRINT
 COLUMN eff_anom  NEW_VALUE anomaly_days NOPRINT
 COLUMN eff_esm   NEW_VALUE show_esm     NOPRINT
-SELECT NVL(NULLIF(TRIM('&1'), '-'), '&top_n')                  AS eff_top_n,
-       NVL(NULLIF(TRIM('&2'), '-'), '&anomaly_days')           AS eff_anom,
-       NVL(NULLIF(UPPER(TRIM('&3')), '-'), UPPER('&show_esm')) AS eff_esm
+SELECT NVL(DECODE(TRIM('&1'), '-', NULL, TRIM('&1')), '&top_n')                      AS eff_top_n,
+       NVL(DECODE(TRIM('&2'), '-', NULL, TRIM('&2')), '&anomaly_days')               AS eff_anom,
+       NVL(DECODE(TRIM('&3'), '-', NULL, UPPER(TRIM('&3'))), UPPER('&show_esm'))     AS eff_esm
 FROM   dual;
 
 -- Scope and identity: cap_sdbid / cap_scon, cap_db / cap_host / cap_user /
@@ -151,6 +152,8 @@ DECLARE
   v_esm_failed NUMBER := 0;
   v_esm_stale  NUMBER := 0;
   v_do_esm     NUMBER;
+  v_noisy      NUMBER;
+  v_noisy_days NUMBER;
 
   -- A block's JSON is buffered and printed only when the block finished,
   -- so a failing view cannot leave half an array in the page.
@@ -268,6 +271,16 @@ BEGIN
         FROM capf_esm_health_summary&cap_s;
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
+    -- Anomaly series that alert often (CAPR_ANOM_VOLUME.noisy): one line
+    -- under the alert list. Optional, like the ESM counts.
+    BEGIN
+      SELECT COUNT(*), MAX(window_days)
+        INTO v_noisy, v_noisy_days
+        FROM capr_anom_volume&cap_s
+       WHERE noisy = 'Y'
+         AND (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con);
+    EXCEPTION WHEN OTHERS THEN v_noisy := NULL;
+    END;
     v_do_esm := CASE WHEN show_esm = 'N' THEN 0
                      WHEN show_esm = 'Y' THEN 1
                      WHEN v_esm_ok > 0 THEN 1 ELSE 0 END;
@@ -299,6 +312,7 @@ BEGIN
         || ',"firstDay":' || jd(v_first_day) || ',"lastDay":' || jd(v_last_day)
         || ',"run":' || js(v_run_line) || ',"coverage":' || js(v_cov_line)
         || ',"topN":' || jn(top_n) || ',"anomalyDays":' || jn(anomaly_days)
+        || ',"noisy":' || jn(v_noisy) || ',"noisyDays":' || jn(v_noisy_days)
         || ',"esm":{"show":' || jn(v_do_esm) || ',"ok":' || jn(v_esm_ok)
         || ',"failed":' || jn(v_esm_failed) || ',"stale":' || jn(v_esm_stale) || '}'
         || ',"knobs":{"dtfWarn":' || jn(c.dtf_warn) || ',"dtfCrit":' || jn(c.dtf_crit)
@@ -344,7 +358,8 @@ BEGIN
     FOR r IN (SELECT kind, dbid, con_dbid, series, unit, method, value, limit_value, pct, slope_per_day,
                      r2, quality, days_to_full, days_to_full_lo, days_to_full_hi, accel, train_n, sev,
                      limit_source, last_day, is_current, limit_below_used, cycle_n, cycle_days,
-                     cycle_peak_pct, peak_slope_per_day, slope_sig, hot_now, need_gib_90, add_by_day
+                     cycle_peak_pct, peak_slope_per_day, slope_sig, hot_now, need_gib_90, add_by_day,
+                     restart_reason, restart_day
               FROM   capr_fit&cap_s
               ORDER  BY 1, 2, 3, 4, 6) LOOP
       IF in_scope(r.dbid, r.con_dbid) THEN
@@ -358,13 +373,91 @@ BEGIN
           || ',"cur":' || jn(r.is_current) || ',"below":' || jn(r.limit_below_used)
           || ',"cycN":' || jn(r.cycle_n) || ',"cycD":' || jn(r.cycle_days) || ',"cycPk":' || jn(r.cycle_peak_pct)
           || ',"pkSlope":' || jn(r.peak_slope_per_day) || ',"sig":' || jn(r.slope_sig)
-          || ',"hot":' || jn(r.hot_now) || ',"need90":' || jn(r.need_gib_90) || ',"addBy":' || jd(r.add_by_day) || '}');
+          || ',"hot":' || jn(r.hot_now) || ',"need90":' || jn(r.need_gib_90) || ',"addBy":' || jd(r.add_by_day)
+          || ',"rst":' || js(r.restart_reason) || ',"rstDay":' || jd(r.restart_day) || '}');
         v_sep := ',';
       END IF;
     END LOOP;
     w(']');
     flush_block('fits');
   EXCEPTION WHEN OTHERS THEN fail_block('fits', SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
+  -- track: the forecast track record per series (CAPR_FIT_TRACK). It
+  -- reads the stored refresh runs only, so LIVE and SNAPSHOT send the
+  -- same rows: the series of the newest OK run. No run, an empty block.
+  ----------------------------------------------------------------------
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT kind, dbid, con_dbid, series, n_forecasts, abs_err_pct, bias_pct, n_banded,
+                     band_hits, band_factor, proj_30_lo_cal, proj_30_hi_cal, reliability, summary
+              FROM   capr_fit_track
+              ORDER  BY 1, 2, 3, 4) LOOP
+      IF in_scope(r.dbid, r.con_dbid) THEN
+        w(v_sep || CHR(10) || '{"k":' || js(r.kind) || ',"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid)
+          || ',"s":' || js(r.series) || ',"n":' || jn(r.n_forecasts) || ',"err":' || jn(r.abs_err_pct)
+          || ',"bias":' || jn(r.bias_pct) || ',"nb":' || jn(r.n_banded) || ',"hits":' || jn(r.band_hits)
+          || ',"f":' || jn(r.band_factor) || ',"lo":' || jn(r.proj_30_lo_cal) || ',"hi":' || jn(r.proj_30_hi_cal)
+          || ',"rel":' || js(r.reliability) || ',"txt":' || js(r.summary) || '}');
+        v_sep := ',';
+      END IF;
+    END LOOP;
+    w(']');
+    flush_block('track');
+  EXCEPTION WHEN OTHERS THEN fail_block('track', SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
+  -- disks (U09): the disk the datafiles of a database share, one row per
+  -- database (CAPR_DISK). Database level, so con_dbid = dbid and a PDB
+  -- scope leaves the block empty.
+  ----------------------------------------------------------------------
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, db, disk_name, disk_source, disk_as_of, disk_free_gb, alloc_gb,
+                     disk_dtf, disk_dtf_worst, disk_full_day, n_tbspc, n_growing, grow_mb,
+                     top_growers, sev, gated_by
+              FROM   capr_disk&cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+              ORDER  BY dbid, disk_name) LOOP
+      w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"db":' || js(r.db)
+        || ',"disk":' || js(r.disk_name) || ',"src":' || js(r.disk_source) || ',"asOf":' || jd(r.disk_as_of)
+        || ',"free":' || jn(r.disk_free_gb) || ',"alloc":' || jn(r.alloc_gb)
+        || ',"dtf":' || jn(r.disk_dtf) || ',"dtfW":' || jn(r.disk_dtf_worst) || ',"fullDay":' || jd(r.disk_full_day)
+        || ',"nTs":' || jn(r.n_tbspc) || ',"nGrow":' || jn(r.n_growing) || ',"grow":' || jn(r.grow_mb)
+        || ',"top":' || js(r.top_growers) || ',"sev":' || js(r.sev) || ',"gate":' || js(r.gated_by) || '}');
+      v_sep := ',';
+    END LOOP;
+    w(']');
+    flush_block('disks');
+  EXCEPTION WHEN OTHERS THEN fail_block('disks', SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
+  -- shared (U09): the growing tablespaces on the shared disk
+  -- (CAPR_TBSPC_SHARED), keyed like their TBSPC fit.
+  ----------------------------------------------------------------------
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, tablespace_name, disk_name, dtf_shared, dtf_shared_worst,
+                     limit_shared_gb, stopped_by
+              FROM   capr_tbspc_shared&cap_s
+              WHERE  grow_mb IS NOT NULL
+              ORDER  BY dbid, con_dbid, tablespace_name) LOOP
+      IF in_scope(r.dbid, r.con_dbid) THEN
+        w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"s":' || js(r.tablespace_name)
+          || ',"disk":' || js(r.disk_name) || ',"dtfSh":' || jn(r.dtf_shared) || ',"dtfShW":' || jn(r.dtf_shared_worst)
+          || ',"limSh":' || jn(r.limit_shared_gb) || ',"by":' || js(r.stopped_by) || '}');
+        v_sep := ',';
+      END IF;
+    END LOOP;
+    w(']');
+    flush_block('shared');
+  EXCEPTION WHEN OTHERS THEN fail_block('shared', SQLERRM);
   END;
 
   ----------------------------------------------------------------------
@@ -598,6 +691,60 @@ BEGIN
     w(']');
     flush_block('memPoints');
   EXCEPTION WHEN OTHERS THEN fail_block('memPoints', SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
+  -- families / famMembers: the tablespace families (ddl/32), one row per
+  -- family and one per member. Sizes in GiB. A scope without a family
+  -- leaves both blocks empty and the page shows no section.
+  ----------------------------------------------------------------------
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, family_name, period, source, n_done, n_filling, n_empty, used_gb,
+                     growth_per_period_gb, next_member_gb, next_member_hi_gb, trend_sig, filling_member,
+                     filling_used_gb, filling_limit_gb, expected_final_gb, expected_final_hi_gb,
+                     period_end_day, days_left, fits, sev, actionable, headline
+              FROM   capr_tbspc_family&cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+              ORDER  BY dbid, rank_family) LOOP
+      w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"f":' || js(r.family_name)
+        || ',"per":' || js(r.period) || ',"src":' || js(r.source)
+        || ',"nd":' || jn(r.n_done) || ',"nf":' || jn(r.n_filling) || ',"ne":' || jn(r.n_empty)
+        || ',"used":' || jn(ROUND(r.used_gb, 3)) || ',"gpp":' || jn(ROUND(r.growth_per_period_gb, 3))
+        || ',"next":' || jn(ROUND(r.next_member_gb, 3)) || ',"nextHi":' || jn(ROUND(r.next_member_hi_gb, 3))
+        || ',"ts":' || js(r.trend_sig) || ',"fm":' || js(r.filling_member)
+        || ',"fu":' || jn(ROUND(r.filling_used_gb, 3)) || ',"lim":' || jn(ROUND(r.filling_limit_gb, 3))
+        || ',"exp":' || jn(ROUND(r.expected_final_gb, 3)) || ',"expHi":' || jn(ROUND(r.expected_final_hi_gb, 3))
+        || ',"pe":' || jd(r.period_end_day) || ',"dl":' || jn(r.days_left)
+        || ',"fits":' || js(r.fits) || ',"sev":' || js(r.sev) || ',"act":' || js(r.actionable)
+        || ',"hl":' || js(r.headline) || '}');
+      v_sep := ',';
+    END LOOP;
+    w(']');
+    flush_block('families');
+  EXCEPTION WHEN OTHERS THEN fail_block('families', SQLERRM);
+  END;
+
+  BEGIN
+    v_sep := NULL;
+    w('[');
+    FOR r IN (SELECT dbid, con_dbid, family_name, tablespace_name, member_seq, state, used_gb, limit_gb,
+                     pct_used, final_gb, fill_from, fill_to, fill_days, fill_rate_gb_day
+              FROM   capr_tbspc_family_members&cap_s
+              WHERE  (s_dbid IS NULL OR dbid = s_dbid) AND (s_con IS NULL OR con_dbid = s_con)
+              ORDER  BY dbid, con_dbid, family_name, member_seq) LOOP
+      w(v_sep || CHR(10) || '{"dbid":' || jn(r.dbid) || ',"con":' || jn(r.con_dbid) || ',"f":' || js(r.family_name)
+        || ',"t":' || js(r.tablespace_name) || ',"seq":' || jn(r.member_seq) || ',"st":' || js(r.state)
+        || ',"used":' || jn(ROUND(r.used_gb, 3)) || ',"lim":' || jn(ROUND(r.limit_gb, 3))
+        || ',"pct":' || jn(r.pct_used) || ',"fin":' || jn(ROUND(r.final_gb, 3))
+        || ',"ff":' || jd(r.fill_from) || ',"ft":' || jd(r.fill_to) || ',"fd":' || jn(r.fill_days)
+        || ',"rate":' || jn(ROUND(r.fill_rate_gb_day, 4)) || '}');
+      v_sep := ',';
+    END LOOP;
+    w(']');
+    flush_block('famMembers');
+  EXCEPTION WHEN OTHERS THEN fail_block('famMembers', SQLERRM);
   END;
 
   p(',"errors":[' || v_errs || '],"seconds":{' || v_tlog || '}}');

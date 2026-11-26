@@ -308,18 +308,18 @@ Config   : days-to-full WARN&lt;=90 CRIT&lt;=30 ; CPU saturation 80%
 Source   : LIVE (CAPR views evaluated now)
 
 == 0. AT A GLANCE (from CAPR_ALERTS, or CAPR_ALERTS_LATEST when the source is SNAPSHOT) ==
-ECOMPRD (dbid 3141592653): current, 151 days of AWR, 24 series (19 OK, 0 low confidence, 4 flat, 0 short history, 1 cyclic), 0 not current
+ECOMPRD (dbid 3141592653): current, 151 days of AWR, 33 series (21 OK, 1 low confidence, 10 flat, 0 short history, 1 cyclic), 0 not current
 
 SEV  KIND             DB/PDB               MESSAGE
 ---- ---------------- -------------------- -----------------------------------------------------------------------
-     TOTAL                                 CRIT 1, WARN 10, INFO 0
+     TOTAL                                 CRIT 1, WARN 12, INFO 0
 <span class="c-crit">CRIT TBSPC_FULL       ECOMPRD/SHOP_PDB     Tablespace AUDIT_TRAIL forecast full in 17 days (92.0% used, 613.7 MiB/day)</span>
 <span class="c-warn">WARN CPU_ANOM         ECOMPRD              Host CPU 69.6% busy on 2026-10-30 vs usual 46.4% for that weekday, robust z +7.7 (+50% vs median)</span>
 <span class="c-warn">WARN CPU_SAT          ECOMPRD              Host CPU (busy-hour p95) forecast to reach 80% busy in 52 days (now 70.2% busy)</span>
 <span class="c-warn">WARN DBCPU_ANOM       ECOMPRD/SHOP_PDB     13 consecutive days, latest 2026-11-09, peak robust z +6.0: DB CPU 23.1% of logical CPUs ...</span>
 <span class="c-warn">WARN SERIES_LIMIT     ECOMPRD/SHOP_PDB     SESSIONS forecast to reach 90% of its limit (1300 COUNT) in 34 days (now 1094, 84.2% of limit)</span>
 <span class="c-warn">WARN TBSPC_NEARFULL   ECOMPRD/SHOP_PDB     Tablespace CUSTOMER_DATA is 95.0% full now (152.02 of 160.00 GiB; forecast quality OK)</span>
-<span class="c-dim">... 5 more WARN rows</span></pre>
+<span class="c-dim">... 7 more WARN rows (DISK_FULL and TBSPC_FAMILY among them)</span></pre>
       </div>
 
       <p>Alert row columns:</p>

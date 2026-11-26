@@ -11,7 +11,7 @@
 set appinfo off
 set appinfo "AWRCAP/apex/install.sql"
 set define '&' verify off feedback off serveroutput on
-whenever sqlerror exit sql.sqlcode rollback
+whenever sqlerror exit failure rollback
 column 1 new_value 1 noprint
 column 2 new_value 2 noprint
 column 3 new_value 3 noprint

@@ -22,7 +22,7 @@ topic.
 - **Idempotent, non-destructive re-install.** The persisted tables are
   created only if absent (the config seed MERGE adds missing keys), and
   `00_drop` deliberately does *not* drop them: operator tables
-  (`CAP_CONFIG`, `CAP_TBSPC_OVERRIDE`) and derived ones (`CAP_ML_MODEL`, and
+  (`CAP_CONFIG`, `CAP_TBSPC_OVERRIDE`, `CAP_TBSPC_FAMILY`) and derived ones (`CAP_ML_MODEL`, and
   the results layer's `CAP_RUN`, `CAP_FIT_HIST`, `CAP_ALERT_STATE`,
   `CAP_ALERT_EVENT`) all survive `@install.sql`. Operator tables are state
   nobody can recompute; derived tables are a cache the live views never
@@ -605,8 +605,9 @@ raise `gap_flag`: the first day of AWR history, today (a row exists as soon as
 the first snapshot after midnight lands), and a restart or outage day, whose
 restart-spanning interval is dropped *before* `max_interval_hours` is taken.
 On such a day the flow totals (`db_cpu_sec`, `host_busy_sec`, `REDO_GB_DAY`)
-read low. So `CAPD_CPU_DAILY`, `CAPD_DBTIME_DAILY` and the `REDO_GB_DAY` rows
-of `CAPD_SERIES_DAILY` expose:
+read low, and an `IOPS` / `IO_MBPS` day may have lost its busy hours. So
+`CAPD_CPU_DAILY`, `CAPD_DBTIME_DAILY` and the `REDO_GB_DAY`, `IOPS` and
+`IO_MBPS` rows of `CAPD_SERIES_DAILY` expose:
 
 - `covered_sec`: the seconds of valid (non-restart) intervals ending that
   day, per instance (summed, then divided by the instances that reported).
@@ -761,6 +762,43 @@ Ordinary least squares via `REGR_*` over `day_n = day_dt − DATE '2020-01-01'`
   follows `slope_method` (OLS, Theil–Sen over the window's pairs, or DRIFT),
   and `CAPF_BACKTEST.slope_method` names it, so flipping the knob compares the
   estimators on the same holdout.
+- **Purge events**: knob `cliff_merge_days` (1). A purge that runs past
+  midnight, or a delete followed by a shrink the next day, leaves two cliff
+  days side by side. Counted one by one they were two cliffs: `CYCLIC`, no
+  reset, and no full date for up to `train_days`. Cliff days at most
+  `cliff_merge_days` days apart are one purge event. `cycle_n` counts events,
+  `cycle_days` is measured between their first cliff days, and the reset day
+  is the last cliff day of the newest event (only then is `used_bytes` the
+  post-purge level). `0` makes every cliff day its own event. Fixture:
+  `FIX_PURGE2`.
+- **Growth that stopped or began (STOP / START)**: knobs `quiet_days` (14;
+  0 = off), `quiet_ratio` (2), `quiet_chance` (0.01), `growth_floor` (0.001).
+  The maintainer's production database has one tablespace per month: each
+  fills during its month and then stops. A line through the whole window
+  gives a stopped tablespace a slope and a full date it never reaches, and a
+  late starter a rate that is far too low. The rule is the standalone
+  query's, applied to the window left after the M9.3 reset. A growth day is a
+  new high (above every earlier day of the window by more than `growth_floor`
+  x the window's rise), a pause a run of days without one. STOP restarts the
+  fit on the day after the last growth day when the pause up to the newest
+  day is long; START restarts it on the last day before the first growth day
+  when the pause before it is long and `span + trail + 2 >= min_train_days`
+  days are left. Long = `quiet_days` or more, `quiet_ratio` x the longest
+  other pause or more, and a chance `(s / (s + q)) ^ g` (START: `g - 1`)
+  below `quiet_chance`, for g growth days s days apart and a pause of q days.
+  One growth day (s = 0) stops after `quiet_days` and never starts a fit.
+  STOP wins. A stopped, flat tablespace has slope 0: `FLAT`, no
+  `days_to_full`, no `TBSPC_FULL`. Its window is the quiet days, so under the
+  shipped knobs (`quiet_days` = `min_train_days`) it is never
+  `INSUFFICIENT_HISTORY`; with `quiet_days` below `min_train_days` it is
+  until `min_train_days` quiet days have passed, as in the standalone query.
+  `restart_reason` (`PURGE` / `STOP` / `START` / NULL) and `restart_day` (=
+  `train_start` when a reason is set) are the last columns of
+  `CAPF_TBSPC_FORECAST` and `CAPR_FIT`; `reset_day` stays the purge reset.
+  Not judged: `CYCLIC` rows, and a window whose cliff did not reset it
+  (`reset_on_shrink = 0`), because regrowth under the old peak sets no new
+  high. A rate that changes without a pause is still averaged. Fixture:
+  `FIX_STOPPED`, `FIX_STARTED`.
 - **CYCLIC grade**: knob `cyclic_min_cliffs` (2; 0 = off). A rolling-retention
   tablespace (fill for a month, purge, repeat) has a cliff in every cycle. The
   M9.3 reset restarts at the most recent one only, so the post-purge leg reads
@@ -768,7 +806,7 @@ Ordinary least squares via `REGR_*` over `day_n = day_dt − DATE '2020-01-01'`
   a 300 GiB tablespace) read `112 − k` days to full on cycle day k and fell
   through `dtf_warn` 8 days a month; a weekly purge would never collect
   `min_train_days` rows. So the cliffs of the **full** `train_days` window are
-  counted with the M9.3 rule (`cycle_n`, on every row). With `cycle_n ≥
+  counted with the M9.3 rule, as purge events (`cycle_n`, on every row). With `cycle_n ≥
   cyclic_min_cliffs` no reset applies and quality is `CYCLIC`, judged on the
   peaks: `cycle_days` (median spacing of the cliffs), `cycle_peak_bytes` /
   `cycle_peak_pct` (the window's maximum, against `limit_bytes`),
@@ -831,6 +869,50 @@ Ordinary least squares via `REGR_*` over `day_n = day_dt − DATE '2020-01-01'`
     series have `NEARFULL` / `NEARLIMIT` for this). `CPU_HOT` / `DBCPU_HOT`
     page on it at any fit quality (Layer 6).
 
+## Layer 3c: tablespace families (ddl/32)
+
+A database with one tablespace per month fills each member during its month
+and then leaves it alone. The per-tablespace line of Layer 3 is the wrong
+model for both questions such a layout raises: whether the member that fills
+now fits under its ceiling, and how big the next one has to be. `ddl/32`
+answers them from the group. Its header holds every formula. The decisions:
+
+- **A separate file that reads the fit.** `CAPF_TBSPC_FORECAST` is not
+  changed. The family views take from it the `STOP` verdict, the slope, the
+  current size and the ceiling, and compute their own growth days over the
+  same window with the same rule.
+- **Membership by name, corrected by the operator.** The period token in the
+  name (the `pat` rows of `CAPD_TBSPC_FAMILY`) forms families without any
+  setup. Tokens that are ambiguous (`YYMM`, `MMYYYY`) are not read.
+  `CAP_TBSPC_FAMILY` rows add, rename or exclude by regular expression. A
+  check constraint evaluates the expression at `INSERT`: an invalid one in a
+  view would raise in every report and in `cap_results.refresh`.
+- **Only current tablespaces are members.** A dropped member may have been
+  emptied before the drop, so its last size says nothing about what it
+  needed.
+- **A member is DONE when its successor grows.** Waiting for the fit's
+  `STOP` (`quiet_days`, 14) would leave last month's member "growing" for
+  two weeks of every month.
+- **The final size is the window's maximum**, not the current size: a member
+  that is compressed after its period still needed its peak.
+- **The period is counted from the first growth day** and is as long as the
+  token's calendar period. A family that loads October's data in November is
+  then still right. A member that grew into the window has no first growth
+  day, so its period ends with the calendar.
+- **The filling member never grows slower than the family did.** Early in a
+  period its own rate rests on a few days. `expected_final_bytes` uses the
+  larger of its own rate and the next member's size per period day, and the
+  cautious value uses the cautious size. The alert is judged on the cautious
+  value, so it can speak on the first growth day, while the member's own fit
+  is still `LOW_CONFIDENCE` and raises no `TBSPC_FULL`.
+- **One alert per family, keyed on the family name.** Next period's member
+  continues the same `state_key`, with its acknowledgement.
+- **Not built.** `TBSPC_FULL` is not held back for a filling member whose
+  family says it fits (the line of a member that fills 60% of its ceiling
+  each period crosses the ceiling inside `dtf_crit` mid-period). A purge
+  inside a member's window is not treated. The standalone queries have no
+  family logic.
+
 ## Layer 2b / 3b — fixed-ceiling series (M11)
 
 More series share one property with tablespaces: a value approaching a
@@ -846,6 +928,8 @@ n_samples, covered_sec, is_complete, day_gap, max_interval_hours, gap_flag)` —
 | `PROCESSES` / `SESSIONS` | daily `MAX(max_utilization)` per instance, **summed** across instances | the `processes` / `sessions` parameter, summed across instances | `COUNT` |
 | `PGA_ALLOC_GB` | daily `MAX('total PGA allocated')/2³⁰` per instance (`CAPV_PGASTAT`), **summed** across instances | `pga_aggregate_limit/2³⁰` at the same snapshot, summed; NULL when 0 | `GIB` |
 | `REDO_GB_DAY` | `SUM('redo size' deltas)/2³⁰` for the day | NULL — no ceiling | `GIB_PER_DAY` |
+| `IOPS` | p95 of the day's per-interval `(read + write 'total IO requests' deltas) / ivl_sec` | NULL: no ceiling | `IO_PER_SEC` |
+| `IO_MBPS` | p95 of the day's per-interval `(read + write 'total bytes' deltas) / ivl_sec / 2²⁰` | NULL: no ceiling | `MB_PER_SEC` |
 | `DB_SIZE_GB` | `SUM(used_bytes)/2³⁰` over `CAPD_TBSPC_DAILY` | `SUM(limit_bytes)/2³⁰` | `GIB` |
 | `ASM_DG:+<group>` | `(total_mb − free_mb)/1024` at the day's **last** sample (`CAPV_ASM_DISKGROUP`) | `total_mb/1024` | `GIB` |
 | `TEMP_PEAK:<ts>` / `UNDO_PEAK:<ts>` | the day's **MAX** of used blocks · block size / 2³⁰ for a `TEMPORARY` / `UNDO` tablespace | the day's MAX of (maxsize when autoextend, else size) · block size / 2³⁰ | `GIB` |
@@ -873,11 +957,27 @@ n_samples, covered_sec, is_complete, day_gap, max_interval_hours, gap_flag)` —
   here, so it carries `covered_sec` / `is_complete` (Layer 2, day coverage);
   the level series carry NULL / `'Y'`. It is per container (the CDB's redo is
   the sum).
+- `IOPS` / `IO_MBPS` (M27) read the four physical I/O totals of
+  `CAPV_SYSSTAT` through the same `CAPD_COUNTER_DELTA` rows, per container.
+  An interval's rate is (read delta + write delta) / `ivl_sec`; the two sides
+  pair up only over the same pair of snapshots, and neither may span a
+  restart. AWR writes no row for a container's statistic that is still zero
+  since startup, so one present side is enough and the missing one reads 0.
+  The interval in which a counter first appears has no delta for it. The
+  day's value is `PERCENTILE_CONT(0.95)` of its snapshots' rates: the
+  statistic `BUSY_P95` and `DB_CPU_P95` use for a rate. A maximum would let
+  one short interval set the day; an average would hide the busy hours. An
+  interval longer than `cpu_gap_hours` has no rate (it averages across an
+  outage), and a day with no rate has no row. They are flow series too:
+  `covered_sec` / `is_complete` as for `REDO_GB_DAY`, because a day that
+  lost half its intervals may have lost its busy hours. No ceiling: what the
+  storage can deliver is not in AWR. RAC (untested): a snapshot's rate is
+  the sum of its instances' rates.
 - `PROCESSES` / `SESSIONS` are CDB-wide: `DBA_HIST_RESOURCE_LIMIT` is
   root-only in `CDB$ROOT`.
 - The M15 gap columns feed the anomaly layer: `day_gap` (days since the
-  series' previous row), `max_interval_hours` (`REDO_GB_DAY` only) and
-  `gap_flag` (`REDO_GB_DAY` over `cpu_gap_hours`; `DB_SIZE_GB` when
+  series' previous row), `max_interval_hours` (`REDO_GB_DAY`, `IOPS`, `IO_MBPS`) and
+  `gap_flag` (those three over `cpu_gap_hours`; `DB_SIZE_GB` when
   `n_samples` changed, see Layer 4).
 - `DB_SIZE_GB` inherits everything `CAPD_TBSPC_DAILY` already decided: **UNDO
   and TEMPORARY are excluded**, and M9.5 overrides / exclusions are applied. So
@@ -980,6 +1080,8 @@ ts)`. Each branch states what is scored, in which unit, and with which floor:
 | `SERIES` / `PROCESSES`, `SESSIONS` | DAY | the level | same | `COUNT` | `series_floor_count` | `SERIES_LEVEL` → `SERIES_ANOM` |
 | `SERIES` / `REDO_GB_DAY` | DAY | the level (GiB/day) | same | `GIB_PER_DAY` | `series_floor_gib` | `SERIES_LEVEL` → `SERIES_ANOM` |
 | `SERIES` / `PGA_ALLOC_GB` | DAY | the level (GiB) | same | `GIB` | `series_floor_gib` | `SERIES_LEVEL` → `SERIES_ANOM` |
+| `SERIES` / `IOPS` | DAY | the level (requests/s) | same | `IO_PER_SEC` | `series_floor_iops` | `SERIES_LEVEL` → `SERIES_ANOM` |
+| `SERIES` / `IO_MBPS` | DAY | the level (MB/s) | same | `MB_PER_SEC` | `series_floor_mbps` | `SERIES_LEVEL` → `SERIES_ANOM` |
 | `SERIES` / `DB_SIZE_GB` | DAY | growth, GiB moved ÷ `day_gap` | GiB moved | `GIB_PER_DAY` | `series_floor_gib` | `SERIES_GROWTH` → `SERIES_ANOM` |
 
 The M11 rows come from an inline `sreg` registry (series, LEVEL or RATE basis,
@@ -1074,6 +1176,8 @@ A gap row is never scored and never enters a baseline, in any mode.
 - **`REDO_GB_DAY`**: a day carrying an interval longer than `cpu_gap_hours`
   holds more than a day of redo, so it is a gap day; partial days are
   `is_complete = 'N'`.
+- **`IOPS` / `IO_MBPS`**: the same two rules. The long interval's rate also
+  stays out of the day's percentile.
 - **`DB_SIZE_GB`**: a day whose `n_samples` (the number of tablespaces summed)
   differs from the previous row's is a gap day. A tablespace that enters,
   leaves, or misses an AWR sample moves the total by its whole size, which
@@ -1234,10 +1338,10 @@ The views, bottom up:
 
 | view | what it holds |
 | --- | --- |
-| `CAPM_SNAP` | the snapshot spine: window, startup, the previous snapshot of the same startup, `seg_ok` (the startup's uptime reaches `mem_min_uptime_hours`) |
+| `CAPM_SNAP` | the snapshot spine: window, startup, the previous snapshot of the same startup, `seg_ok` (the startup's uptime reaches `mem_min_uptime_hours`), `seg_in_win` (the startup has a snapshot in the window) |
 | `CAPM_INST` | one row per instance: memory mode (AMM / ASMM / MANUAL), the parameters at the latest snapshot, host RAM |
 | `CAPM_ADV_SRC` | the four advisors in one shape, sizes in bytes |
-| `CAPM_DELTA` | every counter and advisor estimate as increments, one long shape |
+| `CAPM_DELTA` | every counter and advisor estimate as increments, one long shape, for the startups that reach the window |
 | `CAPM_ADVICE` | the curve: cost and gain per advised size against the reference size |
 | `CAPM_PGA_LIMIT`, `CAPM_AREA`, `CAPM_SGA_BALANCE` | the facts of each area |
 | `CAPM_EVIDENCE` | one row per signal: value, unit, threshold, direction, a sentence, `kind` (USAGE / ADVISOR / SYMPTOM / CONTEXT) |
@@ -1289,6 +1393,16 @@ The views, bottom up:
   loss. An interval with no size at or below it does not count, and a
   candidate must count in every interval of the reference. The gain never
   falls with size, by construction, and `run_test.sql` asserts it.
+- **An interval's DB time is the whole interval's.** An interval of the
+  reference size runs from its previous present row to the snapshot, so it
+  spans several snapshots where the advisor skipped the size. Its gain is
+  divided by the DB time of every snapshot in it: a running total per
+  instance, differenced between the interval's two snapshots, which are
+  always in one startup. The first version took the DB time of the last
+  snapshot only and overstated the gain of such an interval (fixture: 0.4573
+  percent in place of 0.4500 with one snapshot missing in 60). An interval
+  that starts before the window, or on a snapshot without DB time, keeps the
+  DB time of its last snapshot.
 - **Reference size (26.3).** Gains and losses are measured against the
   current (factor 1) size when its own increments cover
   `mem_min_uptime_hours`. A pool that has just been resized has a new
@@ -1358,12 +1472,31 @@ The views, bottom up:
   and `CAPM_SGA_BALANCE` read. The four views are in the snapshot registry.
   The briefing lists only the verdicts that advise a change and counts the
   areas that could not be judged.
-- **Cost.** Measured at 26.4 on the test CDB's AWR (35 days of 15-minute
-  snapshots): `SELECT * FROM capm_verdict` takes about 8 s and 150 MB of
-  PGA, most of it `CAPM_AREA` evaluated twice (under the evidence and for
-  the facts). The cost follows the length of the history, not the window:
-  on the demo story (150 days, hourly) the verdict view takes 28 s and the
-  evidence view 16 s. A SNAPSHOT report reads the stored rows.
+- **Cost.** The cost follows the snapshots of every startup that reaches
+  the window, not `mem_window_days`: an increment pairs with its key's
+  previous row, wherever that is in the startup. Startups that ended before
+  the window are skipped. On the demo story (150 days, hourly, restarted 95
+  days back: 265,155 increments, 83,685 of them in the window) `SELECT
+  COUNT(*) FROM capm_verdict` takes about 6 s once parsed and 200 MB of PGA,
+  the evidence view about 5 s (shared test VM, rough). It took about 11.5 s
+  while the verdict evaluated `CAPM_AREA` twice, for the facts and again
+  under the evidence. `CAPM_VERDICT` now reads it once and counts the
+  ADVISOR signals from its `gain_dir` / `shrink_dir` / `overalloc_dir`,
+  and reads `CAPM_EVIDENCE` with `kind <> 'ADVISOR'`, a filter that takes
+  the advisor branch out of that view's plan (19.27). A SNAPSHOT report
+  reads the stored rows. `docs/reference.html#fleet-size` has the table.
+  On the test CDB's own AWR (35 days of 15-minute snapshots) the verdict
+  view took about 8 s and 150 MB at 26.4, before these cuts. That figure
+  was not taken again.
+- **Why the window is not the read set.** Reading the window plus one
+  snapshot before it is not exact: a key that skips snapshots (an advisor
+  size off the list, `over allocation count` in the fixture) pairs with a
+  row further back, and a zero-filled key without that row would count its
+  whole cumulative value as an increment. The exact form keeps each key's
+  last row before the window. It gave the same window increments on both
+  fixtures (0.9 s against 1.3 to 2.6 s for `CAPM_DELTA` on the demo story),
+  but the view would then hold window increments only, and its rows before
+  the window are asserted today. Not built.
 
 ## Layer 5 — Tier 2 OML ESM
 
@@ -1400,8 +1533,9 @@ no partitioned ESM) via `DBMS_DATA_MINING.CREATE_MODEL2(mining_function =>
   ESM rows are gated on **age**, not exact-day freshness: `model_age_days`
   (series last day minus `trained_through`) must be `<= esm_max_age_days`
   (default 7). The old exact-day rule hid ESM six days out of seven under a
-  weekly retrain. A model left behind by a later top-N retrain still drops out
-  once it is older than the limit. The ESM value is dated `trained_through +
+  weekly retrain. A full retrain drops the models of tablespaces it no longer
+  selects (top N per database, quality gate), so no stale registry row is left
+  behind. The ESM value is dated `trained_through +
   esm_horizon_days`; `CAPR_FORECAST_POINTS` turns that into a horizon from the
   series' last day (`esm_horizon_days - model_age_days`), and section 6 prints
   the step as `+22` when it is not 30, plus the model age. Model names hash
@@ -1439,10 +1573,13 @@ no partitioned ESM) via `DBMS_DATA_MINING.CREATE_MODEL2(mining_function =>
   complete training days (the live `anc` anchor, exposed as `anchor_val`), and
   CPU days count only when `is_complete = 'Y'`, both as training rows and as
   holdout actuals (so a partial day is neither fitted nor scored). The cutoff
-  still comes from every day with a value, which is what the twins train
+  is the last complete day minus the holdout, which is what the twins train
   through. CPU deseasoning is not replayed: it changes the slope input, not
-  the anchor. `CAPF_ESM_CANDIDATE` applies the same complete-day rule to its
-  CPU actuals; the twins and `CAPF_ESM_HEALTH` still read every day. ESM may
+  the anchor. All of Tier 2 reads complete CPU days only: the models and the
+  twins train on them, `CAPF_ESM_CANDIDATE` scores on them, and
+  `CAPF_ESM_HEALTH` takes the series' last day from them, so a model trained
+  today has age 0 while today's partial day already has a value. A day left
+  out is a missing date to ESM (`EXSM_SETMISSING` AUTO). ESM may
   cover fewer than holdout_days days (30-step cap + the rows/4 floor);
   `n_days` records actual coverage. `train_all(p_top_n, p_backtest => TRUE)`
   refreshes the twins of every series it trains, the CPU ones included, so
@@ -1584,7 +1721,9 @@ M8.2, for the bundled reports themselves:
   `threshold` (+ `unit`), a ready-to-page `message`, `baseline_mode` (anomaly
   kinds only), `alert_key` and, appended, `state_key`, `direction`,
   `alarm_threshold` and `is_current`. The kinds: the eight forecast kinds
-  above (every non-OK `CAPR_SEVERITY` row), `CPU_SHIFT` (UP = WARN, DOWN =
+  above (every non-OK `CAPR_SEVERITY` row), `TBSPC_FAMILY` (Layer 3c: one
+  WARN per tablespace family whose filling member may end its period above
+  its ceiling, keyed on the family name), `CPU_SHIFT` (UP = WARN, DOWN =
   INFO), `DATA_STALE` (one WARN per dbid from `CAPR_FRESHNESS`, except a
   dbid `data_stale_max_days` (14) or more old: that one is retired, an
   imported or decommissioned DBID, and shows in `CAPR_COVERAGE` instead of
@@ -1701,7 +1840,7 @@ installs and reports.
 | table | one row per | key |
 | --- | --- | --- |
 | `CAP_RUN` | `refresh` call | `run_id` = `YYYYMMDDHH24MISSFF3` of the start (bumped past the max on a clash) |
-| `CAP_FIT_HIST` | run × `CAPR_FIT` row | `(run_id, kind, dbid, con_dbid, series)`, plus `as_of_day` and every `CAPR_FIT` column |
+| `CAP_FIT_HIST` | run × `CAPR_FIT` row | `(run_id, kind, dbid, con_dbid, series)`, plus `as_of_day`, every `CAPR_FIT` column, and the fit's +30 point and band (`proj_30`, `proj_30_lo`, `proj_30_hi`, from `CAPR_FORECAST_POINTS`) |
 | `CAP_ALERT_STATE` | `CAPR_ALERTS.state_key` ever seen | `state_key` |
 | `CAP_ALERT_EVENT` | state change | `event_id` = `run_id * 100000 + n` (no sequence, so no extra privilege) |
 
@@ -1765,12 +1904,13 @@ keeps the newest run and the newest OK live run. `reset` forgets everything.
 | view | answers |
 | --- | --- |
 | `CAPR_ALERTS_LATEST` | OPEN, not acked states. The first columns mirror `CAPR_ALERTS` (values of the last run that saw the key), then `max_severity`, `first_seen`, `last_seen`, `age_days`, `reopen_count`, `run_id`, `events_since` (events since it last opened), `last_event`, `last_event_at` |
-| `CAPR_ALERT_EVENTS` | every event, newest first, with the run's `as_of_day` and the state's kind and keys |
+| `CAPR_ALERT_EVENTS` | every event, newest first, with the run's `as_of_day` and the state's kind and keys; `acked` (last column) is `Y` while the alert is acknowledged now |
 | `CAPR_RUNS` | every run with `duration_sec`, `is_last`, `last_ok_run_id`, `last_ok_age_hours` and `stale_run` (`Y` when the last OK live run ended `refresh_stale_hours` (36) or more ago, or never ran), plus a one-line `summary` |
 | `CAPR_COVERAGE` | per dbid, live: newest snapshot and its age, `history_days`, series by quality, `n_stale` (not current), `retired` (`data_stale_max_days`) and a one-line `summary` |
 | `CAPR_FIT_HISTORY` | `CAP_FIT_HIST` of the OK runs |
 | `CAPR_WEEKLY_DIGEST` | the latest OK run against the latest OK run at least `digest_days` (7) older: per series `days_to_full`, `pct`, quality and severity then and now, a `change` verdict, and the alert events in between (`n_new`, `n_resolved`, `n_reopened`, `n_sev_changes`, and `events`, the counts per kind) |
 | `CAPR_FORECAST_ACCURACY` | every snapshot row whose series has newer data today: `projected` = `value_then + slope_then * elapsed_days` (the anchored formula), `actual` = `CAPR_FIT.value` now, `error`, `error_pct`. Filter `elapsed_days` for a horizon |
+| `CAPR_FIT_TRACK` | per series of the newest OK run, from the results tables only: every stored fit checked against the stored value `accuracy_horizon_days` (30) later (nearest within 2 days, inside `accuracy_window_days`). `n_forecasts`, `abs_err_pct`, `bias_pct`, `band_hits` / `n_banded`, `band_factor` (the `calib_quantile_pct` percentile of error / issued half-width, never below 1, NULL below `calib_min_forecasts`), `proj_30_lo_cal` / `proj_30_hi_cal`, `reliability` (UNKNOWN, BIASED, WIDE, GOOD from a rule table), `summary`. Advice: no fit, alert or slope method reads it |
 
 **Poller recipe.** Enable `CAP_NIGHTLY_JOB` (its `REFRESH` step), then poll
 `SELECT * FROM capr_alert_events WHERE run_id > :last_seen_run_id`, remember
@@ -2058,10 +2198,9 @@ mad_k`, no gap, complete, `n_hist ≥ min_hist`). Knob flips (`alert_modes_cpu`
 `cpu_min_mad_pct_hour` 3) each assert the change and restore the knob.
 `test/lint_anom_joins.sh` keeps `CAPA_ANOM` readers where the key rule is
 reviewed, and `test/dbmint_harness.sh <SCHEMA> [--ml] [--no-fixture] [--pga]
-[--parity] [--sql FILE]` runs `repository/build.py --check`, five lints
-(anomaly joins, session labels, per-dbid windows, snapshot reads,
-`DBA_HIST` names) and the two offline report tests before it syncs and runs
-the harness in a throwaway schema.
+[--parity] [--sql FILE]` runs `test/check.sh` (the generated-file checks,
+every `test/lint_*.sh`, the docs lint and the offline tests) before it syncs
+and runs the harness in a throwaway schema.
 
 Before the legacy views were deleted, a parity gate on dbmint compared them
 with the engine row by row (FULL OUTER JOIN): `CAPA_TBSPC_ANOM` against the

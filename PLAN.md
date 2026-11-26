@@ -148,6 +148,36 @@ every new number (see `test/run_test.sql`).
       `CAPF_ESM_BACKTEST`, never leak into `CAPF_ESM_FORECAST`/`CAPF_COMPARE`).
       Section 6c (text + HTML) shows MAPE/bias per engine + BETTER verdict.
       Feeds ESM model-type selection in M10.4.
+- [x] **M9.6 Purge events and STOP / START (2026-11).** Done: knob
+      `cliff_merge_days` (1): cliff days on adjacent days are one purge event,
+      so a two-day purge resets the fit at its last cliff day and is no longer
+      `CYCLIC` (`FIX_PURGE2`). Knobs `quiet_days` (14, 0 = off), `quiet_ratio`
+      (2), `quiet_chance` (0.01), `growth_floor` (0.001): the fit window also
+      restarts where growth stopped or began, the standalone query's rule
+      (`FIX_STOPPED`: `FLAT`, no full date; `FIX_STARTED`: the ramp alone).
+      `restart_reason` / `restart_day` on `CAPF_TBSPC_FORECAST`, `CAPR_FIT`,
+      `CAPR_TBSPC_FORECAST`, `CAPR_TBSPC_DAYS_TO_FULL` and `CAP_FIT_HIST`, shown
+      in the text, HTML, briefing and CSV reports. Not in the dashboards yet.
+- [x] **M9.7 Tablespace families (2026-11).** Done: `ddl/32_tbspc_family.sql`,
+      loaded after ddl/30 and reading it. Tablespaces of one container whose
+      names differ only in a period token (YYYYMM, YYYY_MM, YYYYQn, MONYY,
+      MONYYYY, YYYYMON, YYYY) form a family (`SALES_#`), from
+      `family_min_members` (3) members on. Knob `family_auto` (1, 0 = operator
+      rows only). `CAP_TBSPC_FAMILY` (persisted like the override table:
+      `name_regex`, `family_name`, `exclude_flag`, dbid / con_dbid wildcards,
+      most specific row wins) adds, renames or excludes. Views
+      `CAPD_TBSPC_FAMILY` (membership), `CAPD_TBSPC_FAMILY_DAILY` (total per
+      day), `CAPF_TBSPC_FAMILY_MEMBER` (state FILLING / DONE / EMPTY, final
+      size, fill days) and `CAPF_TBSPC_FAMILY`: `next_member_bytes` /
+      `_hi_bytes` (median / maximum of the newest `family_recent_members`, 6,
+      DONE finals, carried along a significant trend) and the filling
+      member's `expected_final_bytes` / `_hi_bytes` at the end of its period
+      against its ceiling. One alert kind, `TBSPC_FAMILY` (WARN, keyed on the
+      family). `CAPR_TBSPC_FAMILY` / `CAPR_TBSPC_FAMILY_MEMBERS` (snapshot
+      registry), text section 10, an HTML section, briefing lines and two CSV
+      files. Fixture `FIXM_#` / `FIXY_#` / the `FIXP` pair. Not built: holding
+      back `TBSPC_FULL` for a filling member that fits, purges inside a
+      member's window, the standalone mirror, the dashboards.
 - [x] **M9.5 Tablespace limit overrides / exclusions.** Done:
       `CAP_TBSPC_OVERRIDE (dbid, con_dbid, tablespace_name, limit_bytes,
       exclude_flag, note)` — the THIRD persisted table (created idempotently in
@@ -521,15 +551,15 @@ fixture harness and both reports.
       `test/docs_lint.sh` checks the knob table, the object index and the
       alert kinds against the DDL, and rejects assertion counts and
       "generated" claims. (branch rf/u10-docs)
-- [ ] **M21.5 Follow-ups.** (`suite_version` bumped to 22 by M22.) Tier 2 still trains on
-      incomplete days (`is_complete` not applied in ml/ or `CAPF_ESM_HEALTH`).
-      Done since: `CAPF_BACKTEST` CPU rows use complete days only and anchor at
+- [ ] **M21.5 Follow-ups.** (`suite_version` bumped to 22 by M22.)
+      Done since: Tier 2 reads complete days only (`is_complete = 'Y'`).
+      `CAPF_BACKTEST` CPU rows use complete days only and anchor at
       the median of the last `shift_days` training days like the live fit
-      (new `anchor_val` column, cutoff still from all days so it matches the
-      twins), and `CAPF_ESM_CANDIDATE` scores CPU holdout actuals on complete
-      days. Left: the ml/ training input and the `CAPF_ESM_HEALTH` last_day
-      (a complete-only filter there would give negative ages while the twins
-      train through an incomplete last day).
+      (new `anchor_val` column), `CAPF_ESM_CANDIDATE` scores CPU holdout
+      actuals on complete days, the CPU models and twins train on them, and
+      (2026-11) the `CAPF_BACKTEST` cutoff and the `CAPF_ESM_HEALTH` series
+      last day come from them too, so both follow the day the trainers train
+      through while the newest day is still partial.
       `test/fixture_remove.sql` does not drop `CAP_FIXTURE_SEG_STAT`.
       `CAP_TBSPC_OVERRIDE` does not apply to the TEMP / UNDO peak series;
       PDB-level `cpu_count` is unused. ELK forecast doc ids hash
@@ -1242,7 +1272,7 @@ below): per-PDB rows, the resize operations detail and "since when" from the
 verdict history. Found while building the demo: a fixture install with both
 the PGASTAT and the PARAMETER stub fails with ORA-00932 in
 `CAPD_SERIES_DAILY` (19.27); not fixed here, the demo now carries both
-tables.
+tables. (Fixed later: the stubs are opaque, see M27.)
 
 - [ ] **M26.1 Seam.** Fourteen new `CAPV_*` views (component history, resize
       operations, PGA statistics, work area histogram, the PGA / SGA / cache /
@@ -1271,6 +1301,74 @@ tables.
       `report/drill_mem.sql`, docs, a memory chapter in the demo story.
       Per-PDB rows, resize operations and verdict history join the reports
       when M26.1 / M26.3 build their sources.
+
+## M27 — I/O series and stub installs (done)
+
+- [x] **M27.1 Opaque fixture stubs.** A fixture install without
+      `CAP_FIXTURE_PGASTAT` and `CAP_FIXTURE_PARAMETER` failed with ORA-00932
+      (19.27): the optimizer merged the `FROM dual WHERE 1 = 0` stubs into
+      their reader, and `NULLIF(<constant of an outer-joined stub>, 0)` no
+      longer parsed. The fourteen stubs of `ddl/12_seam_fixture.sql` now end
+      in `WHERE ROWNUM < 1`. `test/dbmint_stub_install.sh <SCHEMA>` installs
+      over all of them and checks that no `CAP%` object is INVALID.
+- [x] **M27.2 `IOPS` and `IO_MBPS`.** Two series in `CAPD_SERIES_DAILY`, per
+      container: physical I/O requests per second and MB per second, read +
+      write, from four more `CAPV_SYSSTAT` counters. The day's value is the
+      95th percentile of its snapshot-interval rates (the `BUSY_P95`
+      precedent). No ceiling, so a trend (`CAPF_SERIES_FORECAST`) and an
+      anomaly baseline (`CAPA_OBS`, floors `series_floor_iops` /
+      `series_floor_mbps`), no limit alert. Text section 7, the HTML report
+      (two sections), the briefing labels and the CSV carry them. The
+      repository copies gain the four names from the first collect after the
+      upgrade, with no backfill. Not done: the demo fixture and `docs/demo/`
+      (a regeneration in a throwaway schema), the ELK / Grafana / APEX
+      boards, a storage ceiling to forecast against (AWR has none),
+      `suite_version` (set with M29: 27.0 for M9.7 and M27 to M29 together).
+
+## M28 — Forecast track record (done)
+
+- [x] **M28.1 `CAPR_FIT_TRACK`.** `cap_results.refresh` stores each fit's +30
+      projection and 95% band in `CAP_FIT_HIST` (`proj_30`, `proj_30_lo`,
+      `proj_30_hi`). The view pairs every stored fit with the stored value
+      `accuracy_horizon_days` (30) later and gives per series: forecasts
+      checked, median error, bias, band hits, `band_factor` (what the issued
+      half-width needed to hold `calib_quantile_pct` of the errors, never
+      below 1, from `calib_min_forecasts` banded forecasts), calibrated +30
+      bounds and a `reliability` grade (UNKNOWN / BIASED / WIDE / GOOD, a rule
+      table). It reads the results tables only. Text section 9, a line on
+      each HTML card, a briefing line for a BIASED / WIDE series a forecast
+      alert names, `capr_fit_track.csv`. Not done, on purpose: the calibrated
+      band replaces no band and feeds no alert, `days_to_full` range or need
+      figure; the track record does not choose `slope_method`; one horizon
+      (the band test uses the +30 band at any `accuracy_horizon_days`); no
+      dashboard panel (ELK / Grafana / APEX); the demo reports carry no
+      track record (the demo story has no run history).
+- [x] **M28.2 Acknowledged alerts stay quiet.** `CAPR_ALERT_EVENTS.acked`
+      (last column, the state now); `report/alert_events.sql` argument 7 and
+      `report/notify.sh --include-acked`. By default the events of an
+      acknowledged alert are skipped and the position moves past them.
+
+## M29 — Shared-disk forecast in the suite (done)
+
+- [x] **M29.1 A live source.** `CDB_TABLESPACE_USAGE_METRICS` joins the copy
+      manifest as kind `L`: no snap_id, replaced whole per target at each
+      collect (`cap_repo.collect_live`), stamped `collected_at`, optional.
+      Copy `CAP_H_TBSPC_LIVE`, seam view `CAPV_TBSPC_LIVE`, fixture twin
+      `CAP_FIXTURE_TBSPC_LIVE`. One more grant in `target/prepare.sql`.
+- [x] **M29.2 `ddl/33_shared_disk.sql`.** `CAPF_TBSPC_SHARED` and
+      `CAPF_DISK`: the standalone query's shared-disk simulation with the
+      suite's slope and worst-case rate. Free space from the new operator
+      table `CAP_DISK_OVERRIDE`, else from the live ceilings, else unknown.
+- [x] **M29.3 Surfacing.** `CAPR_DISK` (per disk) and `CAPR_TBSPC_SHARED`
+      (per tablespace: `dtf_shared`, `dtf_shared_worst`, `limit_shared_gb`,
+      `stopped_by`); the `DISK_FULL` alert; text block 1c, the HTML report,
+      the briefing, the CSV. The columns are not on `CAPR_FIT`: with the
+      simulation inside, its hard parse nearly tripled (15 s to 42 s). Not
+      done: mapping datafiles to devices or ASM disk groups (one disk per
+      database), the dashboards (ELK, Grafana, APEX), the demo fixture.
+- [x] **M29.4 One release.** `suite_version` 27.0 stamps the branch that
+      landed M9.7 (tablespace families), M27 (I/O series), M28 (track record)
+      and M29 together, with the alert volume views and their knobs.
 
 ## v2 (unchanged)
 

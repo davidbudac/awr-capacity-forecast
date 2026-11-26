@@ -34,7 +34,8 @@
 -- harness, CI) always DEFINE it up front to avoid the prompt consuming a line.
 --
 -- Read-only against AWR data: the suite writes only to CAP_* tables it owns.
--- Operator tables (CAP_CONFIG, CAP_TBSPC_OVERRIDE) and derived tables
+-- Operator tables (CAP_CONFIG, CAP_TBSPC_OVERRIDE, CAP_TBSPC_FAMILY,
+-- CAP_DISK_OVERRIDE) and derived tables
 -- (CAP_ML_MODEL; the results layer's CAP_RUN, CAP_FIT_HIST, CAP_ALERT_STATE,
 -- CAP_ALERT_EVENT) all survive a re-install: ddl/00_drop drops views only.
 -- No AWR object is modified.
@@ -130,6 +131,12 @@ EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/25_series_daily')
 PROMPT -- [30] Tier 1 forecasts (CAPF_*) ...
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/30_forecast_views')
 @@ddl/30_forecast_views.sql
+PROMPT -- [32] tablespace families (CAPD_TBSPC_FAMILY, CAPF_TBSPC_FAMILY_MEMBER, CAPF_TBSPC_FAMILY) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/32_tbspc_family')
+@@ddl/32_tbspc_family.sql
+PROMPT -- [33] shared disk (CAPF_TBSPC_SHARED, CAPF_DISK) ...
+EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/33_shared_disk')
+@@ddl/33_shared_disk.sql
 PROMPT -- [35] fixed-ceiling series forecast (CAPF_SERIES_FORECAST) ...
 EXEC DBMS_APPLICATION_INFO.SET_ACTION('ddl/35_series_forecast')
 @@ddl/35_series_forecast.sql
@@ -174,7 +181,7 @@ BEGIN
             FROM   all_objects
             WHERE  owner  = v_owner
               AND  status = 'INVALID'
-              AND  REGEXP_LIKE(object_name, '^CAP[VDFAR]?_')
+              AND  REGEXP_LIKE(object_name, '^CAP[VDFAMR]?_')
               AND  object_type IN ('VIEW', 'PROCEDURE', 'FUNCTION', 'PACKAGE',
                                    'PACKAGE BODY', 'TYPE', 'TYPE BODY',
                                    'TRIGGER', 'SYNONYM')
@@ -221,7 +228,7 @@ BEGIN
         FROM   all_objects
         WHERE  owner  = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
           AND  status = 'INVALID'
-          AND  REGEXP_LIKE(object_name, '^CAP[VDFAR]?_')
+          AND  REGEXP_LIKE(object_name, '^CAP[VDFAMR]?_')
         ORDER BY object_name
     ) LOOP
         v_bad := v_bad + 1;

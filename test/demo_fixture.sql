@@ -41,6 +41,57 @@
 --   sessions / processes (SHOP_PDB)  sessions high-water creeping toward
 --                    the 90% line (~40 days), processes flat.
 --   redo             ~45 GiB/day weekdays, less at weekends.
+--   I/O (M27, SHOP_PDB)  requests a second by hour class, x (1 + 0.40 i/150)
+--                    with a 1.5% ripple: 1500 at night, 3000 in the morning,
+--                    5200 in business hours (the intervals ending 10:00 ..
+--                    18:00), 3600 in the evening, 2000 at 23:00, 16 KiB a
+--                    request. The batch (02:00-04:00) does not grow: 4500
+--                    requests and 260 MB a second. IOPS is the day's p95, so
+--                    the business level: 5200 + 13.87 i, about 7300 on the
+--                    last day (OK). IO_MBPS is the batch: 260 MB/s on every
+--                    day (FLAT). The runaway CPU day reads 1.25 x the
+--                    requests in its hours 08..20: one IOPS anomaly (about
+--                    9000 against 7050 IO/s), none in IO_MBPS (141 < 260).
+--                    A larger spike would pull the 90-day fit under r2_gate.
+--   TAX_DOCS_<YYYYMM>  a family of six monthly tablespaces in SHOP_PDB (the
+--                    month's tax documents, 2800 MiB maxsize each, 1 MiB
+--                    when empty). A member fills on 28 days, then the
+--                    month-end close takes two: the fill windows start 30
+--                    days apart, on days 19, 49, 79, 109 and 139. The names
+--                    follow the calendar: the member that fills now carries
+--                    the month of day 139, the others the months before and
+--                    the one after it.
+--                    Four DONE members, finals 1340, 1490, 1880, 2510 MiB =
+--                    830 + 390 k +/- 120 (significant trend, 390 MiB a
+--                    member): next member 2780 MiB, cautious 2900 MiB. The
+--                    last three stopped inside the 90-day window: restart
+--                    STOP, FLAT (the newest 14 days ago, on day 137).
+--                    The fifth is FILLING: 12 growth days at 2760 / P MiB a
+--                    day (P = the days of its month, so 92 MiB a day in a
+--                    30-day month), P - 12 days left. Alone it is too young
+--                    for a fit (78 flat days and 12 on the ramp:
+--                    LOW_CONFIDENCE, R2 0.29, no TBSPC_FULL). The family
+--                    expects 1 + (33120 + 2780 (P - 12)) / P = 2773 MiB by
+--                    the period end and at most 1 + (33120 + 2900 (P - 12))
+--                    / P = 2845 MiB (P = 30), above the 2800 MiB ceiling:
+--                    the one TBSPC_FAMILY alert (2841 .. 2847 MiB for P =
+--                    28 .. 31). The sixth is EMPTY, created ahead.
+--                    No member grows 100 MiB in a day (abs_floor_bytes): no
+--                    anomaly, and DB_SIZE_GB flags nothing new.
+--   shared disk      CAP_FIXTURE_TBSPC_LIVE holds the live ceiling of every
+--                    tablespace after the last snapshot: LEAST(maxsize,
+--                    allocated + 180 GiB), the datafiles' filesystem having
+--                    180 GiB free. ANALYTICS_STAGE and SESSION_STORE have
+--                    more room than that under their maxsize, so their
+--                    ceilings say it: disk source LIVE, 180 GiB free. Each
+--                    tablespace alone has its date (ORDERS_DATA about 100
+--                    days, ANALYTICS_STAGE and ORDERS_IDX more). Together
+--                    those three take about 2.9 GiB a day once their files
+--                    are full (after 3 to 6 days), and AUDIT_TRAIL takes 8
+--                    GiB before its own limit stops it: the disk is full in
+--                    about (180 + 2) / 2.9 = 62 days, the one DISK_FULL
+--                    alert (WARN), and that is the dtf_shared of the three
+--                    (stopped_by DISK).
 --   memory (M26)     ASMM on a 128 GiB host: sga_target = sga_max_size
 --                    48 GiB, pga_aggregate_target 10 GiB, pga_aggregate_limit
 --                    20 GiB. The SGA holds memory nobody uses while the
@@ -93,7 +144,7 @@ DECLARE
               'CAP_FIXTURE_PGA_ADVICE','CAP_FIXTURE_SGA_ADVICE','CAP_FIXTURE_CACHE_ADVICE',
               'CAP_FIXTURE_SHPOOL_ADVICE','CAP_FIXTURE_SGASTAT','CAP_FIXTURE_LIBRARYCACHE',
               'CAP_FIXTURE_ROWCACHE','CAP_FIXTURE_SYSTEM_EVENT',
-              'CAP_FIXTURE_ALERTS_SNAP');
+              'CAP_FIXTURE_ALERTS_SNAP','CAP_FIXTURE_TBSPC_LIVE');
 BEGIN
     FOR i IN 1 .. v.COUNT LOOP
         BEGIN EXECUTE IMMEDIATE 'DROP TABLE ' || v(i) || ' PURGE';
@@ -195,6 +246,17 @@ DECLARE
     c_audit   CONSTANT PLS_INTEGER := 118;           -- AUDIT_TRAIL growth step
     c_shift   CONSTANT PLS_INTEGER := 138;           -- SHOP_PDB DB CPU level shift
     c_purge   CONSTANT PLS_INTEGER := 12;            -- SESSION_STORE purge phase (i mod 30)
+    c_mib     CONSTANT NUMBER      := 128;           -- 1 MiB in 8 KiB blocks
+    c_fam0    CONSTANT PLS_INTEGER := 139;           -- TAX_DOCS: first growth day of the filling member
+    c_fmax    CONSTANT NUMBER      := 2800;          -- ... maxsize of a member, MiB
+    c_ffill   CONSTANT NUMBER      := 2760;          -- ... what the filling member takes in its month, MiB
+    TYPE num_t IS TABLE OF NUMBER;
+    c_ffin    CONSTANT num_t := num_t(1340, 1490, 1880, 2510);   -- ... finals of the DONE members, MiB
+    v_fmon    DATE;                                   -- first day of the filling member's month
+    v_fp      NUMBER;                                 -- days of that month
+    v_ior NUMBER := 0; v_iow NUMBER := 0;             -- I/O requests (cumulative)
+    v_ibr NUMBER := 0; v_ibw NUMBER := 0;             -- I/O bytes
+    v_req NUMBER; v_mbs NUMBER;
     v_base    DATE := TRUNC(SYSDATE) - c_nd;
     v_start1  TIMESTAMP := CAST(v_base - 40 AS TIMESTAMP);
     v_start2  TIMESTAMP := CAST(v_base + c_restart + 4/24 AS TIMESTAMP);
@@ -262,7 +324,32 @@ DECLARE
         INSERT INTO cap_fixture_tbspc_usage
         VALUES (c_dbid, p_con, p_snap, p_id, a, p_max, ROUND(p_used));
     END;
+    -- SHOP_PDB I/O requests a second in the interval ending at hour h.
+    FUNCTION io_req(p_i PLS_INTEGER, p_h PLS_INTEGER) RETURN NUMBER IS
+        r NUMBER;
+    BEGIN
+        IF p_h BETWEEN 2 AND 4 THEN RETURN 4500; END IF;      -- the batch, constant
+        r := CASE WHEN p_h <= 6  THEN 1500
+                  WHEN p_h <= 9  THEN 3000
+                  WHEN p_h <= 18 THEN 5200                    -- business hours
+                  WHEN p_h <= 22 THEN 3600
+                  ELSE 2000 END;
+        r := r * (1 + 0.40 * p_i / c_nd) * (1 + 0.015 * rip(p_i, p_h, 8));
+        IF p_i = v_anom AND p_h BETWEEN 8 AND 20 THEN r := r * 1.25; END IF;
+        RETURN r;
+    END;
+    -- TAX_DOCS member k (1..4 DONE, 5 FILLING, 6 EMPTY): used MiB at the end
+    -- of day i. Member k <= 4 grows on the 28 days from 139 - 30 (5 - k).
+    FUNCTION fam_used(p_k PLS_INTEGER, p_i PLS_INTEGER) RETURN NUMBER IS
+    BEGIN
+        RETURN CASE WHEN p_k = 6 THEN 1
+                    WHEN p_k = 5 THEN 1 + c_ffill / v_fp * GREATEST(p_i - c_fam0 + 1, 0)
+                    ELSE 1 + (c_ffin(p_k) - 1)
+                             * LEAST(GREATEST(p_i - (c_fam0 - 30 * (5 - p_k)) + 1, 0), 28) / 28 END;
+    END;
 BEGIN
+    v_fmon := TRUNC(v_base + c_fam0, 'MM');
+    v_fp   := ADD_MONTHS(v_fmon, 1) - v_fmon;
     -- the runaway CPU day: latest weekday in 139..142
     FOR i IN REVERSE 139 .. 142 LOOP
         IF NOT wkend(i) THEN v_anom := i; EXIT; END IF;
@@ -282,6 +369,9 @@ BEGIN
     ts(c_dbid, 8, 'SYSTEM',          'PERMANENT');
     ts(c_dbid, 9, 'SYSAUX',          'PERMANENT');
     ts(c_dbid,10, 'UNDOTBS1',        'UNDO');
+    FOR k IN 1 .. 6 LOOP
+        ts(c_pdb, 10 + k, 'TAX_DOCS_' || TO_CHAR(ADD_MONTHS(v_fmon, k - 5), 'YYYYMM'), 'PERMANENT');
+    END LOOP;
 
     FOR i IN 0 .. c_nd LOOP
         -- ---- daily tablespace levels (end of day) ----
@@ -309,6 +399,7 @@ BEGIN
                 v_busy := 0; v_idle := 0; v_rcpu := 0; v_rtime := 0; v_rbg := 0;
                 v_pcpu := 0; v_ptime := 0; v_pbg := 0; v_redo := 0;
                 v_smax := 0; v_pmax := 0;
+                v_ior := 0; v_iow := 0; v_ibr := 0; v_ibw := 0;
             END IF;
 
             -- ---- host CPU (cumulative centiseconds over all threads) ----
@@ -339,6 +430,19 @@ BEGIN
             v_redo := v_redo + ROUND(v_f / 0.5 * 2.2 * 1073741824);
             INSERT INTO cap_fixture_sysstat VALUES (c_dbid, c_dbid, c_inst, v_snap, 'redo size', v_redo);
 
+            -- ---- I/O (cumulative requests and bytes, SHOP_PDB): 70% of the
+            -- requests and 60% of the bytes are reads ----
+            v_req := io_req(i, h);
+            v_mbs := CASE WHEN h BETWEEN 2 AND 4 THEN 260 ELSE v_req / 64 END;
+            v_ior := v_ior + ROUND(0.7 * v_req * 3600);
+            v_iow := v_iow + ROUND(0.3 * v_req * 3600);
+            v_ibr := v_ibr + ROUND(0.6 * v_mbs * 3600 * 1048576);
+            v_ibw := v_ibw + ROUND(0.4 * v_mbs * 3600 * 1048576);
+            INSERT INTO cap_fixture_sysstat VALUES (c_dbid, c_pdb, c_inst, v_snap, 'physical read total IO requests',  v_ior);
+            INSERT INTO cap_fixture_sysstat VALUES (c_dbid, c_pdb, c_inst, v_snap, 'physical write total IO requests', v_iow);
+            INSERT INTO cap_fixture_sysstat VALUES (c_dbid, c_pdb, c_inst, v_snap, 'physical read total bytes',        v_ibr);
+            INSERT INTO cap_fixture_sysstat VALUES (c_dbid, c_pdb, c_inst, v_snap, 'physical write total bytes',       v_ibw);
+
             -- ---- resource limits (SHOP_PDB): sessions creep, processes flat ----
             v_cur := 500 + 2.2 * i + CASE WHEN h BETWEEN 8 AND 17 AND NOT wkend(i) THEN 250 ELSE 0 END
                      + 15 * rip(i, h, 6);
@@ -363,6 +467,11 @@ BEGIN
                 usage(c_dbid, v_snap, 8, 1.1 * c_g, 4 * c_g, 2 * c_g);
                 usage(c_dbid, v_snap, 9, v_sysx,  32 * c_g);
                 usage(c_dbid, v_snap,10, 6 * c_g, 0, 12 * c_g);
+                -- TAX_DOCS: files extend in 256 MiB steps up to the maxsize
+                FOR k IN 1 .. 6 LOOP
+                    usage(c_pdb, v_snap, 10 + k, fam_used(k, i) * c_mib, c_fmax * c_mib,
+                          CEIL(fam_used(k, i) / 256) * 256 * c_mib);
+                END LOOP;
             END IF;
         END LOOP;
     END LOOP;
@@ -375,6 +484,21 @@ BEGIN
     INSERT INTO cap_fixture_meta (mkey, dval) VALUES ('SHIFT_DAY', v_base + c_shift);
     INSERT INTO cap_fixture_meta (mkey, dval) VALUES ('CPU_ANOM_DAY', v_base + v_anom);
     INSERT INTO cap_fixture_meta (mkey, dval) VALUES ('BACKFILL_DAY', v_base + v_etlanom);
+    -- I/O: the business level (IOPS, before the ripple) and the batch (IO_MBPS).
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_CUR',   5200 * 1.40);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IOPS_SLOPE', 5200 * 0.40 / c_nd);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('IO_MBPS',    260);
+    -- The TAX_DOCS family, MiB (header).
+    INSERT INTO cap_fixture_meta (mkey, sval) VALUES ('FAM_NAME', 'TAX_DOCS_#');
+    INSERT INTO cap_fixture_meta (mkey, sval, dval) VALUES ('FAM_FILLING', 'TAX_DOCS_' || TO_CHAR(v_fmon, 'YYYYMM'), v_base + c_fam0);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_PERIOD_DAYS', v_fp);
+    INSERT INTO cap_fixture_meta (mkey, dval) VALUES ('FAM_PERIOD_END',  v_base + c_fam0 + v_fp - 1);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_LIMIT_MIB',   c_fmax);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_NEXT_MIB',    2780);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_NEXT_HI_MIB', 2900);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_EXP_MIB',     1 + (12 * c_ffill + 2780 * (v_fp - 12)) / v_fp);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('FAM_EXP_HI_MIB',  1 + (12 * c_ffill + 2900 * (v_fp - 12)) / v_fp);
+    INSERT INTO cap_fixture_meta (mkey, dval) VALUES ('FAM_STOP_DAY',    v_base + c_fam0 - 2);
     COMMIT;
     DBMS_OUTPUT.PUT_LINE('Demo fixtures loaded: ' || TO_CHAR(v_base, 'YYYY-MM-DD') || ' .. '
         || TO_CHAR(v_base + c_nd, 'YYYY-MM-DD') || ' hourly; restart '
@@ -763,5 +887,53 @@ BEGIN
     COMMIT;
     DBMS_OUTPUT.PUT_LINE('Memory chapter loaded: ' || v_snap.COUNT || ' snapshots, window DB time '
         || ROUND(v_all) || ' s, temp I/O ' || ROUND(100 * v_tf, 2) || '% of batch DB time');
+END;
+/
+
+-- =====================================================================
+-- U09 -- the live tablespace ceilings (CAPV_TBSPC_LIVE) for the shared disk.
+-- =====================================================================
+-- What CDB_TABLESPACE_USAGE_METRICS shows half an hour after the last
+-- snapshot, on a filesystem with 180 GiB free: an autoextensible tablespace
+-- can reach LEAST(maxsize, allocated + 180 GiB), a fixed one its allocated
+-- size. Every tablespace has a row, UNDO too (it has no forecast row and is
+-- ignored). The free space is not stored anywhere: ddl/33 reads it from the
+-- ceilings that sit under their maxsize (ANALYTICS_STAGE, SESSION_STORE).
+CREATE TABLE cap_fixture_tbspc_live (
+    dbid NUMBER, con_dbid NUMBER, tablespace_name VARCHAR2(30),
+    ceiling_blocks NUMBER, used_blocks NUMBER, collected_at DATE);
+
+DECLARE
+    c_free CONSTANT NUMBER := 180;             -- GiB free on the datafiles' disk
+    c_g    CONSTANT NUMBER := 131072;          -- 1 GiB in 8 KiB blocks
+    v_at   DATE;
+BEGIN
+    SELECT dval + 23.5 / 24 INTO v_at FROM cap_fixture_meta WHERE mkey = 'LAST_DAY';
+    INSERT INTO cap_fixture_tbspc_live
+    SELECT u.dbid, u.con_dbid, t.tablespace_name,
+           CASE WHEN u.tablespace_maxsize > 0
+                THEN LEAST(u.tablespace_maxsize, u.tablespace_size + c_free * c_g)
+                ELSE u.tablespace_size END,
+           u.tablespace_usedsize, v_at
+    FROM   cap_fixture_tbspc_usage u
+    JOIN   cap_fixture_tablespace t
+      ON   t.dbid = u.dbid AND t.con_dbid = u.con_dbid AND t.tablespace_id = u.tablespace_id
+    WHERE  u.snap_id = (SELECT MAX(snap_id) FROM cap_fixture_tbspc_usage);
+    INSERT INTO cap_fixture_meta (mkey, nval) VALUES ('DISK_FREE_GB', c_free);
+    INSERT INTO cap_fixture_meta (mkey, dval) VALUES ('LIVE_AT', v_at);
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Live ceilings loaded as of ' || TO_CHAR(v_at, 'YYYY-MM-DD HH24:MI')
+        || ', disk free ' || c_free || ' GiB');
+END;
+/
+
+-- CAP_DISK_OVERRIDE is operator data and survives a re-install: a row left
+-- for this database would replace the LIVE free space. Clear it where the
+-- table exists already.
+BEGIN
+    EXECUTE IMMEDIATE 'DELETE FROM cap_disk_override WHERE dbid IN (0, 3141592653)';
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;
 END;
 /

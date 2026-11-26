@@ -5,6 +5,7 @@
 # exported day and hour is the DB wall clock labelled Z, so UTC displays it
 # unshifted). Idempotent: PUTs, a settings POST and overwrite=true imports with
 # fixed ids. Shipping itself never needs these credentials.
+# ES_PASSWORD and KIBANA_PASSWORD are required and have no default.
 #
 #   elk/setup.sh                        # template, tz setting, dashboards
 #   elk/setup.sh --purge-anomaly-docs   # same, after deleting every anomaly
@@ -21,10 +22,10 @@ esac
 
 ES_URL="${ES_URL:-http://localhost:9200}"
 ES_USER="${ES_USER:-elastic}"
-ES_PASSWORD="${ES_PASSWORD:-changeme}"
+ES_PASSWORD="${ES_PASSWORD:?set ES_PASSWORD (the password of the elastic user)}"
 KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
 KIBANA_USER="${KIBANA_USER:-elastic}"
-KIBANA_PASSWORD="${KIBANA_PASSWORD:-changeme}"
+KIBANA_PASSWORD="${KIBANA_PASSWORD:?set KIBANA_PASSWORD}"
 elk="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 here="$elk/kibana"
 index=awrcap-capacity
@@ -75,7 +76,10 @@ import() {
   echo "imported $(basename "$file")"
 }
 
+# Kibana 9.4 serves the settings route to internal callers only (400 "not
+# available with the current configuration" without the origin header).
 out="$(curl -sS -u "$KIBANA_USER:$KIBANA_PASSWORD" -H 'kbn-xsrf: true' \
+  -H 'x-elastic-internal-origin: kibana' \
   -H 'Content-Type: application/json' -X POST "$KIBANA_URL/api/kibana/settings" \
   --data-binary '{"changes":{"dateFormat:tz":"UTC"}}')"
 if ! grep -q '"dateFormat:tz":{[^}]*"userValue":"UTC"' <<<"$out"; then
@@ -90,6 +94,6 @@ for f in "$here"/dashboards/*.ndjson; do
 done
 
 for id in awrcap-dashboard-tablespaces awrcap-dashboard-cpu-series \
-          awrcap-dashboard-fleet-anomalies; do
+          awrcap-dashboard-fleet-anomalies awrcap-dashboard-memory; do
   echo "$KIBANA_URL/app/dashboards#/view/$id"
 done

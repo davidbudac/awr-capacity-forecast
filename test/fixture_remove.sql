@@ -19,6 +19,7 @@ DECLARE
               'CAP_FIXTURE_PGA_ADVICE','CAP_FIXTURE_SGA_ADVICE','CAP_FIXTURE_CACHE_ADVICE',
               'CAP_FIXTURE_SHPOOL_ADVICE','CAP_FIXTURE_SGASTAT','CAP_FIXTURE_LIBRARYCACHE',
               'CAP_FIXTURE_ROWCACHE','CAP_FIXTURE_SYSTEM_EVENT',
+              'CAP_FIXTURE_TBSPC_LIVE',
               'CAP_FIXTURE_ALERTS_SNAP');
 BEGIN
     FOR i IN 1 .. v.COUNT LOOP
@@ -34,6 +35,14 @@ END;
 -- was never installed in this schema, which is fine.
 BEGIN
     EXECUTE IMMEDIATE q'[DELETE FROM cap_tbspc_override WHERE tablespace_name LIKE 'FIX!_%' ESCAPE '!']';
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;
+END;
+/
+-- CAP_TBSPC_FAMILY is persisted too: only the fixture's rows go.
+BEGIN
+    EXECUTE IMMEDIATE q'[DELETE FROM cap_tbspc_family WHERE name_regex LIKE '%FIX%']';
     COMMIT;
 EXCEPTION
     WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF;

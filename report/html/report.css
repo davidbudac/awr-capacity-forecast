@@ -216,6 +216,7 @@ h1 {
 .arow .d { text-align: right; }
 .arow.crit .d .stamp { color: var(--crit); font-weight: 600; }
 .allok { padding: 12px 0; color: var(--ink-2); border-bottom: 1px solid var(--line); }
+.noisy { margin: 12px 0 0; font-size: 12.5px; color: var(--ink-2); }
 
 .key { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 16px; font-size: 12px; color: var(--ink-3); align-items: center; }
 .key span { display: inline-flex; align-items: center; gap: 8px; }
@@ -269,6 +270,12 @@ h1 {
 .legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--data); vertical-align: middle; margin-right: 8px; }
 .legend i.l2 { border-top-color: var(--data-2); }
 
+.trk { margin: 12px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.trk .tl { font: 11.5px var(--mono); color: var(--ink-3); margin-right: 8px; }
+.trk .cal { color: var(--ink-3); }
+.trk.unk { color: var(--ink-3); }
+.trk.off { border-left: 3px solid var(--warn); padding-left: 12px; color: var(--ink); }
+.tag.rel { color: var(--warn); border-color: var(--warn); }
 .issues { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
 .iss { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 13px; color: var(--ink-2); }
 .iss b { color: var(--ink); font-weight: 600; font-family: var(--mono); }
@@ -316,6 +323,17 @@ h1 {
 .tip b { font-weight: 600; }
 .tip .a { color: #ff9b97; }
 :root[data-theme="dark"] .tip .a { color: var(--crit); }
+
+/* tablespace families: one card per family, the members as a table */
+.fam.card { grid-column: 1 / -1; }
+.fam .fsz { display: flex; flex-wrap: wrap; gap: 4px 28px; margin-top: 8px; font: 12.5px var(--mono); color: var(--ink-2); }
+.fam .fsz b { color: var(--ink); font-weight: 600; }
+.ftab { width: 100%; border-collapse: collapse; margin-top: 12px; font: 12.5px var(--mono); }
+.ftab th { text-align: left; font-weight: 500; color: var(--ink-3); padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line); }
+.ftab td { padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line); color: var(--ink-2); }
+.ftab .n { text-align: right; }
+.ftab tr.filling td { color: var(--ink); font-weight: 600; }
+.ftab tr.empty td { color: var(--ink-3); }
 
 /* memory: sizing verdicts are advice, so no alert colours; a change advised takes the accent */
 .card.mem {
