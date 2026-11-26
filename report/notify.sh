@@ -25,6 +25,7 @@
 #                         environment variable AWRCAP_WEBHOOK_URL, which keep it
 #                         off the command line. It is never printed or logged.
 #     --webhook-file F    read the webhook URL from the first line of F
+#                         (a relative F is read from the current directory)
 #     --webhook-format X  generic (default): {"subject", "text", "counts",
 #                         "events": [...]}. slack: {"text": "..."} only, for
 #                         Slack and other endpoints that take that shape.
@@ -78,6 +79,7 @@ set -u
 err_re='^(ORA|SP2)-[0-9]{4,5}'
 me="notify.sh"
 
+start_dir=$PWD
 cd "$(dirname "$0")/.." || exit 2
 
 conn="/ as sysdba"
@@ -169,6 +171,7 @@ case "$hook_fmt" in generic|slack) ;; *) die "--webhook-format wants generic or 
 if [ -n "$hook_arg" ]; then
     hook="$hook_arg"
 elif [ -n "$hook_file" ]; then
+    case "$hook_file" in /*) ;; *) hook_file="$start_dir/$hook_file" ;; esac
     [ -r "$hook_file" ] || die "cannot read the --webhook-file"
     IFS= read -r hook < "$hook_file" || [ -n "$hook" ] || die "the --webhook-file is empty"
 fi

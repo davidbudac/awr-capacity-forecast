@@ -257,6 +257,16 @@ assert "&lt;tag&gt; &amp; more" in t and 'Tablespace "USERS" | full' in t and "=
 PY
 then pass "slack body is {\"text\": ...} with &, <, > escaped"; else fail "slack JSON body" "$(cat "$T/out/curl.body")"; fi
 
+# ---- a relative --webhook-file is read from the caller's directory ----
+reset_state
+rm -f "$T/out"/* "$T/sqlplus.calls"
+out=$(cd "$T" && env -u AWRCAP_WEBHOOK_URL -u AWRCAP_SENDMAIL_CMD PATH="$T/bin:$PATH" \
+          MOCK_DIR="$T" MOCK_MODE=events MOCK_POS="$POS" AWRCAP_MAIL_CMD="$T/bin/mockmail" \
+          "$T/repo/report/notify.sh" "/ as sysdba" --webhook-file hook.url --webhook-format slack 2>&1)
+rc=$?
+want_rc   "relative webhook file" 0
+want_file "relative URL file read from the caller's directory" "$T/out/curl.cfg" "url = \"$SECRET\""
+
 # ---- a failed webhook: no position, no URL in the error, mail is repeated ----
 reset_state
 RUN_ENV=("MOCK_CURL_RC=22")

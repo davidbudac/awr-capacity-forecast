@@ -619,6 +619,7 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
         v_name   cap_target.target_name%TYPE;
         v_fail   PLS_INTEGER := 0;
         v_seen   PLS_INTEGER := 0;
+        v_dfail  PLS_INTEGER;
         v_t      cap_target%ROWTYPE;
         t        cap_target%ROWTYPE;
         v_skip   VARCHAR2(1000);
@@ -660,13 +661,18 @@ CREATE OR REPLACE PACKAGE BODY cap_repo AS
                     CONTINUE;
             END;
             v_skip := NULL;
+            v_dfail := 0;
             FOR d IN (SELECT dbid FROM cap_target_dbid
                       WHERE  target_id = t.target_id ORDER BY dbid) LOOP
                 IF NOT collect_dbid(t, d.dbid, p_chunk_snaps, v_skip) THEN
-                    v_fail := v_fail + 1;
+                    v_dfail := v_dfail + 1;
                 END IF;
             END LOOP;
-            IF NOT collect_live(t, v_skip) THEN
+            v_fail := v_fail + v_dfail;
+            -- A failed DBID usually means the link went away: the live
+            -- sources would fail on it again and log the same error twice.
+            -- Their rows stay from the last collect.
+            IF v_dfail = 0 AND NOT collect_live(t, v_skip) THEN
                 v_fail := v_fail + 1;
             END IF;
             IF v_skip IS NOT NULL THEN

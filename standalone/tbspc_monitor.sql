@@ -261,6 +261,8 @@ WITH prm AS (
                ROW_NUMBER() OVER (PARTITION BY t.con_dbid, t.tablespace_id
                                   ORDER BY t.day_dt)                 AS rn,
                COUNT(*)     OVER (PARTITION BY t.con_dbid, t.tablespace_id) AS rn_max,
+               MIN(t.day_n) OVER (PARTITION BY t.con_dbid, t.tablespace_id) AS dn_min,
+               MAX(t.day_n) OVER (PARTITION BY t.con_dbid, t.tablespace_id) AS dn_max,
                CASE WHEN t.used_b - MAX(t.used_b) OVER (PARTITION BY t.con_dbid, t.tablespace_id
                                                         ORDER BY t.day_dt
                                                         ROWS BETWEEN UNBOUNDED PRECEDING
@@ -278,22 +280,25 @@ WITH prm AS (
      ),
      -- The growth days, each with the pause before it.
      gd AS (
-        SELECT con_dbid, tablespace_id, rn, rn_max,
-               rn - LAG(rn) OVER (PARTITION BY con_dbid, tablespace_id ORDER BY rn) - 1 AS gap
+        SELECT con_dbid, tablespace_id, rn, rn_max, day_n, dn_min, dn_max,
+               day_n - LAG(day_n) OVER (PARTITION BY con_dbid, tablespace_id ORDER BY rn) - 1 AS gap
         FROM   cw
         WHERE  is_grow = 1 AND is_cyclic = 0
      ),
      -- g growth days that span span days. lead / trail = the pause before
      -- the first and after the last, gap_max = the longest one between.
+     -- Pauses and spans are calendar days (day_n): a day without a row
+     -- still counts. n_start = the rows a START window keeps.
      act AS (
         SELECT con_dbid, tablespace_id,
-               COUNT(*)              AS g,
-               MIN(rn)               AS rn_first,
-               MAX(rn)               AS rn_last,
-               MAX(rn) - MIN(rn)     AS span,
-               MIN(rn) - 2           AS lead,
-               MAX(rn_max) - MAX(rn) AS trail,
-               NVL(MAX(gap), 0)      AS gap_max
+               COUNT(*)                     AS g,
+               MIN(rn)                      AS rn_first,
+               MAX(rn)                      AS rn_last,
+               MAX(rn_max) - MIN(rn) + 2    AS n_start,
+               MAX(day_n) - MIN(day_n)      AS span,
+               MIN(day_n) - MIN(dn_min) - 1 AS lead,
+               MAX(dn_max) - MAX(day_n)     AS trail,
+               NVL(MAX(gap), 0)             AS gap_max
         FROM   gd
         GROUP  BY con_dbid, tablespace_id
      ),
@@ -313,7 +318,7 @@ WITH prm AS (
                       CASE WHEN a.lead >= prm.quiet_days
                             AND a.lead >= prm.quiet_ratio * GREATEST(a.gap_max, a.trail)
                             AND POWER(a.span / NULLIF(a.span + a.lead, 0), a.g - 1) < prm.quiet_chance
-                            AND a.span + a.trail + 2 >= prm.min_train_days
+                            AND a.n_start >= prm.min_train_days
                            THEN 1 ELSE 0 END AS is_start
                FROM   act a
                CROSS  JOIN prm

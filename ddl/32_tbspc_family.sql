@@ -400,8 +400,10 @@ WITH m AS (
      -- The trend across them and whether it counts (header, "Next member").
      tr AS (
         SELECT t.dbid, t.con_dbid, t.family_name, t.b,
-               CASE WHEN t.k >= 3 AND t.sxx > 0
-                     AND ABS(t.b) > (1.96 + 2.4 / (t.k - 2))
+               -- Two WHENs, not one AND chain: CASE stops at the first match,
+               -- an AND may evaluate the divisions first (k = 2, sxx = 0).
+               CASE WHEN t.k < 3 OR NVL(t.sxx, 0) <= 0 THEN 0
+                    WHEN ABS(t.b) > (1.96 + 2.4 / (t.k - 2))
                                     * SQRT(GREATEST(0, t.syy - t.sxy * t.sxy / t.sxx) / (t.k - 2))
                                     / SQRT(t.sxx)
                     THEN t.b ELSE 0 END                                              AS step
